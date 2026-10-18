@@ -689,35 +689,6 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
       `${phase} differs from the exact grouped Coding identity counts`);
     return { expected, actual };
   };
-  const assertKnownGroupProjection = async (step, records, {
-    scalar, sourceKind, rowValueOutputId, phase, kind = 'proposal',
-  }) => {
-    const projectedStep = {
-      ...step,
-      rowValues: [],
-      outputs: (step.outputs ?? []).filter(output => output.id !== rowValueOutputId),
-    };
-    const expected = gridFor(projectedStep, records, { scalar, sourceKind });
-    const actual = await readPreviewGrid(page, kind);
-    assert(actual.ready, `${phase} preview must be ready.`);
-    if (rowValueOutputId) {
-      const rowValueOutput = step.outputs?.find(output => output.id === rowValueOutputId);
-      assert(rowValueOutput?.label, `${phase} must expose the selected Group row-value output.`);
-      assert.equal(actual.headers.filter(header => header === rowValueOutput.label).length, 1,
-        `${phase} must display the exact selected Group row-value column.`);
-    }
-    const indexes = expected.headers.map(header => {
-      const matches = actual.headers.flatMap((candidate, index) => candidate === header ? [index] : []);
-      assert.equal(matches.length, 1, `${phase} must retain one exact Group output labelled ${header}.`);
-      return matches[0];
-    });
-    assert.equal(actual.rows.length, expected.rows.length,
-      `${phase} changed the independent oracle's Group row count.`);
-    assertExactRows(actual.rows.map(row => indexes.map(index => row[index])), expected.rows,
-      `${phase} changed the exact Coding identity, scalar key, display label, or occurrence count`);
-    return { expected, actual };
-  };
-
   const initialGroupBox = await openGroup();
   const initialOptions = await readCodingGroupOptions(initialGroupBox);
   const sourceOption = initialOptions.filter(isExactCodingSourceChoice);
@@ -825,14 +796,195 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
       oracleDigest: oracleSummary.digest,
     });
 
-  await reloadToTable(appliedBeforeReload.expected);
+  const rowValueChoiceFromGroupCapabilities = async () => {
+    const rowValueHistory = page.getByTestId('construction-row-operation-history');
+    if (!await rowValueHistory.isVisible().catch(() => false)) {
+      await clickRowSettings(() => rowValueHistory.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
+    }
+    const editGroup = page.getByTestId(`construction-row-edit-${savedGroup.id}`);
+    const capabilitiesResponsePromise = page.waitForResponse(response => {
+      try {
+        const body = response.request().postDataJSON();
+        return response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith('/construction-capabilities') &&
+          body.outputId === outputId && body.groupStepId === savedGroup.id;
+      } catch { return false; }
+    }, { timeout: ACTION_BUDGET_MS });
+    await action('open the applied Group to inspect unprojected owner RowValue choices', editGroup,
+      () => editGroup.click({ timeout: ACTION_BUDGET_MS }), async () => {
+        await waitGroupEditor();
+        await waitProposalPreview();
+        await capabilitiesResponsePromise;
+      });
+    const capabilitiesResponse = await capabilitiesResponsePromise;
+    assert(capabilitiesResponse.ok(),
+      `Owning Group capabilities returned HTTP ${capabilitiesResponse.status()}.`);
+    const capabilities = await capabilitiesResponse.json();
+    assert.equal(capabilities.outputId, outputId);
+    assert.equal(capabilities.stageId, 'source_projection');
+    assert.equal(capabilities.selectedStage?.id, 'source_projection');
+    const capabilityRequest = capabilitiesResponse.request().postDataJSON();
+    assert.equal(capabilityRequest.stageId, 'source_projection');
+    assert.equal(capabilityRequest.groupStepId, savedGroup.id);
+    assert.equal(getDocument(await readBuilder()).columns.length, 0,
+      'Observation.id must still be unprojected when choosing the Group RowValue source.');
+    const matches = (capabilities.groupRowValueChoices ?? []).filter(choice =>
+      choice.kind === 'FIELD_SOURCE' && choice.valueKind === 'SCALAR' &&
+      choice.candidateId === idCandidate.candidateId && choice.canonicalPath === 'id' &&
+      ['ROOT', 'OWNER'].includes(choice.sourceRole) &&
+      choice.resourceType === 'Observation' && choice.ownerResourceType === 'Observation');
+    assert.equal(matches.length, 1,
+      'The owning Group must expose exactly the unprojected Observation.id ROOT/OWNER scalar choice.');
+    const choice = matches[0];
+    assert.equal(choice.fieldSource?.kind, 'CHOICE');
+    assert.equal(typeof choice.fieldSource.choiceId, 'string');
+    assert(choice.fieldSource.choiceId.trim());
+    assert.equal(choice.sourceStageId, 'source_projection');
+    assert.equal(typeof choice.sourceShapeId, 'string');
+    assert(choice.sourceShapeId.trim());
+    assert.equal(choice.occurrenceId, 'base');
+    assert.equal(choice.ownerOccurrenceId, 'base');
+    assert.equal(choice.ownerResourceType, 'Observation');
+    assert.equal(choice.candidateId, idCandidate.candidateId);
+    assert.equal(choice.canonicalPath, idCandidate.fieldPath);
+    assert.equal(choice.inputColumnId, undefined,
+      'A previously unprojected Group RowValue choice must not carry an inputColumnId.');
+    assert.equal(choice.boundarySelector, undefined,
+      'Direct Observation owner values must not claim a repeated component boundary.');
+    return choice;
+  };
+  const proposeOwnerIDRowValue = async () => {
+    const choice = await rowValueChoiceFromGroupCapabilities();
+    const editorGroup = page.getByTestId('construction-reshape-group');
+    const checkbox = editorGroup.getByTestId(`construction-group-add-column-choice-${choice.fieldSource.choiceId}`);
+    await checkbox.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+    assert.equal(await checkbox.isEnabled(), true);
+    const requestPromise = page.waitForRequest(request => {
+      try {
+        if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
+        const body = request.postDataJSON();
+        const step = body.candidateConstruction?.steps?.find(candidate => candidate.id === savedGroup.id);
+        return body.outputId === outputId && step?.operation?.kind === 'GROUP' &&
+          (step.rowValues ?? []).some(value => value.fieldSource?.kind === 'CHOICE' &&
+            value.fieldSource.choiceId === choice.fieldSource.choiceId);
+      } catch { return false; }
+    }, { timeout: ACTION_BUDGET_MS });
+    const priorReceipt = await proposalReceipt();
+    await action('select unprojected Observation.id from the owning Group RowValue choices', checkbox,
+      () => checkbox.check({ timeout: ACTION_BUDGET_MS }), async () => waitNextProposal(priorReceipt));
+    const request = await requestPromise;
+    const { step } = assertCandidate(request, { scalar: true });
+    assert.equal(step.rowValues?.length, 1,
+      'Group-before-columns must add one compiler-issued source RowValue.');
+    const rowValue = step.rowValues[0];
+    assert.deepEqual(rowValue.fieldSource, { kind: 'CHOICE', choiceId: choice.fieldSource.choiceId });
+    assert.equal(Object.hasOwn(rowValue, 'inputColumnId'), false,
+      'The Group RowValue request must use fieldSource CHOICE without inputColumnId.');
+    assert.equal(rowValue.policy, 'ALL',
+      'The owner contributor must retain every distinct Observation.id across matching source occurrences.');
+    assert(step.outputs?.some(output => output.id === rowValue.outputColumnId),
+      'The source RowValue must have a corresponding Group output.');
+    const preview = await assertProposalGrid(step, oracle.expectedSubjectGroups, {
+      scalar: true, phase: 'Observation.id Group RowValue Preview',
+    });
+    return { choice, request, step, rowValue, preview };
+  };
+
+  const beforeRowValueCancel = await readBuilder();
+  await proposeOwnerIDRowValue();
+  await action('Cancel unprojected Observation.id Group RowValue Preview', page.getByTestId('construction-cancel-proposal'),
+    () => page.getByTestId('construction-cancel-proposal').click({ timeout: ACTION_BUDGET_MS }),
+    () => page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS }));
+  const afterRowValueCancel = await readBuilder();
+  assert.deepEqual(afterRowValueCancel.workspace, beforeRowValueCancel.workspace);
+  assert.equal(afterRowValueCancel.draftVersion, beforeRowValueCancel.draftVersion);
+  assert.equal(afterRowValueCancel.draftDigest, beforeRowValueCancel.draftDigest);
+  assert.equal(getGroupStep(afterRowValueCancel).rowValues?.length ?? 0, 0,
+    'Cancel must leave the applied Group without a contributor RowValue.');
+  await assertSavedGrid(getGroupStep(afterRowValueCancel), oracle.expectedSubjectGroups, {
+    scalar: true, phase: 'Group after cancelling Observation.id RowValue',
+  });
+  cda.check('persistence',
+    'Cancel leaves the applied Group and exact owner-route preimage unchanged before RowValue Apply',
+    true, { draftVersion: afterRowValueCancel.draftVersion, draftDigest: afterRowValueCancel.draftDigest });
+
+  const ownerRowValueApply = await proposeOwnerIDRowValue();
+  const applyOwnerRowValue = page.getByTestId('construction-apply-proposal');
+  await action('Apply the exact unprojected Observation.id Group RowValue before public columns', applyOwnerRowValue,
+    () => applyOwnerRowValue.click({ timeout: ACTION_BUDGET_MS }), async () => {
+      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
+      await waitGridMatch(page, 'saved', ownerRowValueApply.preview.expected.headers, ownerRowValueApply.preview.expected.rows);
+    });
   builder = await readBuilder();
   savedGroup = getGroupStep(builder);
-  assert.equal(savedGroup?.id, firstStepID);
   assertGroupKey(savedGroup, { scalar: true });
-  const reloadedBeforeEdit = await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
-    scalar: true, phase: 'reloaded expanded Coding Group',
+  assert.equal(getDocument(builder).columns.length, 0,
+    'The Observation.id contributor RowValue must be added before selecting any public column.');
+  assert.equal(savedGroup.rowValues?.length, 1);
+  const savedOwnerRowValue = savedGroup.rowValues[0];
+  assert.equal(Object.hasOwn(savedOwnerRowValue, 'inputColumnId'), false);
+  assert.equal(savedOwnerRowValue.policy, 'ALL');
+  assert.equal(savedOwnerRowValue.outputColumnId, ownerRowValueApply.rowValue.outputColumnId);
+  const ownerRowValueBinding = savedOwnerRowValue.fieldSource;
+  const expectedOwnerRowValueBinding = {
+    kind: 'BINDING',
+    valueKind: 'SCALAR',
+    sourceStageId: ownerRowValueApply.choice.sourceStageId,
+    sourceShapeId: ownerRowValueApply.choice.sourceShapeId,
+    sourceRole: ownerRowValueApply.choice.sourceRole,
+    occurrenceId: ownerRowValueApply.choice.occurrenceId,
+    resourceType: ownerRowValueApply.choice.resourceType,
+    ownerResourceType: ownerRowValueApply.choice.ownerResourceType,
+    candidateId: ownerRowValueApply.choice.candidateId,
+    canonicalPath: ownerRowValueApply.choice.canonicalPath,
+  };
+  if (Object.hasOwn(ownerRowValueBinding, 'ownerOccurrenceId')) {
+    expectedOwnerRowValueBinding.ownerOccurrenceId = ownerRowValueApply.choice.ownerOccurrenceId;
+  }
+  assert.deepEqual(Object.keys(ownerRowValueBinding).sort(), Object.keys(expectedOwnerRowValueBinding).sort(),
+    'The direct owner RowValue BINDING must contain only the exact resolved capability fields.');
+  assert.deepEqual(ownerRowValueBinding, expectedOwnerRowValueBinding,
+    'Apply must resolve the Group RowValue CHOICE to the exact Observation owner BINDING.');
+  const ownerRowValueGrid = await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
+    scalar: true, phase: 'applied Observation.id Group RowValue',
   });
+  assertExactRows(ownerRowValueGrid.actual.rows, ownerRowValueApply.preview.actual.rows,
+    'Applying the source RowValue must preserve exact owner IDs and duplicate-sensitive Group counts.');
+  cda.check('persistence',
+    'Apply resolves the unprojected Observation.id Group RowValue to its exact ROOT/OWNER source binding',
+    true, {
+      rowValuePolicy: savedOwnerRowValue.policy,
+      sourceRole: ownerRowValueBinding.sourceRole,
+      resourceType: ownerRowValueBinding.resourceType,
+      ownerResourceType: ownerRowValueBinding.ownerResourceType,
+      canonicalPath: ownerRowValueBinding.canonicalPath,
+      contributorOwnerValueCount: oracle.expectedSubjectGroups.reduce((sum, group) => sum + group.ownerIDs.length, 0),
+      groupRowCount: ownerRowValueGrid.actual.rows.length,
+      oracleDigest: oracleSummary.digest,
+    });
+
+  await reloadToTable(ownerRowValueGrid.expected);
+  builder = await readBuilder();
+  savedGroup = getGroupStep(builder);
+  assertGroupKey(savedGroup, { scalar: true });
+  assert.deepEqual(savedGroup.rowValues?.[0], savedOwnerRowValue,
+    'Reload must retain the exact capability-bound Observation.id RowValue and ALL policy.');
+  const reloadedOwnerRowValueGrid = await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
+    scalar: true, phase: 'reloaded Observation.id Group RowValue',
+  });
+  assert.equal(getDocument(builder).columns.length, 0,
+    'Reload must keep the RowValue field-source separate from public source columns.');
+  cda.check('persistence',
+    'Reload retains the exact Observation owner BINDING and all contributor values',
+    true, {
+      rowValuePolicy: savedGroup.rowValues[0].policy,
+      contributorOwnerValueCount: oracle.expectedSubjectGroups.reduce((sum, group) => sum + group.ownerIDs.length, 0),
+      groupRowCount: reloadedOwnerRowValueGrid.actual.rows.length,
+      oracleDigest: oracleSummary.digest,
+    });
+
+  assert.equal(savedGroup?.id, firstStepID);
+  const reloadedBeforeEdit = reloadedOwnerRowValueGrid;
   cda.check('persistence',
     'reloaded Coding Group preserves exact source row expansion, tuple identities, scalar key, and counts',
     true, {
@@ -1015,7 +1167,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   const openAddColumns = async () => {
     const add = page.getByTestId('construction-action-add-columns');
     await add.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-    await action('open Add columns after Coding Group Apply and reload', add,
+    await action('open Add columns after Group removal to restore the source-row value', add,
       () => add.click({ timeout: ACTION_BUDGET_MS }), async () => {
         await page.getByTestId('construction-add-columns-source').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
       });
@@ -1056,16 +1208,11 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
       `Add columns must expose exactly the Observation.id owner field: ${JSON.stringify(fieldOptions)}`);
     const field = page.locator('input[type="checkbox"][aria-label^="Select "]').nth(fieldMatches[0].index);
     await field.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-    assert.equal(await field.isEnabled(), true, 'Observation.id must be selectable as the exact contributing owner scalar.');
-    await action('select exact Observation.id contributor source', field,
+    assert.equal(await field.isEnabled(), true, 'Observation.id must be selectable as the exact restored source scalar.');
+    await action('select exact Observation.id source column', field,
       () => field.check({ timeout: ACTION_BUDGET_MS }), async () => {
         await page.getByRole('button', { name: /Add 1 selected feature/ }).waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
       });
-    const rowValuePolicy = page.getByLabel('Values per grouped row', { exact: true });
-    if (await rowValuePolicy.count() === 1) {
-      assert.equal(await rowValuePolicy.inputValue(), 'ALL',
-        'Contributor values must keep all distinct source IDs for the exact expanded Coding Group.');
-    }
     const addSelected = page.getByRole('button', { name: /Add 1 selected feature/ });
     const responsePromise = page.waitForResponse(response => {
       try {
@@ -1073,7 +1220,7 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
           new URL(response.url()).pathname.endsWith('/construction-choice-proposals');
       } catch { return false; }
     }, { timeout: ACTION_BUDGET_MS });
-    await action('preview Observation.id from exact Group contributing owners', addSelected,
+    await action('preview Observation.id for the restored expanded source rows', addSelected,
       () => addSelected.click({ timeout: ACTION_BUDGET_MS }), async () => {
         await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
         await page.waitForFunction(() =>
@@ -1087,365 +1234,41 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
     assert.equal(requestBody.outputId, outputId);
     assert(JSON.stringify(requestBody).includes(idCandidate.candidateId),
       'The Add columns proposal must bind the exact Observation.id catalog candidate.');
-    assert(JSON.stringify(requestBody).includes('"rowValuePolicy":"ALL"'),
-      'The native Add columns request must retain all distinct contributor values.');
     const preview = responseBody.preview;
     assert(preview && Array.isArray(preview.columns) && Array.isArray(preview.rows),
-      'Add columns response must include exact preimage contributor values.');
+      'Add columns response must include exact expanded source-row values.');
     const previewRows = await readPreviewGrid(page, 'proposal');
-    const savedSourceDocument = getDocument(await readBuilder());
-    const group = savedSourceDocument.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
-    assert(group, 'Add columns preview must preserve the saved expanded Coding Group.');
-    return { responseBody, requestBody, preview, previewRows, group };
+    return { responseBody, requestBody, preview, previewRows };
   };
-
-  const preimageBuilder = await readBuilder();
-  const preimageWorkspace = structuredClone(preimageBuilder.workspace);
-  const firstAdd = await chooseObservationID();
-  const firstGroup = firstAdd.group;
-  const { scalarKey: firstScalarKey,
-    keyOutput: firstCodingOutput, aggregateOutput: firstCountOutput } =
-    assertGroupKey(firstGroup, { scalar: true });
-  const codingColumn = firstAdd.preview.columns.find(column =>
-    column.column === firstCodingOutput.name || column.label === firstCodingOutput.label);
-  const countColumn = firstAdd.preview.columns.find(column =>
-    column.column === firstCountOutput.name || column.label === firstCountOutput.label);
-  assert(codingColumn && countColumn, 'Add columns Preview must retain the exact Group key and COUNT_ROWS output columns.');
-  const scalarOutput = firstGroup.outputs.find(output => output.id === firstScalarKey.outputColumnId);
-  assert(scalarOutput?.name && scalarOutput.label, 'The Group must retain its exact scalar key output before Add columns.');
-  const scalarColumn = firstAdd.preview.columns.find(column =>
-    column.column === scalarOutput.name || column.label === scalarOutput.label);
-  assert(scalarColumn, 'Add columns Preview must retain the exact scalar Group key.');
-  const ownerColumns = firstAdd.preview.columns.filter(column =>
-    column !== codingColumn && column !== countColumn && column !== scalarColumn);
-  assert.equal(ownerColumns.length, 1, 'Add columns Preview must append exactly one Observation owner scalar.');
-  const ownerColumn = ownerColumns[0];
-  const expectedAddRows = oracle.expectedSubjectGroups.map(group => firstAdd.preview.columns.map(column => {
-    if (column === codingColumn) return group.display;
-    if (column === countColumn) return String(group.count);
-    if (column === scalarColumn) return group.subjectReference;
-    if (column === ownerColumn) return group.ownerIDs;
-    assert.fail(`Add columns preview contains an unmapped output ${column.label}/${column.column}.`);
-  }));
-  assertExactRows(firstAdd.preview.rows.map(row => firstAdd.preview.columns.map(column => row[column.column])), expectedAddRows,
-    'Add columns contributor rehydration must match exact unique owner IDs and COUNT_ROWS multiplicity for each subject and Coding identity');
-  assertExactRows(firstAdd.previewRows.rows, expectedAddRows.map(row => row.map(renderCell)),
-  'The visible Add columns proposal must display exact owner IDs and multiplicity-matched counts');
-  cda.check('correctness',
-    'Add columns rehydrates exact Observation owner IDs from pre-Group Coding occurrences with matching counts',
-    true, {
-      sourceColumn: idCandidate.fieldPath,
-      rowValuePolicy: 'ALL',
-      selectedRootCount: oracleSummary.selectedRootCount,
-      subjectCodingGroupCount: oracleSummary.subjectCodingGroupCount,
-      contributorOwnerValueCount: oracle.expectedSubjectGroups.reduce((sum, group) => sum + group.ownerIDs.length, 0),
-      expandedOccurrenceCount: oracleSummary.expandedOccurrenceCount,
-      oracleDigest: oracleSummary.digest,
-    });
-  await action('Cancel Observation.id contributor proposal', page.getByTestId('construction-choice-proposal-panel')
-    .getByRole('button', { name: 'Cancel', exact: true }),
-  () => page.getByTestId('construction-choice-proposal-panel').getByRole('button', { name: 'Cancel', exact: true })
-    .click({ timeout: ACTION_BUDGET_MS }), async () => {
-      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
-      await waitGridMatch(page, 'saved', restoredScalarGrid.expected.headers, restoredScalarGrid.expected.rows);
-    });
-  const afterAddCancel = await readBuilder();
-  assert.deepEqual(afterAddCancel.workspace, preimageWorkspace);
-  assert.equal(afterAddCancel.draftVersion, preimageBuilder.draftVersion);
-  assert.equal(afterAddCancel.draftDigest, preimageBuilder.draftDigest);
-  cda.check('persistence',
-    'Canceling Add columns preserves the edited Coding Group and exact draft preimage', true, {
-      draftVersion: afterAddCancel.draftVersion, draftDigest: afterAddCancel.draftDigest,
-    });
-
-  const appliedAdd = await chooseObservationID();
-  assertExactRows(appliedAdd.preview.rows.map(row =>
-    appliedAdd.preview.columns.map(column => row[column.column])), expectedAddRows,
-  'The fresh Add columns Apply proposal must reproduce exact subject-plus-Coding contributor values and occurrence counts');
-  assertExactRows(appliedAdd.previewRows.rows, expectedAddRows.map(row => row.map(renderCell)),
-  'The fresh Add columns Apply proposal must display the exact contributor values and counts');
-  const applyColumns = page.getByTestId('construction-choice-proposal-panel').getByRole('button', { name: 'Apply columns', exact: true });
-  await action('Apply exact Observation.id contributor column', applyColumns,
-    () => applyColumns.click({ timeout: ACTION_BUDGET_MS }), async () => {
-      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
-      await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-    });
-  builder = await readBuilder();
-  savedGroup = getGroupStep(builder);
-  assertGroupKey(savedGroup, { scalar: true });
-  const savedIDColumn = getDocument(builder).columns.find(column => column.source?.field?.path === 'id');
-  assert(savedIDColumn, 'Apply must save the exact Observation.id source column.');
-  assert.equal(savedIDColumn.occurrenceId, 'base');
-  assert.equal(savedIDColumn.source.field.projectionMode, 'VALUE');
-  const savedRowValue = savedGroup.rowValues?.find(value => value.inputColumnId === savedIDColumn.columnId);
-  assert(savedRowValue, 'The Group must bind Observation.id as a contributor row-value.');
-  assert.equal(savedRowValue.policy, 'ALL');
-  const savedRowValueOutput = savedGroup.outputs.find(output => output.id === savedRowValue.outputColumnId);
-  assert(savedRowValueOutput?.name && savedRowValueOutput?.label);
-  const appliedContributorHeaders = savedGroup.outputs.map(output => output.label);
-  const appliedContributorRows = oracle.expectedSubjectGroups.map(group => savedGroup.outputs.map(output => {
-    if (output.id === codingGroupKey(savedGroup, { sourceKind: 'BINDING' }).outputColumnId) return clean(group.display);
-    if (output.id === scalarGroupKey(savedGroup, { sourceKind: 'BINDING', canonicalPath: subjectCandidate.fieldPath }).outputColumnId) return clean(group.subjectReference);
-    if (output.id === savedGroup.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS')?.outputColumnId) return String(group.count);
-    if (output.id === savedRowValue.outputColumnId) return group.ownerIDs.join('; ');
-    assert.fail(`Applied Group output ${output.id} is not mapped to the exact raw Coding oracle.`);
-  }));
-  await waitGridMatch(page, 'saved', appliedContributorHeaders, appliedContributorRows);
-  const savedContributorGrid = await readPreviewGrid(page, 'saved');
-  assertExactRows(savedContributorGrid.rows, appliedContributorRows,
-    'Applied contributor values must match each subject-plus-Coding group');
-  cda.check('persistence',
-    'Apply persists the owner-bound Observation.id Group row-value with ALL policy and exact grouped output',
-    true, {
-      sourcePath: savedIDColumn.source?.field?.path,
-      occurrenceId: savedIDColumn.occurrenceId,
-      rowValuePolicy: savedRowValue.policy,
-      outputCount: savedGroup.outputs.length,
-      groupRowCount: savedContributorGrid.rows.length,
-      contributorOwnerValueCount: oracle.expectedSubjectGroups.reduce((sum, group) => sum + group.ownerIDs.length, 0),
-      expandedOccurrenceCount: oracleSummary.expandedOccurrenceCount,
-      oracleDigest: oracleSummary.digest,
-    });
-
-  await reloadToTable({ headers: appliedContributorHeaders, rows: appliedContributorRows });
-  builder = await readBuilder();
-  savedGroup = getGroupStep(builder);
-  assertGroupKey(savedGroup, { scalar: true });
-  const reloadedIDColumn = getDocument(builder).columns.find(column => column.columnId === savedIDColumn.columnId);
-  assert(reloadedIDColumn);
-  assert.equal(reloadedIDColumn.occurrenceId, savedIDColumn.occurrenceId);
-  assert.deepEqual(reloadedIDColumn.source, savedIDColumn.source);
-  assert.deepEqual(savedGroup.rowValues?.find(value => value.inputColumnId === savedIDColumn.columnId), savedRowValue);
-  await assertSavedGrid(savedGroup, oracle.expectedSubjectGroups, {
-    scalar: true, phase: 'reloaded Coding Group with owner contributor values',
-  });
-  const contributorCells = await readPreviewGrid(page, 'saved');
-  assertExactRows(contributorCells.rows, appliedContributorRows,
-    'Reload must retain exact Add columns owner values and their count multiplicity');
-  cda.check('persistence',
-    'reload preserves exact Observation.id contributor values and Group occurrence counts', true, {
-      sourcePath: reloadedIDColumn.source?.field?.path,
-      occurrenceId: reloadedIDColumn.occurrenceId,
-      rowValuePolicy: savedGroup.rowValues?.find(value => value.inputColumnId === savedIDColumn.columnId)?.policy,
-      headers: contributorCells.headers,
-      groupRowCount: contributorCells.rows.length,
-      contributorOwnerValueCount: oracle.expectedSubjectGroups.reduce((sum, group) => sum + group.ownerIDs.length, 0),
-      oracleDigest: oracleSummary.digest,
-    });
-
-  assert.equal(savedGroup.rowValues?.length, 1,
-    'The legacy contributor preimage must contain one row value before replacing it with the Group field-source choice.');
-  assert(savedGroup.rowValues[0].inputColumnId === savedIDColumn.columnId);
-  const rowValueEditHistory = page.getByTestId('construction-row-operation-history');
-  if (!await rowValueEditHistory.isVisible().catch(() => false)) {
-    await clickRowSettings(() => rowValueEditHistory.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
-  }
-  const rowValueEditButton = page.getByTestId(`construction-row-edit-${savedGroup.id}`);
-  const groupCapabilitiesResponse = page.waitForResponse(response => {
-    try {
-      const body = response.request().postDataJSON();
-      return response.request().method() === 'POST' &&
-        new URL(response.url()).pathname.endsWith('/construction-capabilities') &&
-        body.outputId === outputId && body.groupStepId === savedGroup.id;
-    } catch { return false; }
-  }, { timeout: ACTION_BUDGET_MS });
-  await action('open the owning Group to add its exact compiler-authorized scalar row value', rowValueEditButton,
-    () => rowValueEditButton.click({ timeout: ACTION_BUDGET_MS }), async () => {
-      await waitGroupEditor();
-      await waitProposalPreview();
-      await groupCapabilitiesResponse;
-    });
-  const groupCapabilitiesResponseValue = await groupCapabilitiesResponse;
-  assert(groupCapabilitiesResponseValue.ok(),
-    `Owning Group field-source capabilities returned HTTP ${groupCapabilitiesResponseValue.status()}.`);
-  const groupCapabilities = await groupCapabilitiesResponseValue.json();
-  assert.equal(groupCapabilities.outputId, outputId);
-  assert.equal(groupCapabilities.stageId, 'source_projection');
-  assert.equal(groupCapabilities.selectedStage?.id, 'source_projection');
-  assert.equal(groupCapabilitiesResponseValue.request().postDataJSON().stageId, 'source_projection');
-  const rowValueChoiceMatches = (groupCapabilities.groupRowValueChoices ?? []).filter(choice =>
-    choice.kind === 'FIELD_SOURCE' && choice.valueKind === 'SCALAR' &&
-    choice.candidateId === 'observation-component-value' &&
-    choice.canonicalPath === 'valueQuantity.value' &&
-    choice.sourceRole === 'ANCESTOR' &&
-    choice.resourceType === 'ObservationComponent' &&
-    choice.ownerResourceType === 'Observation' &&
-    choice.boundarySelector === 'component[]');
-  assert.equal(rowValueChoiceMatches.length, 1,
-    'The owning Group must offer exactly the observed ObservationComponent.valueQuantity.value ancestor scalar.');
-  const rowValueChoice = rowValueChoiceMatches[0];
-  assert.equal(rowValueChoice.fieldSource?.kind, 'CHOICE');
-  assert.equal(typeof rowValueChoice.fieldSource.choiceId, 'string');
-  assert(rowValueChoice.fieldSource.choiceId.trim());
-  assert.equal(rowValueChoice.sourceStageId, 'source_projection');
-  assert.equal(typeof rowValueChoice.sourceShapeId, 'string');
-  assert(rowValueChoice.sourceShapeId.trim());
-  assert.equal(typeof rowValueChoice.occurrenceId, 'string');
-  assert(rowValueChoice.occurrenceId.trim());
-  assert.equal(rowValueChoice.ownerOccurrenceId, rowValueChoice.occurrenceId);
-
-  const editorGroup = page.getByTestId('construction-reshape-group');
-  const existingRowValue = editorGroup.getByTestId('construction-group-row-value');
-  assert.equal(await existingRowValue.count(), 1,
-    'The Group editor must rehydrate its one existing Observation.id contributor row value.');
-  const removeExistingRowValue = existingRowValue.getByRole('button', { name: 'Remove added column 1', exact: true });
-  const removeExistingReceipt = await proposalReceipt();
-  await action('remove the public-column-backed contributor before selecting a Group source row value', removeExistingRowValue,
-    () => removeExistingRowValue.click({ timeout: ACTION_BUDGET_MS }), async () => waitNextProposal(removeExistingReceipt));
-  const rowValueCheckbox = editorGroup.getByTestId(`construction-group-add-column-choice-${rowValueChoice.fieldSource.choiceId}`);
-  await rowValueCheckbox.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-  assert.equal(await rowValueCheckbox.isEnabled(), true,
-    'The exact scalar choice from this Group input stage must be selectable.');
-  const fieldSourceRowValueRequestPromise = page.waitForRequest(request => {
-    try {
-      if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
-      const body = request.postDataJSON();
-      const step = body.candidateConstruction?.steps?.find(candidate => candidate.id === savedGroup.id);
-      return body.outputId === outputId && step?.operation?.kind === 'GROUP' &&
-        (step.rowValues ?? []).some(value => value.fieldSource?.kind === 'CHOICE' &&
-          value.fieldSource.choiceId === rowValueChoice.fieldSource.choiceId);
-    } catch { return false; }
-  }, { timeout: ACTION_BUDGET_MS });
-  const fieldSourceReceipt = await proposalReceipt();
-  await action('select ObservationComponent.valueQuantity.value from the owning Group choices', rowValueCheckbox,
-    () => rowValueCheckbox.check({ timeout: ACTION_BUDGET_MS }), async () => waitNextProposal(fieldSourceReceipt));
-  const fieldSourceRowValueRequest = await fieldSourceRowValueRequestPromise;
-  const fieldSourceRequestBody = fieldSourceRowValueRequest.postDataJSON();
-  const fieldSourceCandidateStep = fieldSourceRequestBody.candidateConstruction.steps
-    .find(candidate => candidate.id === savedGroup.id);
-  assertGroupKey(fieldSourceCandidateStep, { scalar: true, sourceKind: 'BINDING' });
-  assert.equal(fieldSourceCandidateStep.rowValues.length, 1,
-    'The new Group row-value proposal must contain exactly the selected scalar source.');
-  const proposedFieldSourceRowValue = fieldSourceCandidateStep.rowValues[0];
-  assert.equal(proposedFieldSourceRowValue.fieldSource?.kind, 'CHOICE');
-  assert.equal(proposedFieldSourceRowValue.fieldSource.choiceId, rowValueChoice.fieldSource.choiceId);
-  assert.equal(Object.hasOwn(proposedFieldSourceRowValue, 'inputColumnId'), false,
-    'A Group source RowValue must not fall back to a public inputColumnId.');
-  assert(['ALL', 'ONE'].includes(proposedFieldSourceRowValue.policy),
-    'The Group field-source row value must retain a supported ALL or ONE policy.');
-  const rowValuePolicy = proposedFieldSourceRowValue.policy;
-  assert.equal(proposedFieldSourceRowValue.outputColumnId, fieldSourceCandidateStep.outputs
-    .find(output => output.id === proposedFieldSourceRowValue.outputColumnId)?.id);
-  const proposedRowValueOutput = fieldSourceCandidateStep.outputs
-    .find(output => output.id === proposedFieldSourceRowValue.outputColumnId);
-  assert(proposedRowValueOutput?.name && proposedRowValueOutput?.label);
-  const fieldSourceProjection = await assertKnownGroupProjection(fieldSourceCandidateStep, oracle.expectedSubjectGroups, {
-    scalar: true, sourceKind: 'BINDING', rowValueOutputId: proposedFieldSourceRowValue.outputColumnId,
-    phase: 'Group source RowValue proposal',
-  });
-  cda.check('usability',
-    'Group Add columns selects the exact ObservationComponent ancestor scalar from groupRowValueChoices',
-    true, {
-      sourceRole: rowValueChoice.sourceRole,
-      resourceType: rowValueChoice.resourceType,
-      ownerResourceType: rowValueChoice.ownerResourceType,
-      canonicalPath: rowValueChoice.canonicalPath,
-      boundarySelector: rowValueChoice.boundarySelector,
-      rowValuePolicy,
-      groupRowCount: fieldSourceProjection.actual.rows.length,
-      oracleDigest: oracleSummary.digest,
-    });
-  const applyFieldSourceRowValue = page.getByTestId('construction-apply-proposal');
-  await action('Apply the exact Group-bound scalar field-source RowValue', applyFieldSourceRowValue,
-    () => applyFieldSourceRowValue.click({ timeout: ACTION_BUDGET_MS }), async () => {
-      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
-      await page.locator('[data-testid="preview-table-scroll"] [role="table"]')
-        .waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-    });
-  builder = await readBuilder();
-  savedGroup = getGroupStep(builder);
-  assertGroupKey(savedGroup, { scalar: true });
-  assert.equal(savedGroup.rowValues?.length, 1,
-    'Apply must persist exactly one compiler-bound Group RowValue.');
-  const savedFieldSourceRowValue = savedGroup.rowValues[0];
-  assert.equal(Object.hasOwn(savedFieldSourceRowValue, 'inputColumnId'), false,
-    'The persisted Group RowValue must not retain inputColumnId.');
-  assert.equal(savedFieldSourceRowValue.policy, rowValuePolicy);
-  assert.equal(savedFieldSourceRowValue.outputColumnId, proposedFieldSourceRowValue.outputColumnId);
-  const savedFieldSourceBinding = savedFieldSourceRowValue.fieldSource;
-  assert.deepEqual(Object.keys(savedFieldSourceBinding).sort(), [
-    'boundarySelector', 'candidateId', 'canonicalPath', 'kind', 'occurrenceId',
-    'ownerResourceType', 'resourceType', 'sourceRole', 'sourceShapeId', 'sourceStageId', 'valueKind',
-  ].sort(), 'The saved scalar RowValue BINDING must use the exact owner-relative wire shape.');
-  assert.deepEqual(savedFieldSourceBinding, {
-    kind: 'BINDING',
-    valueKind: 'SCALAR',
-    sourceStageId: rowValueChoice.sourceStageId,
-    sourceShapeId: rowValueChoice.sourceShapeId,
-    sourceRole: 'ANCESTOR',
-    occurrenceId: rowValueChoice.occurrenceId,
-    ownerResourceType: 'Observation',
-    resourceType: 'ObservationComponent',
-    candidateId: 'observation-component-value',
-    canonicalPath: 'valueQuantity.value',
-    boundarySelector: 'component[]',
-  });
-  const sourceRowValueGrid = await assertKnownGroupProjection(savedGroup, oracle.expectedSubjectGroups, {
-    scalar: true, sourceKind: 'BINDING', rowValueOutputId: savedFieldSourceRowValue.outputColumnId,
-    phase: 'saved Group source RowValue', kind: 'saved',
-  });
-  cda.check('persistence',
-    'Apply resolves the Group row-value CHOICE to the exact ObservationComponent ANCESTOR binding',
-    true, {
-      rowValueCount: savedGroup.rowValues.length,
-      rowValuePolicy,
-      fieldSource: {
-        kind: savedFieldSourceBinding.kind,
-        valueKind: savedFieldSourceBinding.valueKind,
-        sourceRole: savedFieldSourceBinding.sourceRole,
-        resourceType: savedFieldSourceBinding.resourceType,
-        ownerResourceType: savedFieldSourceBinding.ownerResourceType,
-        canonicalPath: savedFieldSourceBinding.canonicalPath,
-        boundarySelector: savedFieldSourceBinding.boundarySelector,
-      },
-      groupRowCount: sourceRowValueGrid.actual.rows.length,
-      oracleDigest: oracleSummary.digest,
-    });
-  await reloadToTable();
-  builder = await readBuilder();
-  savedGroup = getGroupStep(builder);
-  assertGroupKey(savedGroup, { scalar: true });
-  assert.equal(savedGroup.rowValues?.length, 1);
-  assert.deepEqual(savedGroup.rowValues[0], savedFieldSourceRowValue,
-    'Reload must retain the exact Group-bound source BINDING and ALL/ONE policy.');
-  const reloadedFieldSourceGrid = await assertKnownGroupProjection(savedGroup, oracle.expectedSubjectGroups, {
-    scalar: true, sourceKind: 'BINDING', rowValueOutputId: savedFieldSourceRowValue.outputColumnId,
-    phase: 'reloaded Group source RowValue', kind: 'saved',
-  });
-  cda.check('persistence',
-    'Reload retains the exact Group source-field RowValue and existing tuple-count oracle',
-    true, {
-      rowValuePolicy: savedGroup.rowValues[0].policy,
-      groupRowCount: reloadedFieldSourceGrid.actual.rows.length,
-      oracleDigest: oracleSummary.digest,
-    });
 
   const removalHistory = page.getByTestId('construction-row-operation-history');
   if (!await removalHistory.isVisible().catch(() => false)) {
     await clickRowSettings(() => removalHistory.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
   }
   const removeButton = page.getByTestId(`construction-row-remove-${savedGroup.id}`);
+  const removalRequestPromise = page.waitForRequest(request => {
+    try {
+      if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
+      const body = request.postDataJSON();
+      return body.outputId === outputId &&
+        !(body.candidateConstruction?.steps ?? []).some(step => step.operation?.kind === 'GROUP');
+    } catch { return false; }
+  }, { timeout: ACTION_BUDGET_MS });
   await action('preview removal of the expanded Coding Group', removeButton,
     () => removeButton.click({ timeout: ACTION_BUDGET_MS }), async () => {
       await page.getByTestId('construction-proposal-panel').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
       await waitProposalPreview();
     });
+  const removalRequest = await removalRequestPromise;
+  assert.deepEqual(removalRequest.postDataJSON().candidateConstruction.steps, [],
+    'Group removal must restore the original expanded source construction stage.');
   const removalPreview = await readPreviewGrid(page, 'proposal');
   assert(removalPreview.ready);
-  assert.equal(removalPreview.rows.length, oracle.expectedExpandedRowCount,
-    'Group removal must restore one output row per exact Coding occurrence.');
-  const rawIDHeaderIndex = removalPreview.headers.findIndex(header => header === savedIDColumn.label);
-  assert(rawIDHeaderIndex >= 0, 'Group removal Preview must expose the exact Observation.id source scalar.');
-  const expectedRawIDs = oracle.expectedRawExpandedRows;
-  assertExactRows(removalPreview.rows.map(row => [row[rawIDHeaderIndex]]), expectedRawIDs,
-    'Group removal Preview must restore exact Observation owners for every expanded Coding occurrence, including multiplicity');
   cda.check('correctness',
-    'Group removal Preview restores exact valueCodeableConcept Coding owner rows and duplicate-sensitive cardinality',
+    'Group removal Preview removes the exact Group and RowValue while preserving the expanded source definition',
     true, {
-      headers: removalPreview.headers,
-      restoredRowCount: removalPreview.rows.length,
+      restoredExpandedOccurrenceCount: oracleSummary.expandedOccurrenceCount,
       uniqueOwnerCount: oracle.sourceIDs.length,
-      expandedOccurrenceCount: oracleSummary.expandedOccurrenceCount,
       oracleDigest: oracleSummary.digest,
     });
 
@@ -1458,7 +1281,12 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   assert.deepEqual(afterRemovalCancel.workspace, beforeRemovalCancel.workspace);
   assert.equal(afterRemovalCancel.draftVersion, beforeRemovalCancel.draftVersion);
   assert.equal(afterRemovalCancel.draftDigest, beforeRemovalCancel.draftDigest);
-  assertGroupKey(getGroupStep(afterRemovalCancel), { scalar: false });
+  assertGroupKey(getGroupStep(afterRemovalCancel), { scalar: true });
+  assert.deepEqual(getGroupStep(afterRemovalCancel).rowValues?.[0], savedOwnerRowValue,
+    'Cancel must preserve the exact Observation.id RowValue BINDING.');
+  await assertSavedGrid(getGroupStep(afterRemovalCancel), oracle.expectedSubjectGroups, {
+    scalar: true, phase: 'Group after cancelling removal',
+  });
   cda.check('persistence', 'Cancel preserves the expanded Coding Group and exact contributor values', true, {
     draftVersion: afterRemovalCancel.draftVersion, draftDigest: afterRemovalCancel.draftDigest,
   });
@@ -1476,40 +1304,70 @@ export async function semanticGroupExpandedLifecycle({ page, cda }) {
   await action('Apply removal and restore the exact expanded Coding source rows', page.getByTestId('construction-apply-proposal'),
     () => page.getByTestId('construction-apply-proposal').click({ timeout: ACTION_BUDGET_MS }), async () => {
       await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
-      const sourceHeaders = [savedIDColumn.label];
-      await waitGridMatch(page, 'saved', sourceHeaders,
-        oracle.expectedRawExpandedRows.map(row => [row[0]]));
+      await page.locator('[data-testid="preview-table-scroll"] [role="table"]')
+        .waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
     });
   builder = await readBuilder();
   const restoredDocument = getDocument(builder);
   assert.deepEqual(restoredDocument.construction?.steps ?? [], []);
   assert.equal(restoredDocument.rows.kind, 'EXPANDED');
   assert.equal(restoredDocument.rows.expanded.scopePath, VALUE_CODEABLE_CONCEPT_CODING_PATH);
-  assert.deepEqual(restoredDocument.columns.map(column => ({
-    path: column.source?.field?.path,
-    occurrenceId: column.occurrenceId,
-    label: column.label,
-  })), [{ path: 'id', occurrenceId: 'base', label: savedIDColumn.label }]);
-  const restoredGrid = await readPreviewGrid(page, 'saved');
-  assert.deepEqual(restoredGrid.headers, [savedIDColumn.label]);
-  assertExactRows(restoredGrid.rows, oracle.expectedRawExpandedRows,
-    'Group removal must restore the exact owner value for every Coding occurrence');
+  assert.equal(restoredDocument.columns.length, 0,
+    'Removing Group must restore the exact Coding row shape before any public source column is added.');
   cda.check('persistence',
-    'removing Group restores exact expanded Coding owner rows and source scalar values after Apply',
+    'removing Group restores the exact expanded Coding source shape before public columns',
     true, {
       rowShape: restoredDocument.rows,
       sourceColumnCount: restoredDocument.columns.length,
-      restoredRowCount: restoredGrid.rows.length,
       uniqueOwnerCount: oracle.sourceIDs.length,
       expandedOccurrenceCount: oracleSummary.expandedOccurrenceCount,
       oracleDigest: oracleSummary.digest,
     });
 
-  await reloadToTable({ headers: [savedIDColumn.label], rows: oracle.expectedRawExpandedRows });
+  const restoredSource = await chooseObservationID();
+  assert.equal(restoredSource.requestBody.outputId, outputId);
+  assert.equal(restoredSource.preview.columns.length, 1,
+    'The post-Group Add columns proposal must restore exactly one Observation.id source column.');
+  const restoredIDPreviewColumn = restoredSource.preview.columns[0];
+  const restoredIDValues = restoredSource.preview.rows.map(row => [row[restoredIDPreviewColumn.column]]);
+  assertExactRows(restoredIDValues, oracle.expectedRawExpandedRows,
+    'Post-Group Add columns must restore Observation.id once for every exact Coding source occurrence.');
+  assertExactRows(restoredSource.previewRows.rows, oracle.expectedRawExpandedRows.map(row => row.map(renderCell)),
+    'The visible Add columns proposal must display exact restored Observation owner values and multiplicity.');
+  const applyRestoredSource = page.getByTestId('construction-choice-proposal-panel')
+    .getByRole('button', { name: 'Apply columns', exact: true });
+  await action('Apply Observation.id after restoring the expanded source rows', applyRestoredSource,
+    () => applyRestoredSource.click({ timeout: ACTION_BUDGET_MS }), async () => {
+      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
+      await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+    });
+  builder = await readBuilder();
+  const restoredIDColumn = getDocument(builder).columns.find(column => column.source?.field?.path === 'id');
+  assert(restoredIDColumn);
+  assert.equal(restoredIDColumn.occurrenceId, 'base');
+  assert.equal(restoredIDColumn.source.field.projectionMode, 'VALUE');
+  assert.deepEqual(getDocument(builder).construction?.steps ?? [], []);
+  const restoredGrid = await readPreviewGrid(page, 'saved');
+  assert.deepEqual(restoredGrid.headers, [restoredIDColumn.label]);
+  assertExactRows(restoredGrid.rows, oracle.expectedRawExpandedRows,
+    'Post-Group source projection must preserve the exact owner value for every Coding occurrence.');
+  cda.check('correctness',
+    'Add columns after Group removal restores exact Observation.id values and duplicate-sensitive occurrence counts',
+    true, {
+      sourcePath: restoredIDColumn.source?.field?.path,
+      occurrenceId: restoredIDColumn.occurrenceId,
+      restoredRowCount: restoredGrid.rows.length,
+      expandedOccurrenceCount: oracleSummary.expandedOccurrenceCount,
+      oracleDigest: oracleSummary.digest,
+    });
+
+  await reloadToTable({ headers: [restoredIDColumn.label], rows: oracle.expectedRawExpandedRows });
   builder = await readBuilder();
   const finalDocument = getDocument(builder);
   assert.deepEqual(finalDocument.construction?.steps ?? [], []);
   assert.equal(finalDocument.rows.expanded.scopePath, VALUE_CODEABLE_CONCEPT_CODING_PATH);
+  assert.equal(finalDocument.columns.length, 1);
+  assert.equal(finalDocument.columns[0].source?.field?.path, 'id');
   const finalGrid = await readPreviewGrid(page, 'saved');
   assertExactRows(finalGrid.rows, oracle.expectedRawExpandedRows,
     'Final reload must retain the exact owner value for every Coding occurrence');
