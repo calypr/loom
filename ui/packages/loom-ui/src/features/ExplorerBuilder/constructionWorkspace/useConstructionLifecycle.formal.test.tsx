@@ -252,7 +252,7 @@ afterEach(() => vi.useRealTimers());
 describe('useConstructionLifecycle real-controller conformance schedules', () => {
   // Finite coverage: 2 proposal orders × 3 stale results × 5 current results,
   // 2 fallback-preview orders × 5 current preview results, and the listed
-  // one-field identity, cancellation, A→B→A, and stale-beginApply schedules.
+  // one-field identity, cancellation, retry, A→B→A, and stale-beginApply schedules.
   const proposalOrders: ReadonlyArray<'old response first' | 'current response first'> = [
     'old response first',
     'current response first',
@@ -601,6 +601,64 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     });
     expect(result.current.canApply).toBe(true);
     act(() => { expect(result.current.beginApply()).toBe('resurfaced-proposal'); });
+    unmount();
+  });
+
+  it('replays retry: fail A; retry the same candidate; resolve retry proposal and matching preview; apply only retry receipt', async () => {
+    vi.useFakeTimers();
+    const controlled = controlledClient();
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({
+      client: controlled.client,
+      capabilitiesRequest: baseRequest,
+    }));
+    await act(async () => { await flushMicrotasks(); });
+
+    const firstSettlement = startAttempt(result, 'retry-candidate');
+    await advanceProposalDelay();
+    const firstCall = controlled.proposals[0];
+    expect(firstCall).toBeDefined();
+    if (!firstCall) return;
+    await deliver(() => firstCall.transport.reject(new Error('First proposal transport failed.')));
+    expect((await firstSettlement).kind).toBe('rejected');
+    expect(result.current.proposal.status).toBe('error');
+    expect(result.current.canApply).toBe(false);
+    expect(result.current.beginApply()).toBeUndefined();
+
+    act(() => result.current.retry());
+    await advanceProposalDelay();
+    expect(controlled.proposals).toHaveLength(2);
+    const retryCall = controlled.proposals[1];
+    expect(retryCall).toBeDefined();
+    if (!retryCall) return;
+    expect(retryCall.args.changedStepId).toBe('retry-candidate');
+    expect(result.current.proposal.status).toBe('previewing');
+    expect(result.current.canApply).toBe(false);
+    expect(result.current.beginApply()).toBeUndefined();
+
+    await deliver(() => retryCall.transport.resolve(proposalFor(
+      retryCall.args,
+      'retry-proposal',
+      'ready',
+      false,
+    )));
+    expect(controlled.previews).toHaveLength(1);
+    const retryPreview = controlled.previews[0];
+    expect(retryPreview).toBeDefined();
+    if (!retryPreview) return;
+    expect(retryPreview.args.receiptId).toBe('retry-proposal');
+    expect(retryPreview.args.outputId).toBe(baseRequest.outputId);
+    await deliver(() => retryPreview.transport.resolve(previewFor(
+      'retry-proposal',
+      baseRequest.outputId,
+    )));
+
+    expect(result.current.proposal).toMatchObject({
+      status: 'ready',
+      response: { proposalId: 'retry-proposal', outputId: baseRequest.outputId },
+      preview: { receiptId: 'retry-proposal', outputId: baseRequest.outputId, rows: [{ value: 12 }] },
+    });
+    expect(result.current.canApply).toBe(true);
+    act(() => { expect(result.current.beginApply()).toBe('retry-proposal'); });
     unmount();
   });
 
