@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"reflect"
@@ -783,6 +784,8 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
 	previewCalls := 0
+	var capturedRows []map[string]any
+	sinkFactoryCalls := 0
 	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
@@ -795,10 +798,20 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
 	}
-	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", apply, "alice")
+	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(receipt *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		sinkFactoryCalls++
+		if receipt == nil || receipt.ID != proposal.ProposalID {
+			t.Fatalf("preview sink receipt = %#v, want exact proposal %q", receipt, proposal.ProposalID)
+		}
+		return func(row map[string]any) error {
+			capturedRows = append(capturedRows, row)
+			return nil
+		}, nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	response := result.Commands
 	if previewCalls != 1 {
 		t.Fatalf("apply preview calls = %d, want exact server-side preview", previewCalls)
 	}
@@ -807,6 +820,163 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	}
 	if store.saveDraftCalls != 1 || store.created.DraftVersion != version+1 || store.created.DraftDigest == digest || string(before) == string(store.created.DraftConfig) {
 		t.Fatalf("proposal was not saved atomically after preview: saves=%d owner=%#v", store.saveDraftCalls, store.created)
+	}
+	if result.Accepted == nil {
+		t.Fatal("successful construction apply omitted the captured accepted preview")
+	}
+	if result.Accepted.Preview.Receipt == nil || result.Accepted.Preview.Receipt.ID != proposal.ProposalID || result.Accepted.Preview.Receipt.IntentDigest != response.DraftDigest || result.Accepted.Preview.Summary.RowCount != 1 || result.Accepted.PreviewLimit != store.receipt.ConstructionProposal.PreviewLimit {
+		t.Fatalf("accepted construction preview does not match the saved candidate: %#v", result.Accepted)
+	}
+	if sinkFactoryCalls != 1 || len(capturedRows) != 1 || capturedRows[0]["patient_id"] != "p1" {
+		t.Fatalf("captured preview rows = %#v, sink factory calls = %d", capturedRows, sinkFactoryCalls)
+	}
+	if bytes.Contains(store.created.LastAuthoringCommandResults, []byte("p1")) || bytes.Contains(store.created.DraftConfig, []byte("p1")) {
+		t.Fatal("preview rows were persisted in the command replay record or draft")
+	}
+	replayed, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", apply, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		t.Fatal("command replay reran the preview sink factory")
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Accepted != nil || replayed.Commands.DraftDigest != response.DraftDigest || previewCalls != 1 || sinkFactoryCalls != 1 {
+		t.Fatalf("replay must omit request-local preview data: replay=%#v previews=%d factories=%d", replayed, previewCalls, sinkFactoryCalls)
+	}
+}
+
+func TestApplyConstructionProposalCaptureFailureDoesNotChangeApply(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	previewCalls := 0
+	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previewCalls++
+		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
+	}
+	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
+		CommandID: "apply-construction-capture-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		return nil, errors.New("bounded response encoder is unavailable")
+	})
+	if err != nil {
+		t.Fatalf("capture failure changed Apply result: %v", err)
+	}
+	if result.Accepted != nil || previewCalls != 1 || store.saveDraftCalls != 1 || store.created.DraftVersion != version+1 {
+		t.Fatalf("capture failure did not fall back to ordinary successful Apply: result=%#v previews=%d saves=%d owner=%#v", result, previewCalls, store.saveDraftCalls, store.created)
+	}
+}
+
+func TestApplyConstructionProposalRowCaptureFailureDoesNotChangeApply(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	previewCalls, rowVisits := 0, 0
+	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previewCalls++
+		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
+	}
+	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
+		CommandID: "apply-construction-row-capture-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		return func(map[string]any) error {
+			rowVisits++
+			return errors.New("preview response exceeded its bound")
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("row capture failure changed Apply result: %v", err)
+	}
+	if result.Accepted != nil || previewCalls != 1 || rowVisits != 1 || store.saveDraftCalls != 1 || store.created.DraftVersion != version+1 {
+		t.Fatalf("row capture failure did not fall back to ordinary successful Apply: result=%#v previews=%d visits=%d saves=%d owner=%#v", result, previewCalls, rowVisits, store.saveDraftCalls, store.created)
+	}
+}
+
+func TestApplyConstructionProposalZeroRowPreviewCanBeCaptured(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	service.config.PreviewReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 0, Complete: true}, nil
+	}
+	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
+		CommandID: "apply-construction-empty-preview", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		return func(map[string]any) error { return nil }, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Accepted == nil || result.Accepted.Preview.Summary.RowCount != 0 || store.saveDraftCalls != 1 || store.created.DraftVersion != version+1 {
+		t.Fatalf("zero-row preview did not remain a valid captured Apply result: result=%#v saves=%d owner=%#v", result, store.saveDraftCalls, store.created)
+	}
+}
+
+func TestApplyConstructionProposalSaveFailureReturnsNoAcceptedPreview(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := service.ProposeConstruction(context.Background(), constructionProposalRequest(store.created, snapshot, workspace.Documents[0], "filter_step"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+	store.applyErr = errors.New("draft compare-and-swap failed")
+	previewCalls := 0
+	service.config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previewCalls++
+		if err := visit(map[string]any{"patient_id": "p1"}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", RowCount: 1, Complete: true}, nil
+	}
+	result, err := service.ApplyCommandsWithConstructionPreview(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
+		CommandID: "apply-construction-cas-failure", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyConstructionProposal, OutputID: "patients", ProposalID: proposal.ProposalID}},
+	}, "alice", func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		return func(map[string]any) error { return nil }, nil
+	})
+	if err == nil || result != nil {
+		t.Fatalf("failed SaveDraft returned a response or accepted preview: result=%#v err=%v", result, err)
+	}
+	if previewCalls != 1 || store.saveDraftCalls != 1 || store.created.DraftVersion != version || store.created.DraftDigest != digest {
+		t.Fatalf("save failure boundary changed: previews=%d saves=%d owner=%#v", previewCalls, store.saveDraftCalls, store.created)
 	}
 }
 

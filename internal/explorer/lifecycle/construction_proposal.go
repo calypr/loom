@@ -1530,102 +1530,127 @@ func constructionWorkspaceCandidateDigest(workspace authoringv2.Workspace) (stri
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func (s *Service) prepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
+func (s *Service) prepareConstructionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command, sinkFactory PreviewSinkFactory) ([]authoringv2.Command, *explorer.CompilationReceipt, *AcceptedConstruction, error) {
 	if len(commands) != 1 || commands[0].Type != authoringv2.CommandApplyConstructionProposal {
-		return nil, nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
+		return nil, nil, nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
 	}
 	command := &commands[0]
 	receipt, err := s.lookupReceipt(ctx, project, explorerID, command.ProposalID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if receipt == nil || receipt.ID != command.ProposalID {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the proposal ID does not match a candidate receipt", nil, nil)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the proposal ID does not match a candidate receipt", nil, nil)
 	}
 	binding := receipt.ConstructionProposal
 	if binding == nil || binding.DraftVersion != request.ExpectedDraftVersion || binding.DraftDigest != request.ExpectedDraftDigest ||
 		binding.OutputID != command.OutputID || binding.SnapshotToken != request.SnapshotToken {
-		return nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the proposal is not bound to this exact draft, output, and snapshot", nil, nil)
+		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the proposal is not bound to this exact draft, output, and snapshot", nil, nil)
 	}
 	currentDigest, err := current.Digest()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if currentDigest != binding.DraftDigest {
-		return nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the saved draft no longer matches the proposal base", nil, nil)
+		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the saved draft no longer matches the proposal base", nil, nil)
 	}
 	baseIndex := constructionDocumentIndex(current, command.OutputID)
 	if baseIndex < 0 {
-		return nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
+		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the proposal output is missing or duplicated in the saved draft", nil, nil)
 	}
 	baseDocument := current.Documents[baseIndex]
 	baseDocumentDigest, err := documentDigest(baseDocument)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if baseDocumentDigest != binding.BaseDocumentDigest {
-		return nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the target table changed after the proposal was compiled", nil, nil)
+		return nil, nil, nil, conflict("commands", "STALE_CONSTRUCTION_PROPOSAL", "the target table changed after the proposal was compiled", nil, nil)
 	}
 	candidate, err := s.verifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	candidateIndex := constructionDocumentIndex(candidate, command.OutputID)
 	if candidateIndex < 0 || candidateIndex != baseIndex {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt does not contain the requested output in its saved position", nil, nil)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt does not contain the requested output in its saved position", nil, nil)
 	}
 	candidateDocument := candidate.Documents[candidateIndex]
 	if candidateDocument.Construction == nil {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt has no staged construction", nil, nil)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt has no staged construction", nil, nil)
 	}
 	if constructionHasGroupFieldSource(*candidateDocument.Construction) {
 		liveBase, liveErr := s.loadConstructionBase(ctx, project, explorerID, request.SnapshotToken,
 			request.ExpectedDraftVersion, request.ExpectedDraftDigest, command.OutputID)
 		if liveErr != nil {
-			return nil, nil, liveErr
+			return nil, nil, nil, liveErr
 		}
 		liveBase.document = candidateDocument
 		liveBase.construction = *candidateDocument.Construction
 		liveBase.stages = receipt.ConstructionStages[command.OutputID]
 		reauthorized, reauthErr := s.resolveConstructionGroupFieldSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction)
 		if reauthErr != nil || !reflect.DeepEqual(reauthorized, *candidateDocument.Construction) {
-			return nil, nil, conflict("commands", "STALE_GROUP_FIELD_BINDING", "the Group field binding no longer matches the live compiler-resolved source stage", nil, reauthErr)
+			return nil, nil, nil, conflict("commands", "STALE_GROUP_FIELD_BINDING", "the Group field binding no longer matches the live compiler-resolved source stage", nil, reauthErr)
 		}
 	}
 	expectedDocument, impact, err := baseDocument.AnalyzeConstructionCandidate(*candidateDocument.Construction, binding.ChangedStepID, binding.RemoveStepIDs)
 	if err != nil || impact.HasMissingInputs() {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction no longer resolves against the saved base", nil, err)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction no longer resolves against the saved base", nil, err)
 	}
 	if !sameConstructionDocument(expectedDocument, candidateDocument) {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt changes authoring fields outside the construction proposal", nil, nil)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt changes authoring fields outside the construction proposal", nil, nil)
 	}
 	expectedWorkspace := current
 	expectedWorkspace.Documents = append([]authoringv2.Document(nil), current.Documents...)
 	expectedWorkspace.Documents[baseIndex] = expectedDocument
 	preparedExpected, err := authoringv2.PrepareWorkspaceForCompilation(expectedWorkspace, s.catalog(snapshot, explorerID))
 	if err != nil {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the expected candidate workspace cannot be normalized for compilation", nil, err)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the expected candidate workspace cannot be normalized for compilation", nil, err)
 	}
 	expectedDigest, err := preparedExpected.Digest()
 	if err != nil || expectedDigest != binding.CandidateWorkspaceDigest || expectedDigest != receipt.IntentDigest {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate workspace digest does not match the exact proposal", nil, err)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate workspace digest does not match the exact proposal", nil, err)
 	}
 	if _, err := s.verifyProposalReceipt(ctx, "construction-proposal", receipt, project, explorerID, request.SnapshotToken, snapshot, &expectedWorkspace); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := command.ResolveConstructionProposal(&candidateDocument); err != nil {
-		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction is invalid", nil, err)
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction is invalid", nil, err)
 	}
-	if _, err := s.Preview(ctx, PreviewRequest{
+	captureAvailable := sinkFactory != nil
+	preview, err := s.Preview(ctx, PreviewRequest{
 		Project: project, ExplorerID: explorerID, ReceiptID: receipt.ID, OutputID: command.OutputID,
 		Limit: binding.PreviewLimit,
-		SinkFactory: func(_ *explorer.CompilationReceipt, _ []explorer.EmittedColumn) (func(map[string]any) error, error) {
-			return func(map[string]any) error { return nil }, nil
+		SinkFactory: func(previewReceipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			if sinkFactory == nil {
+				return func(map[string]any) error { return nil }, nil
+			}
+			sink, sinkErr := sinkFactory(previewReceipt, columns)
+			if sinkErr != nil || sink == nil {
+				captureAvailable = false
+				return func(map[string]any) error { return nil }, nil
+			}
+			return func(row map[string]any) error {
+				if !captureAvailable {
+					return nil
+				}
+				if visitErr := sink(row); visitErr != nil {
+					captureAvailable = false
+				}
+				return nil
+			}, nil
 		},
-	}); err != nil {
-		return nil, nil, conflict("commands", "CONSTRUCTION_PREVIEW_FAILED", "the exact candidate preview failed; the accepted draft remains unchanged", nil, err)
+	})
+	if err != nil {
+		return nil, nil, nil, conflict("commands", "CONSTRUCTION_PREVIEW_FAILED", "the exact candidate preview failed; the accepted draft remains unchanged", nil, err)
 	}
-	return commands, receipt, nil
+	if preview.Receipt == nil || preview.Receipt.ID != receipt.ID || preview.Receipt.IntentDigest != binding.CandidateWorkspaceDigest {
+		return nil, nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the Apply-time preview did not return the exact candidate receipt", nil, nil)
+	}
+	var accepted *AcceptedConstruction
+	if captureAvailable {
+		accepted = &AcceptedConstruction{Preview: preview, PreviewLimit: binding.PreviewLimit}
+	}
+	return commands, receipt, accepted, nil
 }
 
 func sameConstructionDocument(left, right authoringv2.Document) bool {

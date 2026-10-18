@@ -3184,6 +3184,7 @@ export const explorerBuilderCommandsResultSchema = z
     previousDraftRevisionId: opaqueIdSchema.optional(),
     results: z.array(explorerBuilderCommandResultSchema),
     diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+    acceptedConstruction: z.lazy(() => explorerBuilderAcceptedConstructionSchema).optional(),
   })
   .strict();
 export type ExplorerBuilderCommandsResult = z.infer<
@@ -3264,6 +3265,29 @@ export const explorerBuilderReceiptOutputSchema = z
     columns: z.array(explorerBuilderContractColumnSchema),
   })
   .strict();
+export const explorerBuilderAcceptedConstructionReceiptSchema = z
+  .object({
+    apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
+    kind: z.literal('ExplorerBuilderReceipt'),
+    receiptId: opaqueIdSchema,
+    snapshotToken: opaqueIdSchema,
+    generation: opaqueIdSchema,
+    intentDigest: opaqueIdSchema,
+    compilerVersion: opaqueIdSchema,
+    shapeDigest: opaqueIdSchema.optional(),
+    recipeDigest: opaqueIdSchema.optional(),
+    resolvedRecipeDigest: opaqueIdSchema.optional(),
+    resolvedSchemaDigest: opaqueIdSchema.optional(),
+    outputContractDigest: opaqueIdSchema.optional(),
+    authorizationScopeDigest: opaqueIdSchema.optional(),
+    capabilitySchemaDigest: opaqueIdSchema.optional(),
+    outputs: z.array(explorerBuilderReceiptOutputSchema),
+    diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+  })
+  .strict();
+export type ExplorerBuilderAcceptedConstructionReceipt = z.infer<
+  typeof explorerBuilderAcceptedConstructionReceiptSchema
+>;
 export const explorerBuilderCompileResultSchema = z
   .object({
     apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
@@ -3341,6 +3365,17 @@ export const explorerBuilderPreviewResultSchema = z
   });
 export type ExplorerBuilderPreviewResult = z.infer<
   typeof explorerBuilderPreviewResultSchema
+>;
+
+export const explorerBuilderAcceptedConstructionSchema = z
+  .object({
+    receipt: explorerBuilderAcceptedConstructionReceiptSchema,
+    preview: explorerBuilderPreviewResultSchema,
+    previewLimit: z.number().int().min(1).max(1000),
+  })
+  .strict();
+export type ExplorerBuilderAcceptedConstruction = z.infer<
+  typeof explorerBuilderAcceptedConstructionSchema
 >;
 
 export const explorerBuilderPublishResultSchema = z
