@@ -690,13 +690,6 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     draftVersion: groupApplyResponse.draftVersion,
     draftDigest: groupApplyResponse.draftDigest,
   }, { timeout: ACTION_BUDGET_MS });
-  const groupApplyWindow = constructionRequests.requests.slice(groupApplyRequestStart);
-  assert.equal(groupApplyWindow.filter(entry => entry.path === commandsPath).length, 1,
-    'Applying the connected Group must issue exactly one native Apply command.');
-  assert.equal(groupApplyWindow.filter(entry => entry.path === reconcilePath).length, 0,
-    'Applying the accepted connected Group must not issue a redundant /reconcile request.');
-  assert.equal(groupApplyWindow.filter(entry => entry.path === previewPath).length, 0,
-    'Applying the accepted connected Group must not issue a redundant /preview request.');
   builder = await api(`${authoringPath}/builder`);
   let savedGroup = groupStepFor(builder, outputId);
   assert(savedGroup, 'Applying the connected Group must persist one Group step.');
@@ -727,6 +720,17 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   assert.equal(documentFor(builder, outputId).columns.length, 0);
   const savedExpected = expectedGrid(savedGroup, oracle, { patientID: patientIDChoice, coding: specimenCodingChoice });
   const savedActual = await assertGrid(page, 'saved', savedExpected, 'saved connected Group');
+  assert.deepEqual(savedExpected.headers, initialExpected.headers,
+    'The applied Group must keep the exact independent preview headers.');
+  assert.deepEqual(stableRows(savedExpected.rows), stableRows(initialExpected.rows),
+    'The applied Group must keep the exact independent preview rows and multiplicity.');
+  const groupApplyWindow = constructionRequests.requests.slice(groupApplyRequestStart);
+  assert.equal(groupApplyWindow.filter(entry => entry.path === commandsPath).length, 1,
+    'Applying the connected Group must issue exactly one native Apply command.');
+  assert.equal(groupApplyWindow.filter(entry => entry.path === reconcilePath).length, 0,
+    'Applying the accepted connected Group must not issue a redundant /reconcile request.');
+  assert.equal(groupApplyWindow.filter(entry => entry.path === previewPath).length, 0,
+    'Applying the accepted connected Group must not issue a redundant /preview request.');
   cda.check('correctness',
     'connected Group Preview and Apply match every Coding tuple, physical ordinal count, display label, and selected Patient',
     true, {

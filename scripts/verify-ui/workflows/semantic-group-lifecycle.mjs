@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
+import { createPlaywrightNetworkObserver } from '../helpers/playwright-network-observer.mjs';
 
 const ACTION_BUDGET_MS = 5_000;
 const QUERY_LIMIT = 5_000;
@@ -308,7 +309,21 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
 
   const uiURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorer)}&mode=builder`;
   const proposalPath = `${authoringPath}/construction-proposals`;
+  const commandsPath = `${authoringPath}/commands`;
+  const reconcilePath = `${authoringPath}/reconcile`;
+  const previewPath = `${authoringPath}/preview`;
   const proposalOrigins = new Set([apiOrigin, uiOrigin].map(value => new URL(value).origin));
+  const constructionPaths = new Set([proposalPath, commandsPath, reconcilePath, previewPath]);
+  const constructionRequests = createPlaywrightNetworkObserver(page, {
+    appOrigins: [...proposalOrigins],
+    scopeRequest: request => {
+      try {
+        const url = new URL(request.url());
+        return proposalOrigins.has(url.origin) && request.method() === 'POST' && constructionPaths.has(url.pathname);
+      } catch { return false; }
+    },
+    responsePaths: [proposalPath, commandsPath],
+  });
   const proposalStep = request => {
     const body = request.postDataJSON();
     if (body?.outputId !== outputId) return undefined;
@@ -596,12 +611,70 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
   const applyProposal = assertProposal(applyCandidate, { scalar: true });
   semanticOutputLabel = applyProposal.step.outputs.find(output => output.id === applyProposal.semanticKey.outputColumnId)?.label;
   await assertRendered({ step: applyProposal.step, phase: 'semantic Group Apply preview' });
+  const applyProposalEntry = constructionRequests.byRequest.get(applyCandidate);
+  assert(applyProposalEntry, 'The semantic Group proposal must be captured by the scoped native request observer.');
+  await constructionRequests.waitForResponse(entry => entry === applyProposalEntry && entry.status === 200 &&
+    entry.response?.previewStatus === 'READY' && Boolean(entry.response?.proposalId), {
+    fromIndex: applyProposalEntry.index, timeoutMs: ACTION_BUDGET_MS,
+  });
+  const applyProposalBody = applyCandidate.postDataJSON();
+  const applyProposalID = applyProposalEntry.response.proposalId;
+  assert.equal(applyProposalBody.outputId, outputId);
+  assert.equal(applyProposalEntry.response.outputId, outputId);
+  assert.equal(await proposalReceipt(), applyProposalID,
+    'The semantic Group proposal preview must display its exact proposal receipt before Apply.');
+  const groupApplyRequestStart = constructionRequests.requests.length;
+  const groupApplyEntryPromise = constructionRequests.waitForResponse(entry => entry.index >= groupApplyRequestStart &&
+    entry.path === commandsPath && entry.method === 'POST' && entry.status === 200 &&
+    entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL' &&
+      command.outputId === outputId && command.proposalId === applyProposalID), {
+    fromIndex: groupApplyRequestStart, timeoutMs: ACTION_BUDGET_MS,
+  });
   await action('Apply semantic plus scalar Group', page.getByTestId('construction-apply-proposal'),
     () => page.getByTestId('construction-apply-proposal').click(),
     async () => {
       await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined,
         { timeout: ACTION_BUDGET_MS });
-      await waitSavedExpected({ step: applyProposal.step, phase: 'applied semantic plus scalar Group' });
+      const groupApplyEntry = await groupApplyEntryPromise;
+      const groupApplyResponse = groupApplyEntry.response;
+      const acceptedConstruction = groupApplyResponse?.acceptedConstruction;
+      assert(acceptedConstruction && typeof acceptedConstruction === 'object',
+        'The semantic Group Apply response must carry its accepted construction.');
+      assert.equal(acceptedConstruction.receipt?.receiptId, applyProposalID,
+        'Apply must reuse the exact receipt issued for the semantic Group proposal.');
+      assert.equal(acceptedConstruction.receipt?.intentDigest, groupApplyResponse.draftDigest,
+        'The accepted construction receipt must bind the exact Apply successor draft.');
+      assert.equal(acceptedConstruction.preview?.receiptId, applyProposalID,
+        'The accepted construction Preview must reuse the proposal receipt.');
+      assert.equal(acceptedConstruction.preview?.outputId, outputId);
+      assert(Array.isArray(acceptedConstruction.preview?.rows),
+        'The accepted construction Preview must contain the proposed semantic Group rows.');
+      assert.equal(acceptedConstruction.previewLimit, applyProposalBody.limit,
+        'The accepted construction Preview must retain the exact proposal row limit.');
+      await page.waitForFunction(({ receiptId, expectedOutputId, draftVersion, draftDigest }) => {
+        const preview = document.querySelector('[data-testid="construction-preview"]');
+        return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewReceiptId === receiptId &&
+          preview.dataset.previewOutputId === expectedOutputId &&
+          preview.dataset.currentDraftVersion === String(draftVersion) && preview.dataset.currentDraftDigest === draftDigest;
+      }, {
+        receiptId: acceptedConstruction.preview.receiptId,
+        expectedOutputId: outputId,
+        draftVersion: groupApplyResponse.draftVersion,
+        draftDigest: groupApplyResponse.draftDigest,
+      }, { timeout: ACTION_BUDGET_MS });
+      const appliedExpected = expectedGroupGrid(applyProposal.step, oracle, subjectColumnID);
+      const appliedGrid = await waitSavedExpected({ step: applyProposal.step, phase: 'applied semantic plus scalar Group' });
+      assertGrid(appliedGrid, {
+        expectedHeaders: appliedExpected.headers, expectedRows: appliedExpected.rows,
+        phase: 'applied semantic plus scalar Group',
+      });
+      const groupApplyWindow = constructionRequests.requests.slice(groupApplyRequestStart);
+      assert.equal(groupApplyWindow.filter(entry => entry.path === commandsPath).length, 1,
+        'Applying the semantic Group must issue exactly one native Apply command.');
+      assert.equal(groupApplyWindow.filter(entry => entry.path === reconcilePath).length, 0,
+        'Applying the accepted semantic Group must not issue a redundant /reconcile request.');
+      assert.equal(groupApplyWindow.filter(entry => entry.path === previewPath).length, 0,
+        'Applying the accepted semantic Group must not issue a redundant /preview request.');
     });
   let saved = await readBuilder();
   const firstSaved = assertSavedBinding(saved, 2);
@@ -668,6 +741,7 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
   assert.equal(savedSemanticBinding.scope, semanticScope(firstSaved.key.semanticCategory));
   const editScalarKey = page.getByRole('checkbox', { name: `Group by ${scalarLabel}`, exact: true });
   assert.equal(await editScalarKey.isChecked(), true, 'Saved Group edit must rehydrate its scalar key.');
+  const groupEditRequestStart = constructionRequests.requests.length;
   const semanticOnlyRequest = waitProposalRequest(step => step?.operation?.kind === 'GROUP' &&
     step.operation.group.keys?.length === 1 && step.operation.group.keys[0]?.semanticCategory?.kind === 'BINDING');
   const editReceipt = await proposalReceipt();
@@ -676,6 +750,19 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
     await waitNextProposalPreview(editReceipt);
   });
   const semanticOnlyCandidate = await semanticOnlyRequest;
+  const groupEditEntry = constructionRequests.byRequest.get(semanticOnlyCandidate);
+  assert(groupEditEntry, 'The later semantic Group edit must be captured by the scoped native request observer.');
+  await constructionRequests.waitForResponse(entry => entry === groupEditEntry && entry.status === 200 &&
+    entry.response?.previewStatus === 'READY' && Boolean(entry.response?.proposalId), {
+    fromIndex: groupEditRequestStart, timeoutMs: ACTION_BUDGET_MS,
+  });
+  const groupEditWindow = constructionRequests.requests.slice(groupEditRequestStart);
+  assert.equal(groupEditWindow.filter(entry => entry.path === proposalPath).length, 1,
+    'Editing the saved semantic Group must issue exactly one fresh construction proposal.');
+  assert.notEqual(groupEditEntry.response.proposalId, editReceipt,
+    'The later semantic Group edit must receive a fresh proposal receipt.');
+  assert.equal(await proposalReceipt(), groupEditEntry.response.proposalId,
+    'The later semantic Group edit must display the exact receipt returned for its fresh proposal.');
   const editedProposal = assertProposal(semanticOnlyCandidate, {
     scalar: false, expectedKind: 'BINDING', expectedBinding: firstSaved.key.semanticCategory,
   });
@@ -820,4 +907,5 @@ export async function semanticGroupLifecycle({ page, cda, testInfo }) {
   cda.check('performance', 'all native semantic Group lifecycle actions stay within five seconds', true, {
     actionBudgetMs: ACTION_BUDGET_MS,
   });
+  constructionRequests.stop();
 }
