@@ -114,10 +114,16 @@ const constructionGroupFieldSourceSchema = z.union([
   }).strict(),
 ]);
 
+const constructionRelatedOccurrenceSchema = z.object({
+  routeId: opaqueIdSchema,
+  routeLabel: z.string().optional(),
+}).strict();
+
 const constructionGroupFieldScalarChoiceSchema = z.object({
     kind: z.literal('FIELD_SOURCE'),
     valueKind: z.literal('SCALAR'),
     fieldSource: z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
+    matchedOutputKeyId: opaqueIdSchema.optional(),
     label: z.string().min(1),
     sourceStageId: opaqueIdSchema,
     sourceShapeId: opaqueIdSchema,
@@ -132,12 +138,14 @@ const constructionGroupFieldScalarChoiceSchema = z.object({
     valueType: z.string().optional(),
     inputColumnId: opaqueIdSchema.optional(),
     boundarySelector: opaqueIdSchema.optional(),
+    relatedOccurrence: constructionRelatedOccurrenceSchema.optional(),
 }).strict();
 
 const constructionGroupCodingIdentityChoiceSchema = z.object({
     kind: z.literal('FIELD_SOURCE'),
     valueKind: z.literal('CODING_IDENTITY'),
     fieldSource: z.object({ kind: z.literal('CHOICE'), choiceId: opaqueIdSchema }).strict(),
+    matchedOutputKeyId: opaqueIdSchema.optional(),
     label: z.string().min(1),
     sourceStageId: opaqueIdSchema,
     sourceShapeId: opaqueIdSchema,
@@ -149,6 +157,7 @@ const constructionGroupCodingIdentityChoiceSchema = z.object({
     canonicalPath: opaqueIdSchema,
     scopeLabel: z.string().optional(),
     valueType: z.string().optional(),
+    relatedOccurrence: constructionRelatedOccurrenceSchema.optional(),
 }).strict();
 
 const constructionSemanticGroupFieldChoiceSchema = z.object({

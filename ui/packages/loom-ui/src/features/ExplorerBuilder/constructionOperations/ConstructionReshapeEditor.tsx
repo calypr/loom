@@ -237,7 +237,28 @@ type GroupForm = {
   readonly codedCategories: ReadonlyArray<GroupCodedCategory>;
   readonly codedPassthroughs: ReadonlyArray<GroupCodedPassthrough>;
   readonly rowValues: ReadonlyArray<GroupRowValue>;
+  readonly unmatchedSourceKeyOutputIds?: ReadonlyArray<string>;
+  readonly conflictingRelatedRouteIds?: ReadonlyArray<string>;
 };
+
+const groupFieldChoiceForKey = (
+  choices: ReadonlyArray<GroupFieldChoice>,
+  key: GroupFieldKey,
+): GroupFieldSourceChoice | undefined => choices.find((choice): choice is GroupFieldSourceChoice =>
+  choice.kind === 'FIELD_SOURCE' && (
+    key.fieldSource.kind === 'CHOICE'
+      ? choice.fieldSource.kind === 'CHOICE' && choice.fieldSource.choiceId === key.fieldSource.choiceId
+      : choice.matchedOutputKeyId === key.outputColumnId && choice.valueKind === key.valueKind
+  ),
+);
+
+const relatedRouteIdsForGroupFieldKeys = (
+  choices: ReadonlyArray<GroupFieldChoice>,
+  keys: ReadonlyArray<GroupFieldKey>,
+): string[] => [...new Set(keys.flatMap((key) => {
+  const routeId = groupFieldChoiceForKey(choices, key)?.relatedOccurrence?.routeId;
+  return routeId ? [routeId] : [];
+}))];
 
 type CodedGroupForm = {
   readonly kind: 'coded-group';
@@ -1340,18 +1361,22 @@ const initialGroupForm = (
       }];
     });
     const fieldKeys: GroupFieldKey[] = [];
+    const unmatchedSourceKeyOutputIds: string[] = [];
     for (const key of operation.keys ?? []) {
       if (!('fieldSource' in key)) continue;
       const output = outputById.get(key.outputColumnId);
       const choiceId = key.fieldSource.kind === 'CHOICE' ? key.fieldSource.choiceId : undefined;
-      const choice = choiceId
-        ? groupFieldChoices.find((item): item is GroupFieldSourceChoice => item.kind === 'FIELD_SOURCE' && item.fieldSource.kind === 'CHOICE' &&
-          item.fieldSource.choiceId === choiceId)
-        : undefined;
+      const bindingValueKind = key.fieldSource.kind === 'BINDING' ? key.fieldSource.valueKind : undefined;
+      const choice = groupFieldChoices.find((item): item is GroupFieldSourceChoice => item.kind === 'FIELD_SOURCE' && (
+        choiceId
+          ? item.fieldSource.kind === 'CHOICE' && item.fieldSource.choiceId === choiceId
+          : item.matchedOutputKeyId === key.outputColumnId && item.valueKind === bindingValueKind
+      ));
       const valueKind = key.fieldSource.kind === 'BINDING' ? key.fieldSource.valueKind : choice?.valueKind;
+      if (key.fieldSource.kind === 'BINDING' && !choice) unmatchedSourceKeyOutputIds.push(key.outputColumnId);
       const displayLabel = choice
         ? choice.label
-        : valueKind === 'CODING_IDENTITY' ? 'Coding identity' : output?.label ?? 'Saved source field';
+        : output?.label ?? (valueKind === 'CODING_IDENTITY' ? 'Coding identity' : 'Saved source field');
       const scopeLabel = choice
         ? choice.scopeLabel ?? ''
         : key.fieldSource.kind === 'BINDING'
@@ -1423,6 +1448,7 @@ const initialGroupForm = (
         valueType: input?.type ?? (output?.type === 'array' ? 'string' : output?.type ?? 'string'),
       };
     });
+    const relatedRouteIds = relatedRouteIdsForGroupFieldKeys(groupFieldChoices, fieldKeys);
     return {
       kind: 'group', stepId: editingStep.id, missingKeyPolicy: operation.missingKeyPolicy ?? 'GROUP', keys, fieldKeys,
       keyOrder: (operation.keys ?? []).map((key) => key.outputColumnId),
@@ -1431,6 +1457,8 @@ const initialGroupForm = (
       codedCategories: codedCategories.filter((category) => codedInputIDs.has(category.helperOutputColumnId)),
       codedPassthroughs,
       rowValues,
+      ...(unmatchedSourceKeyOutputIds.length ? { unmatchedSourceKeyOutputIds } : {}),
+      ...(relatedRouteIds.length > 1 ? { conflictingRelatedRouteIds: relatedRouteIds } : {}),
     };
   }
 
@@ -1797,17 +1825,6 @@ const fieldChoiceIdentity = (choice: GroupFieldSourceChoice): string | undefined
   ]);
 };
 
-const fieldBindingIdentity = (key: GroupFieldKey): string | undefined => {
-  const source = key.fieldSource;
-  if (source.kind !== 'BINDING') return undefined;
-  return JSON.stringify([
-    source.valueKind, source.sourceStageId, source.sourceShapeId, source.sourceRole,
-    source.occurrenceId, source.resourceType, source.ownerOccurrenceId, source.ownerResourceType,
-    source.valueKind === 'SCALAR' ? source.candidateId : '', source.canonicalPath,
-    source.valueKind === 'SCALAR' ? source.boundarySelector ?? '' : '',
-  ]);
-};
-
 const groupRowValueBindingIdentity = (source: GroupRowValueFieldSource): string | undefined => {
   if (source.kind !== 'BINDING' || source.valueKind !== 'SCALAR') return undefined;
   return JSON.stringify([
@@ -1868,6 +1885,7 @@ const candidateFor = (args: {
     }) : { kind: 'incomplete' };
   }
   if (form.kind === 'group') {
+    if (form.unmatchedSourceKeyOutputIds?.length || form.conflictingRelatedRouteIds?.length) return { kind: 'incomplete' };
     const result = groupStepFromForm({ stage, editingStep, form });
     return result ? candidateIntentFor({ construction, editingStep, step: result.step, ownedSteps: result.codedInput ? [result.codedInput] : [] }) : { kind: 'incomplete' };
   }
@@ -2440,24 +2458,40 @@ const ListColumnExpandChoices = (props: {
   readonly supported: boolean;
   readonly disabled: boolean;
   readonly onExpand?: (columnId: string) => void;
-}) => props.columns.length > 0 ? (
-  <details data-testid="construction-reshape-list-column-settings" className="rounded border border-slate-200 px-2 py-1.5">
-    <summary className="cursor-pointer text-xs font-medium text-blue-800">List column settings</summary>
-    {props.supported && props.onExpand ? (
-      <ul className="m-0 mt-2 grid list-none gap-1 p-0 sm:grid-cols-2">
-        {props.columns.map((column) => (
-          <li key={column.id}>
-            <button type="button" aria-label={`Expand ${column.label}`} disabled={props.disabled}
-              onClick={() => props.onExpand?.(column.id)}
-              className="w-full rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-blue-50 disabled:opacity-50">
-              Split {column.label} into rows
-            </button>
-          </li>
-        ))}
-      </ul>
-    ) : <p className="m-0 mt-2 text-xs text-slate-600">These repeated fields can’t be split into rows at this stage.</p>}
-  </details>
-) : null;
+  readonly inlineGrainAction?: boolean;
+}) => {
+  if (props.columns.length === 0) return null;
+  const choices = props.supported && props.onExpand ? (
+    <ul className="m-0 mt-2 grid list-none gap-1 p-0 sm:grid-cols-2">
+      {props.columns.map((column) => (
+        <li key={column.id}>
+          <button type="button" aria-label={`Expand ${column.label}`} disabled={props.disabled}
+            onClick={() => props.onExpand?.(column.id)}
+            className="w-full rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-blue-50 disabled:opacity-50">
+            Split {column.label} into rows
+          </button>
+        </li>
+      ))}
+    </ul>
+  ) : <p className="m-0 mt-2 text-xs text-slate-600">These repeated fields can’t be split into rows at this stage.</p>;
+  if (props.inlineGrainAction) {
+    return (
+      <section data-testid="construction-reshape-list-column-settings" aria-label="Repeated field actions" className="rounded border border-slate-200 bg-slate-50 px-2 py-2">
+        <h3 className="m-0 text-xs font-semibold text-slate-800">Repeated fields</h3>
+        <p className="mb-0 mt-1 text-xs text-slate-600">
+          Splitting a repeated field changes the input grain: each list item becomes its own row and values from other fields repeat.
+        </p>
+        {choices}
+      </section>
+    );
+  }
+  return (
+    <details data-testid="construction-reshape-list-column-settings" className="rounded border border-slate-200 px-2 py-1.5">
+      <summary className="cursor-pointer text-xs font-medium text-blue-800">List column settings</summary>
+      {choices}
+    </details>
+  );
+};
 
 const SourceFieldDescription = ({ field }: { readonly field: AvailableSourceField }) => (
   <span className="grid gap-0.5">
@@ -2811,15 +2845,17 @@ const GroupEditor = (props: {
       (!normalizedGroupSearch || `${choice.label} ${choice.resourceType}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
   const showSavedSemanticKey = Boolean(semanticKey && (semanticCategory?.kind === 'BINDING' || !selectedSemanticChoice));
   const sourceFieldChoices = props.groupFieldChoices.filter((choice): choice is GroupFieldSourceChoice => choice.kind === 'FIELD_SOURCE');
+  const fieldChoiceForKey = (key: GroupFieldKey): GroupFieldSourceChoice | undefined => groupFieldChoiceForKey(sourceFieldChoices, key);
+  const selectedRelatedRouteIds = new Set(relatedRouteIdsForGroupFieldKeys(sourceFieldChoices, props.form.fieldKeys));
+  const hasConflictingRelatedRoutes = selectedRelatedRouteIds.size > 1;
+  const savedFieldBindingOutputIds = new Set(props.form.fieldKeys.flatMap((key) =>
+    key.fieldSource.kind === 'BINDING' ? [key.outputColumnId] : [],
+  ));
   const selectedSourceChoiceIds = new Set(props.form.fieldKeys.flatMap((key) => key.fieldSource.kind === 'CHOICE' ? [key.fieldSource.choiceId] : []));
-  const savedFieldBindingIdentities = new Set(props.form.fieldKeys.flatMap((key) => {
-    const identity = fieldBindingIdentity(key);
-    return identity ? [identity] : [];
-  }));
   const visibleSourceFieldChoices = sourceFieldChoices.filter((choice) =>
     choice.fieldSource.kind === 'CHOICE' && !selectedSourceChoiceIds.has(choice.fieldSource.choiceId) &&
+    !(choice.matchedOutputKeyId && savedFieldBindingOutputIds.has(choice.matchedOutputKeyId)) &&
     !(choice.valueKind === 'SCALAR' && choice.inputColumnId && scalarColumns.some((column) => column.id === choice.inputColumnId)) &&
-    !(fieldChoiceIdentity(choice) && savedFieldBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
     (!normalizedGroupSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath ?? ''} ${choice.sourceRole ?? ''}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
   const semanticLabelCounts = new Map<string, number>();
   for (const column of [...selectedScalarColumns, ...visibleScalarColumns]) {
@@ -2883,11 +2919,17 @@ const GroupEditor = (props: {
     const { semanticKey: _removed, ...formWithoutSemanticKey } = props.form;
     props.onChange({ ...formWithoutSemanticKey, keyOrder: props.form.keyOrder.filter((id) => id !== semanticKey?.outputColumnId) });
   };
-  const removeFieldKey = (outputColumnId: string) => props.onChange({
-    ...props.form,
-    fieldKeys: props.form.fieldKeys.filter((key) => key.outputColumnId !== outputColumnId),
-    keyOrder: props.form.keyOrder.filter((id) => id !== outputColumnId),
-  });
+  const removeFieldKey = (outputColumnId: string) => {
+    const fieldKeys = props.form.fieldKeys.filter((key) => key.outputColumnId !== outputColumnId);
+    const relatedRouteIds = relatedRouteIdsForGroupFieldKeys(sourceFieldChoices, fieldKeys);
+    props.onChange({
+      ...props.form,
+      fieldKeys,
+      keyOrder: props.form.keyOrder.filter((id) => id !== outputColumnId),
+      unmatchedSourceKeyOutputIds: props.form.unmatchedSourceKeyOutputIds?.filter((id) => id !== outputColumnId),
+      ...(relatedRouteIds.length > 1 ? { conflictingRelatedRouteIds: relatedRouteIds } : { conflictingRelatedRouteIds: undefined }),
+    });
+  };
   const addFieldKey = (choice: GroupFieldSourceChoice) => {
     const key = groupFieldKeyForChoice(props.form, choice);
     if (!key) return;
@@ -2953,41 +2995,58 @@ const GroupEditor = (props: {
     );
   };
   const renderSelectedFieldKey = (key: GroupFieldKey) => {
-    const duplicateLabel = (semanticLabelCounts.get(key.displayLabel.trim().toLocaleLowerCase()) ?? 0) > 1;
-    const disambiguation = duplicateLabel ? compactSemanticScope(key.scopeLabel) : undefined;
-    const selectionId = key.fieldSource.kind === 'CHOICE'
-      ? key.fieldSource.choiceId
-      : `binding:${key.fieldSource.sourceStageId}:${key.fieldSource.sourceShapeId}:${key.fieldSource.occurrenceId}:${key.fieldSource.canonicalPath}`;
+    const matchedChoice = fieldChoiceForKey(key);
+    const unmatchedBinding = key.fieldSource.kind === 'BINDING' && !matchedChoice;
+    const sourceDescription = matchedChoice
+      ? matchedChoice.ownerResourceType
+      : key.fieldSource.kind === 'BINDING' ? key.fieldSource.ownerResourceType : undefined;
+    const detailDescription = matchedChoice
+      ? [matchedChoice.relatedOccurrence?.routeLabel, matchedChoice.scopeLabel].filter((part): part is string => Boolean(part)).join(' · ')
+      : key.scopeLabel;
     return (
       <div key={`field-source:${key.outputColumnId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
         <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
           <input
             type="checkbox"
-            value={selectionId}
+            value={key.outputColumnId}
             checked
-            aria-label={`Group by ${key.displayLabel}${disambiguation ? ` (${disambiguation})` : ''}`}
+            aria-label={`Group by ${key.displayLabel}`}
             disabled={props.disabled || !props.supported}
             onChange={() => removeFieldKey(key.outputColumnId)}
           />
           <span className="min-w-0 flex-1">
             <span className="block font-medium text-slate-800">{key.displayLabel}</span>
-            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={key.scopeLabel}>{disambiguation}</span> : null}
+            {sourceDescription ? <span className="block break-words text-xs text-slate-500">{sourceDescription}</span> : null}
+            {unmatchedBinding ? <span data-testid={`construction-group-stale-field-${key.outputColumnId}`} className="block text-xs font-medium text-amber-800">
+              Saved source field has no current capability match. Remove it or refresh the Group capabilities before applying changes.
+            </span> : null}
           </span>
         </label>
-        <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-saved-field-details-${key.outputColumnId}`}>
-          <summary className="cursor-pointer">Details</summary>
-          <p className="mb-0 mt-1 break-words">{key.scopeLabel}</p>
-        </details>
+        {detailDescription ? (
+          <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-saved-field-details-${key.outputColumnId}`}>
+            <summary className="cursor-pointer">Details</summary>
+            <p className="mb-0 mt-1 break-words">{detailDescription}</p>
+          </details>
+        ) : null}
       </div>
     );
   };
   const renderFieldChoice = (choice: GroupFieldSourceChoice) => {
-    const duplicateLabel = (semanticLabelCounts.get(choice.label.trim().toLocaleLowerCase()) ?? 0) > 1;
-    const disambiguation = duplicateLabel ? compactSemanticScope(choice.scopeLabel ?? '') : undefined;
+    const routeId = choice.relatedOccurrence?.routeId;
+    const differentRoute = Boolean(routeId && (
+      hasConflictingRelatedRoutes || selectedRelatedRouteIds.size > 0 && !selectedRelatedRouteIds.has(routeId)
+    ));
     const disabled = props.disabled || !props.supported ||
       (choice.valueKind === 'CODING_IDENTITY' && hasCodedKey) ||
-      (choice.valueKind === 'SCALAR' && props.form.codedCategories.length > 0);
+      (choice.valueKind === 'SCALAR' && props.form.codedCategories.length > 0) || differentRoute;
     const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
+    const sourceDescription = choice.ownerResourceType;
+    const detailDescription = [choice.relatedOccurrence?.routeLabel, choice.scopeLabel]
+      .filter((part): part is string => Boolean(part)).join(' · ');
+    const describedBy = [
+      choice.valueKind === 'CODING_IDENTITY' && hasCodedKey ? 'construction-group-coded-key-limit' : undefined,
+      differentRoute ? 'construction-group-related-route-limit' : undefined,
+    ].filter((id): id is string => Boolean(id)).join(' ') || undefined;
     return (
       <div key={`source-choice:${choiceId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
         <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
@@ -2996,20 +3055,25 @@ const GroupEditor = (props: {
             value={choiceId}
             data-testid={`construction-group-field-choice-${choiceId}`}
             checked={false}
-            aria-label={`Group by ${choice.label}${disambiguation ? ` (${disambiguation})` : ''}`}
+            aria-label={`Group by ${choice.label}`}
             disabled={disabled}
-            aria-describedby={choice.valueKind === 'CODING_IDENTITY' && hasCodedKey ? 'construction-group-coded-key-limit' : undefined}
+            aria-describedby={describedBy}
             onChange={(event) => { if (event.currentTarget.checked) addFieldKey(choice); }}
           />
           <span className="min-w-0 flex-1">
             <span className="block font-medium text-slate-800">{choice.label}</span>
-            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{disambiguation}</span> : null}
+            <span className="block break-words text-xs text-slate-500">{sourceDescription}</span>
+            {differentRoute ? <span data-testid={`construction-group-different-route-${choiceId}`} className="block text-xs font-medium text-amber-800">
+              {hasConflictingRelatedRoutes
+                ? 'Saved fields use multiple related routes. Remove fields until one route remains before choosing another related field.'
+                : 'Available from a different related route. Remove the selected route field to choose this one.'}
+            </span> : null}
           </span>
         </label>
-        {choice.scopeLabel ? (
+        {detailDescription ? (
           <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-choice-details-${choiceId}`}>
             <summary className="cursor-pointer">Details</summary>
-            <p className="mb-0 mt-1 break-words">{choice.scopeLabel}</p>
+            <p className="mb-0 mt-1 break-words">{detailDescription}</p>
           </details>
         ) : null}
       </div>
@@ -3071,6 +3135,21 @@ const GroupEditor = (props: {
             <button type="button" data-testid="construction-group-by-clear-search" onClick={() => setGroupSearch('')}
               className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
           ) : null}
+          {sourceFieldChoices.some((choice) => choice.relatedOccurrence) ? (
+            <p id="construction-group-related-route-limit" data-testid="construction-group-related-route-guidance" role="status" className="m-0 rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+              Related fields can be combined with root fields and fields from one matching source route. Fields from other routes stay visible but disabled.
+            </p>
+          ) : null}
+          {hasConflictingRelatedRoutes || props.form.conflictingRelatedRouteIds?.length ? (
+            <p data-testid="construction-group-related-route-conflict" role="alert" className="m-0 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              This saved Group combines fields from multiple related routes. The saved fields remain selected, but Apply is blocked until you remove fields so only one related route remains.
+            </p>
+          ) : null}
+          {props.form.unmatchedSourceKeyOutputIds?.length ? (
+            <p data-testid="construction-group-stale-binding-warning" role="alert" className="m-0 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              A saved source field has no current capability match. Its saved binding is preserved below, and Apply is blocked until you remove it or refresh this Group’s capabilities.
+            </p>
+          ) : null}
           <div data-testid="construction-group-by-field-list" className="grid max-h-64 gap-1 overflow-y-auto">
             {selectedScalarColumns.map((column) => renderScalarChoice(column, true))}
             {props.form.fieldKeys.map(renderSelectedFieldKey)}
@@ -3112,6 +3191,7 @@ const GroupEditor = (props: {
               columns={listColumnsFor(props.stage)}
               supported={props.expandSupported}
               disabled={props.disabled}
+              inlineGrainAction
               onExpand={props.onExpandListColumn}
             />
           ) : null}
