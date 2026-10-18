@@ -475,9 +475,12 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const tableControl = page.getByTestId(`construction-table-${outputId}`);
   await tableControl.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
   await tableControl.click({ timeout: ACTION_BUDGET_MS });
-  await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+  await page.getByText('Add a column to see your table.', { exact: true })
+    .waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
   const settings = page.getByTestId('construction-rows-settings-trigger');
   await settings.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+  assert.equal(await settings.isEnabled(), true,
+    'The zero-column Patient table must expose its ready row-operation control.');
   await settings.click({ timeout: ACTION_BUDGET_MS });
   const groupAction = page.getByTestId('construction-action-group-rows');
   await groupAction.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
