@@ -48,6 +48,17 @@ func TestRelatedGroupFieldSourcesShareOneExactRouteAdapter(t *testing.T) {
 		return bound
 	}
 	status := makeSource("SCALAR", "string", "observation-status", "status")
+	staleOccurrence := status
+	staleRelated := *status.Input.RelatedOccurrence
+	staleRelated.Route = append([]recipe.ConstructionGroupRelatedRouteStep(nil), staleRelated.Route...)
+	staleRelated.Route[0].ToOccurrenceID = "specimen-owner"
+	staleOccurrence.Input = &recipe.ConstructionGroupFieldSourceInput{
+		Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &staleRelated,
+	}
+	if _, err := BindGroupRelatedOccurrenceSource(context, staleOccurrence); err == nil ||
+		!strings.Contains(err.Error(), "target occurrence does not match compiler derivation") {
+		t.Fatalf("stale hardcoded route occurrence error = %v, want compiler-derived occurrence rejection", err)
+	}
 	coding := makeSource("CODING_IDENTITY", "Coding", "", "")
 	quantity := makeSource("SCALAR", "decimal", "observation-value-quantity-value", "valueQuantity.value")
 	output := recipe.Output{
