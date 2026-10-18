@@ -175,7 +175,7 @@ func relatedOccurrenceGroupStage(policy ir.PhysicalUnnestEmptyPolicy) ir.Physica
 			ValueResourceType: "Observation", CandidateID: "status-candidate", CanonicalPath: "status",
 		}},
 		CodingSelector: "code.coding[]", CodingArrayColumn: "coding_array",
-		CodingEmptyPolicy: policy, OrdinalSemantics: "ZERO_BASED_POSITION",
+		CodingEmptyPolicy: policy, OrdinalSemantics: constructionGroupRelatedCodingOrdinalSemantics,
 		CodingUnnest: &ir.PhysicalUnnest{
 			OutputVariable: "coding_item", HasItemVariable: "coding_has_item", Ordinality: "coding_ordinal",
 			EmptyPolicy: policy,

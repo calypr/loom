@@ -8,6 +8,8 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
+const constructionGroupRelatedCodingOrdinalSemantics = "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY"
+
 type constructionGroupInput struct {
 	RowsVariable     string
 	SourceRowInScope bool
@@ -384,7 +386,7 @@ func validateConstructionGroupRelatedOccurrenceRendererShape(adapter *ir.Physica
 	if adapter.CodingUnnest == nil || adapter.CodingArrayColumn == "" || adapter.CodingMembershipColumn == "" ||
 		adapter.OrdinalSemantics == "" || adapter.CodingUnnest.OutputVariable == "" ||
 		adapter.CodingUnnest.HasItemVariable == "" || adapter.CodingUnnest.Ordinality == "" ||
-		adapter.OrdinalSemantics != "ZERO_BASED_POSITION" || len(adapter.CodingUnnest.Ancestors) != 0 ||
+		adapter.OrdinalSemantics != constructionGroupRelatedCodingOrdinalSemantics || len(adapter.CodingUnnest.Ancestors) != 0 ||
 		adapter.CodingUnnest.Expression.Kind != ir.PhysicalValueExpression || adapter.CodingUnnest.Expression.Value == nil ||
 		adapter.CodingUnnest.Expression.Value.Variable != adapter.RelatedRecords.ItemVariable ||
 		len(adapter.CodingUnnest.Expression.Value.Path) != 1 || adapter.CodingUnnest.Expression.Value.Path[0] != adapter.CodingArrayColumn {
