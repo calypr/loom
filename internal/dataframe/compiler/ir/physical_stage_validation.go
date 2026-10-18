@@ -128,7 +128,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			}
 			if err := validatePhysicalStageRowValues(
 				stage.GroupedPivot.RowValues, stage.InputColumns, stage.OutputColumns,
-				physicalProjectionNameSet(stage.GroupedPivot.InputProjections), groupedPivotBaseOutputs(*stage.GroupedPivot), nil,
+				physicalProjectionNameSet(stage.GroupedPivot.InputProjections), groupedPivotBaseOutputs(*stage.GroupedPivot), nil, "",
 			); err != nil {
 				return fmt.Errorf("%s grouped pivot row values: %w", path, err)
 			}
@@ -436,6 +436,28 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 		case PhysicalStageGroupOp:
 			if stage.Group == nil {
 				return fmt.Errorf("row lineage Group payload is invalid")
+			}
+			if stage.Group.CodingKey != nil {
+				coding := stage.Group.CodingKey
+				if len(sequence.Stages) != 1 || sequence.SourceRowIdentity != "__loom_expansion_identity" ||
+					coding.SourceStageID != sequence.SourceStageID || coding.SourceOccurrenceKeyColumn != terminal.OccurrenceKeyColumn {
+					return fmt.Errorf("row lineage CODING_IDENTITY Group requires its exact expanded input occurrence key")
+				}
+				rootType := ""
+				rootScans := 0
+				for _, operation := range sourceOperations {
+					if operation.Kind != PhysicalRootScanOp {
+						continue
+					}
+					if operation.RootScan == nil {
+						return fmt.Errorf("row lineage Coding Group root scan is invalid")
+					}
+					rootScans++
+					rootType, _ = bindVars[operation.RootScan.CollectionBindKey].(string)
+				}
+				if rootScans != 1 || rootType == "" || rootType != terminal.ResourceType {
+					return fmt.Errorf("row lineage Coding Group requires one root source of its declared resource type")
+				}
 			}
 			if err := validatePhysicalGroupFilterLineage(sequence.Stages); err != nil {
 				return err
@@ -1538,7 +1560,7 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	}
 	if err := validatePhysicalStageRowValues(
 		group.RowValues, stage.InputColumns, stage.OutputColumns,
-		physicalProjectionNameSet(stage.InputProjections), reservedOutputs, defined,
+		physicalProjectionNameSet(stage.InputProjections), reservedOutputs, defined, stage.InputStageID,
 	); err != nil {
 		return fmt.Errorf("row values: %w", err)
 	}
@@ -1590,7 +1612,7 @@ func validatePhysicalStageCodingKey(
 	if unnest == nil || coding.SourceUnnest == nil {
 		return fmt.Errorf("does not carry both the source and compiled exact PhysicalUnnest")
 	}
-	if !physicalUnnestExactGroupShapeEqual(*unnest, *coding.SourceUnnest) {
+	if !PhysicalUnnestExactGroupShapeEqual(*unnest, *coding.SourceUnnest) {
 		return fmt.Errorf("compiled Group unnest differs from the exact source operation")
 	}
 	if unnest.Ordinality == "" || unnest.Expression.Extract == nil ||
@@ -1633,7 +1655,9 @@ func validatePhysicalStageCodingKey(
 	return nil
 }
 
-func physicalUnnestExactGroupShapeEqual(left, right PhysicalUnnest) bool {
+// PhysicalUnnestExactGroupShapeEqual compares compiler-owned shape facts while
+// allowing cloned runtime bindings and operation-local references to differ.
+func PhysicalUnnestExactGroupShapeEqual(left, right PhysicalUnnest) bool {
 	if left.Owner.OccurrenceID != right.Owner.OccurrenceID || left.Owner.ResourceType != right.Owner.ResourceType ||
 		left.Owner.RootVariable != right.Owner.RootVariable || left.Owner.OwnerVariable != right.Owner.OwnerVariable ||
 		len(left.Owner.Route) != len(right.Owner.Route) || left.OutputVariable != right.OutputVariable ||
@@ -1796,6 +1820,7 @@ func validatePhysicalStageRowValues(
 	inputColumns, outputColumns []PhysicalStageColumn,
 	projectedInputs, reservedOutputs map[string]bool,
 	defined map[string]bool,
+	inputStageID string,
 ) error {
 	inputs, outputs := physicalStageColumnMap(inputColumns), physicalStageColumnMap(outputColumns)
 	seenOutputs := make(map[string]bool, len(rowValues))
@@ -1805,7 +1830,15 @@ func validatePhysicalStageRowValues(
 		if input.Kind == "object" {
 			inputKind, scalar = "OBJECT", true
 		}
-		if !ok || input.Internal || !scalar || inputKind != rowValue.InputKind ||
+		boundSource := rowValue.FieldSource
+		if boundSource != nil {
+			if !input.Internal || !validPhysicalGroupFieldSource(boundSource, inputStageID) {
+				return fmt.Errorf("row value %d hidden input column %q has no exact source-stage authority", index, rowValue.InputColumn)
+			}
+		} else if input.Internal {
+			return fmt.Errorf("row value %d input column %q is internal without a bound source authority", index, rowValue.InputColumn)
+		}
+		if !ok || (!input.Internal && boundSource != nil) || !scalar || inputKind != rowValue.InputKind ||
 			(rowValue.InputMany != (input.Cardinality == "many")) {
 			return fmt.Errorf("row value %d input column %q is not a supported scalar or scalar array", index, rowValue.InputColumn)
 		}
@@ -1963,7 +1996,7 @@ func validatePhysicalStageCodedGroup(stage PhysicalConstructionStage, coded Phys
 		coded.CodeOutputColumn: true, coded.CountOutputColumn: true, "__loom_row_id": true,
 	}
 	projectionNames := physicalProjectionNameSet(coded.RowValueProjections)
-	if err := validatePhysicalStageRowValues(coded.RowValues, stage.InputColumns, stage.OutputColumns, projectionNames, reservedOutputs, seenVariables); err != nil {
+	if err := validatePhysicalStageRowValues(coded.RowValues, stage.InputColumns, stage.OutputColumns, projectionNames, reservedOutputs, seenVariables, ""); err != nil {
 		return fmt.Errorf("row values: %w", err)
 	}
 	if len(coded.RowValueProjections) != len(projectionNames) {
@@ -2066,7 +2099,7 @@ func physicalStageColumnMap(columns []PhysicalStageColumn) map[string]PhysicalSt
 
 func physicalStageScalarKind(kind string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "string", "date", "datetime", "code", "uuid":
+	case "string", "date", "datetime", "date_time", "code", "uuid":
 		return "STRING", true
 	case "integer":
 		return "INTEGER", true

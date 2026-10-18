@@ -172,6 +172,9 @@ type PhysicalStageRowValue struct {
 	InputColumn string
 	InputKind   string
 	InputMany   bool
+	// FieldSource authorizes a hidden scalar input projection from one exact
+	// source context. Ordinary row values still require a public input column.
+	FieldSource *PhysicalStageGroupFieldSource
 	Output      string
 	Policy      string
 	Variable    string

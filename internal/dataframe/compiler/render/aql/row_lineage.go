@@ -36,6 +36,12 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		}
 		return r.renderSemanticGroupRowLineage(sourceQuery, stage, terminal)
 	}
+	if group.CodingKey != nil {
+		if len(stages) != 1 {
+			return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY Group row lineage requires one terminal source Group")
+		}
+		return r.renderCodingIdentityGroupRowLineage(sourceQuery, stage, terminal)
+	}
 	input := r.newInternalVariable("row_lineage_group_input")
 	selected := r.newInternalVariable("row_lineage_selected_group")
 	identity := r.newInternalVariable("row_lineage_identity")
@@ -166,6 +172,169 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		"  RETURN {resourceType: @"+resourceTypeBind+", resourceId: "+contributor+"[@"+resourceIDBind+"], occurrenceKey: "+contributor+"[@"+occurrenceKeyBind+"]}",
 		")",
 		"RETURN {found: "+selected+" != null"+lineagePassedCondition(filteredSelection)+", contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+	)
+	query := strings.Join(lines, "\n") + "\n"
+	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
+}
+
+func (r *physicalPlanRenderer) renderCodingIdentityGroupRowLineage(
+	sourceQuery string,
+	stage ir.PhysicalConstructionStage,
+	terminal ir.PhysicalRowLineageReturn,
+) (RenderedPhysicalPlan, error) {
+	group := stage.Group
+	if group == nil || group.CodingKey == nil || group.SemanticKey != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY Group payload is required")
+	}
+	coding := group.CodingKey
+	input := r.newInternalVariable("row_lineage_coding_group_input")
+	selected := r.newInternalVariable("row_lineage_coding_selected_group")
+	identity := r.newInternalVariable("row_lineage_coding_identity")
+	codingInputTuple := r.newInternalVariable("row_lineage_coding_input_tuple")
+	codingCollectedTuple := r.newInternalVariable("row_lineage_coding_collected_tuple")
+	codingAlias := "codingTuple"
+	keyVars := make([]string, len(group.Keys))
+	keyCollected := make([]string, len(group.Keys))
+	keyAliases := make([]string, len(group.Keys))
+	identityParts := []string{"[\"construction\", @" + group.ConstructionIDBindKey + "]", "[\"operation\", \"GROUP\"]"}
+	collectParts := make([]string, 0, len(group.Keys)+1)
+	sortKeys := make([]string, 0, len(group.Keys)+1)
+	selectedFields := make([]string, 0, len(group.Keys)+1)
+	filters := make([]string, 0, len(group.Keys)*2+4)
+	for index, key := range group.Keys {
+		keyVars[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_coding_group_key_%d", index))
+		keyCollected[index] = r.newInternalVariable(fmt.Sprintf("row_lineage_coding_collected_key_%d", index))
+		keyAliases[index] = fmt.Sprintf("key%d", index)
+		columnBind := r.newInternalBindKeyWithValue("row_lineage_coding_group_input_column", key.InputColumn)
+		filters = append(filters, fmt.Sprintf("LET %s = %s[@%s]", keyVars[index], input, columnBind))
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyGroup:
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			filters = append(filters, "FILTER "+keyVars[index]+" != null")
+		case ir.PhysicalStageGroupMissingKeyError:
+			filters = append(filters, fmt.Sprintf("FILTER ASSERT(%s != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", keyVars[index]))
+		default:
+			return RenderedPhysicalPlan{}, fmt.Errorf("unsupported Group missing-key policy %q", group.MissingKeyPolicy)
+		}
+		typeName, err := aqlTableScalarType(key.Kind)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
+		}
+		typeBind := r.newInternalBindKeyWithValue("row_lineage_coding_group_key_type", typeName)
+		filters = append(filters, fmt.Sprintf("FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", keyVars[index], keyVars[index], typeBind))
+		outputID := ""
+		for _, column := range stage.OutputColumns {
+			if column.Name == key.OutputColumn {
+				outputID = column.ID
+				break
+			}
+		}
+		if outputID == "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("Group key output %q has no stable column ID", key.OutputColumn)
+		}
+		outputBind := r.newInternalBindKeyWithValue("row_lineage_coding_group_identity_column", outputID)
+		identityParts = append(identityParts, "[@"+outputBind+", "+keyCollected[index]+"]")
+		collectParts = append(collectParts, keyCollected[index]+" = "+keyVars[index])
+		sortKeys = append(sortKeys, keyCollected[index]+" ASC")
+		selectedFields = append(selectedFields, keyAliases[index]+": "+keyCollected[index])
+	}
+	codingOutputID := ""
+	for _, column := range stage.OutputColumns {
+		if column.Name == coding.OutputColumn {
+			codingOutputID = column.ID
+			break
+		}
+	}
+	if codingOutputID == "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY output %q has no stable column ID", coding.OutputColumn)
+	}
+	codingOutputBind := r.newInternalBindKeyWithValue("row_lineage_coding_identity_column", codingOutputID)
+	codingMembershipBind := r.newInternalBindKeyWithValue("row_lineage_coding_membership_column", coding.MembershipColumn)
+	codingMembership := r.newInternalVariable("row_lineage_coding_membership")
+	codingMissingFilter, err := codingIdentityMissingCodeFilter(group.MissingKeyPolicy, codingInputTuple)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	identityParts = append(identityParts, "[@"+codingOutputBind+", \"coding_identity\", "+codingCollectedTuple+"]")
+	collectParts = append(collectParts, codingCollectedTuple+" = "+codingInputTuple)
+	sortKeys = append(sortKeys, codingCollectedTuple+" ASC")
+	selectedFields = append(selectedFields, codingAlias+": "+codingCollectedTuple)
+	matchLines := []string{
+		"LET " + selected + " = FIRST(",
+		"  FOR " + input + " IN (\n" + indentQuery(sourceQuery, "    ") + "\n  )",
+	}
+	for _, filter := range filters {
+		matchLines = append(matchLines, "  "+filter)
+	}
+	matchLines = append(matchLines,
+		fmt.Sprintf("  LET %s = %s[@%s]", codingMembership, input, codingMembershipBind),
+	)
+	matchLines = append(matchLines, codingIdentityMembershipTypeAssertions(codingMembership)...)
+	matchLines = append(matchLines, fmt.Sprintf("  LET %s = %s", codingInputTuple, codingIdentityTupleExpression(codingMembership)))
+	if codingMissingFilter != "" {
+		matchLines = append(matchLines, "  "+codingMissingFilter)
+	}
+	matchLines = append(matchLines,
+		"  COLLECT "+strings.Join(collectParts, ", "),
+		"  SORT "+strings.Join(sortKeys, ", "),
+		"  LET "+identity+" = TO_STRING(["+strings.Join(identityParts, ", ")+"])",
+		"  FILTER "+identity+" == @"+terminal.RowIDBindKey,
+		"  RETURN {"+strings.Join(selectedFields, ", ")+"}",
+		")",
+	)
+
+	contributor := r.newInternalVariable("row_lineage_coding_contributor")
+	contributorMembership := r.newInternalVariable("row_lineage_coding_contributor_membership")
+	contributorFilters := []string{selected + " != null"}
+	for index, key := range group.Keys {
+		columnBind := r.newInternalBindKeyWithValue("row_lineage_coding_contributor_column", key.InputColumn)
+		value := fmt.Sprintf("%s[@%s]", contributor, columnBind)
+		if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyExclude {
+			contributorFilters = append(contributorFilters, value+" != null")
+		} else if group.MissingKeyPolicy == ir.PhysicalStageGroupMissingKeyError {
+			contributorFilters = append(contributorFilters, fmt.Sprintf("ASSERT(%s != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", value))
+		}
+		typeName, err := aqlTableScalarType(key.Kind)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("Group key %q: %w", key.InputColumn, err)
+		}
+		typeBind := r.newInternalBindKeyWithValue("row_lineage_coding_contributor_type", typeName)
+		contributorFilters = append(contributorFilters,
+			fmt.Sprintf("ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", value, value, typeBind),
+			value+" == "+selected+"."+keyAliases[index],
+		)
+	}
+	contributorMembershipBind := r.newInternalBindKeyWithValue("row_lineage_coding_contributor_membership_column", coding.MembershipColumn)
+	contributorTupleVariable := r.newInternalVariable("row_lineage_coding_contributor_input_tuple")
+	contributorMissingFilter, err := codingIdentityMissingCodeFilter(group.MissingKeyPolicy, contributorTupleVariable)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	resourceIDBind := r.newInternalBindKeyWithValue("row_lineage_coding_resource_id_column", terminal.ResourceIDColumn)
+	occurrenceBind := r.newInternalBindKeyWithValue("row_lineage_coding_occurrence_key_column", terminal.OccurrenceKeyColumn)
+	resourceTypeBind := r.newInternalBindKeyWithValue("row_lineage_coding_resource_type", terminal.ResourceType)
+	page := r.newInternalVariable("row_lineage_coding_page")
+	lines := append([]string(nil), matchLines...)
+	lines = append(lines,
+		"LET "+page+" = (",
+		"  FOR "+contributor+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
+		fmt.Sprintf("  LET %s = %s[@%s]", contributorMembership, contributor, contributorMembershipBind),
+	)
+	lines = append(lines, codingIdentityMembershipTypeAssertions(contributorMembership)...)
+	lines = append(lines, fmt.Sprintf("  LET %s = %s", contributorTupleVariable, codingIdentityTupleExpression(contributorMembership)))
+	if contributorMissingFilter != "" {
+		lines = append(lines, "  "+contributorMissingFilter)
+	}
+	for _, filter := range contributorFilters {
+		lines = append(lines, "  FILTER "+filter)
+	}
+	lines = append(lines,
+		"  FILTER "+contributorTupleVariable+" == "+selected+"."+codingAlias,
+		"  SORT "+contributor+"[@"+occurrenceBind+"] ASC",
+		"  LIMIT @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey,
+		"  RETURN {resourceType: @"+resourceTypeBind+", resourceId: "+contributor+"[@"+resourceIDBind+"], occurrenceKey: "+contributor+"[@"+occurrenceBind+"]}",
+		")",
+		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
 	)
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil

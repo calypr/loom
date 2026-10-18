@@ -99,6 +99,9 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		}
 		return RowLineageCapability{Available: true}
 	}
+	if rowLineageExpandedCodingGroup(output) {
+		return RowLineageCapability{Available: true}
+	}
 	if rowLineageConstructionPivotPreimage(output) {
 		return RowLineageCapability{Available: true}
 	}
@@ -117,6 +120,63 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
 	}
 	return RowLineageCapability{Available: true}
+}
+
+func rowLineageExpandedCodingGroup(output lower.CompiledRecipeOutput) bool {
+	sequence := output.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "__loom_expansion_identity" || len(sequence.Stages) != 1 ||
+		output.RootResourceType == "" || output.Plan.Source.ResourceType != output.RootResourceType || output.RowIdentity == nil {
+		return false
+	}
+	stage := sequence.Stages[0]
+	group := stage.Group
+	if stage.Kind != ir.PhysicalStageGroupOp || group == nil || group.SemanticKey != nil || group.CodingKey == nil ||
+		stage.InputStageID != sequence.SourceStageID || stage.ID != sequence.FinalStageID ||
+		stage.RowIdentityColumn != sequence.FinalRowIdentity || !rowLineageHasPhysicalIdentity(output, stage, sequence) ||
+		group.RootContributorInputColumn != "" || group.CodingKey.SourceStageID != sequence.SourceStageID ||
+		group.CodingKey.SourceShapeID == "" || group.CodingKey.SourceOccurrenceKeyColumn != "__loom_group_source_occurrence_key" ||
+		group.CodingKey.OwnerOccurrenceID == "" || group.CodingKey.OwnerResourceType == "" || group.CodingKey.CodingPath == "" ||
+		group.CodingKey.SourceUnnest == nil || len(group.Aggregates) == 0 {
+		return false
+	}
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" || aggregate.InputColumn != "" || aggregate.InputKind != "" {
+			return false
+		}
+	}
+	if sequence.Stages[0].Group.CodingKey.SourceUnnest.Ordinality == "" {
+		return false
+	}
+	rootScans, unnests, returns := 0, 0, 0
+	var sourceUnnest *ir.PhysicalUnnest
+	for index, operation := range output.Plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 || operation.RootScan == nil {
+				return false
+			}
+			rootScans++
+		case ir.PhysicalUnnestOp:
+			if operation.Unnest == nil {
+				return false
+			}
+			unnests++
+			sourceUnnest = operation.Unnest
+		case ir.PhysicalFilterOp, ir.PhysicalSetOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+		case ir.PhysicalReturnOp:
+			returns++
+			if operation.Return == nil || index != len(output.Plan.Operations)-1 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return rootScans == 1 && unnests == 1 && returns == 1 && sourceUnnest != nil &&
+		ir.PhysicalUnnestExactGroupShapeEqual(*sourceUnnest, *group.CodingKey.SourceUnnest) &&
+		sourceUnnest.Owner.OccurrenceID == group.CodingKey.OwnerOccurrenceID &&
+		sourceUnnest.Owner.ResourceType == group.CodingKey.OwnerResourceType && sourceUnnest.Ordinality != "" &&
+		sourceUnnest.Expression.Extract != nil && sourceUnnest.Expression.Extract.Selector.CanonicalPath() == group.CodingKey.CodingPath
 }
 
 // rowLineageConstructionPivotPreimage admits only a direct terminal ordinary
@@ -426,6 +486,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	if !capability.Available {
 		return CompiledRowLineageQuery{}, &RowLineageUnsupportedError{Capability: capability}
 	}
+	expandedCodingGroup := rowLineageExpandedCodingGroup(output)
 	if output.RootResourceType == "" {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source resource type is required")
 	}
@@ -571,6 +632,10 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		lineageTrace = &ir.PhysicalRowLineageTrace{Stages: []ir.PhysicalRowLineageStageMatch{match}}
 	}
 	returnCount := 0
+	occurrenceKeyColumn := rowLineageOccurrenceKey
+	if expandedCodingGroup {
+		occurrenceKeyColumn = physical.StageSequence.Stages[0].Group.CodingKey.SourceOccurrenceKeyColumn
+	}
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
@@ -580,9 +645,22 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		operation.Return.Projections = appendUniqueProjection(operation.Return.Projections,
 			ir.PhysicalProjection{Name: rowLineageResourceID, Hidden: true, Value: ir.PhysicalValue{Variable: root, Path: []string{"payload", "id"}}},
 		)
-		operation.Return.Projections = appendUniqueProjection(operation.Return.Projections,
-			ir.PhysicalProjection{Name: rowLineageOccurrenceKey, Hidden: true, Value: ir.PhysicalValue{Variable: root, Path: []string{"_key"}}},
-		)
+		if expandedCodingGroup {
+			found := false
+			for _, projection := range operation.Return.Projections {
+				if projection.Name == occurrenceKeyColumn {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return CompiledRowLineageQuery{}, fmt.Errorf("expanded Group source is missing exact occurrence projection %q", occurrenceKeyColumn)
+			}
+		} else {
+			operation.Return.Projections = appendUniqueProjection(operation.Return.Projections,
+				ir.PhysicalProjection{Name: rowLineageOccurrenceKey, Hidden: true, Value: ir.PhysicalValue{Variable: root, Path: []string{"_key"}}},
+			)
+		}
 	}
 	if returnCount != 1 {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage direct source requires one terminal projection")
@@ -596,7 +674,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		LimitBindKey: rowLineageLimitBind, FetchLimitBindKey: rowLineageFetchLimitBind,
 		Trace:        lineageTrace,
 		ResourceType: output.RootResourceType, ResourceIDColumn: rowLineageResourceID,
-		OccurrenceKeyColumn: rowLineageOccurrenceKey,
+		OccurrenceKeyColumn: occurrenceKeyColumn,
 	}
 	if err := physical.Validate(); err != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("validate row lineage physical plan: %w", err)

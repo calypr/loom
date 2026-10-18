@@ -293,7 +293,8 @@ func lowerConstructionGroupCodingKey(
 	}
 	column := CompiledOutputColumn{
 		ID: output.ID, Name: output.Name, Label: constructionFirstNonEmpty(output.Label, output.Name),
-		Kind: "string", Cardinality: "required_one", Nullable: missingPolicy.Normalized() == recipe.ConstructionGroupMissingKeyGroup,
+		SemanticValueKind: CompiledSemanticValueCodingIdentityDisplay,
+		Kind:              "string", Cardinality: "required_one", Nullable: missingPolicy.Normalized() == recipe.ConstructionGroupMissingKeyGroup,
 		SemanticPath: "construction_group_coding_identity:" + source.SourceShapeID + ":" + source.CanonicalPath,
 	}
 	outputProjection := ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: key.LabelVariable}}

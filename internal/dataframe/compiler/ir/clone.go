@@ -128,13 +128,13 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 				groupCopy.CodingKey = &codingCopy
 			}
 			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
-			groupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.Group.RowValues...)
+			groupCopy.RowValues = clonePhysicalStageRowValues(stage.Group.RowValues)
 			cloned.Group = &groupCopy
 		}
 		if stage.CodedGroup != nil {
 			codedGroupCopy := *stage.CodedGroup
 			codedGroupCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.CodedGroup.PathSegments...)
-			codedGroupCopy.RowValues = append([]PhysicalStageRowValue(nil), stage.CodedGroup.RowValues...)
+			codedGroupCopy.RowValues = clonePhysicalStageRowValues(stage.CodedGroup.RowValues)
 			codedGroupCopy.RowValueProjections = clonePhysicalProjections(stage.CodedGroup.RowValueProjections)
 			cloned.CodedGroup = &codedGroupCopy
 		}
@@ -177,6 +177,17 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		copy.Stages[index] = cloned
 	}
 	return &copy
+}
+
+func clonePhysicalStageRowValues(values []PhysicalStageRowValue) []PhysicalStageRowValue {
+	copy := append([]PhysicalStageRowValue(nil), values...)
+	for index := range copy {
+		if values[index].FieldSource != nil {
+			source := *values[index].FieldSource
+			copy[index].FieldSource = &source
+		}
+	}
+	return copy
 }
 
 func clonePhysicalStageColumns(columns []PhysicalStageColumn) []PhysicalStageColumn {
@@ -652,7 +663,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
 		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
 		pivotCopy.CodedCategories = append([]PhysicalGroupedCodedPivotCategory(nil), operation.GroupedPivot.CodedCategories...)
-		pivotCopy.RowValues = append([]PhysicalStageRowValue(nil), operation.GroupedPivot.RowValues...)
+		pivotCopy.RowValues = clonePhysicalStageRowValues(operation.GroupedPivot.RowValues)
 		pivotCopy.CodedCorrelation = clonePhysicalCorrelation(operation.GroupedPivot.CodedCorrelation)
 		if operation.GroupedPivot.CategoryPresence != nil {
 			presence := clonePhysicalProjectionPresence(*operation.GroupedPivot.CategoryPresence)

@@ -33,19 +33,25 @@ func lowerConstructionGroup(
 		MissingKeyPolicy:      ir.PhysicalStageGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
 	}
 	var groupFieldContext *CompiledGroupFieldSourceContext
+	needsGroupFieldContext := false
 	for _, key := range group.Keys {
-		if key.FieldSource == nil {
-			continue
+		if key.FieldSource != nil {
+			needsGroupFieldContext = true
 		}
+	}
+	for _, rowValue := range rowValues {
+		if rowValue.FieldSource != nil {
+			needsGroupFieldContext = true
+		}
+	}
+	if needsGroupFieldContext {
 		if inputStageID != recipe.ConstructionSourceProjectionID {
-			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource must bind the exact source_projection stage")
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource must bind the exact input stage")
 		}
-		if groupFieldContext == nil {
-			var err error
-			groupFieldContext, err = describeGroupFieldSourceContext(inputStageID, rootResourceType, inputIdentity, plan)
-			if err != nil {
-				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("recompute Group field source context: %w", err)
-			}
+		var err error
+		groupFieldContext, err = describeGroupFieldSourceContext(inputStageID, rootResourceType, inputIdentity, plan)
+		if err != nil {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("recompute Group field source context: %w", err)
 		}
 		if groupFieldContext == nil {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource has no exact compiler-proven source shape")
@@ -176,6 +182,9 @@ func lowerConstructionGroup(
 		if !ok || inputColumn.Internal {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key input column ID %q is not public", key.InputColumnID)
 		}
+		if inputColumn.SemanticValueKind == CompiledSemanticValueCodingIdentityDisplay {
+			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key input column ID %q is a CODING_IDENTITY display label and cannot be reused as scalar identity", key.InputColumnID)
+		}
 		kind, scalar := tableReshapeScalarKind(inputColumn.Kind)
 		if !scalar || inputColumn.Cardinality == string(expression.Many) {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key column %q must be a public scalar column", inputColumn.Name)
@@ -253,8 +262,12 @@ func lowerConstructionGroup(
 		projectionByOutputID[output.ID] = ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: physicalAggregate.Variable}}
 		physical.Aggregates = append(physical.Aggregates, physicalAggregate)
 	}
+	rowValueSource := &constructionGroupRowValueSourceContext{
+		Plan: plan, SourceContext: groupFieldContext, InputStageID: inputStageID,
+		Stage: stage, FirstSourceIndex: len(group.Keys),
+	}
 	physicalRowValues, rowValueColumns, err := lowerConstructionRowValues(
-		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex,
+		rowValues, input, outputs, group.ConstructionID, usedVariables, stepIndex, rowValueSource,
 	)
 	if err != nil {
 		return ir.PhysicalStageGroup{}, nil, nil, err
@@ -292,13 +305,42 @@ func lowerConstructionRowValues(
 	constructionID string,
 	usedVariables map[string]bool,
 	stepIndex int,
+	groupSourceContexts ...*constructionGroupRowValueSourceContext,
 ) ([]ir.PhysicalStageRowValue, []CompiledOutputColumn, error) {
+	var groupSourceContext *constructionGroupRowValueSourceContext
+	if len(groupSourceContexts) > 1 {
+		return nil, nil, fmt.Errorf("row value lowering received multiple Group source contexts")
+	}
+	if len(groupSourceContexts) == 1 {
+		groupSourceContext = groupSourceContexts[0]
+	}
 	physical := make([]ir.PhysicalStageRowValue, 0, len(rowValues))
 	compiled := make([]CompiledOutputColumn, 0, len(rowValues))
-	for _, rowValue := range rowValues {
-		inputColumn, ok := input[rowValue.InputColumnID]
-		if !ok || inputColumn.Internal {
-			return nil, nil, fmt.Errorf("row value input column ID %q is not public", rowValue.InputColumnID)
+	for index, rowValue := range rowValues {
+		var inputColumn CompiledOutputColumn
+		var sourceBinding *ir.PhysicalStageGroupFieldSource
+		if rowValue.FieldSource != nil {
+			if rowValue.InputColumnID != "" || rowValue.FieldSource.ValueKind != "SCALAR" || groupSourceContext == nil ||
+				groupSourceContext.Plan == nil || groupSourceContext.SourceContext == nil || groupSourceContext.InputStageID == "" ||
+				groupSourceContext.Stage == nil || rowValue.FieldSource.SourceStageID != groupSourceContext.InputStageID {
+				return nil, nil, fmt.Errorf("row value fieldSource must bind the owning Group's exact input stage and source shape")
+			}
+			var projection ir.PhysicalProjection
+			var err error
+			inputColumn, projection, sourceBinding, err = lowerConstructionGroupScalarSource(
+				groupSourceContext.Plan, *rowValue.FieldSource, groupSourceContext.SourceContext,
+				stepIndex, groupSourceContext.FirstSourceIndex+index, usedVariables, groupSourceContext.Stage,
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("row value fieldSource: %w", err)
+			}
+			_ = projection // The exact source projection is installed by the shared helper.
+		} else {
+			var ok bool
+			inputColumn, ok = input[rowValue.InputColumnID]
+			if !ok || inputColumn.Internal {
+				return nil, nil, fmt.Errorf("row value input column ID %q is not public", rowValue.InputColumnID)
+			}
 		}
 		inputKind, scalar := constructionRowValueKind(inputColumn.Kind)
 		if !scalar {
@@ -327,7 +369,8 @@ func lowerConstructionRowValues(
 		}
 		physical = append(physical, ir.PhysicalStageRowValue{
 			InputColumn: inputColumn.Name, InputKind: inputKind, InputMany: many,
-			Output: output.Name, Policy: string(rowValue.Policy),
+			FieldSource: sourceBinding,
+			Output:      output.Name, Policy: string(rowValue.Policy),
 			Variable: allocateConstructionVariable(usedVariables, "row_value", stepIndex),
 		})
 		compiled = append(compiled, CompiledOutputColumn{
@@ -337,6 +380,14 @@ func lowerConstructionRowValues(
 		})
 	}
 	return physical, compiled, nil
+}
+
+type constructionGroupRowValueSourceContext struct {
+	Plan             *ir.PhysicalPlan
+	SourceContext    *CompiledGroupFieldSourceContext
+	InputStageID     string
+	Stage            *ir.PhysicalConstructionStage
+	FirstSourceIndex int
 }
 
 func constructionRowValueKind(kind string) (string, bool) {
