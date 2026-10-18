@@ -243,34 +243,34 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	if capability := RowLineageCapabilityForOutput(compiledByPolicy["GROUP"]); !capability.Available {
 		t.Fatalf("connected Group row-lineage capability = %#v, want exact related owner and Coding ordinal lineage", capability)
 	}
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aOneShared, project, patientKey("A"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aOneShared, project, patientKey("A"),
 		map[string]map[int]bool{"A1": {0: true, 1: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwoShared, project, patientKey("A"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwoShared, project, patientKey("A"),
 		map[string]map[int]bool{"A2": {0: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aVersionless, project, patientKey("A"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aVersionless, project, patientKey("A"),
 		map[string]map[int]bool{"A1": {2: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwinSystem, project, patientKey("A"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwinSystem, project, patientKey("A"),
 		map[string]map[int]bool{"A1": {3: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwinVersion, project, patientKey("A"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwinVersion, project, patientKey("A"),
 		map[string]map[int]bool{"A2": {1: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwinCode, project, patientKey("A"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], aTwinCode, project, patientKey("A"),
 		map[string]map[int]bool{"A2": {2: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], bShared, project, patientKey("B"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], bShared, project, patientKey("B"),
 		map[string]map[int]bool{"B1": {0: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], bOther, project, patientKey("B"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], bOther, project, patientKey("B"),
 		map[string]map[int]bool{"B2": {0: true}}, "", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], bEmpty, project, patientKey("B"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], bEmpty, project, patientKey("B"),
 		map[string]map[int]bool{}, "B-empty", false)
-	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], cMissingRoute, project, patientKey("C"), edgeKeysBySpecimen,
+	assertConnectedGroupLineage(t, ctx, client, compiledByPolicy["GROUP"], cMissingRoute, project, patientKey("C"),
 		map[string]map[int]bool{}, "", true)
 }
 
 type connectedGroupSourceFixture struct {
-	SourceShapeID       string
-	PatientNodeID       string
-	SpecimenNodeID      string
-	PatientSpecimenEdge string
-	CandidateIDs        map[string]string
+	GroupFieldSourceContext *lower.CompiledGroupFieldSourceContext
+	PatientNodeID           string
+	SpecimenNodeID          string
+	PatientSpecimenEdge     string
+	CandidateIDs            map[string]string
 }
 
 func connectedGroupFieldSourceFixture(t *testing.T, bindings recipe.RuntimeBindings) connectedGroupSourceFixture {
@@ -346,8 +346,8 @@ func connectedGroupFieldSourceFixture(t *testing.T, bindings recipe.RuntimeBindi
 	if err != nil || descriptor.GroupFieldSourceContext == nil {
 		t.Fatalf("describe connected Group root source shape: context=%#v err=%v", descriptor.GroupFieldSourceContext, err)
 	}
-	fixture.SourceShapeID = descriptor.GroupFieldSourceContext.SourceShapeID
-	if fixture.SourceShapeID == "" {
+	fixture.GroupFieldSourceContext = descriptor.GroupFieldSourceContext
+	if fixture.GroupFieldSourceContext.SourceShapeID == "" {
 		t.Fatalf("connected Group source context has no canonical shape ID: %#v", descriptor.GroupFieldSourceContext)
 	}
 	return fixture
@@ -362,9 +362,9 @@ func connectedGroupRootSourceOutput() recipe.Output {
 
 func connectedGroupOutputFromJSON(t *testing.T, source connectedGroupSourceFixture, codingEmptyPolicy string) recipe.Output {
 	t.Helper()
-	patientTypeSource := connectedGroupRelatedFieldSource(source, "SCALAR", source.CandidateIDs["type.text"], "type.text", "", "string")
-	codingSource := connectedGroupRelatedFieldSource(source, "CODING_IDENTITY", "", "", codingEmptyPolicy, "Coding")
-	rowValueSource := connectedGroupRelatedFieldSource(source, "SCALAR", source.CandidateIDs["id"], "id", "", "string")
+	patientTypeSource := connectedGroupRelatedFieldSource(t, source, "SCALAR", source.CandidateIDs["type.text"], "type.text", "", "string")
+	codingSource := connectedGroupRelatedFieldSource(t, source, "CODING_IDENTITY", "", "", codingEmptyPolicy, "Coding")
+	rowValueSource := connectedGroupRelatedFieldSource(t, source, "SCALAR", source.CandidateIDs["id"], "id", "", "string")
 	payload := map[string]any{
 		"name": "connected_specimen_coding_group", "rootResourceType": "Patient", "rootOccurrenceId": "patient-root", "rowGrain": "patient",
 		"fields": []any{map[string]any{"name": "patient_id", "columnId": "patient_id", "expr": map[string]any{"select": "root.id"}}},
@@ -409,30 +409,36 @@ func connectedGroupOutputFromJSON(t *testing.T, source connectedGroupSourceFixtu
 	return output
 }
 
-func connectedGroupRelatedFieldSource(source connectedGroupSourceFixture, valueKind, candidateID, canonicalPath, codingEmptyPolicy, valueResourceType string) map[string]any {
-	related := map[string]any{
-		"anchorOccurrenceId": "patient-root", "anchorNodeId": source.PatientNodeID, "anchorResourceType": "Patient",
-		"route": []any{map[string]any{
-			"stepIndex": 0, "fromOccurrenceId": "patient-root", "fromNodeId": source.PatientNodeID, "fromResourceType": "Patient",
-			"edgeId": source.PatientSpecimenEdge, "relationship": "subject_Patient", "storageDirection": "INBOUND", "matchMode": "OPTIONAL",
-			"toOccurrenceId": "specimen-owner", "toNodeId": source.SpecimenNodeID, "toResourceType": "Specimen",
+func connectedGroupRelatedFieldSource(
+	t *testing.T,
+	source connectedGroupSourceFixture,
+	valueKind, candidateID, canonicalPath, codingEmptyPolicy, valueResourceType string,
+) recipe.ConstructionGroupFieldSource {
+	t.Helper()
+	related := recipe.ConstructionGroupRelatedOccurrenceFieldSource{
+		AnchorNodeID: source.PatientNodeID, AnchorResourceType: "Patient",
+		Route: []recipe.ConstructionGroupRelatedRouteStep{{
+			StepIndex: 0, FromNodeID: source.PatientNodeID, FromResourceType: "Patient",
+			EdgeID: source.PatientSpecimenEdge, Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			ToNodeID: source.SpecimenNodeID, ToResourceType: "Specimen",
 		}},
-		"targetOccurrenceId": "specimen-owner", "targetNodeId": source.SpecimenNodeID, "targetResourceType": "Specimen",
-		"resourceType": valueResourceType, "emptyPolicy": "PRESERVE_PARENT", "multiplicity": "DISTINCT_TARGET_PER_INPUT",
+		TargetNodeID: source.SpecimenNodeID, TargetResourceType: "Specimen", ResourceType: valueResourceType,
+		CandidateID: candidateID, CanonicalPath: canonicalPath,
+		EmptyPolicy: recipe.ExpansionPreserveParent, Multiplicity: recipe.ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
 	}
 	if valueKind == "CODING_IDENTITY" {
-		related["codingSelector"] = "type.coding[]"
-		related["codingEmptyPolicy"] = codingEmptyPolicy
-		related["ordinalSemantics"] = "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY"
-	} else {
-		related["candidateId"] = candidateID
-		related["canonicalPath"] = canonicalPath
+		related.CodingSelector = "type.coding[]"
+		related.CodingEmptyPolicy = recipe.ConstructionGroupCodingEmptyPolicy(codingEmptyPolicy)
+		related.OrdinalSemantics = recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition
 	}
-	return map[string]any{
-		"kind": "BINDING", "valueKind": valueKind,
-		"sourceStageId": recipe.ConstructionSourceProjectionID, "sourceShapeId": source.SourceShapeID,
-		"input": map[string]any{"kind": "RELATED_OCCURRENCE", "relatedOccurrence": related},
+	binding, err := lower.BindGroupRelatedOccurrenceSource(source.GroupFieldSourceContext, recipe.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: valueKind,
+		Input: &recipe.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &related},
+	})
+	if err != nil {
+		t.Fatalf("bind compiler-issued related %s source: %v", valueKind, err)
 	}
+	return binding
 }
 
 func connectedSpecimenDocument(project, generation, id, patientID, typeText string, codings []any) map[string]any {
@@ -609,7 +615,6 @@ func assertConnectedGroupLineage(
 	compiled lower.CompiledRecipeOutput,
 	row map[string]any,
 	project, patientKey string,
-	edgeKeysBySpecimen map[string][]string,
 	wantOrdinals map[string]map[int]bool,
 	emptyCodingOwner string,
 	missingRelatedRoute bool,
@@ -647,14 +652,14 @@ func assertConnectedGroupLineage(
 			continue
 		}
 		occurrence := connectedOccurrenceKey(t, contributor["occurrenceKey"])
-		if occurrence["root_id"] != "Patient/"+patientKey || occurrence["occurrence_id"] != "specimen-owner" {
-			t.Errorf("connected Group occurrence root/route identity = %#v, want exact Patient->Specimen route", occurrence)
+		if len(occurrence) != 4 || occurrence["root_id"] != patientKey {
+			t.Errorf("connected Group occurrence identity = %#v, want only exact root_id, terminal_id, item_present, ordinal fields for Patient key %q", occurrence, patientKey)
 		}
-		ownerKey, _ := occurrence["owner_id"].(string)
+		terminalID := occurrence["terminal_id"]
 		ownerID := ""
-		if missingRelatedRoute && ownerKey == "" {
-			if occurrence["edge_00_id"] != nil || occurrence["item_present"] != false || occurrence["ordinal"] != nil {
-				t.Errorf("absent-route Group occurrence = %#v, want no related owner, edge, item, or ordinal", occurrence)
+		if missingRelatedRoute && terminalID == nil {
+			if occurrence["item_present"] != false || occurrence["ordinal"] != nil {
+				t.Errorf("absent-route Group occurrence = %#v, want null terminal, item_present=false, and null ordinal", occurrence)
 			}
 			missingRelatedRoute = false
 			keyBytes, _ := json.Marshal(occurrence)
@@ -666,41 +671,28 @@ func assertConnectedGroupLineage(
 			continue
 		}
 		for candidateID, ordinals := range remaining {
-			if ownerKey == "Specimen/"+project+"_specimen_"+candidateID && len(ordinals) != 0 {
+			if terminalID == "Specimen/"+project+"_specimen_"+candidateID && len(ordinals) != 0 {
 				ownerID = candidateID
 				break
 			}
 		}
-		if ownerID == "" && emptyCodingOwner != "" && ownerKey == "Specimen/"+project+"_specimen_"+emptyCodingOwner {
+		if ownerID == "" && emptyCodingOwner != "" && terminalID == "Specimen/"+project+"_specimen_"+emptyCodingOwner {
 			if occurrence["item_present"] != false || occurrence["ordinal"] != nil {
-				t.Errorf("empty Coding occurrence = %#v, want exact Specimen owner without item or ordinal", occurrence)
+				t.Errorf("empty Coding occurrence = %#v, want exact terminal Specimen ID without item or ordinal", occurrence)
 			}
 			ownerID = emptyCodingOwner
 			emptyCodingOwner = ""
 		} else if ownerID != "" {
-			ordinal, ok := occurrence["ordinal"].(float64)
-			want := int(ordinal)
-			if occurrence["item_present"] != true || !ok || !remaining[ownerID][want] {
+			ordinalValue, ok := occurrence["ordinal"].(float64)
+			ordinal := int(ordinalValue)
+			if occurrence["item_present"] != true || !ok || !remaining[ownerID][ordinal] {
 				t.Errorf("connected Coding occurrence for %s = %#v, want an exact source ordinal", ownerID, occurrence)
 			} else {
-				delete(remaining[ownerID], want)
+				delete(remaining[ownerID], ordinal)
 			}
 		} else {
-			t.Errorf("connected Group lineage related owner = %#v, want exact contributing Specimen owner", occurrence)
+			t.Errorf("connected Group lineage terminal_id = %#v, want exact contributing Specimen owner", terminalID)
 			continue
-		}
-		if ownerID != "" && ownerID != emptyCodingOwner {
-			allowedEdges := edgeKeysBySpecimen[ownerID]
-			edgeValue, _ := occurrence["edge_00_id"].(string)
-			foundEdge := false
-			for _, edgeKey := range allowedEdges {
-				if edgeValue == "fhir_edge/"+edgeKey {
-					foundEdge = true
-				}
-			}
-			if !foundEdge {
-				t.Errorf("connected Group occurrence edge = %q, want one of the exact links for %s: %#v", edgeValue, ownerID, allowedEdges)
-			}
 		}
 		keyBytes, _ := json.Marshal(occurrence)
 		key := string(keyBytes)
@@ -733,6 +725,6 @@ func connectedOccurrenceKey(t *testing.T, raw any) map[string]any {
 			return key
 		}
 	}
-	t.Fatalf("connected Group occurrence key = %#v, want exact route/owner identity", raw)
+	t.Fatalf("connected Group occurrence key = %#v, want exact compact root/terminal/item/ordinal identity", raw)
 	return nil
 }
