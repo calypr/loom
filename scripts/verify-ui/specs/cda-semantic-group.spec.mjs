@@ -8,9 +8,9 @@ test.describe('CDA semantic category Group', () => {
     cdaRequireSourceFixture: true,
   });
 
-  test('selects, previews, cancels, applies, edits, removes, restores, and reloads exact semantic groups', async ({ page, cda }) => {
+  test('selects, previews, cancels, applies, edits, removes, restores, and reloads exact semantic groups', async ({ page, cda }, testInfo) => {
     test.setTimeout(300_000);
-    await semanticGroupLifecycle({ page, cda });
+    await semanticGroupLifecycle({ page, cda, testInfo });
     await expect(page).toHaveURL(/mode=builder/);
   });
 });

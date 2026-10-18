@@ -198,7 +198,7 @@ function assertGrid(grid, { expectedHeaders, expectedRows, phase }) {
   assert.deepEqual(sortRows(grid.rows), sortRows(expectedRows), `${phase} values or row multiplicity differ from the independent source oracle.`);
 }
 
-export async function semanticGroupLifecycle({ page, cda }) {
+export async function semanticGroupLifecycle({ page, cda, testInfo }) {
   const project = cda.project;
   const generation = cda.generation;
   const apiOrigin = String(cda.apiOrigin).replace(/\/$/, '');
@@ -461,40 +461,66 @@ export async function semanticGroupLifecycle({ page, cda }) {
       await waitProposalReady();
     });
     const groupBox = page.getByTestId('construction-reshape-group');
-    const semanticSelect = page.getByTestId('construction-group-semantic-choice');
-    await semanticSelect.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-    assert.equal(await groupBox.locator('[data-testid="construction-group-semantic-choice"]').count(), 1,
-      'Semantic family selection must live inside the existing Group-by box.');
-    return { groupBox, semanticSelect };
+    const semanticChoices = groupBox.locator('input[type="checkbox"][data-semantic-choice-id]');
+    await semanticChoices.first().waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+    assert((await semanticChoices.count()) > 0,
+      'Semantic family checkboxes must live inside the existing Group-by box.');
+    return groupBox;
   };
-  const selectFamily = async semanticSelect => {
+  const semanticScope = binding => `${binding.sourceKind} · ${binding.resourceType}.${binding.codingPath} · ${binding.system} · ${binding.version ? `version ${binding.version}` : 'versionless'}`;
+  const selectFamily = async groupBox => {
     const previousReceipt = await proposalReceipt();
-    const options = await semanticSelect.locator('option').evaluateAll(elements => elements.map(option => ({
-      value: option.value, label: String(option.textContent ?? '').replace(/\s+/g, ' ').trim(), disabled: option.disabled,
-    })));
-    const versionLabel = oracle.family.version ?? 'versionless';
-    const matches = options.filter(option => !option.disabled && /specimen\s*type/i.test(option.label) &&
-      option.label.includes(oracle.family.system) && option.label.toLowerCase().includes(versionLabel.toLowerCase()));
+    const candidates = await groupBox.locator('input[type="checkbox"][data-semantic-choice-id]').evaluateAll(inputs => inputs.map((input, index) => {
+      const option = input.closest('[data-testid="construction-group-semantic-option"]');
+      return {
+        index,
+        choiceId: input.getAttribute('data-semantic-choice-id'),
+        accessibleName: input.getAttribute('aria-label') ?? '',
+        scopeLabel: option?.querySelector('[data-testid^="construction-group-field-details-"] p')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+        disabled: input.disabled,
+      };
+    }));
+    const versionLabel = oracle.family.version ? `version ${oracle.family.version}` : 'versionless';
+    const matches = candidates.filter(candidate => !candidate.disabled &&
+      candidate.accessibleName === 'Group by Specimen type' &&
+      candidate.scopeLabel.includes('Specimen.type.coding[]') &&
+      candidate.scopeLabel.includes(oracle.family.system) &&
+      candidate.scopeLabel.endsWith(versionLabel));
     assert.equal(matches.length, 1,
-      `The Group editor must offer exactly the readable Specimen type family ${oracle.family.system} / ${versionLabel}; options were ${JSON.stringify(options)}`);
-    assert(matches[0].value.startsWith('choice:'), 'A new semantic family option must expose its ephemeral CHOICE ID.');
-    choiceId = matches[0].value.slice('choice:'.length);
-    semanticOutputLabel = matches[0].label.split(' (')[0].trim();
-    assert.match(semanticOutputLabel, /specimen\s*type/i,
-      'The Group key output must retain a readable Specimen type label.');
-    await action('select visible Specimen type semantic family', semanticSelect,
-      () => semanticSelect.selectOption(matches[0].value, { timeout: ACTION_BUDGET_MS }), async () => {
+      `The Group editor must offer exactly the readable Specimen type family ${oracle.family.system} / ${versionLabel} in Details; choices were ${JSON.stringify(candidates)}`);
+    const match = matches[0];
+    assert(typeof match.choiceId === 'string' && match.choiceId.trim(),
+      'A new semantic family checkbox must expose its exact ID in data-semantic-choice-id.');
+    choiceId = match.choiceId;
+    semanticOutputLabel = match.accessibleName.slice('Group by '.length);
+    assert.equal(semanticOutputLabel, 'Specimen type',
+      'The semantic option label must be the readable Specimen type name without its system or version.');
+    assert(match.scopeLabel.includes(oracle.family.system));
+    assert(match.scopeLabel.endsWith(versionLabel), 'The semantic option Details must show the exact family version.');
+    const semanticCheckbox = groupBox.locator('input[type="checkbox"][data-semantic-choice-id]').nth(match.index);
+    assert.equal(await semanticCheckbox.getAttribute('data-semantic-choice-id'), choiceId,
+      'The checked semantic family must be the exact choice identified by data-semantic-choice-id.');
+    await action('select visible Specimen type semantic family', semanticCheckbox,
+      () => semanticCheckbox.check({ timeout: ACTION_BUDGET_MS }), async () => {
         await waitNextProposalPreview(previousReceipt);
       });
-    const selected = await semanticSelect.locator('option:checked').textContent();
-    assert.equal(clean(selected), `${matches[0].label} (selected)`);
-    return matches[0];
+    const selectedCheckbox = page.getByTestId(`construction-group-semantic-choice-${choiceId}`);
+    assert.equal(await selectedCheckbox.getAttribute('data-semantic-choice-id'), choiceId);
+    assert.equal(await selectedCheckbox.isChecked(), true, 'The exact Specimen type semantic checkbox must be checked.');
+    const scopeDetails = page.getByTestId(`construction-group-field-details-${choiceId}`);
+    const scopeText = scopeDetails.locator('p');
+    await action('show selected Specimen type family scope Details', scopeDetails.locator('summary'),
+      () => scopeDetails.locator('summary').click(),
+      () => scopeText.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
+    assert.equal(clean(await scopeText.textContent()), match.scopeLabel,
+      'The selected semantic family Details must display its exact source scope.');
+    return { choiceId, label: semanticOutputLabel, scopeLabel: match.scopeLabel };
   };
 
   let choiceId;
   let semanticOutputLabel;
   let rawSourceVisibleCheck = false;
-  await openGroup();
+  const initialGroupBox = await openGroup();
   const sourceKey = page.getByRole('checkbox', { name: `Group by ${scalarLabel}`, exact: true });
   await sourceKey.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
   const scalarRequest = waitProposalRequest(step => step?.operation?.kind === 'GROUP' &&
@@ -504,10 +530,18 @@ export async function semanticGroupLifecycle({ page, cda }) {
     await scalarRequest;
     await waitNextProposalPreview(scalarReceipt);
   });
-  const semanticSelect = page.getByTestId('construction-group-semantic-choice');
   const typedRequest = waitProposalRequest(step => step?.operation?.kind === 'GROUP' &&
     step.operation.group.keys?.some(key => key.semanticCategory?.kind === 'CHOICE'));
-  const selectedFamily = await selectFamily(semanticSelect);
+  const selectedFamily = await selectFamily(initialGroupBox);
+  const grainSummary = clean(await page.getByTestId('construction-group-grain-summary').textContent());
+  assert.match(grainSummary, /One row per unique combination of/i);
+  assert(grainSummary.includes(scalarLabel), 'The Group screen must show the selected scalar grain.');
+  assert(grainSummary.includes(semanticOutputLabel), 'The Group screen must show the selected Specimen type grain.');
+  assert.equal(typeof testInfo?.attach, 'function', 'The native semantic Group test must provide Playwright testInfo for its screenshot.');
+  await testInfo.attach('semantic-group-initial-picker.png', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
   const typedCandidateRequest = await typedRequest;
   const proposed = assertProposal(typedCandidateRequest, { scalar: true });
   const keyOutput = proposed.step.outputs?.find(output => output.id === proposed.semanticKey.outputColumnId);
@@ -516,7 +550,7 @@ export async function semanticGroupLifecycle({ page, cda }) {
   semanticOutputLabel = keyOutput.label;
   const firstPreview = await assertRendered({ step: proposed.step, phase: 'semantic plus scalar Group Preview' });
   cda.check('usability', 'visible Specimen type family selection sits in the existing Group-by box', true, {
-    control: 'Semantic category field', choiceId, optionLabel: selectedFamily.label,
+    control: 'Semantic family checkbox', choiceId, optionLabel: selectedFamily.label, scopeDetails: selectedFamily.scopeLabel,
     family: oracle.family, scalarGroupKey: scalarLabel,
   });
   cda.check('correctness', 'native semantic Group proposal is ordinary GROUP with a CHOICE and scalar key', true, {
@@ -553,10 +587,9 @@ export async function semanticGroupLifecycle({ page, cda }) {
     await applyScalarRequest;
     await waitNextProposalPreview(applyScalarReceipt);
   });
-  const applySemanticSelect = page.getByTestId('construction-group-semantic-choice');
   const applyTypedRequest = waitProposalRequest(step => step?.operation?.kind === 'GROUP' &&
     step.operation.group.keys?.some(key => key.semanticCategory?.kind === 'CHOICE'));
-  await selectFamily(applySemanticSelect);
+  await selectFamily(page.getByTestId('construction-reshape-group'));
   const applyCandidate = await applyTypedRequest;
   const applyProposal = assertProposal(applyCandidate, { scalar: true });
   semanticOutputLabel = applyProposal.step.outputs.find(output => output.id === applyProposal.semanticKey.outputColumnId)?.label;
@@ -599,33 +632,38 @@ export async function semanticGroupLifecycle({ page, cda }) {
         () => history.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS }));
     }
     const edit = page.getByTestId(`construction-row-edit-${reloadedBinding.step.id}`);
-    const select = page.getByTestId('construction-group-semantic-choice');
     const savedBindingValue = `binding:${reloadedBinding.key.semanticCategory.bindingId}:${reloadedBinding.key.semanticCategory.ruleVersion}`;
+    const expectedScope = semanticScope(reloadedBinding.key.semanticCategory);
+    const savedSemanticCheckbox = page.getByRole('checkbox', { name: `Group by ${semanticOutputLabel}`, exact: true });
     await action('open saved semantic Group editor', edit, () => edit.click(), async () => {
-      await select.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-      await page.waitForFunction(({ bindingValue, scalarLabel }) => {
-        const select = document.querySelector('[data-testid="construction-group-semantic-choice"]');
+      await savedSemanticCheckbox.waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
+      await page.waitForFunction(({ bindingValue, scalarLabel, semanticLabel, expectedScope }) => {
+        const semanticCheckbox = [...document.querySelectorAll('input[type="checkbox"]')]
+          .find(input => input.value === bindingValue && input.checked);
         const scalarKey = [...document.querySelectorAll('input[type="checkbox"]')]
           .find(input => input.getAttribute('aria-label') === `Group by ${scalarLabel}`);
-        return select instanceof HTMLSelectElement && select.value === bindingValue && scalarKey?.checked === true;
-      }, { bindingValue: savedBindingValue, scalarLabel }, { timeout: ACTION_BUDGET_MS });
+        const scope = semanticCheckbox?.closest('[data-testid="construction-group-semantic-option"]')
+          ?.querySelector('[data-testid="construction-group-saved-field-details"] p')?.textContent
+          ?.replace(/\s+/g, ' ').trim();
+        return semanticCheckbox?.getAttribute('aria-label') === `Group by ${semanticLabel}` &&
+          scope === expectedScope && scalarKey?.checked === true;
+      }, { bindingValue: savedBindingValue, scalarLabel, semanticLabel: semanticOutputLabel, expectedScope }, { timeout: ACTION_BUDGET_MS });
     });
-    const selectedValue = await select.inputValue();
-    assert.equal(selectedValue, savedBindingValue, 'The saved semantic binding must rehydrate by its durable binding and rule version.');
-    const selectedLabel = clean(await select.locator('option:checked').textContent());
-    assert.match(selectedLabel, /specimen\s*type/i);
-    assert(selectedLabel.includes(oracle.family.system));
-    assert(selectedLabel.toLowerCase().includes((oracle.family.version ?? 'versionless').toLowerCase()));
-    choiceId = selectedValue;
-    return select;
+    assert.equal(await savedSemanticCheckbox.getAttribute('value'), savedBindingValue,
+      'The saved semantic key must rehydrate as a synthetic checkbox carrying its durable binding and rule version.');
+    assert.equal(await savedSemanticCheckbox.isChecked(), true,
+      'The saved semantic binding checkbox must be checked in the Group editor.');
+    const savedScope = clean(await page.getByTestId('construction-group-saved-field-details').locator('p').textContent());
+    assert.equal(savedScope, expectedScope, 'The saved BINDING Details must retain the exact persisted scope.');
+    return { checkbox: savedSemanticCheckbox, bindingValue: savedBindingValue, scope: savedScope };
   };
   const savedBeforeEdit = await readBuilder();
-  const savedSemanticSelect = await openSavedGroup();
-  const editSelectedLabel = clean(await savedSemanticSelect.locator('option:checked').textContent());
-  assert.equal(await savedSemanticSelect.inputValue(), choiceId,
-    'Saved semantic selection must rehydrate the exact choice for its durable family binding.');
-  assert.match(editSelectedLabel, /specimen\s*type/i);
-  assert(editSelectedLabel.includes(oracle.family.system));
+  const savedSemanticBinding = await openSavedGroup();
+  const editSelectedLabel = clean(await savedSemanticBinding.checkbox.getAttribute('aria-label'));
+  assert.equal(editSelectedLabel, `Group by ${semanticOutputLabel}`);
+  assert.equal(savedSemanticBinding.bindingValue,
+    `binding:${firstSaved.key.semanticCategory.bindingId}:${firstSaved.key.semanticCategory.ruleVersion}`);
+  assert.equal(savedSemanticBinding.scope, semanticScope(firstSaved.key.semanticCategory));
   const editScalarKey = page.getByRole('checkbox', { name: `Group by ${scalarLabel}`, exact: true });
   assert.equal(await editScalarKey.isChecked(), true, 'Saved Group edit must rehydrate its scalar key.');
   const semanticOnlyRequest = waitProposalRequest(step => step?.operation?.kind === 'GROUP' &&
@@ -663,9 +701,10 @@ export async function semanticGroupLifecycle({ page, cda }) {
     keys: groupStep(afterEditCancel).operation.group.keys,
   });
 
-  const rehydratedSemanticSelect = await openSavedGroup();
-  assert.equal(await rehydratedSemanticSelect.inputValue(), choiceId);
-  assert.match(clean(await rehydratedSemanticSelect.locator('option:checked').textContent()), /specimen\s*type/i);
+  const rehydratedSemanticBinding = await openSavedGroup();
+  assert.equal(rehydratedSemanticBinding.bindingValue,
+    `binding:${firstSaved.key.semanticCategory.bindingId}:${firstSaved.key.semanticCategory.ruleVersion}`);
+  assert.equal(rehydratedSemanticBinding.scope, semanticScope(firstSaved.key.semanticCategory));
   const semanticOnlyApplyRequest = waitProposalRequest(step => step?.operation?.kind === 'GROUP' &&
     step.operation.group.keys?.length === 1 && step.operation.group.keys[0]?.semanticCategory?.kind === 'BINDING');
   const semanticOnlyReceipt = await proposalReceipt();
