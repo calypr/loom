@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
+import { createPlaywrightNetworkObserver } from '../helpers/playwright-network-observer.mjs';
 import { captureBuilderScreenshot } from './verify-cda-builder-related-source-chooser.mjs';
 
 const ACTION_BUDGET_MS = 5_000;
@@ -439,6 +440,21 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const explorerID = `semantic-group-connected-${randomUUID()}`;
   const explorersPath = `/api/v1/projects/${encode(project)}/explorers`;
   const authoringPath = `${explorersPath}/${encode(explorerID)}/authoring/v2`;
+  const constructionProposalPath = `${authoringPath}/construction-proposals`;
+  const commandsPath = `${authoringPath}/commands`;
+  const reconcilePath = `${authoringPath}/reconcile`;
+  const previewPath = `${authoringPath}/preview`;
+  const constructionPaths = new Set([constructionProposalPath, commandsPath, reconcilePath, previewPath]);
+  const constructionRequests = createPlaywrightNetworkObserver(page, {
+    appOrigins: [apiOrigin],
+    scopeRequest: request => {
+      try {
+        const url = new URL(request.url());
+        return url.origin === apiOrigin && request.method() === 'POST' && constructionPaths.has(url.pathname);
+      } catch { return false; }
+    },
+    responsePaths: [constructionProposalPath, commandsPath],
+  });
   const pageURL = `${uiOrigin}/?project=${encode(project)}&explorer=${encode(explorerID)}&mode=builder`;
   await api(explorersPath, { name: explorerID, title: 'Connected Specimen Coding Group verification' });
   let builder = await api(`${authoringPath}/builder`);
@@ -622,10 +638,65 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const initialExpected = expectedGrid(candidateStep, oracle, { patientID: patientIDChoice, coding: specimenCodingChoice });
   await assertGrid(page, 'proposal', initialExpected, 'connected Group Preview');
   await captureBuilderScreenshot({ page, cda, report, name: 'connected-group-picker.png' });
+  const groupProposalEntry = constructionRequests.byRequest.get(finalGroupRequest);
+  assert(groupProposalEntry, 'The connected Group proposal must be captured by the scoped native request observer.');
+  await constructionRequests.waitForResponse(entry => entry === groupProposalEntry && entry.status === 200 &&
+    entry.response?.previewStatus === 'READY' && Boolean(entry.response?.proposalId), {
+    fromIndex: groupProposalEntry.index, timeoutMs: ACTION_BUDGET_MS,
+  });
+  const proposalBody = finalGroupRequest.postDataJSON();
+  const proposalResponse = groupProposalEntry.response;
+  const proposalID = proposalResponse.proposalId;
+  assert.equal(proposalBody.outputId, outputId);
+  assert.equal(proposalResponse.outputId, outputId);
+  assert.equal(await receipt(), proposalID,
+    'The connected Group proposal preview must display the exact proposal receipt before Apply.');
+  const groupApplyRequestStart = constructionRequests.requests.length;
   const groupApplyStarted = Date.now();
   await page.getByTestId('construction-apply-proposal').click({ timeout: ACTION_BUDGET_MS });
   await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
   assert(Date.now() - groupApplyStarted <= ACTION_BUDGET_MS, 'Applying the connected Group exceeded five seconds.');
+  const groupApplyEntry = await constructionRequests.waitForResponse(entry => entry.index >= groupApplyRequestStart &&
+    entry.path === commandsPath && entry.method === 'POST' && entry.status === 200 &&
+    entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL' &&
+      command.outputId === outputId && command.proposalId === proposalID), {
+    fromIndex: groupApplyRequestStart, timeoutMs: ACTION_BUDGET_MS,
+  });
+  const groupApplyResponse = groupApplyEntry.response;
+  assert(groupApplyResponse && typeof groupApplyResponse === 'object',
+    'Applying the connected Group must return a captured native command response.');
+  const acceptedConstruction = groupApplyResponse.acceptedConstruction;
+  assert(acceptedConstruction && typeof acceptedConstruction === 'object',
+    'The first Group Apply response must carry its accepted construction.');
+  assert.equal(acceptedConstruction.receipt?.receiptId, proposalID,
+    'Apply must reuse the exact receipt issued for the connected Group proposal.');
+  assert.equal(acceptedConstruction.receipt?.intentDigest, groupApplyResponse.draftDigest,
+    'The accepted construction receipt must bind the exact Apply successor draft.');
+  assert.equal(acceptedConstruction.preview?.receiptId, proposalID,
+    'The accepted construction Preview must reuse the proposal receipt.');
+  assert.equal(acceptedConstruction.preview?.outputId, outputId);
+  assert(Array.isArray(acceptedConstruction.preview?.rows),
+    'The accepted construction Preview must contain the proposed Group rows.');
+  assert.equal(acceptedConstruction.previewLimit, proposalBody.limit,
+    'The accepted construction Preview must retain the exact proposal row limit.');
+  await page.waitForFunction(({ receiptId, expectedOutputId, draftVersion, draftDigest }) => {
+    const preview = document.querySelector('[data-testid="construction-preview"]');
+    return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewReceiptId === receiptId &&
+      preview.dataset.previewOutputId === expectedOutputId &&
+      preview.dataset.currentDraftVersion === String(draftVersion) && preview.dataset.currentDraftDigest === draftDigest;
+  }, {
+    receiptId: acceptedConstruction.preview.receiptId,
+    expectedOutputId: outputId,
+    draftVersion: groupApplyResponse.draftVersion,
+    draftDigest: groupApplyResponse.draftDigest,
+  }, { timeout: ACTION_BUDGET_MS });
+  const groupApplyWindow = constructionRequests.requests.slice(groupApplyRequestStart);
+  assert.equal(groupApplyWindow.filter(entry => entry.path === commandsPath).length, 1,
+    'Applying the connected Group must issue exactly one native Apply command.');
+  assert.equal(groupApplyWindow.filter(entry => entry.path === reconcilePath).length, 0,
+    'Applying the accepted connected Group must not issue a redundant /reconcile request.');
+  assert.equal(groupApplyWindow.filter(entry => entry.path === previewPath).length, 0,
+    'Applying the accepted connected Group must not issue a redundant /preview request.');
   builder = await api(`${authoringPath}/builder`);
   let savedGroup = groupStepFor(builder, outputId);
   assert(savedGroup, 'Applying the connected Group must persist one Group step.');
@@ -951,6 +1022,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     'The visible summary-name edit must remain unique within the saved Group.');
   const previousEditReceipt = await page.getByTestId('construction-preview').getAttribute('data-preview-receipt-id');
   assert(previousEditReceipt, 'The saved Group edit must begin from its current applied preview receipt.');
+  const editProposalRequestStart = constructionRequests.requests.length;
   const editProposalRequestPromise = page.waitForRequest(request => {
     try {
       if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
@@ -972,6 +1044,20 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     'Changing the saved connected Group summary name and resolving its proposal exceeded five seconds.');
   const editProposalRequest = editProposalResult.request;
   assert(editProposalRequest, 'The visible saved Group summary-name change must issue one proposal request.');
+  const editProposalEntry = constructionRequests.byRequest.get(editProposalRequest);
+  assert(editProposalEntry, 'The saved Group edit must be captured by the scoped native request observer.');
+  await constructionRequests.waitForResponse(entry => entry === editProposalEntry && entry.status === 200 &&
+    entry.response?.previewStatus === 'READY' && Boolean(entry.response?.proposalId), {
+    fromIndex: editProposalRequestStart, timeoutMs: ACTION_BUDGET_MS,
+  });
+  const editProposalWindow = constructionRequests.requests.slice(editProposalRequestStart);
+  assert.equal(editProposalWindow.filter(entry => entry.path === constructionProposalPath).length, 1,
+    'Editing the saved Group must issue exactly one fresh construction proposal.');
+  assert.equal(editProposalEntry.response.outputId, outputId);
+  assert.notEqual(editProposalEntry.response.proposalId, previousEditReceipt,
+    'The edited Group must receive a new proposal receipt.');
+  assert.equal(await receipt(), editProposalEntry.response.proposalId,
+    'The later Group edit must display the exact receipt returned for its fresh proposal.');
   const editCandidate = editProposalRequest.postDataJSON().candidateConstruction.steps.find(step => step.id === reloadedSavedGroup.id);
   assert(editCandidate, 'The saved Group summary-name proposal must contain the exact Group step.');
   assert.deepEqual(editCandidate.operation.group.keys, savedKeys,
@@ -1114,4 +1200,5 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       sourceRootIDs: restoredPreviewRoots, columns: restoredAfterReload.columns,
       constructionSteps: restoredAfterReload.construction?.steps?.length ?? 0,
       emptyTablePrompt: 'Add a column to see your table.' });
+  constructionRequests.stop();
 }
