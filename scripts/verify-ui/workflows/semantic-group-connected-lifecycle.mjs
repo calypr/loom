@@ -333,7 +333,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   assert.equal(generation, 'cda-fhir-v1');
   assert(apiOrigin && uiOrigin);
   const arango = validatedArangoContainer(cda.target);
-  const database = cda.target.arangoDatabase;
+  const database = cda.target.arangoDatabase ?? cda.env?.LOOM_ARANGO_DATABASE;
   assert(database, 'The owned CDA target must name its existing Arango database.');
 
   const report = cda.report;
