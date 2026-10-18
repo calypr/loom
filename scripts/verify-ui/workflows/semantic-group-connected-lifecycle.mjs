@@ -187,6 +187,17 @@ function assertRelatedBinding(binding, { valueKind, candidateID, expectedRoute, 
   return related;
 }
 
+function relatedRowValueChoiceMatchesBinding(choice, binding) {
+  const related = binding?.input?.relatedOccurrence;
+  return choice?.kind === 'FIELD_SOURCE' && choice.valueKind === 'SCALAR' &&
+    choice.fieldSource?.kind === 'CHOICE' && binding?.kind === 'BINDING' && binding.valueKind === 'SCALAR' &&
+    choice.sourceStageId === binding.sourceStageId && choice.sourceShapeId === binding.sourceShapeId &&
+    choice.sourceRole === 'RELATED_OCCURRENCE' && choice.occurrenceId === related?.targetOccurrenceId &&
+    choice.resourceType === related?.resourceType && choice.ownerOccurrenceId === related?.targetOccurrenceId &&
+    choice.ownerResourceType === related?.targetResourceType && choice.candidateId === related?.candidateId &&
+    choice.canonicalPath === related?.canonicalPath && !choice.boundarySelector;
+}
+
 function assertRootBinding(binding, candidateID, expectedShapeID) {
   assert.equal(binding?.kind, 'BINDING');
   assert.equal(binding?.valueKind, 'SCALAR');
@@ -860,22 +871,12 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
         body.outputId === outputId && body.stageId === 'source_projection' && body.groupStepId === reloadedSavedGroup.id;
     } catch { return false; }
   }, { timeout: ACTION_BUDGET_MS });
-  const editProposalPromise = page.waitForRequest(request => {
-    try {
-      if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
-      const body = request.postDataJSON();
-      const step = body.candidateConstruction?.steps?.find(candidate => candidate.id === reloadedSavedGroup.id);
-      return body.outputId === outputId && step?.operation?.kind === 'GROUP';
-    } catch { return false; }
-  }, { timeout: ACTION_BUDGET_MS });
   const editStarted = Date.now();
   await page.getByTestId(`construction-history-step-${reloadedSavedGroup.id}`).click({ timeout: ACTION_BUDGET_MS });
   await page.getByTestId(`construction-edit-step-${reloadedSavedGroup.id}`).waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
   await page.getByTestId(`construction-edit-step-${reloadedSavedGroup.id}`).click({ timeout: ACTION_BUDGET_MS });
   await page.getByTestId('construction-reshape-group').waitFor({ state: 'visible', timeout: ACTION_BUDGET_MS });
-  await waitProposalReady(page);
   const editCapabilitiesResponse = await editCapabilitiesPromise;
-  const editProposalRequest = await editProposalPromise;
   assert(Date.now() - editStarted <= ACTION_BUDGET_MS,
     'Opening the saved connected Group editor and resolving its selected choices exceeded five seconds.');
   assert(editCapabilitiesResponse.ok(),
@@ -915,17 +916,92 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     assert(selectedBindingLabels.some(label => label?.startsWith(`Group by ${choice.label}`)),
       `The selected saved binding for ${choice.label} must remain checked in the editor.`);
   }
+  const savedRowValues = reloadedSavedGroup.rowValues ?? [];
+  assert.equal(savedRowValues.length, 1, 'The saved Group must retain its exact related-owner RowValue before editing.');
+  const savedRowValue = savedRowValues[0];
+  const rowValueChoices = (editCapabilities.groupRowValueChoices ?? []).filter(choice =>
+    relatedRowValueChoiceMatchesBinding(choice, savedRowValue.fieldSource));
+  assert.equal(rowValueChoices.length, 1,
+    'The saved related-owner RowValue must rehydrate from exactly one compiler-issued capability.');
+  const [editRowValueChoice] = rowValueChoices;
+  assert.equal(relatedFacts(editRowValueChoice)?.routeId, codingRoute.routeId,
+    'The saved RowValue capability must retain the exact Group Coding route.');
+  const rowValueOutput = reloadedSavedGroup.outputs.find(output => output.id === savedRowValue.outputColumnId);
+  assert(rowValueOutput, 'The saved Group must expose the exact RowValue output column.');
+  const editRowValueRows = editGroupBox.getByTestId('construction-group-row-value');
+  assert.equal(await editRowValueRows.count(), savedRowValues.length,
+    'Editing the saved Group must render exactly its saved RowValue contributor.');
+  const editRowValueRow = editRowValueRows.first();
+  const rowValuePresentation = await editRowValueRow.locator(':scope > div').first().innerText();
+  assert.equal(clean(rowValuePresentation), clean(`${editRowValueChoice.label} ${editRowValueChoice.scopeLabel}`),
+    'The saved RowValue editor row must display the exact capability-issued field and related route.');
+  assert.equal(await editRowValueRow.getByRole('combobox', { name: 'Keep values 1', exact: true }).inputValue(), savedRowValue.policy,
+    'Editing the saved Group must preserve the RowValue ALL policy.');
+  assert.equal(await editRowValueRow.getByRole('textbox', { name: 'Added column name 1', exact: true }).inputValue(), rowValueOutput.name,
+    'Editing the saved Group must preserve the RowValue output name.');
+  assert.equal(await editGroupBox.getByTestId(`construction-group-add-column-choice-${editRowValueChoice.fieldSource.choiceId}`).count(), 0,
+    'The selected RowValue must not also appear as a duplicate selectable capability.');
+
+  const savedCountAggregate = reloadedSavedGroup.operation.group.aggregates.find(item => item.operation === 'COUNT_ROWS');
+  assert(savedCountAggregate, 'The saved connected Group must retain its COUNT_ROWS summary.');
+  const savedCountOutput = reloadedSavedGroup.outputs.find(output => output.id === savedCountAggregate.outputColumnId);
+  assert(savedCountOutput, 'The saved connected Group must expose its exact COUNT_ROWS output.');
+  const editedCountName = `${savedCountOutput.name}_edit`;
+  assert(!reloadedSavedGroup.outputs.some(output => output.name === editedCountName),
+    'The visible summary-name edit must remain unique within the saved Group.');
+  const previousEditReceipt = await receipt();
+  assert(previousEditReceipt, 'The saved Group edit must begin from its current applied preview receipt.');
+  const editProposalRequestPromise = page.waitForRequest(request => {
+    try {
+      if (request.method() !== 'POST' || !new URL(request.url()).pathname.endsWith('/construction-proposals')) return false;
+      const body = request.postDataJSON();
+      const step = body.candidateConstruction?.steps?.find(candidate => candidate.id === reloadedSavedGroup.id);
+      return body.outputId === outputId && step?.operation?.kind === 'GROUP';
+    } catch { return false; }
+  }, { timeout: ACTION_BUDGET_MS }).then(request => ({ request }), error => ({ error }));
+  const editPreviewStarted = Date.now();
+  await editGroupBox.getByRole('textbox', { name: 'Summary output name 1', exact: true })
+    .fill(editedCountName, { timeout: ACTION_BUDGET_MS });
+  const [editProposalResult] = await Promise.all([
+    editProposalRequestPromise,
+    waitNewProposalReceipt(page, previousEditReceipt),
+    waitProposalReady(page),
+  ]);
+  assert(!editProposalResult.error, `Editing the saved connected Group did not issue a proposal: ${editProposalResult.error ?? ''}`);
+  assert(Date.now() - editPreviewStarted <= ACTION_BUDGET_MS,
+    'Changing the saved connected Group summary name and resolving its proposal exceeded five seconds.');
+  const editProposalRequest = editProposalResult.request;
+  assert(editProposalRequest, 'The visible saved Group summary-name change must issue one proposal request.');
   const editCandidate = editProposalRequest.postDataJSON().candidateConstruction.steps.find(step => step.id === reloadedSavedGroup.id);
-  assert(editCandidate);
+  assert(editCandidate, 'The saved Group summary-name proposal must contain the exact Group step.');
   assert.deepEqual(editCandidate.operation.group.keys, savedKeys,
     'The saved Group edit proposal must retain the exact selected BINDING keys and output IDs.');
-  await assertGrid(page, 'proposal', finalExpected, 'saved connected Group edit rehydration');
+  assert.deepEqual(editCandidate.operation.group.aggregates, reloadedSavedGroup.operation.group.aggregates,
+    'The saved Group summary-name edit must preserve its exact aggregation semantics.');
+  assert.deepEqual(editCandidate.rowValues, savedRowValues,
+    'The saved Group edit proposal must retain the exact related-owner RowValue binding and policy.');
+  const expectedCandidateOutputs = reloadedSavedGroup.outputs.map(output => output.id === savedCountOutput.id
+    ? { ...output, name: editedCountName }
+    : output);
+  assert.deepEqual(editCandidate.outputs, expectedCandidateOutputs,
+    'The saved Group proposal may change only the visible COUNT_ROWS output name.');
+  const editExpected = expectedGrid(editCandidate, oracle,
+    { patientID: patientIDChoice, coding: specimenCodingChoice }, specimenIDChoice);
+  assert.deepEqual(editExpected.rows, finalExpected.rows,
+    'Changing the summary output name must not change the complete Group and related-owner data oracle.');
+  assert.deepEqual(editExpected.headers, finalExpected.headers,
+    'The proposal headers must be derived from the returned candidate output labels.');
+  await assertGrid(page, 'proposal', editExpected, 'saved connected Group edit rehydration and summary-name preview');
   cda.check('edit',
-    'saved connected Group edit rehydrates each exact BINDING through matchedOutputKeyId without a duplicate selectable choice',
+    'saved connected Group edit rehydrates its exact keys and RowValue, previews a summary-name edit, and keeps the full oracle',
     true, {
       matched: matchedChoices.map(({ key, choice }) => ({ outputColumnId: key.outputColumnId, choiceId: choice.fieldSource.choiceId,
         matchedOutputKeyId: choice.matchedOutputKeyId, valueKind: choice.valueKind })),
       selectedBindingLabels,
+      rowValueChoiceId: editRowValueChoice.fieldSource.choiceId,
+      rowValueOutputColumnId: savedRowValue.outputColumnId,
+      editedCountName,
+      previewHeaders: editExpected.headers,
     });
 
   const cancelEditStarted = Date.now();
