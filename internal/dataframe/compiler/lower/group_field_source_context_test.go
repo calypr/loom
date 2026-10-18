@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -80,15 +81,107 @@ func TestGroupFieldSourceContextAcceptsOnlyTypedScopedPopulationRoots(t *testing
 		t.Fatalf("typed population context = %#v, %v", context, err)
 	}
 
-	root.Population.ResourceOperations = root.Population.ResourceOperations[1:]
+	root.Population.RootKey = ir.PhysicalValue{Variable: "unproven_root", Path: []string{"_key"}}
 	if context, err := describeGroupFieldSourceContext("source_projection", "Observation", "__loom_expansion_identity", &plan); err != nil || context != nil {
-		t.Fatalf("population without its typed resource scan/auth scope = %#v, %v; want no capability", context, err)
+		t.Fatalf("population with an unproven root identity = %#v, %v; want no capability", context, err)
 	}
 }
 
 func populationMemberFilter(field, bindKey string) ir.PhysicalFilter {
 	right := ir.PhysicalValue{BindKey: bindKey}
 	return ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "population_member", Path: []string{field}}, Right: &right}}
+}
+
+func TestGroupAncestorFieldSourceUsesSelectorStepNotAncestorSliceIndex(t *testing.T) {
+	const selector = "valueCodeableConcept.coding[].extension[]"
+	const boundary = "valueCodeableConcept.coding[]"
+	plan := groupSourceTestPlan(t, selector, []ir.PhysicalUnnestAncestor{{StepIndex: 1, Variable: "exact_coding_ancestor"}}, "", "")
+	context, err := describeGroupFieldSourceContext("source_projection", "Observation", "__loom_expansion_identity", &plan)
+	if err != nil || context == nil {
+		t.Fatalf("describe nested Coding expansion: context=%#v err=%v", context, err)
+	}
+	var owner CompiledGroupFieldOwner
+	for _, candidate := range context.FieldOwners {
+		if candidate.Role == "ANCESTOR" {
+			owner = candidate
+		}
+	}
+	if owner.StepIndex != 1 || owner.BoundarySelector != boundary || owner.ResourceType != "Coding" {
+		t.Fatalf("nested ancestor binding = %#v", owner)
+	}
+	source := recipe.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: context.SourceStageID, SourceShapeID: context.SourceShapeID,
+		SourceRole: "ANCESTOR", OccurrenceID: owner.OccurrenceID, OwnerResourceType: owner.OwnerResourceType,
+		ResourceType: "Coding", CandidateID: "coding-code", CanonicalPath: "code", BoundarySelector: boundary,
+	}
+	_, projection, _, err := lowerConstructionGroupScalarSource(&plan, source, context, 0, 0, map[string]bool{}, nil)
+	if err != nil {
+		t.Fatalf("lower exact nested ancestor: %v", err)
+	}
+	if projection.Expression == nil || projection.Expression.Extract == nil || projection.Expression.Extract.Source.Variable != "exact_coding_ancestor" {
+		t.Fatalf("ancestor scalar source = %#v; want exact repeated Coding item", projection.Expression)
+	}
+}
+
+func TestGroupFieldSourceContextAllowsOnlyRootAnchoredRelatedSets(t *testing.T) {
+	plan := ir.PhysicalPlan{
+		RootOccurrenceID: "root-observation",
+		BindVars:         map[string]any{"root_collection": "Observation"},
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: ir.PhysicalSetOp, Source: ir.PhysicalSource{SemanticNode: "component", ResourceType: "ObservationComponent", Relationship: "hasComponent"}, Set: &ir.PhysicalSet{
+				Variable: "related_set", Subplan: ir.PhysicalSubplan{Captures: []string{"root"}, Operations: []ir.PhysicalOperation{{
+					Kind: ir.PhysicalTraversalOp, Traversal: &ir.PhysicalTraversal{SourceVariable: "root", TargetVariable: "related_item", EdgeVariable: "related_edge"},
+				}}},
+			}},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{}},
+		},
+	}
+	if context, err := describeGroupFieldSourceContext("source_projection", "Observation", "_key", &plan); err != nil || context == nil {
+		t.Fatalf("root-anchored related SET context = %#v, %v", context, err)
+	}
+	plan.Operations[1].Set.Subplan.Captures = []string{"other_root"}
+	if context, err := describeGroupFieldSourceContext("source_projection", "Observation", "_key", &plan); err != nil || context != nil {
+		t.Fatalf("SET with changed root anchor context = %#v, %v; want no capability", context, err)
+	}
+}
+
+func TestGroupFieldSourceUsesFHIRPrimitiveMappingForURIAndDateTime(t *testing.T) {
+	plan := ir.PhysicalPlan{
+		RootOccurrenceID: "root-observation",
+		BindVars:         map[string]any{"root_collection": "Observation"},
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{}},
+		},
+	}
+	context, err := describeGroupFieldSourceContext("source_projection", "Observation", "_key", &plan)
+	if err != nil || context == nil {
+		t.Fatalf("direct root source context = %#v, %v", context, err)
+	}
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: "implicitRules", want: "STRING"},
+		{path: "issued", want: "STRING"},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			localPlan := ir.ClonePhysicalPlan(plan)
+			source := recipe.ConstructionGroupFieldSource{
+				Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: context.SourceStageID, SourceShapeID: context.SourceShapeID,
+				SourceRole: "ROOT", OccurrenceID: "root-observation", OwnerResourceType: "Observation", ResourceType: "Observation",
+				CandidateID: "candidate-" + test.path, CanonicalPath: test.path,
+			}
+			column, _, _, err := lowerConstructionGroupScalarSource(&localPlan, source, context, 0, 0, map[string]bool{}, nil)
+			if err != nil {
+				t.Fatalf("lower %s: %v", test.path, err)
+			}
+			if column.Kind != test.want {
+				t.Fatalf("%s compiled kind = %q, want %q", test.path, column.Kind, test.want)
+			}
+		})
+	}
 }
 
 func TestGroupFieldSourceContextExposesOnlyExactDirectRootIdentity(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -53,9 +54,14 @@ func lowerConstructionGroupScalarSource(
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q is not a generated scalar field on %s", source.CanonicalPath, source.ResourceType)
 	}
-	_, ok := tableReshapeScalarKind(facts.FHIRType)
-	if !ok {
-		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar type %q", source.CanonicalPath, facts.FHIRType)
+	metadata, metadataOK := fhirschema.ResolveTerminalScalarMetadata(source.ResourceType, source.CanonicalPath)
+	expressionKind, primitiveOK := groupSourcePrimitiveExpressionKind(metadata.Primitive)
+	if !metadataOK || metadata.Repeated || !primitiveOK {
+		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar primitive %q", source.CanonicalPath, metadata.Primitive)
+	}
+	outputKind, supported := tableReshapeScalarKind(string(expressionKind))
+	if !supported {
+		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar primitive %q", source.CanonicalPath, metadata.Primitive)
 	}
 	sourceVariable := ""
 	var unnest *ir.PhysicalUnnest
@@ -87,11 +93,20 @@ func lowerConstructionGroupScalarSource(
 		}
 		sourceVariable = unnest.Owner.OwnerVariable
 	case "ANCESTOR":
-		if unnest == nil || source.OwnerResourceType != unnest.Owner.ResourceType ||
-			owner.StepIndex < 0 || owner.StepIndex >= len(unnest.Ancestors) {
+		if unnest == nil || source.OwnerResourceType != unnest.Owner.ResourceType || unnest.Expression.Extract == nil {
 			return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group ANCESTOR fieldSource has no exact repeated-boundary proof")
 		}
-		sourceVariable = unnest.Ancestors[owner.StepIndex].Variable
+		ancestorMatches := 0
+		for _, ancestor := range unnest.Ancestors {
+			if ancestor.StepIndex != owner.StepIndex || selectorPrefix(unnest.Expression.Extract.Selector, ancestor.StepIndex) != owner.BoundarySelector {
+				continue
+			}
+			ancestorMatches++
+			sourceVariable = ancestor.Variable
+		}
+		if ancestorMatches != 1 {
+			return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group ANCESTOR fieldSource boundary %q resolves to %d exact source variables", owner.BoundarySelector, ancestorMatches)
+		}
 	case "CURRENT_ITEM":
 		if unnest == nil || owner.OccurrenceID != unnest.Owner.OccurrenceID ||
 			source.OwnerResourceType != unnest.Owner.ResourceType {
@@ -118,7 +133,7 @@ func lowerConstructionGroupScalarSource(
 	}
 	name := fmt.Sprintf("__loom_group_field_%d_%d", stepIndex, keyIndex)
 	column := CompiledOutputColumn{
-		ID: name, Name: name, Label: name, Kind: facts.FHIRType,
+		ID: name, Name: name, Label: name, Kind: outputKind,
 		Cardinality: "optional_one", Nullable: true, Internal: true,
 		SemanticPath: "construction_group_field_source:" + source.SourceShapeID + ":" + source.SourceRole + ":" + source.CanonicalPath,
 	}
@@ -137,6 +152,25 @@ func lowerConstructionGroupScalarSource(
 		stage.InputProjections = append(stage.InputProjections, projection)
 	}
 	return column, projection, field, nil
+}
+
+func groupSourcePrimitiveExpressionKind(primitive fhirschema.PrimitiveKind) (expression.ValueKind, bool) {
+	switch primitive {
+	case fhirschema.PrimitiveString:
+		return expression.KindString, true
+	case fhirschema.PrimitiveBoolean:
+		return expression.KindBoolean, true
+	case fhirschema.PrimitiveInteger:
+		return expression.KindInteger, true
+	case fhirschema.PrimitiveDecimal:
+		return expression.KindDecimal, true
+	case fhirschema.PrimitiveDate:
+		return expression.KindDate, true
+	case fhirschema.PrimitiveDateTime:
+		return expression.KindDateTime, true
+	default:
+		return "", false
+	}
 }
 
 func validateGroupCodingIdentitySource(

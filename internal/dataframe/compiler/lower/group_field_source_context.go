@@ -168,6 +168,10 @@ func groupFieldSourcePrefixIsRowPreserving(plan *ir.PhysicalPlan, root *ir.Physi
 				return false
 			}
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+		case ir.PhysicalSetOp:
+			if !groupFieldSourceRowPreservingSet(operation, root.Variable) {
+				return false
+			}
 		case ir.PhysicalUnnestOp:
 			unnestSeen++
 			if unnestSeen > 1 || operation.Unnest == nil || operation.Unnest.Owner.RootVariable != root.Variable {
@@ -187,143 +191,77 @@ func groupFieldSourcePrefixIsRowPreserving(plan *ir.PhysicalPlan, root *ir.Physi
 	return rootCount == 1 && unnestSeen == unnestCount && returns == 1
 }
 
-// Population roots are row-preserving because renderRootScan groups the
-// selected root key before loading the root document. Keep this capability
-// limited to the typed population plan shape emitted by lower.Population;
-// arbitrary nested source operations must not acquire root field authority.
+// Population roots are row-preserving because the typed root renderer groups
+// the selected root key before loading the root document. The context checks
+// only the source and identity structure; PhysicalPlan validation owns filter,
+// resource-scope, and authorization validation.
 func groupFieldSourcePopulationIsTyped(population *ir.PhysicalPopulationRootSource, rootVariable string) bool {
 	if population == nil {
 		return true
 	}
-	if rootVariable == "" || population.MemberScan.Variable == "" || population.MemberScan.CollectionBindKey == "" ||
+	if rootVariable == "" || population.CollectMembersVariable != "" ||
+		population.MemberScan.Variable == "" || population.MemberScan.CollectionBindKey == "" ||
 		population.MemberID.Variable != population.MemberScan.Variable || !physicalPathEquals(population.MemberID.Path, "id") ||
-		population.RootKey.Variable == "" || !physicalPathEquals(population.RootKey.Path, "_key") {
+		len(population.ResourceOperations) == 0 || population.ResourceOperations[0].Kind != ir.PhysicalCollectionScanOp ||
+		population.ResourceOperations[0].CollectionScan == nil {
 		return false
 	}
-	if !populationMemberFiltersAreTyped(population.MemberFilters, population.MemberScan.Variable) {
+	current := population.ResourceOperations[0].CollectionScan.Variable
+	if current == "" || population.ResourceOperations[0].CollectionScan.CollectionBindKey == "" {
 		return false
 	}
-	resourceVariable := ""
-	resourceScans := 0
-	currentRouteVariable := ""
-	authenticatedResource := false
-	authenticatedRouteSteps := make(map[string]bool)
-	for _, operation := range population.ResourceOperations {
+	for _, operation := range population.ResourceOperations[1:] {
 		switch operation.Kind {
-		case ir.PhysicalCollectionScanOp:
-			if operation.CollectionScan == nil || operation.CollectionScan.Variable == "" || operation.CollectionScan.CollectionBindKey == "" {
+		case ir.PhysicalFilterOp:
+			if operation.Filter == nil {
 				return false
 			}
-			resourceScans++
-			resourceVariable = operation.CollectionScan.Variable
-			currentRouteVariable = resourceVariable
-		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
-			if operation.Kind == ir.PhysicalFilterOp && operation.Filter == nil || operation.Kind == ir.PhysicalDerivedLetOp && operation.DerivedLet == nil {
+		case ir.PhysicalDerivedLetOp:
+			if operation.DerivedLet == nil {
 				return false
-			}
-			for _, traversal := range population.ResourceOperations {
-				if traversal.Kind == ir.PhysicalTraversalOp && operationUsesPopulationAuthGuard(population.ResourceOperations, traversal.Traversal) {
-					authenticatedRouteSteps[traversal.Traversal.TargetVariable] = true
-				}
 			}
 		case ir.PhysicalTraversalOp:
-			if operation.Traversal == nil || operation.Traversal.SourceVariable == "" || operation.Traversal.TargetVariable == "" || operation.Traversal.SourceVariable != currentRouteVariable {
+			if operation.Traversal == nil || operation.Traversal.SourceVariable != current || operation.Traversal.TargetVariable == "" {
 				return false
 			}
-			currentRouteVariable = operation.Traversal.TargetVariable
+			current = operation.Traversal.TargetVariable
 		default:
 			return false
 		}
 	}
-	authenticatedResource = populationAuthGuard(population.ResourceOperations, resourceVariable)
-	if resourceScans != 1 || currentRouteVariable == "" || population.RootKey.Variable != currentRouteVariable || !authenticatedResource {
+	return population.RootKey.Variable == current && physicalPathEquals(population.RootKey.Path, "_key")
+}
+
+// A PhysicalSet is an array-valued LET, so a validated direct related-field
+// set preserves each outer row. Require its correlated traversal to remain
+// anchored at the physical root; sets from other source shapes are not proof
+// that root/active occurrence identity survived.
+func groupFieldSourceRowPreservingSet(operation ir.PhysicalOperation, rootVariable string) bool {
+	set := operation.Set
+	if operation.Kind != ir.PhysicalSetOp || set == nil || set.Variable == "" || rootVariable == "" ||
+		operation.Source.SemanticNode == "" || operation.Source.ResourceType == "" || operation.Source.Relationship == "" ||
+		len(set.Subplan.Captures) != 1 || set.Subplan.Captures[0] != rootVariable || len(set.Subplan.Operations) == 0 {
 		return false
 	}
-	for _, operation := range population.ResourceOperations {
-		if operation.Kind == ir.PhysicalTraversalOp && !authenticatedRouteSteps[operation.Traversal.TargetVariable] {
+	first := set.Subplan.Operations[0]
+	if first.Kind != ir.PhysicalTraversalOp || first.Traversal == nil || first.Traversal.SourceVariable != rootVariable {
+		return false
+	}
+	for _, suboperation := range set.Subplan.Operations[1:] {
+		switch suboperation.Kind {
+		case ir.PhysicalFilterOp:
+			if suboperation.Filter == nil {
+				return false
+			}
+		case ir.PhysicalDerivedLetOp:
+			if suboperation.DerivedLet == nil {
+				return false
+			}
+		default:
 			return false
 		}
 	}
 	return true
-}
-
-func populationMemberFiltersAreTyped(filters []ir.PhysicalFilter, memberVariable string) bool {
-	wanted := map[string]string{"selectionId": "population_selection_id", "project": "population_project", "generation": "dataset_generation", "resourceType": "population_resource_type"}
-	for _, filter := range filters {
-		predicate := filter.Predicate
-		if predicate.Operator != "EQUALS" || predicate.Left.Variable != memberVariable || len(predicate.Left.Path) != 1 {
-			continue
-		}
-		field := predicate.Left.Path[0]
-		bindKey, ok := wanted[field]
-		if !ok || predicate.Right == nil || predicate.Right.BindKey != bindKey {
-			continue
-		}
-		delete(wanted, field)
-	}
-	return len(wanted) == 0
-}
-
-func operationUsesPopulationAuthGuard(operations []ir.PhysicalOperation, traversal *ir.PhysicalTraversal) bool {
-	if traversal == nil {
-		return false
-	}
-	for _, operation := range operations {
-		if operation.Kind != ir.PhysicalDerivedLetOp || operation.DerivedLet == nil || operation.DerivedLet.Operator != "AUTH_RESOURCE_PATH_ALLOWED" {
-			continue
-		}
-		if !physicalValuesContainPath(operation.DerivedLet.Inputs, traversal.EdgeVariable, "auth_resource_path") ||
-			!physicalValuesContainPath(operation.DerivedLet.Inputs, traversal.TargetVariable, "auth_resource_path") ||
-			!physicalValuesContainBind(operation.DerivedLet.Inputs, "auth_resource_paths") ||
-			!physicalValuesContainBind(operation.DerivedLet.Inputs, "auth_resource_paths_unrestricted") {
-			continue
-		}
-		for _, candidate := range operations {
-			if candidate.Kind == ir.PhysicalFilterOp && candidate.Filter != nil && candidate.Filter.Predicate.Operator == "EQUALS" &&
-				candidate.Filter.Predicate.Left.Variable == operation.DerivedLet.Variable && candidate.Filter.Predicate.Right != nil &&
-				candidate.Filter.Predicate.Right.BindKey == "scope_allowed" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func populationAuthGuard(operations []ir.PhysicalOperation, resourceVariable string) bool {
-	for _, operation := range operations {
-		if operation.Kind != ir.PhysicalDerivedLetOp || operation.DerivedLet == nil || operation.DerivedLet.Operator != "AUTH_RESOURCE_PATH_ALLOWED" ||
-			!physicalValuesContainPath(operation.DerivedLet.Inputs, resourceVariable, "auth_resource_path") ||
-			!physicalValuesContainBind(operation.DerivedLet.Inputs, "auth_resource_paths") ||
-			!physicalValuesContainBind(operation.DerivedLet.Inputs, "auth_resource_paths_unrestricted") {
-			continue
-		}
-		for _, candidate := range operations {
-			if candidate.Kind == ir.PhysicalFilterOp && candidate.Filter != nil && candidate.Filter.Predicate.Operator == "EQUALS" &&
-				candidate.Filter.Predicate.Left.Variable == operation.DerivedLet.Variable && candidate.Filter.Predicate.Right != nil &&
-				candidate.Filter.Predicate.Right.BindKey == "scope_allowed" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func physicalValuesContainPath(values []ir.PhysicalValue, variable, field string) bool {
-	for _, value := range values {
-		if value.Variable == variable && physicalPathEquals(value.Path, field) {
-			return true
-		}
-	}
-	return false
-}
-
-func physicalValuesContainBind(values []ir.PhysicalValue, bindKey string) bool {
-	for _, value := range values {
-		if value.BindKey == bindKey {
-			return true
-		}
-	}
-	return false
 }
 
 func physicalPathEquals(path []string, field string) bool {
