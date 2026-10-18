@@ -110,7 +110,7 @@ func (s *Service) constructionGroupFieldChoices(
 			choicesByID[choice.ChoiceID] = response
 		}
 	}
-	if context.SourceExpansion != nil && s.config.RowChoicePlanner != nil {
+	if targetGroupStepID == "" && context.SourceExpansion != nil && s.config.RowChoicePlanner != nil {
 		rowChoices, listErr := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if listErr != nil {
 			return nil, false, conflict("construction-capabilities", "STALE_ROUTE", "the current Coding row choice could not be resolved", nil, listErr)
@@ -152,16 +152,42 @@ func (s *Service) constructionGroupFieldChoices(
 	for _, choice := range choicesByID {
 		choices = append(choices, choice)
 	}
-	sort.Slice(choices, func(i, j int) bool {
-		if choices[i].Kind != choices[j].Kind {
-			return choices[i].Kind < choices[j].Kind
-		}
-		if choices[i].Label != choices[j].Label {
-			return choices[i].Label < choices[j].Label
-		}
-		return choices[i].CanonicalPath < choices[j].CanonicalPath
-	})
+	sortConstructionGroupFieldChoices(choices)
 	return choices, semanticChoicesIncomplete, nil
+}
+
+func sortConstructionGroupFieldChoices(choices []ConstructionGroupFieldChoice) {
+	choiceID := func(choice ConstructionGroupFieldChoice) string {
+		if choice.FieldSource != nil {
+			return choice.FieldSource.ChoiceID
+		}
+		if choice.SemanticCategory != nil {
+			return choice.SemanticCategory.ChoiceID
+		}
+		return ""
+	}
+	sort.Slice(choices, func(i, j int) bool {
+		left, right := choices[i], choices[j]
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		if left.Label != right.Label {
+			return left.Label < right.Label
+		}
+		if left.CanonicalPath != right.CanonicalPath {
+			return left.CanonicalPath < right.CanonicalPath
+		}
+		if left.SourceRole != right.SourceRole {
+			return left.SourceRole < right.SourceRole
+		}
+		if left.OwnerResourceType != right.OwnerResourceType {
+			return left.OwnerResourceType < right.OwnerResourceType
+		}
+		if left.OwnerOccurrenceID != right.OwnerOccurrenceID {
+			return left.OwnerOccurrenceID < right.OwnerOccurrenceID
+		}
+		return choiceID(left) < choiceID(right)
+	})
 }
 
 func (s *Service) constructionGroupRowValueChoices(

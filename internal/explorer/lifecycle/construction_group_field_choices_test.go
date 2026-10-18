@@ -111,3 +111,61 @@ func TestResolveConstructionGroupFieldSourcesRejectsChoiceFromChangedSourceShape
 		t.Fatalf("choice from old source shape error = %v (code %q), want stale-choice rejection", err, got)
 	}
 }
+
+type countingGroupRowChoicePlanner struct {
+	calls int
+}
+
+func (p *countingGroupRowChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+	p.calls++
+	return nil, nil
+}
+
+func TestConstructionGroupRowValueChoicesSkipCodingRowChoiceDiscovery(t *testing.T) {
+	planner := &countingGroupRowChoicePlanner{}
+	service := &Service{config: Config{RowChoicePlanner: planner}}
+	stage := explorer.ReceiptConstructionStage{
+		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "__loom_expansion_identity",
+		GroupFieldSourceContext: &explorer.ReceiptConstructionGroupFieldSourceContext{
+			SourceStageID: recipe.ConstructionSourceProjectionID, SourceShapeID: "shape-expanded", SourceIdentityColumn: "__loom_expansion_identity",
+			SourceExpansion: &explorer.ReceiptConstructionGroupFieldSourceExpansion{
+				OwnerOccurrenceID: "observation-owner", OwnerResourceType: "Observation", Selector: "component[].code.coding[]",
+			},
+		},
+	}
+	base := constructionBase{construction: authoringv2.Construction{Steps: []authoringv2.ConstructionStep{{
+		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{}},
+	}}}}
+
+	choices, err := service.constructionGroupRowValueChoices(context.Background(), base, "observations", stage, "group")
+	if err != nil {
+		t.Fatalf("row-value choices: %v", err)
+	}
+	if len(choices) != 0 {
+		t.Fatalf("row-value choices = %#v, want no scalar sources from empty field-owner fixture", choices)
+	}
+	if planner.calls != 0 {
+		t.Fatalf("row-choice planner calls = %d, want none for scalar-only RowValues", planner.calls)
+	}
+}
+
+func TestConstructionGroupFieldChoicesSortSameLabelBySourceIdentity(t *testing.T) {
+	choices := []ConstructionGroupFieldChoice{
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "ROOT", OwnerResourceType: "Observation", OwnerOccurrenceID: "root", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-root"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Patient", OwnerOccurrenceID: "patient-owner", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-patient"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-b", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-b"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-a", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-z"}},
+		{Kind: "FIELD_SOURCE", Label: "Code", CanonicalPath: "status", SourceRole: "OWNER", OwnerResourceType: "Observation", OwnerOccurrenceID: "owner-a", FieldSource: &authoringv2.ConstructionGroupFieldSource{ChoiceID: "choice-a"}},
+	}
+
+	sortConstructionGroupFieldChoices(choices)
+	got := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		got = append(got, choice.FieldSource.ChoiceID)
+	}
+	want := []string{"choice-a", "choice-z", "choice-b", "choice-patient", "choice-root"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sorted source choice IDs = %#v, want %#v", got, want)
+	}
+}
