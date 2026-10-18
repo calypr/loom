@@ -949,7 +949,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const editedCountName = `${savedCountOutput.name}_edit`;
   assert(!reloadedSavedGroup.outputs.some(output => output.name === editedCountName),
     'The visible summary-name edit must remain unique within the saved Group.');
-  const previousEditReceipt = await receipt();
+  const previousEditReceipt = await page.getByTestId('construction-preview').getAttribute('data-preview-receipt-id');
   assert(previousEditReceipt, 'The saved Group edit must begin from its current applied preview receipt.');
   const editProposalRequestPromise = page.waitForRequest(request => {
     try {
