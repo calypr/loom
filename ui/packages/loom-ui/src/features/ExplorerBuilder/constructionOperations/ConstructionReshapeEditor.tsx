@@ -2848,6 +2848,14 @@ const GroupEditor = (props: {
   const fieldChoiceForKey = (key: GroupFieldKey): GroupFieldSourceChoice | undefined => groupFieldChoiceForKey(sourceFieldChoices, key);
   const selectedRelatedRouteIds = new Set(relatedRouteIdsForGroupFieldKeys(sourceFieldChoices, props.form.fieldKeys));
   const hasConflictingRelatedRoutes = selectedRelatedRouteIds.size > 1;
+  const selectedRelatedFieldChoices = props.form.fieldKeys
+    .map(fieldChoiceForKey)
+    .filter((choice): choice is GroupFieldSourceChoice => Boolean(choice?.relatedOccurrence));
+  const countRowsHelp = selectedRelatedFieldChoices.some((choice) => choice.valueKind === 'CODING_IDENTITY')
+    ? 'Counts each contributing code occurrence. Repeated identical codes count separately; kept empty rows also count.'
+    : selectedRelatedFieldChoices.some((choice) => choice.valueKind === 'SCALAR')
+      ? 'Counts each matching related record; kept empty rows also count.'
+      : 'Counts every input row.';
   const savedFieldBindingOutputIds = new Set(props.form.fieldKeys.flatMap((key) =>
     key.fieldSource.kind === 'BINDING' ? [key.outputColumnId] : [],
   ));
@@ -3274,7 +3282,7 @@ const GroupEditor = (props: {
                     </select>
                     {inputColumns.length === 0 ? <span role="status" className="text-xs text-amber-900">No compatible columns were returned for this summary.</span> : null}
                   </label>
-                ) : <span className="pb-2 text-xs text-slate-500">Counts every input row.</span>}
+                ) : <span className="pb-2 text-xs text-slate-500">{countRowsHelp}</span>}
                 <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
                   Output name
                   <input

@@ -2045,6 +2045,55 @@ describe('ConstructionReshapeEditor', () => {
     expect(JSON.stringify(candidate?.candidateConstruction)).not.toContain('route-b-opaque');
   });
 
+  it('explains related COUNT_ROWS semantics while preserving the ordinary root copy', () => {
+    const relatedChoice = (choiceId: string, label: string, valueKind: 'SCALAR' | 'CODING_IDENTITY') => ({
+      kind: 'FIELD_SOURCE' as const,
+      valueKind,
+      fieldSource: { kind: 'CHOICE' as const, choiceId },
+      matchedOutputKeyId: `matched-${choiceId}`,
+      label,
+      sourceStageId: 'source_projection',
+      sourceShapeId: `shape-${choiceId}`,
+      ...(valueKind === 'SCALAR' ? { candidateId: `candidate-${choiceId}` } : {}),
+      sourceRole: 'RELATED_OCCURRENCE' as const,
+      occurrenceId: `occurrence-${choiceId}`,
+      resourceType: valueKind === 'SCALAR' ? 'ObservationComponent' : 'Coding',
+      ownerOccurrenceId: 'observation-owner',
+      ownerResourceType: 'Observation',
+      canonicalPath: valueKind === 'SCALAR' ? 'component[].valueQuantity.value' : 'valueCodeableConcept.coding[]',
+      ...(valueKind === 'SCALAR' ? { boundarySelector: 'component[]' } : {}),
+      relatedOccurrence: { routeId: 'related-route', routeLabel: 'Observation component' },
+      scopeLabel: `Observation · ${choiceId}`,
+    });
+    const codingChoice = relatedChoice('related-coding-count-choice', 'Component Coding', 'CODING_IDENTITY');
+    const codingCapabilities = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify({
+      ...capabilitiesFor(), groupFieldChoices: [codingChoice],
+    })));
+    expect(codingCapabilities.groupFieldChoices.find((choice) => choice.kind === 'FIELD_SOURCE' && choice.fieldSource.choiceId === codingChoice.fieldSource.choiceId)).toMatchObject({
+      sourceRole: 'RELATED_OCCURRENCE',
+      relatedOccurrence: { routeId: 'related-route' },
+      matchedOutputKeyId: 'matched-related-coding-count-choice',
+    });
+    renderEditor({ capabilities: codingCapabilities, initialKind: 'group', selectedColumns: ['site-id'] });
+    expect(screen.getByText('Counts every input row.')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`construction-group-field-choice-${codingChoice.fieldSource.choiceId}`));
+    expect(screen.getByText('Counts each contributing code occurrence. Repeated identical codes count separately; kept empty rows also count.')).toBeInTheDocument();
+
+    cleanup();
+    const scalarChoice = relatedChoice('related-scalar-count-choice', 'Component value', 'SCALAR');
+    const scalarCapabilities = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify({
+      ...capabilitiesFor(), groupFieldChoices: [scalarChoice],
+    })));
+    expect(scalarCapabilities.groupFieldChoices.find((choice) => choice.kind === 'FIELD_SOURCE' && choice.fieldSource.choiceId === scalarChoice.fieldSource.choiceId)).toMatchObject({
+      sourceRole: 'RELATED_OCCURRENCE',
+      relatedOccurrence: { routeId: 'related-route' },
+      matchedOutputKeyId: 'matched-related-scalar-count-choice',
+    });
+    renderEditor({ capabilities: scalarCapabilities, initialKind: 'group', selectedColumns: ['site-id'] });
+    fireEvent.click(screen.getByTestId(`construction-group-field-choice-${scalarChoice.fieldSource.choiceId}`));
+    expect(screen.getByText('Counts each matching related record; kept empty rows also count.')).toBeInTheDocument();
+  });
+
   it('preserves a saved stage-bound field BINDING while editing names and hides its exact CHOICE duplicate', () => {
     const fieldSource = {
       kind: 'BINDING' as const,
