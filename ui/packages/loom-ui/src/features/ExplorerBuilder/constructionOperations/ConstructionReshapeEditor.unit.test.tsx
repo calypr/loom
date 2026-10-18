@@ -43,6 +43,8 @@ const capabilitiesFor = (
   baseConstruction: { version: 1, steps: [] },
   stages,
   selectedStage,
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
 });
 
@@ -1908,6 +1910,294 @@ describe('ConstructionReshapeEditor', () => {
         aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }],
       },
     });
+  });
+
+  it('shows one local Group field list before column selection and combines scalar and Coding identity keys', () => {
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor(),
+      groupFieldChoices: [{
+        kind: 'FIELD_SOURCE', valueKind: 'SCALAR',
+        fieldSource: { kind: 'CHOICE', choiceId: 'component-value-choice' },
+        label: 'Component quantity', scopeLabel: 'Observation · component[] · ObservationComponent.valueQuantity.value',
+        valueType: 'decimal', sourceStageId: 'source_projection', sourceShapeId: 'shape-component', candidateId: 'component-value',
+        sourceRole: 'CURRENT_ITEM', occurrenceId: 'component-occurrence', resourceType: 'ObservationComponent',
+        ownerOccurrenceId: 'observation-occurrence', ownerResourceType: 'Observation', canonicalPath: 'component[].valueQuantity.value',
+      }, {
+        kind: 'FIELD_SOURCE', valueKind: 'CODING_IDENTITY',
+        fieldSource: { kind: 'CHOICE', choiceId: 'coding-identity-choice' },
+        label: 'Coding', scopeLabel: 'Observation · valueCodeableConcept.coding[]', valueType: 'string',
+        sourceStageId: 'source_projection', sourceShapeId: 'shape-coding',
+        sourceRole: 'CURRENT_ITEM', occurrenceId: 'coding-occurrence', resourceType: 'Coding',
+        ownerOccurrenceId: 'observation-occurrence', ownerResourceType: 'Observation', canonicalPath: 'valueCodeableConcept.coding[]',
+      }],
+    };
+    const onDiscoverCategories = vi.fn();
+    const onCandidateChange = vi.fn();
+    renderEditor({ capabilities, initialKind: 'group', onCandidateChange, onDiscoverCategories });
+
+    expect(screen.getByTestId('construction-group-by-field-list')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Group by Component quantity' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: 'Group by Coding' })).toBeEnabled();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search fields to group by' }), { target: { value: 'coding' } });
+    expect(screen.getByRole('checkbox', { name: 'Group by Coding' })).toBeEnabled();
+    expect(screen.queryByRole('checkbox', { name: 'Group by Component quantity' })).not.toBeInTheDocument();
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('construction-group-by-clear-search'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Component quantity' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Group by Coding' }));
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected a Group construction with compiler-issued field choices');
+    const candidateConstruction = constructionSchema.parse(intent.candidateConstruction);
+    expect(candidateConstruction).toEqual(intent.candidateConstruction);
+    const groupStep = candidateConstruction.steps.at(-1);
+    expect(groupStep?.operation.kind).toBe('GROUP');
+    if (groupStep?.operation.kind !== 'GROUP') throw new Error('Expected an ordinary GROUP operation');
+    expect(groupStep.operation.group.keys).toEqual([
+      { fieldSource: { kind: 'CHOICE', choiceId: 'component-value-choice' }, outputColumnId: expect.any(String) },
+      { fieldSource: { kind: 'CHOICE', choiceId: 'coding-identity-choice' }, outputColumnId: expect.any(String) },
+    ]);
+    expect(screen.getByTestId('construction-group-grain-summary')).toHaveTextContent(
+      'One row per unique combination of Component quantity and Coding.',
+    );
+
+    const candidateCalls = onCandidateChange.mock.calls.length;
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search fields to group by' }), { target: { value: 'no matching field' } });
+    expect(screen.getByRole('checkbox', { name: 'Group by Coding' })).toHaveProperty('checked', true);
+    expect(screen.getByRole('checkbox', { name: 'Group by Component quantity' })).toHaveProperty('checked', true);
+    expect(screen.getByText('No other fields match this search.')).toBeInTheDocument();
+    expect(onCandidateChange).toHaveBeenCalledTimes(candidateCalls);
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+  });
+
+  it('preserves a saved stage-bound field BINDING while editing names and hides its exact CHOICE duplicate', () => {
+    const fieldSource = {
+      kind: 'BINDING' as const,
+      valueKind: 'SCALAR' as const,
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'shape-status',
+      sourceRole: 'ROOT' as const,
+      occurrenceId: 'root-occurrence',
+      resourceType: 'Observation',
+      ownerOccurrenceId: 'root-occurrence',
+      ownerResourceType: 'Observation',
+      candidateId: 'status-candidate',
+      canonicalPath: 'status',
+    };
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'saved-field-group',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'saved-field-group', missingKeyPolicy: 'GROUP',
+          keys: [{ fieldSource, outputColumnId: 'status-group-id' }],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }],
+        },
+      },
+      outputs: [
+        { id: 'status-group-id', name: 'status_group', label: 'Status group', type: 'string' },
+        { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
+      ],
+    };
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor(),
+      groupFieldChoices: [{
+        kind: 'FIELD_SOURCE', valueKind: 'SCALAR',
+        fieldSource: { kind: 'CHOICE', choiceId: 'same-status-choice' },
+        label: 'Status', scopeLabel: 'Observation · status', valueType: 'string',
+        sourceStageId: 'source_projection', sourceShapeId: 'shape-status', candidateId: 'status-candidate',
+        sourceRole: 'ROOT', occurrenceId: 'root-occurrence', resourceType: 'Observation',
+        ownerOccurrenceId: 'root-occurrence', ownerResourceType: 'Observation', canonicalPath: 'status',
+        inputColumnId: 'status-id',
+      }],
+    };
+    const sourceStageWithStatus = {
+      ...sourceStage,
+      columns: [...sourceStage.columns, {
+        id: 'status-id', name: 'status', label: 'Status', type: 'string', cardinality: 'optional_one' as const,
+      }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const editedCapabilities = { ...capabilities, stages: [sourceStageWithStatus], selectedStage: sourceStageWithStatus };
+    const onCandidateChange = vi.fn();
+    renderEditor({
+      construction: { version: 1, steps: [savedGroup] }, capabilities: editedCapabilities,
+      editingStep: savedGroup, onCandidateChange,
+    });
+
+    const savedChoice = screen.getByTestId('construction-group-field-source-option');
+    expect(within(savedChoice).getByRole('checkbox')).toHaveProperty('checked', true);
+    expect(screen.queryByTestId('construction-group-field-choice-same-status-choice')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options'));
+    fireEvent.change(screen.getByLabelText('Group source output name 1'), { target: { value: 'status_key' } });
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected an edited Group candidate construction');
+    const candidateConstruction = constructionSchema.parse(intent.candidateConstruction);
+    const edited = candidateConstruction.steps.find((step) => step.id === savedGroup.id);
+    expect(edited?.operation.kind).toBe('GROUP');
+    if (edited?.operation.kind !== 'GROUP') throw new Error('Expected saved GROUP operation');
+    expect(edited.operation.group.keys).toEqual([{ fieldSource, outputColumnId: 'status-group-id' }]);
+    expect(edited.outputs.find((column) => column.id === 'status-group-id')).toMatchObject({ name: 'status_key', label: 'Status group' });
+  });
+
+  it('adds exact owner or ancestor fields after a saved Group without projecting them first', () => {
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'group-step',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'group-step', missingKeyPolicy: 'GROUP', keys: [],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }],
+        },
+      },
+      outputs: [{ id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' }],
+    };
+    const rowValueChoice = {
+      kind: 'FIELD_SOURCE' as const,
+      valueKind: 'SCALAR' as const,
+      fieldSource: { kind: 'CHOICE' as const, choiceId: 'ancestor-value-choice' },
+      label: 'Component value', scopeLabel: 'Observation · component[] · ObservationComponent.valueQuantity.value',
+      valueType: 'decimal', sourceStageId: 'source_projection', sourceShapeId: 'shape-component',
+      candidateId: 'component-value', sourceRole: 'ANCESTOR' as const,
+      occurrenceId: 'component-occurrence', resourceType: 'ObservationComponent',
+      ownerOccurrenceId: 'observation-occurrence', ownerResourceType: 'Observation',
+      canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+    };
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor([sourceStage, {
+        id: 'group-step', inputStageId: 'source_projection', operation: 'GROUP',
+        columns: savedGroup.outputs, capabilities: [{ kind: 'GROUP', supported: true }],
+      }]),
+      stageId: 'source_projection', selectedStage: sourceStage,
+      baseConstruction: { version: 1, steps: [savedGroup] },
+      groupRowValueChoices: [rowValueChoice],
+    };
+    const onCandidateChange = vi.fn();
+    const onDiscoverCategories = vi.fn();
+    renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, onCandidateChange, onDiscoverCategories });
+
+    expect(screen.getByTestId('construction-group-add-columns')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Add column Component value' })).toBeEnabled();
+    const candidateCallsBeforeSearch = onCandidateChange.mock.calls.length;
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search fields to add' }), { target: { value: 'valuequantity' } });
+    expect(screen.getByRole('checkbox', { name: 'Add column Component value' })).toBeInTheDocument();
+    expect(onCandidateChange).toHaveBeenCalledTimes(candidateCallsBeforeSearch);
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Add column Component value' }));
+    fireEvent.change(screen.getByLabelText('Keep values 1'), { target: { value: 'ONE' } });
+    fireEvent.change(screen.getByLabelText('Added column name 1'), { target: { value: 'component_value' } });
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected a Group row-value candidate');
+    const candidate = constructionSchema.parse(intent.candidateConstruction);
+    const edited = candidate.steps.find((step) => step.id === savedGroup.id);
+    expect(edited?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
+    expect(edited?.rowValues).toEqual([{
+      fieldSource: { kind: 'CHOICE', choiceId: 'ancestor-value-choice' },
+      outputColumnId: expect.any(String), policy: 'ONE',
+    }]);
+    expect(edited?.outputs).toContainEqual(expect.objectContaining({ name: 'component_value', type: 'decimal' }));
+    expect(candidate.steps).toHaveLength(1);
+  });
+
+  it('uses the existing public column identity when compiler metadata proves the exact same source', () => {
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'group-step',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'group-step', missingKeyPolicy: 'GROUP', keys: [],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }],
+        },
+      },
+      outputs: [{ id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' }],
+    };
+    const sourceStageWithStatus = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'status-id', name: 'status', label: 'Status', type: 'string', cardinality: 'optional_one' as const }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor([sourceStageWithStatus]),
+      stageId: 'source_projection', selectedStage: sourceStageWithStatus,
+      baseConstruction: { version: 1, steps: [savedGroup] },
+      groupRowValueChoices: [{
+        kind: 'FIELD_SOURCE', valueKind: 'SCALAR', fieldSource: { kind: 'CHOICE', choiceId: 'status-source-choice' },
+        label: 'Status', scopeLabel: 'Observation · status', valueType: 'string',
+        sourceStageId: 'source_projection', sourceShapeId: 'shape-status', candidateId: 'status-candidate',
+        sourceRole: 'ROOT', occurrenceId: 'root-occurrence', resourceType: 'Observation',
+        ownerOccurrenceId: 'root-occurrence', ownerResourceType: 'Observation', canonicalPath: 'status',
+        inputColumnId: 'status-id',
+      }],
+    };
+    const onCandidateChange = vi.fn();
+    renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, onCandidateChange });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Add column Status' }));
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected a public-column row-value candidate');
+    const candidate = constructionSchema.parse(intent.candidateConstruction);
+    const edited = candidate.steps.find((step) => step.id === savedGroup.id);
+    expect(edited?.rowValues).toEqual([{ inputColumnId: 'status-id', outputColumnId: expect.any(String), policy: 'ALL' }]);
+    expect(edited?.rowValues?.[0]).not.toHaveProperty('fieldSource');
+    expect(edited?.outputs).toContainEqual(expect.objectContaining({ name: 'status', type: 'array' }));
+  });
+
+  it('preserves a saved Group row-value BINDING when editing other settings', () => {
+    const fieldSource = {
+      kind: 'BINDING' as const, valueKind: 'SCALAR' as const,
+      sourceStageId: 'source_projection', sourceShapeId: 'shape-component', sourceRole: 'ANCESTOR' as const,
+      occurrenceId: 'component-occurrence', resourceType: 'ObservationComponent',
+      ownerOccurrenceId: 'observation-occurrence', ownerResourceType: 'Observation',
+      candidateId: 'component-value', canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+    };
+    const savedGroup: ConstructionReshapeStep = {
+      id: 'group-step',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'group-step', missingKeyPolicy: 'GROUP', keys: [],
+          aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'count-id' }],
+        },
+      },
+      rowValues: [{ fieldSource, outputColumnId: 'component-value-id', policy: 'ALL' }],
+      outputs: [
+        { id: 'count-id', name: 'row_count', label: 'Rows', type: 'integer' },
+        { id: 'component-value-id', name: 'component_value', label: 'Component value', type: 'array' },
+      ],
+    };
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor(),
+      baseConstruction: { version: 1, steps: [savedGroup] },
+      groupRowValueChoices: [{
+        kind: 'FIELD_SOURCE', valueKind: 'SCALAR', fieldSource: { kind: 'CHOICE', choiceId: 'same-component-choice' },
+        label: 'Component value', scopeLabel: 'Observation · component[] · ObservationComponent.valueQuantity.value',
+        valueType: 'decimal', sourceStageId: 'source_projection', sourceShapeId: 'shape-component',
+        candidateId: 'component-value', sourceRole: 'ANCESTOR', occurrenceId: 'component-occurrence',
+        resourceType: 'ObservationComponent', ownerOccurrenceId: 'observation-occurrence',
+        ownerResourceType: 'Observation', canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+      }],
+    };
+    const onCandidateChange = vi.fn();
+    renderEditor({ construction: { version: 1, steps: [savedGroup] }, editingStep: savedGroup, capabilities, onCandidateChange });
+
+    expect(screen.getByTestId('construction-group-row-value')).toHaveTextContent('Component value');
+    expect(screen.queryByTestId('construction-group-add-column-choice-same-component-choice')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Added column name 1'), { target: { value: 'component_value_copy' } });
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected an edited Group row-value candidate');
+    const candidate = constructionSchema.parse(intent.candidateConstruction);
+    const edited = candidate.steps.find((step) => step.id === savedGroup.id);
+    expect(edited?.rowValues).toEqual([{ fieldSource, outputColumnId: 'component-value-id', policy: 'ALL' }]);
+    expect(edited?.outputs.find((column) => column.id === 'component-value-id')).toMatchObject({ name: 'component_value_copy', type: 'array' });
   });
 
   it('keeps every eligible scalar available for Group by and explains excluded list fields', () => {

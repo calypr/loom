@@ -8,6 +8,7 @@ import {
   SEMANTIC_FIELD_PRESENTATION_REVISION,
   type Construction,
   type ExplorerBuilderCommand,
+  constructionCapabilitiesRequestSchema,
   constructionProposalRequestSchema,
   fieldPresentationSchema,
   semanticInventoryBrowseResponseSchema,
@@ -33,6 +34,8 @@ const constructionCapabilitiesResponse = {
     columns: [{ id: 'column_patient_id', name: 'patient_id', label: 'Patient ID', type: 'string' }],
     capabilities: [{ kind: 'FILTER', supported: true }],
   },
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
 } as const;
 const fieldPresentationContext = {
@@ -132,6 +135,27 @@ describe('Loom project paths', () => {
     expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({
       headers: expect.objectContaining({ 'X-Request-ID': requestId }),
     }));
+  });
+
+  it('binds Group row-value capabilities to the owning Group step', async () => {
+    const endpoint = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-capabilities';
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify(constructionCapabilitiesResponse), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await client.getConstructionCapabilities({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients',
+      stageId: 'source_projection', groupStepId: 'group-component-values',
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(endpoint, expect.objectContaining({ method: 'POST' }));
+    const requestInit = fetch.mock.calls[0]?.[1];
+    if (!requestInit) throw new Error('Expected construction capabilities request options');
+    expect(constructionCapabilitiesRequestSchema.parse(JSON.parse(String(requestInit.body)))).toMatchObject({
+      stageId: 'source_projection', groupStepId: 'group-component-values',
+    });
   });
 
   it('preserves schema-field HTTP error provenance without changing success or aborts', async () => {
@@ -242,6 +266,8 @@ describe('Loom project paths', () => {
       baseConstruction: construction,
       stages: [selectedStage],
       selectedStage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     } as const;
     const proposal = {

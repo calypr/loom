@@ -18,6 +18,51 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
+func TestRecipeConstructionStepCopiesResolvedFieldSourceForGroupRowValue(t *testing.T) {
+	fieldSource := &authoringv2.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: "source_projection", SourceShapeID: "shape-component",
+		SourceRole: "ANCESTOR", OccurrenceID: "base", ResourceType: "ObservationComponent",
+		OwnerOccurrenceID: "base", OwnerResourceType: "Observation", CandidateID: "component-value",
+		CanonicalPath: "valueQuantity.value", BoundarySelector: "component[]",
+	}
+	step := authoringv2.ConstructionStep{
+		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			ConstructionID: "group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+			Keys:       []authoringv2.ConstructionGroupKey{{FieldSource: fieldSource, OutputColumnID: "component_value_key"}},
+			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+		}},
+		RowValues: []authoringv2.ConstructionRowValue{{
+			FieldSource: fieldSource, OutputColumnID: "component_values", Policy: authoringv2.ConstructionRowValueAll,
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "component_value_key", Name: "component_value_key", Label: "Component value", Type: "decimal"},
+			{ID: "row_count", Name: "row_count", Label: "Rows", Type: "integer"},
+			{ID: "component_values", Name: "component_values", Label: "Component values", Type: "array"},
+		},
+	}
+
+	mapped, err := recipeConstructionStep(step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mapped.RowValues) != 1 || mapped.RowValues[0].InputColumnID != "" || mapped.RowValues[0].FieldSource == nil {
+		t.Fatalf("recipe row value = %#v, want FieldSource with no fabricated input column", mapped.RowValues)
+	}
+	want := &recipe.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: "source_projection", SourceShapeID: "shape-component",
+		SourceRole: "ANCESTOR", OccurrenceID: "base", OwnerResourceType: "Observation",
+		ResourceType: "ObservationComponent", CandidateID: "component-value",
+		CanonicalPath: "valueQuantity.value", BoundarySelector: "component[]",
+	}
+	if !reflect.DeepEqual(mapped.RowValues[0].FieldSource, want) {
+		t.Fatalf("recipe row-value FieldSource = %#v, want %#v", mapped.RowValues[0].FieldSource, want)
+	}
+	if len(mapped.Operation.Group.Keys) != 1 || !reflect.DeepEqual(mapped.Operation.Group.Keys[0].FieldSource, want) {
+		t.Fatalf("Group key and row-value FieldSource mapping differ: %#v", mapped.Operation.Group.Keys)
+	}
+}
+
 func TestRecipeConstructionMapsTypedSequenceAndResolvedSourceSchema(t *testing.T) {
 	authoredColumns := []authoringv2.Column{
 		{ColumnID: "group_id", Column: "group", Label: "Group", LogicalType: "string"},

@@ -603,6 +603,42 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 		Columns:           make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
 		Capabilities:      make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
 	}
+	if sourceContext := descriptor.GroupFieldSourceContext; sourceContext != nil {
+		context := &explorer.ReceiptConstructionGroupFieldSourceContext{
+			SourceStageID: sourceContext.SourceStageID, SourceShapeID: sourceContext.SourceShapeID,
+			SourceIdentityColumn: sourceContext.SourceIdentityColumn,
+			FieldOwners:          make([]explorer.ReceiptConstructionGroupFieldOwner, 0, len(sourceContext.FieldOwners)),
+		}
+		for _, owner := range sourceContext.FieldOwners {
+			mappedOwner := explorer.ReceiptConstructionGroupFieldOwner{
+				Role: owner.Role, OccurrenceID: owner.OccurrenceID, OwnerResourceType: owner.OwnerResourceType,
+				ResourceType: owner.ResourceType, BoundarySelector: owner.BoundarySelector, StepIndex: owner.StepIndex,
+			}
+			context.FieldOwners = append(context.FieldOwners, mappedOwner)
+		}
+		if expansion := sourceContext.SourceExpansion; expansion != nil {
+			mapped := &explorer.ReceiptConstructionGroupFieldSourceExpansion{
+				OwnerOccurrenceID: expansion.OwnerOccurrenceID, OwnerResourceType: expansion.OwnerResourceType,
+				Selector: expansion.Selector, OrdinalSemantics: expansion.OrdinalSemantics,
+				IdentitySemantics: expansion.IdentitySemantics, EmptyPolicy: expansion.EmptyPolicy,
+				Route:     make([]explorer.ReceiptConstructionGroupFieldSourceRouteStep, 0, len(expansion.Route)),
+				Ancestors: make([]explorer.ReceiptConstructionGroupFieldSourceAncestor, 0, len(expansion.Ancestors)),
+			}
+			for _, hop := range expansion.Route {
+				mapped.Route = append(mapped.Route, explorer.ReceiptConstructionGroupFieldSourceRouteStep{
+					OccurrenceID: hop.OccurrenceID, FromType: hop.FromType, EdgeLabel: hop.EdgeLabel,
+					ToType: hop.ToType, Direction: hop.Direction,
+				})
+			}
+			for _, ancestor := range expansion.Ancestors {
+				mapped.Ancestors = append(mapped.Ancestors, explorer.ReceiptConstructionGroupFieldSourceAncestor{
+					StepIndex: ancestor.StepIndex, BoundarySelector: ancestor.BoundarySelector, ResourceType: ancestor.ResourceType,
+				})
+			}
+			context.SourceExpansion = mapped
+		}
+		stage.GroupFieldSourceContext = context
+	}
 	for _, anchor := range descriptor.RelatedExpandAnchors {
 		stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, explorer.ReceiptConstructionRelatedExpandAnchor{
 			AnchorColumnID: anchor.AnchorColumnID, Kind: anchor.Kind, NodeID: anchor.NodeID,

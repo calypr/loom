@@ -325,16 +325,62 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 // ReceiptConstructionStage preserves the exact inferred schema and supported
 // operation set for a stable stage in a compiled output.
 type ReceiptConstructionStage struct {
-	ID                   string                                   `json:"id"`
-	InputStageID         string                                   `json:"inputStageId"`
-	Operation            string                                   `json:"operation,omitempty"`
-	RowIdentityColumn    string                                   `json:"rowIdentityColumn,omitempty"`
-	Columns              []ReceiptConstructionStageColumn         `json:"columns"`
-	Capabilities         []ReceiptConstructionOperationChoice     `json:"capabilities"`
-	RelatedExpandAnchors []ReceiptConstructionRelatedExpandAnchor `json:"relatedExpandAnchors,omitempty"`
-	RelatedExpand        *ReceiptConstructionRelatedExpand        `json:"relatedExpand,omitempty"`
-	ActiveRelatedRecord  *ReceiptConstructionActiveRelatedRecord  `json:"activeRelatedRecord,omitempty"`
-	CodedGroupChoices    []ReceiptConstructionCodedGroupChoice    `json:"codedGroupChoices,omitempty"`
+	ID                      string                                      `json:"id"`
+	InputStageID            string                                      `json:"inputStageId"`
+	Operation               string                                      `json:"operation,omitempty"`
+	RowIdentityColumn       string                                      `json:"rowIdentityColumn,omitempty"`
+	Columns                 []ReceiptConstructionStageColumn            `json:"columns"`
+	Capabilities            []ReceiptConstructionOperationChoice        `json:"capabilities"`
+	RelatedExpandAnchors    []ReceiptConstructionRelatedExpandAnchor    `json:"relatedExpandAnchors,omitempty"`
+	RelatedExpand           *ReceiptConstructionRelatedExpand           `json:"relatedExpand,omitempty"`
+	ActiveRelatedRecord     *ReceiptConstructionActiveRelatedRecord     `json:"activeRelatedRecord,omitempty"`
+	CodedGroupChoices       []ReceiptConstructionCodedGroupChoice       `json:"codedGroupChoices,omitempty"`
+	GroupFieldSourceContext *ReceiptConstructionGroupFieldSourceContext `json:"groupFieldSourceContext,omitempty"`
+}
+
+// ReceiptConstructionGroupFieldSourceContext is copied from the lowerer's
+// compiled stage descriptor so lifecycle can reauthorize Group sources
+// against the exact row expansion shape at proposal and apply time.
+type ReceiptConstructionGroupFieldSourceContext struct {
+	SourceStageID        string                                        `json:"sourceStageId"`
+	SourceShapeID        string                                        `json:"sourceShapeId"`
+	SourceIdentityColumn string                                        `json:"sourceIdentityColumn"`
+	SourceExpansion      *ReceiptConstructionGroupFieldSourceExpansion `json:"sourceExpansion,omitempty"`
+	FieldOwners          []ReceiptConstructionGroupFieldOwner          `json:"fieldOwners"`
+}
+
+type ReceiptConstructionGroupFieldSourceExpansion struct {
+	OwnerOccurrenceID string                                         `json:"ownerOccurrenceId"`
+	OwnerResourceType string                                         `json:"ownerResourceType"`
+	Selector          string                                         `json:"selector"`
+	Route             []ReceiptConstructionGroupFieldSourceRouteStep `json:"route"`
+	Ancestors         []ReceiptConstructionGroupFieldSourceAncestor  `json:"ancestors"`
+	OrdinalSemantics  string                                         `json:"ordinalSemantics"`
+	IdentitySemantics string                                         `json:"identitySemantics"`
+	EmptyPolicy       string                                         `json:"emptyPolicy"`
+}
+
+type ReceiptConstructionGroupFieldSourceRouteStep struct {
+	OccurrenceID string `json:"occurrenceId"`
+	FromType     string `json:"fromType"`
+	EdgeLabel    string `json:"edgeLabel"`
+	ToType       string `json:"toType"`
+	Direction    string `json:"direction"`
+}
+
+type ReceiptConstructionGroupFieldSourceAncestor struct {
+	StepIndex        int    `json:"stepIndex"`
+	BoundarySelector string `json:"boundarySelector"`
+	ResourceType     string `json:"resourceType"`
+}
+
+type ReceiptConstructionGroupFieldOwner struct {
+	Role              string `json:"role"`
+	OccurrenceID      string `json:"occurrenceId"`
+	OwnerResourceType string `json:"ownerResourceType"`
+	ResourceType      string `json:"resourceType"`
+	BoundarySelector  string `json:"boundarySelector,omitempty"`
+	StepIndex         int    `json:"stepIndex"`
 }
 
 // ReceiptConstructionCodedGroupChoice is attached only to a current
@@ -446,6 +492,9 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				return fmt.Errorf("constructionStages[%q][%d] does not follow its previous stage", outputID, index)
 			}
 			priorStageID = stage.ID
+			if err := validateReceiptGroupFieldSourceContext(stage); err != nil {
+				return fmt.Errorf("constructionStages[%q][%d].groupFieldSourceContext: %w", outputID, index, err)
+			}
 			seenColumns := make(map[string]struct{}, len(stage.Columns))
 			seenNames := make(map[string]struct{}, len(stage.Columns))
 			for columnIndex, column := range stage.Columns {
@@ -588,6 +637,101 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				return fmt.Errorf("constructionStages[%q][%d] RELATED_FIELD lacks its active exact terminal record", outputID, index)
 			}
 		}
+	}
+	return nil
+}
+
+func validateReceiptGroupFieldSourceContext(stage ReceiptConstructionStage) error {
+	context := stage.GroupFieldSourceContext
+	if context == nil {
+		return nil
+	}
+	if stage.ID != context.SourceStageID || context.SourceStageID == "" || context.SourceShapeID == "" ||
+		context.SourceIdentityColumn == "" || stage.RowIdentityColumn != context.SourceIdentityColumn || len(context.FieldOwners) == 0 {
+		return fmt.Errorf("requires exact stage, shape, row identity, and owner facts")
+	}
+	ownerKeys := make(map[string]struct{}, len(context.FieldOwners))
+	rootOwners, itemOwners := 0, 0
+	for index, owner := range context.FieldOwners {
+		if owner.OccurrenceID == "" || owner.OwnerResourceType == "" || owner.ResourceType == "" ||
+			owner.OccurrenceID != strings.TrimSpace(owner.OccurrenceID) || owner.OwnerResourceType != strings.TrimSpace(owner.OwnerResourceType) ||
+			owner.ResourceType != strings.TrimSpace(owner.ResourceType) {
+			return fmt.Errorf("fieldOwners[%d] requires exact occurrence and resource facts", index)
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", owner.Role, owner.OccurrenceID, owner.ResourceType, owner.BoundarySelector, owner.StepIndex)
+		if _, duplicate := ownerKeys[key]; duplicate {
+			return fmt.Errorf("fieldOwners[%d] duplicates an exact owner", index)
+		}
+		ownerKeys[key] = struct{}{}
+		switch owner.Role {
+		case "ROOT":
+			rootOwners++
+			if owner.OwnerResourceType != owner.ResourceType || owner.BoundarySelector != "" {
+				return fmt.Errorf("fieldOwners[%d] ROOT facts are inconsistent", index)
+			}
+		case "OWNER":
+			if owner.BoundarySelector != "" || owner.OwnerResourceType != owner.ResourceType {
+				return fmt.Errorf("fieldOwners[%d] OWNER facts are inconsistent", index)
+			}
+		case "ANCESTOR":
+			if owner.BoundarySelector == "" || owner.StepIndex < 0 {
+				return fmt.Errorf("fieldOwners[%d] ANCESTOR requires an exact boundary selector and step", index)
+			}
+		case "CURRENT_ITEM":
+			itemOwners++
+			if owner.BoundarySelector == "" {
+				return fmt.Errorf("fieldOwners[%d] CURRENT_ITEM requires the exact item selector", index)
+			}
+		default:
+			return fmt.Errorf("fieldOwners[%d] has unsupported role %q", index, owner.Role)
+		}
+	}
+	if rootOwners != 1 {
+		return fmt.Errorf("requires exactly one root field owner")
+	}
+	expansion := context.SourceExpansion
+	if expansion == nil {
+		if itemOwners != 0 {
+			return fmt.Errorf("CURRENT_ITEM owners require compiler expansion facts")
+		}
+		return nil
+	}
+	if expansion.OwnerOccurrenceID == "" || expansion.OwnerResourceType == "" || expansion.Selector == "" ||
+		expansion.OrdinalSemantics == "" || expansion.IdentitySemantics == "" || expansion.EmptyPolicy == "" || itemOwners != 1 {
+		return fmt.Errorf("sourceExpansion requires exact owner, selector, route semantics, and one current item")
+	}
+	priorType := ""
+	for index, hop := range expansion.Route {
+		if hop.OccurrenceID == "" || hop.FromType == "" || hop.EdgeLabel == "" || hop.ToType == "" ||
+			(hop.Direction != "INBOUND" && hop.Direction != "OUTBOUND") || (priorType != "" && hop.FromType != priorType) {
+			return fmt.Errorf("sourceExpansion.route[%d] is invalid or discontinuous", index)
+		}
+		priorType = hop.ToType
+	}
+	for index, ancestor := range expansion.Ancestors {
+		if ancestor.StepIndex < 0 || ancestor.BoundarySelector == "" || ancestor.ResourceType == "" {
+			return fmt.Errorf("sourceExpansion.ancestors[%d] requires exact boundary facts", index)
+		}
+		matches := 0
+		for _, owner := range context.FieldOwners {
+			if owner.Role == "ANCESTOR" && owner.StepIndex == ancestor.StepIndex && owner.BoundarySelector == ancestor.BoundarySelector &&
+				owner.ResourceType == ancestor.ResourceType && owner.OccurrenceID == expansion.OwnerOccurrenceID && owner.OwnerResourceType == expansion.OwnerResourceType {
+				matches++
+			}
+		}
+		if matches != 1 {
+			return fmt.Errorf("sourceExpansion.ancestors[%d] does not have one exact owner context", index)
+		}
+	}
+	currentMatches := 0
+	for _, owner := range context.FieldOwners {
+		if owner.Role == "CURRENT_ITEM" && owner.OccurrenceID == expansion.OwnerOccurrenceID &&
+			owner.OwnerResourceType == expansion.OwnerResourceType && owner.BoundarySelector == expansion.Selector {
+			currentMatches++
+		}
+	}
+	if currentMatches != 1 {
+		return fmt.Errorf("current item owner does not match the exact expansion")
 	}
 	return nil
 }

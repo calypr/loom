@@ -3587,11 +3587,19 @@ components:
     ConstructionRowValue:
       type: object
       additionalProperties: false
-      required: [inputColumnId, outputColumnId, policy]
+      required: [outputColumnId, policy]
+      oneOf:
+        - required: [inputColumnId]
+        - required: [fieldSource]
       properties:
         inputColumnId: {type: string, minLength: 1}
+        fieldSource: {$ref: '#/components/schemas/ConstructionRowValueFieldSource'}
         outputColumnId: {type: string, minLength: 1}
         policy: {type: string, enum: [ALL, ONE]}
+    ConstructionRowValueFieldSource:
+      oneOf:
+        - {$ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'}
+        - {$ref: '#/components/schemas/ConstructionGroupFieldSourceScalarBinding'}
     ConstructionInputRef:
       type: object
       additionalProperties: false
@@ -3919,13 +3927,75 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionGroupAggregate'}
     ConstructionGroupKey:
+      oneOf:
+        - $ref: '#/components/schemas/ConstructionGroupKeyInputColumn'
+        - $ref: '#/components/schemas/ConstructionGroupKeyFieldSource'
+        - $ref: '#/components/schemas/ConstructionGroupKeySemanticCategory'
+    ConstructionGroupKeyInputColumn:
       type: object
       additionalProperties: false
-      required: [outputColumnId]
+      required: [inputColumnId, outputColumnId]
       properties:
         inputColumnId: {type: string, minLength: 1}
         outputColumnId: {type: string, minLength: 1}
+    ConstructionGroupKeyFieldSource:
+      type: object
+      additionalProperties: false
+      required: [fieldSource, outputColumnId]
+      properties:
+        fieldSource: {$ref: '#/components/schemas/ConstructionGroupFieldSource'}
+        outputColumnId: {type: string, minLength: 1}
+    ConstructionGroupKeySemanticCategory:
+      type: object
+      additionalProperties: false
+      required: [semanticCategory, outputColumnId]
+      properties:
         semanticCategory: {$ref: '#/components/schemas/ConstructionGroupSemanticCategory'}
+        outputColumnId: {type: string, minLength: 1}
+    ConstructionGroupFieldSource:
+      oneOf:
+        - $ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'
+        - $ref: '#/components/schemas/ConstructionGroupFieldSourceScalarBinding'
+        - $ref: '#/components/schemas/ConstructionGroupFieldSourceCodingIdentityBinding'
+    ConstructionGroupFieldSourceChoice:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [CHOICE]}
+        choiceId: {type: string, minLength: 1}
+    ConstructionGroupFieldSourceScalarBinding:
+      type: object
+      additionalProperties: false
+      required: [kind, valueKind, sourceStageId, sourceShapeId, sourceRole, occurrenceId, resourceType, ownerOccurrenceId, ownerResourceType, candidateId, canonicalPath]
+      properties:
+        kind: {type: string, enum: [BINDING]}
+        valueKind: {type: string, enum: [SCALAR]}
+        sourceStageId: {type: string, minLength: 1}
+        sourceShapeId: {type: string, minLength: 1}
+        sourceRole: {type: string, enum: [ROOT, OWNER, ANCESTOR, CURRENT_ITEM]}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        ownerOccurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        candidateId: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
+        boundarySelector: {type: string, minLength: 1}
+    ConstructionGroupFieldSourceCodingIdentityBinding:
+      type: object
+      additionalProperties: false
+      required: [kind, valueKind, sourceStageId, sourceShapeId, sourceRole, occurrenceId, resourceType, ownerOccurrenceId, ownerResourceType, canonicalPath]
+      properties:
+        kind: {type: string, enum: [BINDING]}
+        valueKind: {type: string, enum: [CODING_IDENTITY]}
+        sourceStageId: {type: string, minLength: 1}
+        sourceShapeId: {type: string, minLength: 1}
+        sourceRole: {type: string, enum: [CURRENT_ITEM]}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        ownerOccurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
     ConstructionGroupSemanticCategory:
       type: object
       additionalProperties: false
@@ -4055,6 +4125,7 @@ components:
         expectedDraftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
+        groupStepId: {type: string, minLength: 1}
     ConstructionCategoryDiscoveryRequest:
       type: object
       additionalProperties: false
@@ -4135,6 +4206,65 @@ components:
         codedGroupChoices:
           type: array
           items: {$ref: '#/components/schemas/ConstructionCodedGroupChoice'}
+        groupFieldSourceContext: {$ref: '#/components/schemas/ConstructionGroupFieldSourceContext'}
+    ConstructionGroupFieldSourceContext:
+      type: object
+      additionalProperties: false
+      required: [sourceStageId, sourceShapeId, sourceIdentityColumn, fieldOwners]
+      properties:
+        sourceStageId: {type: string, minLength: 1}
+        sourceShapeId: {type: string, minLength: 1}
+        sourceIdentityColumn: {type: string, minLength: 1}
+        sourceExpansion: {$ref: '#/components/schemas/ConstructionGroupFieldSourceExpansion'}
+        fieldOwners:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupFieldOwner'}
+    ConstructionGroupFieldSourceExpansion:
+      type: object
+      additionalProperties: false
+      required: [ownerOccurrenceId, ownerResourceType, selector, route, ancestors, ordinalSemantics, identitySemantics, emptyPolicy]
+      properties:
+        ownerOccurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        selector: {type: string, minLength: 1}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupFieldSourceRouteStep'}
+        ancestors:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupFieldSourceAncestor'}
+        ordinalSemantics: {type: string, minLength: 1}
+        identitySemantics: {type: string, minLength: 1}
+        emptyPolicy: {type: string, minLength: 1}
+    ConstructionGroupFieldSourceRouteStep:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, fromType, edgeLabel, toType, direction]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        fromType: {type: string, minLength: 1}
+        edgeLabel: {type: string, minLength: 1}
+        toType: {type: string, minLength: 1}
+        direction: {type: string, enum: [INBOUND, OUTBOUND]}
+    ConstructionGroupFieldSourceAncestor:
+      type: object
+      additionalProperties: false
+      required: [stepIndex, boundarySelector, resourceType]
+      properties:
+        stepIndex: {type: integer, minimum: 0}
+        boundarySelector: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+    ConstructionGroupFieldOwner:
+      type: object
+      additionalProperties: false
+      required: [role, occurrenceId, ownerResourceType, resourceType, stepIndex]
+      properties:
+        role: {type: string, enum: [ROOT, OWNER, ANCESTOR, CURRENT_ITEM]}
+        occurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        boundarySelector: {type: string, minLength: 1}
+        stepIndex: {type: integer, minimum: 0}
     ConstructionCodedGroupChoice:
       type: object
       additionalProperties: false
@@ -4208,7 +4338,7 @@ components:
     ConstructionCapabilitiesResponse:
       type: object
       additionalProperties: false
-      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, baseConstruction, stages, selectedStage, sourceInput, workspaceInputs]
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, baseConstruction, stages, selectedStage, sourceInput, groupFieldChoices, groupRowValueChoices, workspaceInputs]
       properties:
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, minimum: 1}
@@ -4224,12 +4354,82 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionSemanticGroupChoice'}
         semanticGroupChoicesIncomplete: {type: boolean}
+        groupFieldChoices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupFieldChoice'}
+        groupFieldChoicesIncomplete: {type: boolean}
+        groupRowValueChoices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupFieldScalarSourceOption'}
         sourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         pivotSourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         sourceProjectionAvailability: {$ref: '#/components/schemas/ConstructionSourceProjectionAvailability'}
         workspaceInputs:
           type: array
           items: {$ref: '#/components/schemas/ConstructionWorkspaceInput'}
+    ConstructionGroupFieldChoice:
+      oneOf:
+        - $ref: '#/components/schemas/ConstructionGroupFieldScalarSourceOption'
+        - $ref: '#/components/schemas/ConstructionGroupCodingIdentitySourceOption'
+        - $ref: '#/components/schemas/ConstructionGroupSemanticCategoryChoice'
+    ConstructionGroupFieldScalarSourceOption:
+      type: object
+      additionalProperties: false
+      required: [kind, valueKind, fieldSource, label, sourceStageId, sourceShapeId, candidateId, sourceRole, occurrenceId, resourceType, ownerOccurrenceId, ownerResourceType, canonicalPath]
+      properties:
+        kind: {type: string, enum: [FIELD_SOURCE]}
+        valueKind: {type: string, enum: [SCALAR]}
+        fieldSource: {$ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'}
+        label: {type: string, minLength: 1}
+        scopeLabel: {type: string}
+        valueType: {type: string}
+        inputColumnId: {type: string, minLength: 1}
+        sourceStageId: {type: string, minLength: 1}
+        sourceShapeId: {type: string, minLength: 1}
+        candidateId: {type: string, minLength: 1}
+        sourceRole: {type: string, enum: [ROOT, OWNER, ANCESTOR, CURRENT_ITEM]}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        ownerOccurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
+        boundarySelector: {type: string, minLength: 1}
+    ConstructionGroupCodingIdentitySourceOption:
+      type: object
+      additionalProperties: false
+      required: [kind, valueKind, fieldSource, label, sourceStageId, sourceShapeId, sourceRole, occurrenceId, resourceType, ownerOccurrenceId, ownerResourceType, canonicalPath]
+      properties:
+        kind: {type: string, enum: [FIELD_SOURCE]}
+        valueKind: {type: string, enum: [CODING_IDENTITY]}
+        fieldSource: {$ref: '#/components/schemas/ConstructionGroupFieldSourceChoice'}
+        label: {type: string, minLength: 1}
+        scopeLabel: {type: string}
+        valueType: {type: string}
+        sourceStageId: {type: string, minLength: 1}
+        sourceShapeId: {type: string, minLength: 1}
+        sourceRole: {type: string, enum: [CURRENT_ITEM]}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        ownerOccurrenceId: {type: string, minLength: 1}
+        ownerResourceType: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
+    ConstructionGroupSemanticCategoryChoice:
+      type: object
+      additionalProperties: false
+      required: [kind, semanticCategory, label]
+      properties:
+        kind: {type: string, enum: [SEMANTIC_CATEGORY]}
+        semanticCategory:
+          type: object
+          additionalProperties: false
+          required: [kind, choiceId]
+          properties:
+            kind: {type: string, enum: [CHOICE]}
+            choiceId: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        scopeLabel: {type: string}
+        resourceType: {type: string, minLength: 1}
+        canonicalPath: {type: string, minLength: 1}
     ConstructionSemanticGroupChoice:
       type: object
       additionalProperties: false

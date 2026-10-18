@@ -197,6 +197,146 @@ func constructionPresentationHasFact(presentation ConstructionChoicePresentation
 	return false
 }
 
+func TestGroupFieldChoiceAllowsScalarAfterExactUnnestBoundary(t *testing.T) {
+	candidate := Candidate{
+		ID: "component-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "component[].valueQuantity.value", LogicalType: "decimal", Cardinality: "many", Populated: true,
+		RepeatedBoundaries: []RepeatedBoundary{{Path: "component[]", MaxItems: 8}},
+		ProjectionModes:    []ProjectionMode{ProjectionFirst, ProjectionArray},
+	}
+	source := GroupFieldChoiceSource{
+		SourceStageID: "source_projection", SourceShapeID: "shape-current-1", SourceIdentityColumn: "_key",
+		SourceRole: "CURRENT_ITEM", OwnerOccurrenceID: "observation-owner", OwnerResourceType: "Observation",
+		OwnerSelector: "component[]", OccurrenceID: "observation-owner", ResourceType: "ObservationComponent",
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, CanonicalPath: "valueQuantity.value",
+		FHIRType: "decimal", Cardinality: "ONE", Shape: "SCALAR", ValueKind: "SCALAR",
+	}
+	choice, err := NewGroupFieldConstructionChoice("snapshot-a", nil, source, candidate)
+	if err != nil {
+		t.Fatalf("create current-item choice after consuming component[]: %v", err)
+	}
+	identity, err := DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatalf("decode current-item choice: %v", err)
+	}
+	decoded, ok := identity.Source.(GroupFieldChoiceSource)
+	if !ok || decoded.SourceRole != "CURRENT_ITEM" || decoded.SourceStageID != "source_projection" ||
+		decoded.SourceShapeID != "shape-current-1" || decoded.OwnerSelector != "component[]" ||
+		decoded.CanonicalPath != "valueQuantity.value" {
+		t.Fatalf("current-item group choice identity = %#v, want exact source and field scope", identity)
+	}
+
+	stale := candidate
+	stale.RepeatedBoundaries = append(stale.RepeatedBoundaries, RepeatedBoundary{Path: "component[].code.coding[]", MaxItems: 8})
+	if _, err := NewGroupFieldConstructionChoice("snapshot-a", nil, source, stale); err == nil {
+		t.Fatal("accepted an unconsumed repeated coding boundary")
+	}
+	rootSource := source
+	rootSource.SourceRole = "ROOT"
+	rootSource.OwnerOccurrenceID, rootSource.OwnerResourceType, rootSource.OwnerSelector = "base", "Observation", ""
+	rootSource.OccurrenceID, rootSource.ResourceType = "base", "Observation"
+	if _, err := NewGroupFieldConstructionChoice("snapshot-a", nil, rootSource, candidate); err == nil {
+		t.Fatal("accepted a globally repeated field as a root Group key")
+	}
+}
+
+func TestGroupFieldChoiceConsumesOnlyExactCompiledAncestorBoundaries(t *testing.T) {
+	candidate := Candidate{
+		ID: "component-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "component[].valueQuantity.value", LogicalType: "decimal", Cardinality: "many", Populated: true,
+		RepeatedBoundaries: []RepeatedBoundary{{Path: "component[]", MaxItems: 8}},
+		ProjectionModes:    []ProjectionMode{ProjectionFirst, ProjectionArray},
+	}
+	source := GroupFieldChoiceSource{
+		SourceStageID: "source_projection", SourceShapeID: "shape-component", SourceIdentityColumn: "__loom_expansion_identity",
+		SourceRole: "ANCESTOR", OwnerOccurrenceID: "observation-owner", OwnerResourceType: "Observation",
+		OwnerSelector: "component[].code.coding[]", OccurrenceID: "observation-owner", ResourceType: "ObservationComponent",
+		BoundarySelector: "component[]", ConsumedBoundaries: []string{"component[]"},
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, CanonicalPath: "valueQuantity.value",
+		FHIRType: "decimal", Cardinality: "ONE", Shape: "SCALAR", ValueKind: "SCALAR",
+	}
+	if _, err := NewGroupFieldConstructionChoice("snapshot-a", nil, source, candidate); err != nil {
+		t.Fatalf("create ANCESTOR scalar for exact component[] prefix: %v", err)
+	}
+
+	stale := source
+	stale.ConsumedBoundaries = []string{"component[].extension[]"}
+	if _, err := NewGroupFieldConstructionChoice("snapshot-a", nil, stale, candidate); err == nil {
+		t.Fatal("accepted a repeated candidate boundary absent from the compiler-proven ancestor prefix")
+	}
+
+	nestedCandidate := Candidate{
+		ID: "extension-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "component[].extension[].valueString", LogicalType: "string", Cardinality: "many", Populated: true,
+		RepeatedBoundaries: []RepeatedBoundary{
+			{Path: "component[]", MaxItems: 8},
+			{Path: "component[].extension[]", MaxItems: 8},
+		},
+		ProjectionModes: []ProjectionMode{ProjectionFirst, ProjectionArray},
+	}
+	nestedSource := GroupFieldChoiceSource{
+		SourceStageID: "source_projection", SourceShapeID: "shape-nested-item", SourceIdentityColumn: "__loom_expansion_identity",
+		SourceRole: "CURRENT_ITEM", OwnerOccurrenceID: "observation-owner", OwnerResourceType: "Observation",
+		OwnerSelector: "component[].extension[]", OccurrenceID: "observation-owner", ResourceType: "Extension",
+		ConsumedBoundaries: []string{"component[]", "component[].extension[]"},
+		CandidateID:        nestedCandidate.ID, NodeID: nestedCandidate.NodeID, CanonicalPath: "valueString",
+		FHIRType: "string", Cardinality: "ONE", Shape: "SCALAR", ValueKind: "SCALAR",
+	}
+	if _, err := NewGroupFieldConstructionChoice("snapshot-a", nil, nestedSource, nestedCandidate); err != nil {
+		t.Fatalf("create nested CURRENT_ITEM scalar from ordered compiler ancestors: %v", err)
+	}
+}
+
+func TestGroupFieldChoicePinsStageShapeOwnerAndRoute(t *testing.T) {
+	candidate := Candidate{
+		ID: "observation-status", NodeID: "observation-node", ResourceType: "Observation",
+		FieldPath: "status", LogicalType: "string", Cardinality: "optional_one", Populated: true,
+		ProjectionModes: []ProjectionMode{ProjectionScalar},
+	}
+	route := []ConstructionRouteStep{{
+		EdgeID: "patient-observation-edge", FromNodeID: "patient-node", ToNodeID: "observation-node",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	source := GroupFieldChoiceSource{
+		SourceStageID: "source_projection", SourceShapeID: "shape-a", SourceIdentityColumn: "__loom_expansion_identity",
+		SourceRole: "OWNER", OwnerOccurrenceID: "observation-occurrence-a", OwnerResourceType: "Observation",
+		OwnerSelector: "component[].code.coding[]", OccurrenceID: "observation-occurrence-a", ResourceType: "Observation",
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, CanonicalPath: "status",
+		FHIRType: "string", Cardinality: "ONE", Shape: "SCALAR", ValueKind: "SCALAR",
+	}
+	base, err := NewGroupFieldConstructionChoice("snapshot-a", route, source, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedShapeSource := source
+	changedShapeSource.SourceShapeID = "shape-b"
+	changedShape, err := NewGroupFieldConstructionChoice("snapshot-a", route, changedShapeSource, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedOwnerSource := source
+	changedOwnerSource.OccurrenceID = "observation-occurrence-b"
+	changedOwnerSource.OwnerOccurrenceID = "observation-occurrence-b"
+	changedOwner, err := NewGroupFieldConstructionChoice("snapshot-a", route, changedOwnerSource, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedRouteFacts := append([]ConstructionRouteStep(nil), route...)
+	changedRouteFacts[0].EdgeID = "different-patient-observation-edge"
+	changedRoute, err := NewGroupFieldConstructionChoice("snapshot-a", changedRouteFacts, source, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, choice := range map[string]ConstructionChoice{
+		"source shape": changedShape, "owner occurrence": changedOwner, "route": changedRoute,
+	} {
+		if choice.ChoiceID == base.ChoiceID {
+			t.Errorf("same status selector produced the same choice after changing %s", name)
+		}
+	}
+}
+
 func TestNewFieldConstructionChoiceRejectsUnsupportedObjectProjection(t *testing.T) {
 	t.Parallel()
 

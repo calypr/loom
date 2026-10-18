@@ -26,6 +26,8 @@ const catalog: ExplorerBuilderCatalog = {
 const capabilities: ConstructionCapabilitiesResponse = {
   snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-3', outputId: 'patients',
   stageId: 'source_projection', baseConstruction: { version: 1, steps: [] }, stages: [],
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
   selectedStage: {
     id: 'source_projection', inputStageId: '',

@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -802,12 +803,475 @@ func TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata
 	}
 	if len(proposal.CandidateConstruction.Steps) != 1 || proposal.CandidateConstruction.Steps[0].Operation.Group == nil ||
 		proposal.CandidateConstruction.Steps[0].Operation.Group.Keys == nil ||
-		len(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys) != 2 ||
-		(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory == nil ||
-		(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory.Kind != "BINDING" ||
-		((*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory.FamilyId == nil ||
-			*(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].SemanticCategory.FamilyId != family.FamilyID) {
+		len(*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys) != 2 {
 		t.Fatalf("semantic Group proposal did not retain exact server-resolved binding: %#v", proposal.CandidateConstruction)
+	}
+	semanticKey, err := (*proposal.CandidateConstruction.Steps[0].Operation.Group.Keys)[1].AsConstructionGroupKeySemanticCategory()
+	if err != nil || string(semanticKey.SemanticCategory.Kind) != "BINDING" ||
+		semanticKey.SemanticCategory.FamilyId == nil || *semanticKey.SemanticCategory.FamilyId != family.FamilyID {
+		t.Fatalf("semantic Group proposal did not retain exact server-resolved binding: key=%#v err=%v", semanticKey, err)
+	}
+}
+
+func TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Nodes = []capability.Node{{
+		ID: "n_observation", ResourceType: "Observation", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 12,
+	}}
+	snapshot.Edges = nil
+	snapshot.Candidates = []capability.Candidate{{
+		ID: "c_observation_coding", NodeID: "n_observation", ResourceType: "Observation",
+		FieldPath: "component[].code.coding[]", Label: "Observed coding", LogicalType: "Coding", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{
+			{Path: "component[]", MaxItems: 8},
+			{Path: "component[].code.coding[]", MaxItems: 8},
+		},
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, SupportedOperations: []capability.Operation{capability.OperationSelect},
+		Observed: true, Populated: true,
+	}, {
+		ID: "c_observation_component_value", NodeID: "n_observation", ResourceType: "Observation",
+		FieldPath: "component[].valueQuantity.value", Label: "Component quantity", LogicalType: "decimal", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "component[]", MaxItems: 8}},
+		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+		Observed:           true, Populated: true,
+	}, {
+		ID: "c_observation_status", NodeID: "n_observation", ResourceType: "Observation",
+		FieldPath: "status", Label: "Observation status", LogicalType: "string", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		Observed:        true, Populated: true,
+	}}
+
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowChoices, err := lifecycle.NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := workspace.Documents[0]
+	document.RootResourceType = "Observation"
+	document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}
+	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
+		OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[].code.coding[]",
+		EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+	}}
+	document.Columns = []authoringv2.Column{}
+	document.Output = authoringv2.Output{ID: "observations", Title: "Observations", RowLabel: "Observations"}
+	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0] = document
+	workspace.Tabs[0].OutputID = "observations"
+	workspace.Tabs[0].Title = "Observations"
+	catalogSnapshot := authoringV2Catalog(snapshot, "observation-explorer")
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalogSnapshot).NormalizePresentationOrders()
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate current Coding workspace: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "observation-explorer", Title: "Observations",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewCalls := 0
+	var previewContractErr error
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		RowChoicePlanner: rowChoices,
+		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+			return compileConstructionSourceStage(ctx, request, recipeEngine)
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+		},
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			previewCalls++
+			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "observations" {
+				previewContractErr = fmt.Errorf("scalar and Coding Group proposal did not reach compiled preview: receipt=%#v bindings=%#v", receipt, bindings)
+				return dataframeexecution.PreviewSummary{}, previewContractErr
+			}
+			rowValuePresent := false
+			for _, stage := range receipt.ConstructionStages["observations"] {
+				for _, column := range stage.Columns {
+					if column.ID == "component_values" {
+						rowValuePresent = true
+					}
+				}
+			}
+			row := map[string]any{"status_group": "final", "coding_identity": "urn:loinc|2.74|1234-5", "row_count": 1}
+			columns := []string{"status_group", "coding_identity", "row_count"}
+			if rowValuePresent {
+				row["component_values"] = []any{172.5}
+				columns = append(columns, "component_values")
+			}
+			if err := visit(row); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{
+				Output: "observations", Columns: columns, RowCount: 1, Complete: true, PartialValidation: true,
+			}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	basePath := "/api/v1/projects/project-a/explorers/observation-explorer/authoring/v2"
+	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection"}`,
+		snapshot.Token, digest,
+	))
+	if capabilitiesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("current Coding capabilities status=%d body=%s", capabilitiesResponse.StatusCode, capabilitiesResponse.Body)
+	}
+	var capabilities struct {
+		GroupFieldChoices []struct {
+			Kind        string `json:"kind"`
+			ValueKind   string `json:"valueKind"`
+			FieldSource struct {
+				ChoiceID string `json:"choiceId"`
+			} `json:"fieldSource"`
+			SourceStage  string `json:"sourceStageId"`
+			SourceShape  string `json:"sourceShapeId"`
+			SourceRole   string `json:"sourceRole"`
+			OccurrenceID string `json:"occurrenceId"`
+			ResourceType string `json:"resourceType"`
+			OwnerType    string `json:"ownerResourceType"`
+			CandidateID  string `json:"candidateId"`
+			Path         string `json:"canonicalPath"`
+		} `json:"groupFieldChoices"`
+		GroupRowValueChoices []struct {
+			Kind        string `json:"kind"`
+			ValueKind   string `json:"valueKind"`
+			FieldSource struct {
+				ChoiceID string `json:"choiceId"`
+			} `json:"fieldSource"`
+			SourceStage  string `json:"sourceStageId"`
+			SourceShape  string `json:"sourceShapeId"`
+			SourceRole   string `json:"sourceRole"`
+			OccurrenceID string `json:"occurrenceId"`
+			ResourceType string `json:"resourceType"`
+			OwnerID      string `json:"ownerOccurrenceId"`
+			OwnerType    string `json:"ownerResourceType"`
+			CandidateID  string `json:"candidateId"`
+			Path         string `json:"canonicalPath"`
+			Boundary     string `json:"boundarySelector"`
+		} `json:"groupRowValueChoices"`
+	}
+	if err := json.Unmarshal([]byte(capabilitiesResponse.Body), &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if len(capabilities.GroupRowValueChoices) != 0 {
+		t.Fatalf("new Group received post-Group Add-columns choices before it was saved: %#v", capabilities.GroupRowValueChoices)
+	}
+	var codingChoice *struct {
+		Kind        string `json:"kind"`
+		ValueKind   string `json:"valueKind"`
+		FieldSource struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"fieldSource"`
+		SourceStage  string `json:"sourceStageId"`
+		SourceShape  string `json:"sourceShapeId"`
+		SourceRole   string `json:"sourceRole"`
+		OccurrenceID string `json:"occurrenceId"`
+		ResourceType string `json:"resourceType"`
+		OwnerType    string `json:"ownerResourceType"`
+		CandidateID  string `json:"candidateId"`
+		Path         string `json:"canonicalPath"`
+	}
+	var scalarChoice *struct {
+		Kind        string `json:"kind"`
+		ValueKind   string `json:"valueKind"`
+		FieldSource struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"fieldSource"`
+		SourceStage  string `json:"sourceStageId"`
+		SourceShape  string `json:"sourceShapeId"`
+		SourceRole   string `json:"sourceRole"`
+		OccurrenceID string `json:"occurrenceId"`
+		ResourceType string `json:"resourceType"`
+		OwnerType    string `json:"ownerResourceType"`
+		CandidateID  string `json:"candidateId"`
+		Path         string `json:"canonicalPath"`
+	}
+	for index := range capabilities.GroupFieldChoices {
+		choice := &capabilities.GroupFieldChoices[index]
+		if choice.Kind == "FIELD_SOURCE" && choice.ValueKind == "SCALAR" && choice.Path == "status" {
+			scalarChoice = choice
+		}
+		if choice.Kind == "FIELD_SOURCE" && choice.ValueKind == "CODING_IDENTITY" {
+			codingChoice = choice
+		}
+	}
+	if codingChoice == nil || codingChoice.FieldSource.ChoiceID == "" || codingChoice.SourceStage != "source_projection" || codingChoice.SourceShape == "" ||
+		codingChoice.SourceRole != "CURRENT_ITEM" || codingChoice.OccurrenceID != authoringv2.RootOccurrenceID ||
+		codingChoice.ResourceType != "Coding" || codingChoice.OwnerType != "Observation" || codingChoice.Path != "component[].code.coding[]" {
+		t.Fatalf("current Coding group choice = %#v, want exact Coding item under Observation owner", capabilities.GroupFieldChoices)
+	}
+	if scalarChoice == nil || scalarChoice.FieldSource.ChoiceID == "" || scalarChoice.SourceStage != "source_projection" ||
+		scalarChoice.SourceShape == "" || scalarChoice.SourceRole != "ROOT" || scalarChoice.OccurrenceID != authoringv2.RootOccurrenceID ||
+		scalarChoice.ResourceType != "Observation" || scalarChoice.OwnerType != "Observation" || scalarChoice.CandidateID != "c_observation_status" {
+		t.Fatalf("scalar Group field choice = %#v, want exact observed root scalar", capabilities.GroupFieldChoices)
+	}
+
+	stepID := "group_current_coding"
+	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: stepID, Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			ConstructionID: stepID, MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+			Keys: []authoringv2.ConstructionGroupKey{{
+				OutputColumnID: "status_group",
+				FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: scalarChoice.FieldSource.ChoiceID},
+			}, {
+				OutputColumnID: "coding_identity",
+				FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: codingChoice.FieldSource.ChoiceID},
+			}},
+			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "status_group", Name: "status_group", Label: "Status", Type: "string"},
+			{ID: "coding_identity", Name: "coding_identity", Label: "Coding", Type: "string"},
+			{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
+		},
+	}}}
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"observations","changedStepId":%q,"candidateConstruction":%s,"limit":100}`,
+		snapshot.Token, digest, stepID, candidateJSON,
+	))
+	if proposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("current Coding proposal status=%d body=%s", proposalResponse.StatusCode, proposalResponse.Body)
+	}
+	var proposal struct {
+		ProposalID            *string         `json:"proposalId"`
+		PreviewStatus         string          `json:"previewStatus"`
+		CandidateConstruction json.RawMessage `json:"candidateConstruction"`
+		Preview               *struct {
+			RowCount int `json:"rowCount"`
+		} `json:"preview"`
+	}
+	if err := json.Unmarshal([]byte(proposalResponse.Body), &proposal); err != nil {
+		t.Fatal(err)
+	}
+	var resolved authoringv2.Construction
+	if err := json.Unmarshal(proposal.CandidateConstruction, &resolved); err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalID == nil || proposal.PreviewStatus != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 || previewCalls != 1 || previewContractErr != nil {
+		t.Fatalf("current Coding proposal did not complete preview: response=%#v calls=%d err=%v", proposal, previewCalls, previewContractErr)
+	}
+	if len(resolved.Steps) != 1 || resolved.Steps[0].Operation.Group == nil || len(resolved.Steps[0].Operation.Group.Keys) != 2 {
+		t.Fatalf("resolved Coding construction = %#v", resolved)
+	}
+	scalarBinding := resolved.Steps[0].Operation.Group.Keys[0].FieldSource
+	if scalarBinding == nil || scalarBinding.Kind != "BINDING" || scalarBinding.ValueKind != "SCALAR" ||
+		scalarBinding.SourceStageID != "source_projection" || scalarBinding.SourceShapeID != scalarChoice.SourceShape ||
+		scalarBinding.SourceRole != "ROOT" || scalarBinding.ResourceType != "Observation" ||
+		scalarBinding.OwnerResourceType != "Observation" || scalarBinding.CandidateID != "c_observation_status" || scalarBinding.CanonicalPath != "status" {
+		t.Fatalf("resolved scalar field binding = %#v, want exact observed root field", scalarBinding)
+	}
+	binding := resolved.Steps[0].Operation.Group.Keys[1].FieldSource
+	if binding == nil || binding.Kind != "BINDING" || binding.ValueKind != "CODING_IDENTITY" || binding.SourceStageID != "source_projection" ||
+		binding.SourceShapeID != codingChoice.SourceShape || binding.SourceRole != "CURRENT_ITEM" || binding.ResourceType != "Coding" ||
+		binding.OwnerResourceType != "Observation" || binding.OccurrenceID != authoringv2.RootOccurrenceID ||
+		binding.CanonicalPath != "component[].code.coding[]" || binding.CandidateID != "" {
+		t.Fatalf("resolved Coding field binding = %#v, want exact current Coding identity", binding)
+	}
+
+	applyInitialGroup := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
+		`{"commandId":"apply-current-coding-group","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"observations","proposalId":%q}]}`,
+		authoringv2.CurrentSemanticsVersion, snapshot.Token, digest, *proposal.ProposalID,
+	))
+	if applyInitialGroup.StatusCode != http.StatusOK {
+		t.Fatalf("apply mixed-source Group status=%d body=%s", applyInitialGroup.StatusCode, applyInitialGroup.Body)
+	}
+	updated, err := service.Get(context.Background(), "project-a", "observation-explorer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedWorkspace, err := authoringv2.DecodeWorkspace(updated.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DraftVersion != 2 || len(acceptedWorkspace.Documents) != 1 || acceptedWorkspace.Documents[0].Construction == nil ||
+		len(acceptedWorkspace.Documents[0].Construction.Steps) != 1 || len(acceptedWorkspace.Documents[0].Columns) != 0 {
+		t.Fatalf("initial Group proposal was not durably applied: version=%d workspace=%#v", updated.DraftVersion, acceptedWorkspace)
+	}
+	acceptedConstruction := *acceptedWorkspace.Documents[0].Construction
+	rowValueCapabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"observations","stageId":"source_projection","groupStepId":%q}`,
+		snapshot.Token, updated.DraftVersion, updated.DraftDigest, stepID,
+	))
+	if rowValueCapabilitiesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("post-Group Add-columns capabilities status=%d body=%s", rowValueCapabilitiesResponse.StatusCode, rowValueCapabilitiesResponse.Body)
+	}
+	var rowValueCapabilities struct {
+		GroupRowValueChoices []struct {
+			Kind        string `json:"kind"`
+			ValueKind   string `json:"valueKind"`
+			FieldSource struct {
+				ChoiceID string `json:"choiceId"`
+			} `json:"fieldSource"`
+			SourceStage  string `json:"sourceStageId"`
+			SourceShape  string `json:"sourceShapeId"`
+			SourceRole   string `json:"sourceRole"`
+			OccurrenceID string `json:"occurrenceId"`
+			ResourceType string `json:"resourceType"`
+			OwnerID      string `json:"ownerOccurrenceId"`
+			OwnerType    string `json:"ownerResourceType"`
+			CandidateID  string `json:"candidateId"`
+			Path         string `json:"canonicalPath"`
+			Boundary     string `json:"boundarySelector"`
+		} `json:"groupRowValueChoices"`
+	}
+	if err := json.Unmarshal([]byte(rowValueCapabilitiesResponse.Body), &rowValueCapabilities); err != nil {
+		t.Fatal(err)
+	}
+	var componentValueChoice *struct {
+		Kind        string `json:"kind"`
+		ValueKind   string `json:"valueKind"`
+		FieldSource struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"fieldSource"`
+		SourceStage  string `json:"sourceStageId"`
+		SourceShape  string `json:"sourceShapeId"`
+		SourceRole   string `json:"sourceRole"`
+		OccurrenceID string `json:"occurrenceId"`
+		ResourceType string `json:"resourceType"`
+		OwnerID      string `json:"ownerOccurrenceId"`
+		OwnerType    string `json:"ownerResourceType"`
+		CandidateID  string `json:"candidateId"`
+		Path         string `json:"canonicalPath"`
+		Boundary     string `json:"boundarySelector"`
+	}
+	for index := range rowValueCapabilities.GroupRowValueChoices {
+		choice := &rowValueCapabilities.GroupRowValueChoices[index]
+		if choice.SourceRole == "ANCESTOR" && choice.CandidateID == "c_observation_component_value" {
+			componentValueChoice = choice
+			break
+		}
+	}
+	if componentValueChoice == nil || componentValueChoice.Kind != "FIELD_SOURCE" || componentValueChoice.ValueKind != "SCALAR" ||
+		componentValueChoice.FieldSource.ChoiceID == "" || componentValueChoice.SourceStage != "source_projection" ||
+		componentValueChoice.SourceShape != scalarChoice.SourceShape || componentValueChoice.ResourceType != "ObservationComponent" ||
+		componentValueChoice.OwnerID != authoringv2.RootOccurrenceID || componentValueChoice.OwnerType != "Observation" ||
+		componentValueChoice.Path != "valueQuantity.value" || componentValueChoice.Boundary != "component[]" {
+		t.Fatalf("post-Group ancestor row-value choice = %#v, want exact component[] source from the original Group input", rowValueCapabilities.GroupRowValueChoices)
+	}
+	if len(acceptedConstruction.Steps) != 1 {
+		t.Fatalf("accepted Group construction has unexpected steps: %#v", acceptedConstruction)
+	}
+	rowValueCandidate := acceptedConstruction
+	rowValueCandidate.Steps = append([]authoringv2.ConstructionStep(nil), acceptedConstruction.Steps...)
+	rowValueCandidate.Steps[0].RowValues = []authoringv2.ConstructionRowValue{{
+		FieldSource:    &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: componentValueChoice.FieldSource.ChoiceID},
+		OutputColumnID: "component_values", Policy: authoringv2.ConstructionRowValueAll,
+	}}
+	rowValueCandidate.Steps[0].Outputs = append(append([]authoringv2.StageColumn(nil), rowValueCandidate.Steps[0].Outputs...),
+		authoringv2.StageColumn{ID: "component_values", Name: "component_values", Label: "Component values", Type: "array"},
+	)
+	rowValueCandidateJSON, err := json.Marshal(rowValueCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowValueProposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"observations","changedStepId":%q,"candidateConstruction":%s,"limit":100}`,
+		snapshot.Token, updated.DraftVersion, updated.DraftDigest, stepID, rowValueCandidateJSON,
+	))
+	if rowValueProposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("post-Group Add-columns proposal status=%d body=%s", rowValueProposalResponse.StatusCode, rowValueProposalResponse.Body)
+	}
+	var rowValueProposal struct {
+		ProposalID            *string         `json:"proposalId"`
+		PreviewStatus         string          `json:"previewStatus"`
+		CandidateConstruction json.RawMessage `json:"candidateConstruction"`
+		Preview               *struct {
+			RowCount int `json:"rowCount"`
+		} `json:"preview"`
+	}
+	if err := json.Unmarshal([]byte(rowValueProposalResponse.Body), &rowValueProposal); err != nil {
+		t.Fatal(err)
+	}
+	var rowValueResolved authoringv2.Construction
+	if err := json.Unmarshal(rowValueProposal.CandidateConstruction, &rowValueResolved); err != nil {
+		t.Fatal(err)
+	}
+	if rowValueProposal.ProposalID == nil || rowValueProposal.PreviewStatus != "READY" || rowValueProposal.Preview == nil ||
+		rowValueProposal.Preview.RowCount != 1 || previewCalls != 3 || previewContractErr != nil {
+		t.Fatalf("post-Group Add-columns proposal did not complete READY preview: response=%#v calls=%d err=%v", rowValueProposal, previewCalls, previewContractErr)
+	}
+	if len(rowValueResolved.Steps) != 1 || len(rowValueResolved.Steps[0].RowValues) != 1 ||
+		rowValueResolved.Steps[0].RowValues[0].FieldSource == nil || rowValueResolved.Steps[0].RowValues[0].InputColumnID != "" {
+		t.Fatalf("resolved Group row value = %#v", rowValueResolved.Steps)
+	}
+	rowBinding := rowValueResolved.Steps[0].RowValues[0].FieldSource
+	if rowBinding.Kind != "BINDING" || rowBinding.ValueKind != "SCALAR" || rowBinding.SourceStageID != "source_projection" ||
+		rowBinding.SourceShapeID != componentValueChoice.SourceShape || rowBinding.SourceRole != "ANCESTOR" ||
+		rowBinding.OccurrenceID != authoringv2.RootOccurrenceID || rowBinding.ResourceType != "ObservationComponent" ||
+		rowBinding.OwnerResourceType != "Observation" || rowBinding.CandidateID != "c_observation_component_value" ||
+		rowBinding.CanonicalPath != "valueQuantity.value" || rowBinding.BoundarySelector != "component[]" {
+		t.Fatalf("resolved post-Group ancestor binding = %#v, want exact component[] BINDING", rowBinding)
+	}
+	applyRowValueGroup := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
+		`{"commandId":"apply-current-coding-group-add-columns","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"observations","proposalId":%q}]}`,
+		authoringv2.CurrentSemanticsVersion, snapshot.Token, updated.DraftVersion, updated.DraftDigest, *rowValueProposal.ProposalID,
+	))
+	if applyRowValueGroup.StatusCode != http.StatusOK {
+		t.Fatalf("apply post-Group Add-columns proposal status=%d body=%s", applyRowValueGroup.StatusCode, applyRowValueGroup.Body)
+	}
+	finalExplorer, err := service.Get(context.Background(), "project-a", "observation-explorer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalWorkspace, err := authoringv2.DecodeWorkspace(finalExplorer.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalExplorer.DraftVersion != 3 || finalWorkspace.Documents[0].Construction == nil ||
+		len(finalWorkspace.Documents[0].Construction.Steps) != 1 || len(finalWorkspace.Documents[0].Construction.Steps[0].RowValues) != 1 ||
+		finalWorkspace.Documents[0].Construction.Steps[0].RowValues[0].FieldSource == nil ||
+		finalWorkspace.Documents[0].Construction.Steps[0].RowValues[0].FieldSource.Kind != "BINDING" || previewCalls != 4 {
+		t.Fatalf("post-Group Add-columns binding was not durably applied and reauthorized: version=%d workspace=%#v previewCalls=%d", finalExplorer.DraftVersion, finalWorkspace, previewCalls)
 	}
 }
 

@@ -82,7 +82,38 @@ type GroupOperation = Extract<ConstructionStep['operation'], { readonly kind: 'G
 type GroupOperationKey = NonNullable<GroupOperation['group']['keys']>[number];
 type GroupSemanticOperationKey = Extract<GroupOperationKey, { readonly semanticCategory: unknown }>;
 type GroupSemanticCategory = GroupSemanticOperationKey['semanticCategory'];
+type GroupFieldSourceOperationKey = Extract<GroupOperationKey, { readonly fieldSource: unknown }>;
+type GroupFieldSource = GroupFieldSourceOperationKey['fieldSource'];
+type GroupFieldChoice = NonNullable<ReshapeCapabilities['groupFieldChoices']>[number];
+type GroupFieldSourceChoice = Extract<GroupFieldChoice, { readonly kind: 'FIELD_SOURCE' }>;
+type GroupScalarFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
+  | Extract<GroupFieldSource, { readonly kind: 'BINDING'; readonly valueKind: 'SCALAR' }>;
+type GroupCodingFieldSource = Extract<GroupFieldSource, { readonly kind: 'CHOICE' }>
+  | Extract<GroupFieldSource, { readonly kind: 'BINDING'; readonly valueKind: 'CODING_IDENTITY' }>;
 type SemanticGroupChoice = NonNullable<ReshapeCapabilities['semanticGroupChoices']>[number];
+type GroupFieldKey =
+  | {
+      readonly kind: 'SCALAR';
+      readonly valueKind: 'SCALAR';
+      readonly fieldSource: GroupScalarFieldSource;
+      readonly outputColumnId: string;
+      readonly name: string;
+      readonly label: string;
+      readonly displayLabel: string;
+      readonly scopeLabel: string;
+      readonly valueType: string;
+    }
+  | {
+      readonly kind: 'CODING_IDENTITY';
+      readonly valueKind: 'CODING_IDENTITY';
+      readonly fieldSource: GroupCodingFieldSource;
+      readonly outputColumnId: string;
+      readonly name: string;
+      readonly label: string;
+      readonly displayLabel: string;
+      readonly scopeLabel: string;
+      readonly valueType: 'string';
+    };
 type GroupSemanticKey = {
   readonly semanticCategory: GroupSemanticCategory;
   readonly outputColumnId: string;
@@ -133,6 +164,22 @@ type GroupAggregate =
       readonly label: string;
     };
 
+type ConstructionRowValue = NonNullable<ConstructionStep['rowValues']>[number];
+type GroupRowValueFieldSource = Extract<ConstructionRowValue, { readonly fieldSource: unknown }>['fieldSource'];
+type GroupRowValueChoice = ConstructionCapabilitiesResponse['groupRowValueChoices'][number];
+type GroupRowValue = {
+  readonly outputColumnId: string;
+  readonly policy: 'ALL' | 'ONE';
+  readonly name: string;
+  readonly label: string;
+  readonly displayLabel: string;
+  readonly scopeLabel: string;
+  readonly valueType: string;
+} & (
+  | { readonly inputColumnId: string }
+  | { readonly fieldSource: GroupRowValueFieldSource }
+);
+
 type PivotCategoryForm = {
   readonly key: ConstructionTableScalar;
   readonly outputColumnId: string;
@@ -182,12 +229,14 @@ type GroupForm = {
   readonly stepId: string;
   readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
   readonly keys: ReadonlyArray<GroupKey>;
+  readonly fieldKeys: ReadonlyArray<GroupFieldKey>;
+  readonly keyOrder: ReadonlyArray<string>;
   readonly semanticKey?: GroupSemanticKey;
   readonly aggregates: ReadonlyArray<GroupAggregate>;
   readonly codedPivotStepId: string;
   readonly codedCategories: ReadonlyArray<GroupCodedCategory>;
   readonly codedPassthroughs: ReadonlyArray<GroupCodedPassthrough>;
-  readonly rowValues: NonNullable<ConstructionStep['rowValues']>;
+  readonly rowValues: ReadonlyArray<GroupRowValue>;
 };
 
 type CodedGroupForm = {
@@ -329,6 +378,20 @@ const semanticGroupChoicesForStage = (
   capabilities.stageId === stage.id && isSourceProjectionStage(stage)
     ? capabilities.semanticGroupChoices ?? []
     : [];
+
+const groupFieldChoicesForStage = (
+  capabilities: ReshapeCapabilities,
+  stage: ReshapeStage,
+): ReadonlyArray<GroupFieldChoice> => capabilities.stageId === stage.id
+  ? capabilities.groupFieldChoices ?? []
+  : [];
+
+const groupRowValueChoicesForStage = (
+  capabilities: ReshapeCapabilities,
+  stage: ReshapeStage,
+): ReadonlyArray<GroupRowValueChoice> => capabilities.stageId === stage.id
+  ? capabilities.groupRowValueChoices
+  : [];
 
 const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   switch (kind) {
@@ -472,25 +535,43 @@ const uniqueName = (base: string, used: ReadonlySet<string>): string => {
 };
 
 const groupOutputColumns = (form: GroupForm, stage: ReshapeStage): ConstructionStep['outputs'] => {
-  const outputs = form.keys.map((key) => {
+  const keyOutputs = new Map<string, ConstructionStep['outputs'][number]>();
+  for (const key of form.keys) {
     const input = stage.columns.find((column) => column.id === key.inputColumnId);
     const codedCategory = form.codedCategories.find((category) => category.helperOutputColumnId === key.inputColumnId);
     const type = input?.type ?? codedCategory?.valueType;
-    return {
+    keyOutputs.set(key.outputColumnId, {
       id: key.outputColumnId,
       name: key.name,
       label: key.label.trim(),
       ...(type ? { type } : {}),
-    };
-  });
+    });
+  }
+  for (const key of form.fieldKeys) {
+    keyOutputs.set(key.outputColumnId, {
+      id: key.outputColumnId,
+      name: key.name,
+      label: key.label.trim(),
+      type: key.valueType,
+    });
+  }
   if (form.semanticKey) {
-    outputs.push({
+    keyOutputs.set(form.semanticKey.outputColumnId, {
       id: form.semanticKey.outputColumnId,
       name: form.semanticKey.name,
       label: form.semanticKey.label.trim(),
       type: 'string',
     });
   }
+  const outputs = [
+    ...form.keyOrder.flatMap((id) => {
+      const output = keyOutputs.get(id);
+      if (!output) return [];
+      keyOutputs.delete(id);
+      return [output];
+    }),
+    ...keyOutputs.values(),
+  ];
   for (const aggregate of form.aggregates) {
     const input = aggregate.operation === 'COUNT_ROWS'
       ? undefined
@@ -506,6 +587,14 @@ const groupOutputColumns = (form: GroupForm, stage: ReshapeStage): ConstructionS
       ...(type ? { type } : {}),
     });
   }
+  for (const value of form.rowValues) {
+    outputs.push({
+      id: value.outputColumnId,
+      name: value.name,
+      label: value.label.trim(),
+      type: value.policy === 'ALL' ? 'array' : value.valueType,
+    });
+  }
   return outputs;
 };
 
@@ -515,18 +604,34 @@ const groupOperationFor = (form: GroupForm): Extract<ConstructionStep['operation
   const inputID = (columnID: string) => form.codedCategories.length > 0 && !codedInputs.has(columnID)
     ? passthroughID.get(columnID) ?? columnID
     : columnID;
+  const keyByOutput = new Map<string, GroupOperationKey>();
+  for (const key of form.keys) {
+    keyByOutput.set(key.outputColumnId, { inputColumnId: inputID(key.inputColumnId), outputColumnId: key.outputColumnId });
+  }
+  for (const key of form.fieldKeys) {
+    keyByOutput.set(key.outputColumnId, { fieldSource: key.fieldSource, outputColumnId: key.outputColumnId });
+  }
+  if (form.semanticKey) {
+    keyByOutput.set(form.semanticKey.outputColumnId, {
+      semanticCategory: form.semanticKey.semanticCategory,
+      outputColumnId: form.semanticKey.outputColumnId,
+    });
+  }
+  const keys = [
+    ...form.keyOrder.flatMap((id) => {
+      const key = keyByOutput.get(id);
+      if (!key) return [];
+      keyByOutput.delete(id);
+      return [key];
+    }),
+    ...keyByOutput.values(),
+  ];
   return {
     kind: 'GROUP',
     group: {
       constructionId: form.stepId,
       missingKeyPolicy: form.missingKeyPolicy,
-      keys: [
-        ...form.keys.map(({ inputColumnId, outputColumnId }) => ({ inputColumnId: inputID(inputColumnId), outputColumnId })),
-        ...(form.semanticKey ? [{
-          semanticCategory: form.semanticKey.semanticCategory,
-          outputColumnId: form.semanticKey.outputColumnId,
-        }] : []),
-      ],
+      keys,
       aggregates: form.aggregates.map((aggregate) => aggregate.operation === 'COUNT_ROWS'
         ? { operation: aggregate.operation, outputColumnId: aggregate.outputColumnId }
         : {
@@ -756,8 +861,11 @@ const candidateIntentFor = (args: {
   const rowValues = args.step.rowValues ?? editingStep?.rowValues;
   const valueIds = new Set(rowValues?.map((value) => value.outputColumnId));
   const step = rowValues?.length ? {
-    ...args.step, rowValues,
-    outputs: [...args.step.outputs.filter((output) => !valueIds.has(output.id)), ...(editingStep?.outputs ?? []).filter((output) => valueIds.has(output.id))],
+    ...args.step,
+    rowValues,
+    outputs: [...args.step.outputs.filter((output) => !valueIds.has(output.id)),
+      ...args.step.outputs.filter((output) => valueIds.has(output.id)),
+      ...(editingStep?.outputs ?? []).filter((output) => valueIds.has(output.id) && !args.step.outputs.some((candidate) => candidate.id === output.id))],
   } : args.step;
   if (editingStep && !construction.steps.some((candidate) => candidate.id === editingStep.id)) return { kind: 'incomplete' };
   const priorSteps = editingStep
@@ -860,6 +968,11 @@ const groupStepFromForm = (args: {
   const outputs = groupOutputColumns(form, stage);
   if (form.aggregates.length === 0 || !outputNamesAreValid(outputs)) return undefined;
   if (form.semanticKey && (!isSourceProjectionStage(stage) || form.codedCategories.length > 0)) return undefined;
+  if (form.fieldKeys.some((key) => key.kind === 'CODING_IDENTITY') &&
+      (form.semanticKey !== undefined || form.codedCategories.length > 0 || form.fieldKeys.filter((key) => key.kind === 'CODING_IDENTITY').length > 1)) return undefined;
+  if (form.fieldKeys.some((key) => key.fieldSource.kind === 'CHOICE' && key.fieldSource.choiceId.trim() === '')) return undefined;
+  if (form.codedCategories.length > 0 && form.fieldKeys.length > 0) return undefined;
+  if (form.codedCategories.length > 0 && form.rowValues.some((value) => 'fieldSource' in value)) return undefined;
   const codedInputIDs = new Set(form.codedCategories.map((category) => category.helperOutputColumnId));
   if (form.keys.some((key) => !scalarColumnsFor(stage).some((column) => column.id === key.inputColumnId)
       && !codedInputIDs.has(key.inputColumnId))) return undefined;
@@ -873,16 +986,22 @@ const groupStepFromForm = (args: {
       : [constructionInputForStage(stage)],
     operation: groupOperationFor(form),
     ...(form.rowValues.length ? {
-      rowValues: form.rowValues.map((value) => ({
-        ...value,
-        inputColumnId: form.codedCategories.length > 0
-          ? form.codedPassthroughs.find((passthrough) => passthrough.inputColumnId === value.inputColumnId)?.outputColumnId ?? ''
-          : value.inputColumnId,
-      })),
+      rowValues: form.rowValues.map((value) => {
+        if ('fieldSource' in value) {
+          return { fieldSource: value.fieldSource, outputColumnId: value.outputColumnId, policy: value.policy };
+        }
+        return {
+          inputColumnId: form.codedCategories.length > 0
+            ? form.codedPassthroughs.find((passthrough) => passthrough.inputColumnId === value.inputColumnId)?.outputColumnId ?? ''
+            : value.inputColumnId,
+          outputColumnId: value.outputColumnId,
+          policy: value.policy,
+        };
+      }),
     } : {}),
     outputs,
   };
-  if (groupStep.rowValues?.some((value) => value.inputColumnId === '')) return undefined;
+  if (groupStep.rowValues?.some((value) => 'inputColumnId' in value && value.inputColumnId === '')) return undefined;
   if (form.codedCategories.length === 0) return { step: groupStep };
   if (new Set(form.codedCategories.map((category) => category.familyKey)).size !== 1
       || form.codedCategories.some((category) => category.choice !== 'ready')) return undefined;
@@ -894,7 +1013,7 @@ const groupStepFromForm = (args: {
   const rowInputIDs = new Set([
     ...form.keys.flatMap((key) => codedInputIDs.has(key.inputColumnId) ? [] : [key.inputColumnId]),
     ...form.aggregates.flatMap((aggregate) => aggregate.operation === 'COUNT_ROWS' ? [] : [aggregate.inputColumnId]),
-    ...form.rowValues.map((value) => value.inputColumnId),
+    ...form.rowValues.flatMap((value) => 'inputColumnId' in value ? [value.inputColumnId] : []),
   ]);
   const rowValues = [...rowInputIDs].flatMap((inputColumnId) => {
     const outputColumnId = form.codedPassthroughs.find((passthrough) => passthrough.inputColumnId === inputColumnId)?.outputColumnId;
@@ -926,6 +1045,7 @@ const groupStepFromForm = (args: {
         type: 'INFER',
       })),
       ...rowValues.flatMap((rowValue) => {
+        if (!('inputColumnId' in rowValue)) return [];
         const input = stage.columns.find((column) => column.id === rowValue.inputColumnId);
         const passthrough = form.codedPassthroughs.find((candidate) => candidate.outputColumnId === rowValue.outputColumnId);
         return input && passthrough ? [{ id: rowValue.outputColumnId, name: passthrough.name, label: passthrough.label, ...(passthrough.type ? { type: passthrough.type } : {}) }] : [];
@@ -1146,6 +1266,8 @@ const initialGroupForm = (
   editingStep?: ConstructionReshapeStep,
   construction?: Construction,
   semanticGroupChoices: ReadonlyArray<SemanticGroupChoice> = [],
+  groupFieldChoices: ReadonlyArray<GroupFieldChoice> = [],
+  groupRowValueChoices: ReadonlyArray<GroupRowValueChoice> = [],
 ): GroupForm => {
   if (editingStep?.operation.kind === 'GROUP') {
     const operation = editingStep.operation.group;
@@ -1173,6 +1295,7 @@ const initialGroupForm = (
     const codedSource = codedPivot?.source;
     const familyKey = codedSource ? codedFamilyKey(codedSource.family.bindingId, codedSource.family.sourcePath) : '';
     const codedPassthroughs: GroupCodedPassthrough[] = codedInput?.rowValues?.flatMap((value) => {
+      if (!('inputColumnId' in value)) return [];
       const output = codedInput.outputs.find((column) => column.id === value.outputColumnId);
       return output ? [{
         inputColumnId: value.inputColumnId, outputColumnId: value.outputColumnId,
@@ -1215,6 +1338,43 @@ const initialGroupForm = (
         label: output?.label ?? coded?.groupOutputLabel ?? input?.label ?? 'Group',
       }];
     });
+    const fieldKeys: GroupFieldKey[] = [];
+    for (const key of operation.keys ?? []) {
+      if (!('fieldSource' in key)) continue;
+      const output = outputById.get(key.outputColumnId);
+      const choiceId = key.fieldSource.kind === 'CHOICE' ? key.fieldSource.choiceId : undefined;
+      const choice = choiceId
+        ? groupFieldChoices.find((item): item is GroupFieldSourceChoice => item.kind === 'FIELD_SOURCE' && item.fieldSource.kind === 'CHOICE' &&
+          item.fieldSource.choiceId === choiceId)
+        : undefined;
+      const valueKind = key.fieldSource.kind === 'BINDING' ? key.fieldSource.valueKind : choice?.valueKind;
+      const displayLabel = choice
+        ? choice.label
+        : valueKind === 'CODING_IDENTITY' ? 'Coding identity' : output?.label ?? 'Saved source field';
+      const scopeLabel = choice
+        ? choice.scopeLabel ?? ''
+        : key.fieldSource.kind === 'BINDING'
+          ? `${key.fieldSource.sourceRole} · ${key.fieldSource.ownerResourceType}.${key.fieldSource.canonicalPath}`
+          : 'Current field choice';
+      const common = {
+        outputColumnId: key.outputColumnId,
+        name: output?.name ?? normalizedName(displayLabel),
+        label: output?.label ?? displayLabel,
+        displayLabel,
+        scopeLabel,
+      };
+      if (valueKind === 'SCALAR') {
+        const source = scalarGroupFieldSource(key.fieldSource);
+        if (source) fieldKeys.push({
+          kind: 'SCALAR', valueKind, fieldSource: source, ...common,
+          valueType: choice?.valueType ?? output?.type ?? 'string',
+        });
+      }
+      if (valueKind === 'CODING_IDENTITY') {
+        const source = codingGroupFieldSource(key.fieldSource);
+        if (source) fieldKeys.push({ kind: 'CODING_IDENTITY', valueKind, fieldSource: source, ...common, valueType: 'string' });
+      }
+    }
     const aggregates: GroupAggregate[] = (operation.aggregates ?? []).map((aggregate) => {
       const output = outputById.get(aggregate.outputColumnId);
       const inputColumnId = 'inputColumnId' in aggregate
@@ -1229,16 +1389,47 @@ const initialGroupForm = (
         ? { operation: aggregate.operation, ...common }
         : { operation: aggregate.operation, inputColumnId: inputColumnId ?? '', ...common };
     });
+    const rowValues: GroupRowValue[] = (editingStep.rowValues ?? []).map((value) => {
+      const output = outputById.get(value.outputColumnId);
+      if ('fieldSource' in value) {
+        const identity = groupRowValueBindingIdentity(value.fieldSource);
+        const choice = identity
+          ? groupRowValueChoices.find((candidate) => fieldChoiceIdentity(candidate) === identity)
+          : undefined;
+        const displayLabel = choice?.label ?? output?.label ?? 'Saved source field';
+        return {
+          fieldSource: value.fieldSource,
+          outputColumnId: value.outputColumnId,
+          policy: value.policy,
+          name: output?.name ?? normalizedName(displayLabel),
+          label: output?.label ?? displayLabel,
+          displayLabel,
+          scopeLabel: choice?.scopeLabel ?? 'Saved compiler-authorized source field',
+          valueType: choice?.valueType ?? (output?.type === 'array' ? 'string' : output?.type ?? 'string'),
+        };
+      }
+      const inputColumnId = originalInputByHelperOutput.get(value.inputColumnId) ?? value.inputColumnId;
+      const input = stage.columns.find((column) => column.id === inputColumnId);
+      const displayLabel = input?.label ?? output?.label ?? 'Saved source column';
+      return {
+        inputColumnId,
+        outputColumnId: value.outputColumnId,
+        policy: value.policy,
+        name: output?.name ?? normalizedName(displayLabel),
+        label: output?.label ?? displayLabel,
+        displayLabel,
+        scopeLabel: 'Current Group input column',
+        valueType: input?.type ?? (output?.type === 'array' ? 'string' : output?.type ?? 'string'),
+      };
+    });
     return {
-      kind: 'group', stepId: editingStep.id, missingKeyPolicy: operation.missingKeyPolicy ?? 'GROUP', keys,
+      kind: 'group', stepId: editingStep.id, missingKeyPolicy: operation.missingKeyPolicy ?? 'GROUP', keys, fieldKeys,
+      keyOrder: (operation.keys ?? []).map((key) => key.outputColumnId),
       ...(semanticKey ? { semanticKey } : {}), aggregates,
       codedPivotStepId: codedInput?.id ?? createOpaqueId('group-coded-input'),
       codedCategories: codedCategories.filter((category) => codedInputIDs.has(category.helperOutputColumnId)),
       codedPassthroughs,
-      rowValues: (editingStep.rowValues ?? []).map((value) => ({
-        ...value,
-        inputColumnId: originalInputByHelperOutput.get(value.inputColumnId) ?? value.inputColumnId,
-      })),
+      rowValues,
     };
   }
 
@@ -1254,9 +1445,11 @@ const initialGroupForm = (
         label: input?.label ?? 'Group',
       };
     });
+  const fieldKeys: GroupFieldKey[] = [];
   const aggregate = makeAggregate('COUNT_ROWS', stage, new Set());
   return {
-    kind: 'group', stepId: createOpaqueId('group'), missingKeyPolicy: 'GROUP', keys, aggregates: [aggregate],
+    kind: 'group', stepId: createOpaqueId('group'), missingKeyPolicy: 'GROUP', keys, fieldKeys,
+    keyOrder: keys.map((key) => key.outputColumnId), aggregates: [aggregate],
     codedPivotStepId: createOpaqueId('group-coded-input'), codedCategories: [], codedPassthroughs: [], rowValues: [],
   };
 };
@@ -1436,7 +1629,7 @@ const formForStep = (
   initialKind?: ReshapeEntryKind,
 ): ReshapeForm => {
   if (!editingStep) {
-    if (initialKind === 'group') return initialGroupForm(stage, selectedColumns, undefined, construction, semanticGroupChoicesForStage(capabilities, stage));
+    if (initialKind === 'group') return initialGroupForm(stage, selectedColumns, undefined, construction, semanticGroupChoicesForStage(capabilities, stage), groupFieldChoicesForStage(capabilities, stage), groupRowValueChoicesForStage(capabilities, stage));
     if (initialKind === 'source-group') return initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? [])
       ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
@@ -1452,7 +1645,7 @@ const formForStep = (
   if (sourceGroupProjection(construction, editingStep)) return initialSourceGroupForm(
     construction, capabilities.sourceInput?.choices ?? [], editingStep,
   ) ?? { kind: 'unsupported', message: 'The saved source field is no longer available for grouping.' };
-  if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep, construction, semanticGroupChoicesForStage(capabilities, stage));
+  if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep, construction, semanticGroupChoicesForStage(capabilities, stage), groupFieldChoicesForStage(capabilities, stage), groupRowValueChoicesForStage(capabilities, stage));
   if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
   if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
@@ -1507,8 +1700,10 @@ const allDiscoveredPivotCategoriesSelected = (
 const getUsedGroupNames = (form: GroupForm, excludingColumnId?: string): ReadonlySet<string> =>
   new Set([
     ...form.keys.filter((key) => key.outputColumnId !== excludingColumnId).map((key) => key.name.trim().toLowerCase()),
+    ...form.fieldKeys.filter((key) => key.outputColumnId !== excludingColumnId).map((key) => key.name.trim().toLowerCase()),
     ...(form.semanticKey && form.semanticKey.outputColumnId !== excludingColumnId ? [form.semanticKey.name.trim().toLowerCase()] : []),
     ...form.aggregates.filter((aggregate) => aggregate.outputColumnId !== excludingColumnId).map((aggregate) => aggregate.name.trim().toLowerCase()),
+    ...form.rowValues.filter((value) => value.outputColumnId !== excludingColumnId).map((value) => value.name.trim().toLowerCase()),
   ]);
 
 const ensureGroupCodedPassthroughs = (
@@ -1536,18 +1731,89 @@ const addGroupKey = (form: GroupForm, stage: ReshapeStage, inputColumnId: string
   const input = scalarColumnsFor(stage).find((column) => column.id === inputColumnId);
   if (!input || form.keys.some((key) => key.inputColumnId === inputColumnId)) return form;
   const usedNames = getUsedGroupNames(form);
+  const key = {
+    inputColumnId,
+    outputColumnId: createOpaqueId('group-key'),
+    name: uniqueName(input.name, usedNames),
+    label: input.label,
+  };
   return {
     ...form,
     ...(form.codedCategories.length > 0 ? {
       codedPassthroughs: ensureGroupCodedPassthroughs(form, stage, [inputColumnId]),
     } : {}),
-    keys: [...form.keys, {
-      inputColumnId,
-      outputColumnId: createOpaqueId('group-key'),
-      name: uniqueName(input.name, usedNames),
-      label: input.label,
-    }],
+    keys: [...form.keys, key],
+    keyOrder: [...form.keyOrder, key.outputColumnId],
   };
+};
+
+const groupFieldKeyForChoice = (form: GroupForm, choice: GroupFieldSourceChoice): GroupFieldKey | undefined => {
+  if (choice.fieldSource.kind !== 'CHOICE') return undefined;
+  const outputColumnId = createOpaqueId('group-field-key');
+  const usedNames = getUsedGroupNames(form);
+  const common = {
+    outputColumnId,
+    name: uniqueName(normalizedName(choice.label), usedNames),
+    label: choice.label,
+    displayLabel: choice.label,
+    scopeLabel: choice.scopeLabel ?? choice.canonicalPath ?? choice.label,
+  };
+  if (choice.valueKind === 'CODING_IDENTITY') {
+    if (form.semanticKey || form.fieldKeys.some((key) => key.kind === 'CODING_IDENTITY') || form.codedCategories.length > 0) return undefined;
+    return {
+      kind: 'CODING_IDENTITY', valueKind: 'CODING_IDENTITY', fieldSource: choice.fieldSource,
+      ...common, valueType: 'string',
+    };
+  }
+  return {
+    kind: 'SCALAR', valueKind: 'SCALAR', fieldSource: choice.fieldSource,
+    ...common, valueType: choice.valueType ?? 'string',
+  };
+};
+
+const scalarGroupFieldSource = (source: GroupFieldSource): GroupScalarFieldSource | undefined => {
+  if (source.kind === 'CHOICE') return source;
+  if (source.valueKind === 'SCALAR') return source;
+  return undefined;
+};
+
+const codingGroupFieldSource = (source: GroupFieldSource): GroupCodingFieldSource | undefined => {
+  if (source.kind === 'CHOICE') return source;
+  if (source.valueKind === 'CODING_IDENTITY') return source;
+  return undefined;
+};
+
+const fieldChoiceIdentity = (choice: GroupFieldSourceChoice): string | undefined => {
+  const candidateId = choice.valueKind === 'SCALAR' ? choice.candidateId : undefined;
+  if (choice.fieldSource.kind !== 'CHOICE' || !choice.sourceStageId || !choice.sourceShapeId ||
+      !choice.sourceRole || !choice.occurrenceId || !choice.resourceType || !choice.ownerOccurrenceId ||
+      !choice.ownerResourceType || !choice.canonicalPath ||
+      choice.valueKind === 'SCALAR' && !candidateId) return undefined;
+  return JSON.stringify([
+    choice.valueKind, choice.sourceStageId, choice.sourceShapeId, choice.sourceRole,
+    choice.occurrenceId, choice.resourceType, choice.ownerOccurrenceId, choice.ownerResourceType,
+    candidateId ?? '', choice.canonicalPath, choice.valueKind === 'SCALAR' ? choice.boundarySelector ?? '' : '',
+  ]);
+};
+
+const fieldBindingIdentity = (key: GroupFieldKey): string | undefined => {
+  const source = key.fieldSource;
+  if (source.kind !== 'BINDING') return undefined;
+  return JSON.stringify([
+    source.valueKind, source.sourceStageId, source.sourceShapeId, source.sourceRole,
+    source.occurrenceId, source.resourceType, source.ownerOccurrenceId, source.ownerResourceType,
+    source.valueKind === 'SCALAR' ? source.candidateId : '', source.canonicalPath,
+    source.valueKind === 'SCALAR' ? source.boundarySelector ?? '' : '',
+  ]);
+};
+
+const groupRowValueBindingIdentity = (source: GroupRowValueFieldSource): string | undefined => {
+  if (source.kind !== 'BINDING' || source.valueKind !== 'SCALAR') return undefined;
+  return JSON.stringify([
+    source.valueKind, source.sourceStageId, source.sourceShapeId, source.sourceRole,
+    source.occurrenceId, source.resourceType, source.ownerOccurrenceId, source.ownerResourceType,
+    source.candidateId, source.canonicalPath, source.boundarySelector ?? '',
+  ]);
 };
 
 const groupSemanticKeyForChoice = (form: GroupForm, choice: SemanticGroupChoice): GroupSemanticKey => {
@@ -1639,7 +1905,7 @@ export const createReshapeEditorEntry = (args: {
     )) return undefined;
   if (args.kind === 'group' && !capabilityFor(stage, 'GROUP').supported) return undefined;
   const form = args.kind === 'group'
-    ? initialGroupForm(stage, args.selectedColumns ?? [], undefined, args.construction, semanticGroupChoicesForStage(args.capabilities, stage))
+    ? initialGroupForm(stage, args.selectedColumns ?? [], undefined, args.construction, semanticGroupChoicesForStage(args.capabilities, stage), groupFieldChoicesForStage(args.capabilities, stage), groupRowValueChoicesForStage(args.capabilities, stage))
     : initialExpandForm(stage, undefined, selectedColumnId);
   const evaluation = candidateFor({
     form,
@@ -1937,7 +2203,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
                     supported={groupSupport.supported || groupCodedValuesSupported}
                     reason={groupSupport.supported || groupCodedValuesSupported ? '' : groupSupport.reason}
                     disabled={disabled}
-                    onChoose={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction, semanticGroupChoicesForStage(capabilities, groupStage)))}
+                    onChoose={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction, semanticGroupChoicesForStage(capabilities, groupStage), groupFieldChoicesForStage(capabilities, groupStage), groupRowValueChoicesForStage(capabilities, groupStage)))}
                   />
                   {availableSourceFields.length > 0 || codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length) ? (
                     <details data-testid="construction-reshape-advanced-grouping" className="rounded border border-slate-200 p-2">
@@ -2032,6 +2298,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           key={`${id}:group:${contextKey}`}
           form={form}
           stage={groupStage}
+          groupFieldChoices={groupFieldChoicesForStage(capabilities, groupStage)}
+          groupRowValueChoices={groupRowValueChoicesForStage(capabilities, groupStage)}
           semanticGroupChoices={semanticGroupChoicesForStage(capabilities, groupStage)}
           semanticGroupChoicesIncomplete={capabilities.semanticGroupChoicesIncomplete ?? false}
           semanticGroupSupported={groupSupport.supported}
@@ -2065,7 +2333,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           reason={sourceGroupReason}
           disabled={disabled}
           canClear={!editingStep}
-          onClear={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction, semanticGroupChoicesForStage(capabilities, groupStage)))}
+          onClear={() => updateForm(initialGroupForm(groupStage, props.selectedColumns ?? [], undefined, construction, semanticGroupChoicesForStage(capabilities, groupStage), groupFieldChoicesForStage(capabilities, groupStage), groupRowValueChoicesForStage(capabilities, groupStage)))}
           onChange={updateForm}
         />
       ) : null}
@@ -2355,6 +2623,8 @@ const CodedGroupEditor = (props: {
 const GroupEditor = (props: {
   readonly form: GroupForm;
   readonly stage: ReshapeStage;
+  readonly groupFieldChoices: ReadonlyArray<GroupFieldChoice>;
+  readonly groupRowValueChoices: ReadonlyArray<GroupRowValueChoice>;
   readonly semanticGroupChoices: ReadonlyArray<SemanticGroupChoice>;
   readonly semanticGroupChoicesIncomplete: boolean;
   readonly semanticGroupSupported: boolean;
@@ -2371,8 +2641,12 @@ const GroupEditor = (props: {
   const usedNames = getUsedGroupNames(props.form);
   const [groupSearch, setGroupSearch] = useState('');
   const normalizedGroupSearch = groupSearch.trim().toLocaleLowerCase();
+  const [rowValueSearch, setRowValueSearch] = useState('');
+  const normalizedRowValueSearch = rowValueSearch.trim().toLocaleLowerCase();
   const semanticKey = props.form.semanticKey;
   const semanticCategory = semanticKey?.semanticCategory;
+  const codingIdentityKey = props.form.fieldKeys.find((key) => key.kind === 'CODING_IDENTITY');
+  const hasCodedKey = Boolean(semanticKey || codingIdentityKey || props.form.codedCategories.length > 0);
   const directSourceStage = isSourceProjectionStage(props.stage);
   const selectedSemanticChoice = semanticCategory?.kind === 'CHOICE'
     ? props.semanticGroupChoices.find((choice) => choice.choiceId === semanticCategory.choiceId)
@@ -2389,6 +2663,33 @@ const GroupEditor = (props: {
     : props.semanticGroupChoices.filter((choice) => choice.choiceId !== selectedSemanticChoiceId &&
       (!normalizedGroupSearch || `${choice.label} ${choice.resourceType}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
   const showSavedSemanticKey = Boolean(semanticKey && (semanticCategory?.kind === 'BINDING' || !selectedSemanticChoice));
+  const sourceFieldChoices = props.groupFieldChoices.filter((choice): choice is GroupFieldSourceChoice => choice.kind === 'FIELD_SOURCE');
+  const selectedSourceChoiceIds = new Set(props.form.fieldKeys.flatMap((key) => key.fieldSource.kind === 'CHOICE' ? [key.fieldSource.choiceId] : []));
+  const savedFieldBindingIdentities = new Set(props.form.fieldKeys.flatMap((key) => {
+    const identity = fieldBindingIdentity(key);
+    return identity ? [identity] : [];
+  }));
+  const visibleSourceFieldChoices = sourceFieldChoices.filter((choice) =>
+    choice.fieldSource.kind === 'CHOICE' && !selectedSourceChoiceIds.has(choice.fieldSource.choiceId) &&
+    !(choice.valueKind === 'SCALAR' && choice.inputColumnId && scalarColumns.some((column) => column.id === choice.inputColumnId)) &&
+    !(fieldChoiceIdentity(choice) && savedFieldBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
+    (!normalizedGroupSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath ?? ''} ${choice.sourceRole ?? ''}`.toLocaleLowerCase().includes(normalizedGroupSearch)));
+  const selectedRowValueChoiceIds = new Set(props.form.rowValues.flatMap((value) =>
+    'fieldSource' in value && value.fieldSource.kind === 'CHOICE' ? [value.fieldSource.choiceId] : [],
+  ));
+  const selectedRowValueBindingIdentities = new Set(props.form.rowValues.flatMap((value) => {
+    if (!('fieldSource' in value)) return [];
+    const identity = groupRowValueBindingIdentity(value.fieldSource);
+    return identity ? [identity] : [];
+  }));
+  const selectedRowValueInputIDs = new Set(props.form.rowValues.flatMap((value) =>
+    'inputColumnId' in value ? [value.inputColumnId] : [],
+  ));
+  const visibleRowValueChoices = props.groupRowValueChoices.filter((choice) =>
+    choice.fieldSource.kind === 'CHOICE' && !selectedRowValueChoiceIds.has(choice.fieldSource.choiceId) &&
+    !(choice.inputColumnId && selectedRowValueInputIDs.has(choice.inputColumnId)) &&
+    !(fieldChoiceIdentity(choice) && selectedRowValueBindingIdentities.has(fieldChoiceIdentity(choice)!)) &&
+    (!normalizedRowValueSearch || `${choice.label} ${choice.scopeLabel ?? ''} ${choice.canonicalPath} ${choice.sourceRole}`.toLocaleLowerCase().includes(normalizedRowValueSearch)));
   const semanticLabelCounts = new Map<string, number>();
   for (const column of [...selectedScalarColumns, ...visibleScalarColumns]) {
     const label = column.label.trim().toLocaleLowerCase();
@@ -2398,12 +2699,21 @@ const GroupEditor = (props: {
     const label = choice.label.trim().toLocaleLowerCase();
     semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
   }
+  for (const key of props.form.fieldKeys) {
+    const label = key.displayLabel.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
+  for (const choice of visibleSourceFieldChoices) {
+    const label = choice.label.trim().toLocaleLowerCase();
+    semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
+  }
   if (semanticKey && showSavedSemanticKey) {
     const label = semanticKey.displayLabel.trim().toLocaleLowerCase();
     semanticLabelCounts.set(label, (semanticLabelCounts.get(label) ?? 0) + 1);
   }
   const selectedGroupLabels = [
     ...scalarColumns.filter((column) => props.form.keys.some((key) => key.inputColumnId === column.id)).map((column) => column.label),
+    ...props.form.fieldKeys.map((key) => key.displayLabel),
     ...(semanticKey ? [semanticKey.displayLabel] : []),
     ...props.form.codedCategories.map((category) => category.display),
   ];
@@ -2413,10 +2723,22 @@ const GroupEditor = (props: {
       keys: props.form.keys.map((key, keyIndex) => keyIndex === index ? { ...key, ...update } : key),
     });
   };
+  const changeFieldKey = (outputColumnId: string, update: { readonly name?: string; readonly label?: string }) => {
+    props.onChange({
+      ...props.form,
+      fieldKeys: props.form.fieldKeys.map((key) => key.outputColumnId === outputColumnId ? { ...key, ...update } : key),
+    });
+  };
   const changeSemanticKey = (update: Partial<GroupSemanticKey>) => {
     const current = props.form.semanticKey;
     if (!current) return;
     props.onChange({ ...props.form, semanticKey: { ...current, ...update } });
+  };
+  const changeRowValue = (outputColumnId: string, update: Partial<Pick<GroupRowValue, 'name' | 'label' | 'policy'>>) => {
+    props.onChange({
+      ...props.form,
+      rowValues: props.form.rowValues.map((value) => value.outputColumnId === outputColumnId ? { ...value, ...update } : value),
+    });
   };
   const changeAggregate = (index: number, aggregate: GroupAggregate) => {
     const aggregates = props.form.aggregates.map((current, aggregateIndex) => aggregateIndex === index ? aggregate : current);
@@ -2427,15 +2749,42 @@ const GroupEditor = (props: {
         codedPassthroughs: ensureGroupCodedPassthroughs(props.form, props.stage, [
           ...props.form.keys.map((key) => key.inputColumnId),
           ...aggregates.flatMap((item) => item.operation === 'COUNT_ROWS' ? [] : [item.inputColumnId]),
-          ...props.form.rowValues.map((value) => value.inputColumnId),
+          ...props.form.rowValues.flatMap((value) => 'inputColumnId' in value ? [value.inputColumnId] : []),
         ]),
       } : {}),
     });
   };
   const removeSemanticKey = () => {
     const { semanticKey: _removed, ...formWithoutSemanticKey } = props.form;
-    props.onChange(formWithoutSemanticKey);
+    props.onChange({ ...formWithoutSemanticKey, keyOrder: props.form.keyOrder.filter((id) => id !== semanticKey?.outputColumnId) });
   };
+  const removeFieldKey = (outputColumnId: string) => props.onChange({
+    ...props.form,
+    fieldKeys: props.form.fieldKeys.filter((key) => key.outputColumnId !== outputColumnId),
+    keyOrder: props.form.keyOrder.filter((id) => id !== outputColumnId),
+  });
+  const addFieldKey = (choice: GroupFieldSourceChoice) => {
+    const key = groupFieldKeyForChoice(props.form, choice);
+    if (!key) return;
+    props.onChange({ ...props.form, fieldKeys: [...props.form.fieldKeys, key], keyOrder: [...props.form.keyOrder, key.outputColumnId] });
+  };
+  const addGroupRowValue = (choice: GroupRowValueChoice) => {
+    if (choice.fieldSource.kind !== 'CHOICE' || props.form.codedCategories.length > 0) return;
+    const name = uniqueName(normalizedName(choice.label), getUsedGroupNames(props.form));
+    const common = {
+      outputColumnId: createOpaqueId('group-row-value'), policy: 'ALL' as const,
+      name, label: choice.label, displayLabel: choice.label,
+      scopeLabel: choice.scopeLabel ?? 'Current Group input', valueType: choice.valueType ?? 'string',
+    };
+    const rowValue: GroupRowValue = choice.inputColumnId
+      ? { inputColumnId: choice.inputColumnId, ...common }
+      : { fieldSource: choice.fieldSource, ...common };
+    props.onChange({ ...props.form, rowValues: [...props.form.rowValues, rowValue] });
+  };
+  const removeGroupRowValue = (outputColumnId: string) => props.onChange({
+    ...props.form,
+    rowValues: props.form.rowValues.filter((value) => value.outputColumnId !== outputColumnId),
+  });
   const renderScalarChoice = (column: ReshapeColumn, checked: boolean) => (
     <label key={`scalar:${column.id}`} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
       <input
@@ -2445,7 +2794,11 @@ const GroupEditor = (props: {
         aria-label={`Group by ${column.label}`}
             disabled={props.disabled || !props.supported}
         onChange={() => props.onChange(checked
-          ? { ...props.form, keys: props.form.keys.filter((key) => key.inputColumnId !== column.id) }
+          ? {
+              ...props.form,
+              keys: props.form.keys.filter((key) => key.inputColumnId !== column.id),
+              keyOrder: props.form.keyOrder.filter((id) => !props.form.keys.some((key) => key.inputColumnId === column.id && key.outputColumnId === id)),
+            }
           : addGroupKey(props.form, props.stage, column.id))}
       />
       <span className="min-w-0 truncate" title={column.label}>{column.label}</span>
@@ -2455,7 +2808,7 @@ const GroupEditor = (props: {
     const duplicateLabel = (semanticLabelCounts.get(choice.label.trim().toLocaleLowerCase()) ?? 0) > 1;
     const disambiguation = duplicateLabel ? compactSemanticScope(choice.scopeLabel) : undefined;
     const disabled = props.disabled || !props.supported || !directSourceStage || !props.semanticGroupSupported ||
-      props.form.codedCategories.length > 0 && !checked || Boolean(semanticKey) && !checked;
+      props.form.codedCategories.length > 0 && !checked || Boolean(codingIdentityKey) && !checked || Boolean(semanticKey) && !checked;
     return (
       <div key={`semantic:${choice.choiceId}`} data-testid="construction-group-semantic-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
         <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
@@ -2473,8 +2826,9 @@ const GroupEditor = (props: {
                 removeSemanticKey();
                 return;
               }
-              if (!semanticKey && props.form.codedCategories.length === 0) {
-                props.onChange({ ...props.form, semanticKey: groupSemanticKeyForChoice(props.form, choice) });
+              if (!semanticKey && !codingIdentityKey && props.form.codedCategories.length === 0) {
+                const next = groupSemanticKeyForChoice(props.form, choice);
+                props.onChange({ ...props.form, semanticKey: next, keyOrder: [...props.form.keyOrder, next.outputColumnId] });
               }
             }}
           />
@@ -2487,6 +2841,69 @@ const GroupEditor = (props: {
           <summary className="cursor-pointer">Details</summary>
           <p className="mb-0 mt-1 break-words">{choice.scopeLabel}</p>
         </details>
+      </div>
+    );
+  };
+  const renderSelectedFieldKey = (key: GroupFieldKey) => {
+    const duplicateLabel = (semanticLabelCounts.get(key.displayLabel.trim().toLocaleLowerCase()) ?? 0) > 1;
+    const disambiguation = duplicateLabel ? compactSemanticScope(key.scopeLabel) : undefined;
+    const selectionId = key.fieldSource.kind === 'CHOICE'
+      ? key.fieldSource.choiceId
+      : `binding:${key.fieldSource.sourceStageId}:${key.fieldSource.sourceShapeId}:${key.fieldSource.occurrenceId}:${key.fieldSource.canonicalPath}`;
+    return (
+      <div key={`field-source:${key.outputColumnId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
+        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            value={selectionId}
+            checked
+            aria-label={`Group by ${key.displayLabel}${disambiguation ? ` (${disambiguation})` : ''}`}
+            disabled={props.disabled || !props.supported}
+            onChange={() => removeFieldKey(key.outputColumnId)}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-slate-800">{key.displayLabel}</span>
+            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={key.scopeLabel}>{disambiguation}</span> : null}
+          </span>
+        </label>
+        <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-saved-field-details-${key.outputColumnId}`}>
+          <summary className="cursor-pointer">Details</summary>
+          <p className="mb-0 mt-1 break-words">{key.scopeLabel}</p>
+        </details>
+      </div>
+    );
+  };
+  const renderFieldChoice = (choice: GroupFieldSourceChoice) => {
+    const duplicateLabel = (semanticLabelCounts.get(choice.label.trim().toLocaleLowerCase()) ?? 0) > 1;
+    const disambiguation = duplicateLabel ? compactSemanticScope(choice.scopeLabel ?? '') : undefined;
+    const disabled = props.disabled || !props.supported ||
+      (choice.valueKind === 'CODING_IDENTITY' && hasCodedKey) ||
+      (choice.valueKind === 'SCALAR' && props.form.codedCategories.length > 0);
+    const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
+    return (
+      <div key={`source-choice:${choiceId}`} data-testid="construction-group-field-source-option" className="rounded px-2 py-1.5 hover:bg-slate-50">
+        <label className="flex min-w-0 items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            value={choiceId}
+            data-testid={`construction-group-field-choice-${choiceId}`}
+            checked={false}
+            aria-label={`Group by ${choice.label}${disambiguation ? ` (${disambiguation})` : ''}`}
+            disabled={disabled}
+            aria-describedby={choice.valueKind === 'CODING_IDENTITY' && hasCodedKey ? 'construction-group-coded-key-limit' : undefined}
+            onChange={(event) => { if (event.currentTarget.checked) addFieldKey(choice); }}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-slate-800">{choice.label}</span>
+            {disambiguation ? <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{disambiguation}</span> : null}
+          </span>
+        </label>
+        {choice.scopeLabel ? (
+          <details className="ml-6 mt-1 text-xs text-slate-600" data-testid={`construction-group-choice-details-${choiceId}`}>
+            <summary className="cursor-pointer">Details</summary>
+            <p className="mb-0 mt-1 break-words">{choice.scopeLabel}</p>
+          </details>
+        ) : null}
       </div>
     );
   };
@@ -2548,17 +2965,19 @@ const GroupEditor = (props: {
           ) : null}
           <div data-testid="construction-group-by-field-list" className="grid max-h-64 gap-1 overflow-y-auto">
             {selectedScalarColumns.map((column) => renderScalarChoice(column, true))}
+            {props.form.fieldKeys.map(renderSelectedFieldKey)}
             {selectedSemanticChoice ? renderSemanticChoice(selectedSemanticChoice, true) : null}
             {showSavedSemanticKey ? renderSavedSemanticKey() : null}
             {visibleScalarColumns.map((column) => {
               return renderScalarChoice(column, false);
             })}
+            {visibleSourceFieldChoices.map(renderFieldChoice)}
             {visibleSemanticChoices.map((choice) => renderSemanticChoice(choice, false))}
-            {normalizedGroupSearch && visibleScalarColumns.length === 0 && visibleSemanticChoices.length === 0 ? (
+            {normalizedGroupSearch && visibleScalarColumns.length === 0 && visibleSourceFieldChoices.length === 0 && visibleSemanticChoices.length === 0 ? (
               <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
             ) : null}
             {!normalizedGroupSearch && selectedScalarColumns.length === 0 && !selectedSemanticChoice && !showSavedSemanticKey &&
-              visibleScalarColumns.length === 0 && visibleSemanticChoices.length === 0 ? (
+              props.form.fieldKeys.length === 0 && visibleScalarColumns.length === 0 && visibleSourceFieldChoices.length === 0 && visibleSemanticChoices.length === 0 ? (
               <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">
                 No eligible fields are available to group by. You can still summarize all input rows.
               </p>
@@ -2567,9 +2986,9 @@ const GroupEditor = (props: {
           {props.semanticGroupChoicesIncomplete ? (
             <p role="status" className="m-0 text-xs text-amber-800">Some coded fields may be missing from this list; search only covers the fields currently available.</p>
           ) : null}
-          {semanticKey ? (
+          {hasCodedKey ? (
             <p id="construction-group-coded-key-limit" role="status" className="m-0 text-xs text-slate-600">
-              A Group can use one coded field. Remove {semanticKey.displayLabel} before choosing a different coded field.
+              A Group can use one coded identity field. Remove {semanticKey?.displayLabel ?? codingIdentityKey?.displayLabel ?? props.form.codedCategories[0]?.display ?? 'the coded field'} before choosing a different coded field.
             </p>
           ) : null}
           {props.form.codedCategories.length > 0 ? (
@@ -2596,12 +3015,12 @@ const GroupEditor = (props: {
                 context={props.codedPivotContext}
                 form={props.form}
                 stage={props.stage}
-                disabled={props.disabled || !props.supported || Boolean(props.form.semanticKey)}
+                disabled={props.disabled || !props.supported || Boolean(props.form.semanticKey) || Boolean(codingIdentityKey)}
                 onChange={props.onChange}
               />
             </details>
           ) : null}
-          {props.form.keys.length > 0 || props.form.semanticKey ? (
+          {props.form.keys.length > 0 || props.form.fieldKeys.length > 0 || props.form.semanticKey ? (
             <p data-testid="construction-reshape-group-missing-key-effect" className="m-0 text-xs text-slate-600">
               If a group key is absent or null, {props.form.missingKeyPolicy === 'GROUP'
                 ? 'those rows stay together in one missing-key group.'
@@ -2697,10 +3116,95 @@ const GroupEditor = (props: {
         </fieldset>
       </div>
 
+      <fieldset data-testid="construction-group-add-columns" className="grid gap-2 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+        <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Add columns</legend>
+        <p className="m-0 text-xs text-slate-600">Choose values from the records that contributed to each group. Group keys stay ahead of these columns.</p>
+        <label className="grid max-w-xl gap-1 text-xs font-medium text-slate-700">
+          Search fields to add
+          <input
+            type="search"
+            aria-label="Search fields to add"
+            data-testid="construction-group-add-columns-search"
+            value={rowValueSearch}
+            onChange={(event) => setRowValueSearch(event.currentTarget.value)}
+            className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+          />
+        </label>
+        {rowValueSearch ? (
+          <button type="button" data-testid="construction-group-add-columns-clear-search" onClick={() => setRowValueSearch('')}
+            className="justify-self-start text-xs font-medium text-blue-800 hover:underline">Clear search</button>
+        ) : null}
+        <div data-testid="construction-group-add-columns-field-list" className="grid max-h-52 gap-1 overflow-y-auto">
+          {props.form.rowValues.map((value, index) => (
+            <div key={value.outputColumnId} data-testid="construction-group-row-value" className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_8rem_8rem_auto]">
+              <div className="min-w-0">
+                <p className="m-0 truncate text-sm font-medium text-slate-800" title={value.displayLabel}>{value.displayLabel}</p>
+                <p className="m-0 truncate text-xs text-slate-500" title={value.scopeLabel}>{value.scopeLabel}</p>
+              </div>
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                Keep values
+                <select
+                  aria-label={`Keep values ${index + 1}`}
+                  value={value.policy}
+                  disabled={props.disabled || !props.supported}
+                  onChange={(event) => {
+                    const policy = event.currentTarget.value;
+                    if (policy === 'ALL' || policy === 'ONE') changeRowValue(value.outputColumnId, { policy });
+                  }}
+                  className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                >
+                  <option value="ALL">All values</option>
+                  <option value="ONE">One value</option>
+                </select>
+              </label>
+              <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
+                Output name
+                <input
+                  aria-label={`Added column name ${index + 1}`}
+                  value={value.name}
+                  disabled={props.disabled || !props.supported}
+                  onChange={(event) => changeRowValue(value.outputColumnId, { name: event.currentTarget.value })}
+                  className="min-w-0 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                />
+              </label>
+              <button type="button" aria-label={`Remove added column ${index + 1}`} disabled={props.disabled || !props.supported}
+                onClick={() => removeGroupRowValue(value.outputColumnId)}
+                className="mb-0.5 justify-self-start whitespace-nowrap rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove</button>
+            </div>
+          ))}
+          {visibleRowValueChoices.map((choice) => {
+            const choiceId = choice.fieldSource.kind === 'CHOICE' ? choice.fieldSource.choiceId : '';
+            return (
+              <label key={`row-value:${choiceId}`} className="flex min-w-0 items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  value={choiceId}
+                  data-testid={`construction-group-add-column-choice-${choiceId}`}
+                  aria-label={`Add column ${choice.label}`}
+                  checked={false}
+                  disabled={props.disabled || !props.supported || props.form.codedCategories.length > 0}
+                  onChange={(event) => { if (event.currentTarget.checked) addGroupRowValue(choice); }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{choice.label}</span>
+                  <span className="block truncate text-xs text-slate-500" title={choice.scopeLabel}>{choice.scopeLabel ?? `${choice.sourceRole} · ${choice.resourceType}.${choice.canonicalPath}`}</span>
+                </span>
+              </label>
+            );
+          })}
+          {normalizedRowValueSearch && visibleRowValueChoices.length === 0 ? (
+            <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No other fields match this search.</p>
+          ) : null}
+          {!normalizedRowValueSearch && props.form.rowValues.length === 0 && visibleRowValueChoices.length === 0 ? (
+            <p role="status" className="m-0 px-2 py-1 text-sm text-slate-600">No additional scalar fields are available for this Group input.</p>
+          ) : null}
+        </div>
+      </fieldset>
+
       <details data-testid="construction-reshape-group-advanced" className="rounded-lg border border-slate-200">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
         <div className="grid gap-3 p-3 pt-0">
-          {props.form.keys.length > 0 || props.form.semanticKey ? (
+          {props.form.keys.length > 0 || props.form.fieldKeys.length > 0 || props.form.semanticKey ? (
             <label className="grid gap-1 text-sm font-medium text-slate-800">
               When a group key is absent or null
               <select
@@ -2723,7 +3227,7 @@ const GroupEditor = (props: {
             </label>
           ) : null}
 
-          {props.form.keys.length > 0 || props.form.semanticKey ? (
+          {props.form.keys.length > 0 || props.form.fieldKeys.length > 0 || props.form.semanticKey ? (
             <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
               <legend className="m-0 px-1 text-sm font-semibold text-slate-800">Group column names</legend>
               {props.form.keys.map((key, index) => (
@@ -2736,6 +3240,19 @@ const GroupEditor = (props: {
                   <label className="grid gap-1 text-sm font-medium text-slate-700">
                     Column label
                     <input aria-label={`Group output label ${index + 1}`} value={key.label} disabled={props.disabled || !props.supported} onChange={(event) => changeKey(index, { label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                </div>
+              ))}
+              {props.form.fieldKeys.map((key, index) => (
+                <div key={key.outputColumnId} className="grid gap-2 sm:grid-cols-2">
+                  <p className="sm:col-span-2 text-xs text-slate-500">Values from {key.displayLabel} identify each group.</p>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Column name
+                    <input aria-label={`Group source output name ${index + 1}`} value={key.name} disabled={props.disabled || !props.supported} onChange={(event) => changeFieldKey(key.outputColumnId, { name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Column label
+                    <input aria-label={`Group source output label ${index + 1}`} value={key.label} disabled={props.disabled || !props.supported} onChange={(event) => changeFieldKey(key.outputColumnId, { label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
                   </label>
                 </div>
               ))}
@@ -3102,7 +3619,7 @@ const GroupCodedValuePicker = (props: {
       codedPassthroughs: ensureGroupCodedPassthroughs(nextForm, props.stage, [
         ...nextForm.keys.flatMap((key) => codedCategories.some((category) => category.helperOutputColumnId === key.inputColumnId) ? [] : [key.inputColumnId]),
         ...nextForm.aggregates.flatMap((aggregate) => aggregate.operation === 'COUNT_ROWS' ? [] : [aggregate.inputColumnId]),
-        ...nextForm.rowValues.map((value) => value.inputColumnId),
+        ...nextForm.rowValues.flatMap((value) => 'inputColumnId' in value ? [value.inputColumnId] : []),
       ]),
     });
   };

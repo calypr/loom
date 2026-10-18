@@ -438,6 +438,34 @@ describe('staged construction contract', () => {
     };
 
     expect(constructionSchema.parse(construction)).toEqual(construction);
+    const scalarBinding = {
+      kind: 'BINDING', valueKind: 'SCALAR', sourceStageId: 'source_projection', sourceShapeId: 'shape-component',
+      sourceRole: 'ANCESTOR', occurrenceId: 'base', resourceType: 'ObservationComponent',
+      ownerOccurrenceId: 'base', ownerResourceType: 'Observation', candidateId: 'component-value',
+      canonicalPath: 'valueQuantity.value', boundarySelector: 'component[]',
+    };
+    const withRowValue = {
+      ...construction,
+      steps: [
+        { ...construction.steps[0], rowValues: [{ fieldSource: scalarBinding, outputColumnId: 'component-values', policy: 'ALL' }] },
+        construction.steps[1],
+      ],
+    };
+    expect(constructionSchema.parse(withRowValue)).toEqual(withRowValue);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        rowValues: [{ inputColumnId: 'source', fieldSource: scalarBinding, outputColumnId: 'invalid', policy: 'ALL' }],
+      }, construction.steps[1]],
+    }).success).toBe(false);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        rowValues: [{ fieldSource: { kind: 'BINDING', valueKind: 'CODING_IDENTITY' }, outputColumnId: 'invalid', policy: 'ALL' }],
+      }, construction.steps[1]],
+    }).success).toBe(false);
     expect(constructionSchema.safeParse({
       ...construction,
       steps: [{
@@ -721,6 +749,8 @@ describe('staged construction contract', () => {
       baseConstruction: { version: 1, steps: [] },
       stages: [stage],
       selectedStage: stage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     };
 
@@ -787,6 +817,7 @@ describe('staged construction contract', () => {
       snapshotToken: 'snapshot', draftVersion: 1, draftDigest: 'sha256:draft',
       outputId: 'patients', stageId: stage.id,
       baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
+      groupFieldChoices: [], groupRowValueChoices: [],
       workspaceInputs: [],
     };
 

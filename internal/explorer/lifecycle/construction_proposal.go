@@ -29,6 +29,7 @@ type ConstructionCapabilitiesRequest struct {
 	ExpectedDraftDigest  string
 	OutputID             string
 	StageID              string
+	GroupStepID          string
 }
 
 type ConstructionCapabilitiesResponse struct {
@@ -42,10 +43,34 @@ type ConstructionCapabilitiesResponse struct {
 	SelectedStage                  explorer.ReceiptConstructionStage         `json:"selectedStage"`
 	SourceInput                    ConstructionGroupSourceCapability         `json:"sourceInput"`
 	PivotSourceInput               ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
+	GroupFieldChoices              []ConstructionGroupFieldChoice            `json:"groupFieldChoices"`
+	GroupFieldChoicesIncomplete    bool                                      `json:"groupFieldChoicesIncomplete,omitempty"`
+	GroupRowValueChoices            []ConstructionGroupFieldChoice            `json:"groupRowValueChoices"`
 	SemanticGroupChoices           []ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
 	SemanticGroupChoicesIncomplete bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
 	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
 	WorkspaceInputs                []ConstructionWorkspaceInput              `json:"workspaceInputs"`
+}
+
+type ConstructionGroupFieldChoice struct {
+	Kind              string                                         `json:"kind"`
+	InputColumnID     string                                         `json:"inputColumnId,omitempty"`
+	FieldSource       *authoringv2.ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
+	SemanticCategory  *authoringv2.ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+	ValueKind         string                                         `json:"valueKind,omitempty"`
+	SourceStageID     string                                         `json:"sourceStageId,omitempty"`
+	SourceShapeID     string                                         `json:"sourceShapeId,omitempty"`
+	CandidateID       string                                         `json:"candidateId,omitempty"`
+	Label             string                                         `json:"label"`
+	ScopeLabel        string                                         `json:"scopeLabel,omitempty"`
+	ValueType         string                                         `json:"valueType,omitempty"`
+	SourceRole        string                                         `json:"sourceRole,omitempty"`
+	OccurrenceID      string                                         `json:"occurrenceId,omitempty"`
+	ResourceType      string                                         `json:"resourceType,omitempty"`
+	OwnerOccurrenceID string                                         `json:"ownerOccurrenceId,omitempty"`
+	OwnerResourceType string                                         `json:"ownerResourceType,omitempty"`
+	CanonicalPath     string                                         `json:"canonicalPath,omitempty"`
+	BoundarySelector  string                                         `json:"boundarySelector,omitempty"`
 }
 
 // ConstructionSourceProjectionAvailability indicates whether root scalar
@@ -133,6 +158,11 @@ func (r ConstructionCapabilitiesRequest) Validate() error {
 	}
 	if r.ExpectedDraftVersion < 1 {
 		return fmt.Errorf("expectedDraftVersion must be positive")
+	}
+	if r.GroupStepID != "" {
+		if err := requireExactIdentity(r.GroupStepID, "groupStepId"); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -312,6 +342,16 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
 	}
+	groupFieldChoices, groupFieldChoicesIncomplete, err := s.constructionGroupFieldChoices(
+		ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "",
+	)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)
+	}
+	groupRowValueChoices, err := s.constructionGroupRowValueChoices(ctx, base, request.OutputID, *selected, request.GroupStepID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group row-value choices: %w", err)
+	}
 	sourceInput, err := s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile scalar group source choices: %w", err)
@@ -329,6 +369,9 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
 		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
+		GroupFieldChoices:              groupFieldChoices,
+		GroupFieldChoicesIncomplete:    groupFieldChoicesIncomplete,
+		GroupRowValueChoices:           groupRowValueChoices,
 		SemanticGroupChoices:           semanticGroupChoices,
 		SemanticGroupChoicesIncomplete: semanticGroupChoicesIncomplete,
 		SourceProjectionAvailability:   &sourceProjectionAvailability, WorkspaceInputs: workspaceInputs,
@@ -512,6 +555,10 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return ConstructionProposalResponse{}, err
 	}
 	candidateConstruction, err := s.constructionCandidateWithGroupSource(ctx, base, request)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateConstruction, err = s.resolveConstructionGroupFieldSources(ctx, base, request.OutputID, candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
@@ -1521,6 +1568,20 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 	if candidateDocument.Construction == nil {
 		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate receipt has no staged construction", nil, nil)
 	}
+	if constructionHasGroupFieldSource(*candidateDocument.Construction) {
+		liveBase, liveErr := s.loadConstructionBase(ctx, project, explorerID, request.SnapshotToken,
+			request.ExpectedDraftVersion, request.ExpectedDraftDigest, command.OutputID)
+		if liveErr != nil {
+			return nil, nil, liveErr
+		}
+		liveBase.document = candidateDocument
+		liveBase.construction = *candidateDocument.Construction
+		liveBase.stages = receipt.ConstructionStages[command.OutputID]
+		reauthorized, reauthErr := s.resolveConstructionGroupFieldSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction)
+		if reauthErr != nil || !reflect.DeepEqual(reauthorized, *candidateDocument.Construction) {
+			return nil, nil, conflict("commands", "STALE_GROUP_FIELD_BINDING", "the Group field binding no longer matches the live compiler-resolved source stage", nil, reauthErr)
+		}
+	}
 	expectedDocument, impact, err := baseDocument.AnalyzeConstructionCandidate(*candidateDocument.Construction, binding.ChangedStepID, binding.RemoveStepIDs)
 	if err != nil || impact.HasMissingInputs() {
 		return nil, nil, conflict("commands", "INVALID_CONSTRUCTION_PROPOSAL", "the candidate construction no longer resolves against the saved base", nil, err)
@@ -1561,6 +1622,23 @@ func sameConstructionDocument(left, right authoringv2.Document) bool {
 	left.Construction, right.Construction = nil, nil
 	left.TableShape, right.TableShape = nil, nil
 	return reflect.DeepEqual(left, right)
+}
+
+func constructionHasGroupFieldSource(construction authoringv2.Construction) bool {
+	for _, step := range construction.Steps {
+		if step.Operation.Kind != authoringv2.ConstructionOperationGroup || step.Operation.Group == nil {
+			continue
+		}
+		if groupStepHasRowValueFieldSource(step) {
+			return true
+		}
+		for _, key := range step.Operation.Group.Keys {
+			if key.FieldSource != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkConstructionProposalResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt) error {

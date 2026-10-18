@@ -54,6 +54,8 @@ const capabilities: ConstructionCapabilitiesResponse = {
   stageId: 'source_projection',
   baseConstruction: { version: 1, steps: [] },
   stages: [],
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
   selectedStage: {
     id: 'source_projection', inputStageId: '',

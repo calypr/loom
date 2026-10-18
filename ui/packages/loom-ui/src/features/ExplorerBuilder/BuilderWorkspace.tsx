@@ -938,6 +938,7 @@ const BuilderWorkspaceContent = ({
         expectedDraftVersion: state.draftVersion,
         expectedDraftDigest: state.draftDigest,
         outputId: table.outputId,
+        ...(editingConstructionStep?.operation.kind === 'GROUP' ? { groupStepId: editingConstructionStep.id } : {}),
         stageId: editingConstructionStep
           ? constructionInputStageFor(construction, editingConstructionStep.id)
           : constructionAppendStageFor(construction, table?.document.rows),

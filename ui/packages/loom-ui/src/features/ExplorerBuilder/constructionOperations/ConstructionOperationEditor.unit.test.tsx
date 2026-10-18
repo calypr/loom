@@ -48,6 +48,8 @@ const capabilitiesFor = (
   baseConstruction: construction,
   stages: [...stages],
   selectedStage,
+  groupFieldChoices: [],
+  groupRowValueChoices: [],
   workspaceInputs: [],
 });
 

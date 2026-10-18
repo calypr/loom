@@ -1450,6 +1450,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       baseConstruction: { version: 1, steps: [] },
       stages: [stage],
       selectedStage: stage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     } satisfies ConstructionCapabilitiesResponse;
     mockLoomClient.getConstructionCapabilities.mockResolvedValue(capabilities);

@@ -691,6 +691,38 @@ func authoredConstructionOutputsWithCombineInputs(
 					nextAuthored[compiledKey.Name] = metadata
 					continue
 				}
+				if key.FieldSource != nil {
+					binding := key.FieldSource
+					if binding.Kind != "BINDING" || binding.SourceStageID == "" || binding.SourceShapeID == "" ||
+						binding.OccurrenceID == "" || binding.OwnerOccurrenceID == "" || binding.ResourceType == "" ||
+						binding.OwnerResourceType == "" || binding.CanonicalPath == "" {
+						return fmt.Errorf("step %q Group output %q has no resolved field-source binding identity", step.ID, key.OutputColumnID)
+					}
+					if binding.ValueKind == "SCALAR" && binding.CandidateID == "" ||
+						binding.ValueKind != "SCALAR" && binding.ValueKind != "CODING_IDENTITY" {
+						return fmt.Errorf("step %q Group output %q has an invalid field-source value kind", step.ID, key.OutputColumnID)
+					}
+					if err := addOutput(key.OutputColumnID, group.ConstructionID, nil, quality); err != nil {
+						return err
+					}
+					for _, output := range step.Outputs {
+						if output.ID != key.OutputColumnID {
+							continue
+						}
+						metadata := nextAuthored[output.Name]
+						metadata.CandidateID = binding.CandidateID
+						metadata.OccurrenceID = binding.OccurrenceID
+						metadata.SourceResourceType = binding.ResourceType
+						metadata.SourcePath = binding.CanonicalPath
+						if binding.ValueKind == "CODING_IDENTITY" {
+							metadata.SourceResourceType = binding.OwnerResourceType
+							metadata.OccurrenceID = binding.OwnerOccurrenceID
+						}
+						nextAuthored[output.Name] = metadata
+						break
+					}
+					continue
+				}
 				if err := addOutput(key.OutputColumnID, group.ConstructionID, []string{key.InputColumnID}, quality); err != nil {
 					return err
 				}
@@ -711,6 +743,41 @@ func authoredConstructionOutputsWithCombineInputs(
 				}
 				if err := addOutput(aggregate.OutputColumnID, group.ConstructionID, inputs, quality); err != nil {
 					return err
+				}
+			}
+			for _, rowValue := range step.RowValues {
+				rowQuality := quality
+				if rowValue.Policy == authoringv2.ConstructionRowValueAll {
+					rowQuality.Shape = "array"
+				}
+				inputs := []string(nil)
+				if rowValue.FieldSource != nil {
+					binding := rowValue.FieldSource
+					if binding.Kind != "BINDING" || binding.ValueKind != "SCALAR" || binding.SourceStageID == "" ||
+						binding.SourceShapeID == "" || binding.OccurrenceID == "" || binding.OwnerOccurrenceID != binding.OccurrenceID ||
+						binding.ResourceType == "" || binding.OwnerResourceType == "" || binding.CandidateID == "" || binding.CanonicalPath == "" {
+						return fmt.Errorf("step %q Group row-value output %q has no resolved scalar field-source binding identity", step.ID, rowValue.OutputColumnID)
+					}
+				} else {
+					inputs = []string{rowValue.InputColumnID}
+				}
+				if err := addOutput(rowValue.OutputColumnID, group.ConstructionID, inputs, rowQuality); err != nil {
+					return err
+				}
+				if rowValue.FieldSource == nil {
+					continue
+				}
+				for _, output := range step.Outputs {
+					if output.ID != rowValue.OutputColumnID {
+						continue
+					}
+					metadata := nextAuthored[output.Name]
+					metadata.CandidateID = rowValue.FieldSource.CandidateID
+					metadata.OccurrenceID = rowValue.FieldSource.OccurrenceID
+					metadata.SourceResourceType = rowValue.FieldSource.ResourceType
+					metadata.SourcePath = rowValue.FieldSource.CanonicalPath
+					nextAuthored[output.Name] = metadata
+					break
 				}
 			}
 		case authoringv2.ConstructionOperationCodedGroup:

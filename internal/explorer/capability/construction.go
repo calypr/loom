@@ -73,6 +73,7 @@ const (
 	ConstructionChoiceSourceRelatedResource ConstructionChoiceSourceKind = "RELATED_RESOURCE"
 	ConstructionChoiceSourceRelatedField    ConstructionChoiceSourceKind = "RELATED_FIELD"
 	ConstructionChoiceSourceCodedGroup      ConstructionChoiceSourceKind = "CODED_GROUP"
+	ConstructionChoiceSourceGroupField      ConstructionChoiceSourceKind = "GROUP_FIELD"
 )
 
 // ConstructionChoiceSource is closed to the variants defined by this package.
@@ -93,6 +94,35 @@ type FieldChoiceSource struct {
 }
 
 func (FieldChoiceSource) constructionChoiceSource() {}
+
+// GroupFieldChoiceSource binds one authorized scalar field to the exact
+// compiled input shape and owner role for a Group operation.
+type GroupFieldChoiceSource struct {
+	Kind                 ConstructionChoiceSourceKind `json:"kind"`
+	TargetGroupStepID    string                       `json:"targetGroupStepId,omitempty"`
+	SourceStageID        string                       `json:"sourceStageId"`
+	SourceShapeID        string                       `json:"sourceShapeId"`
+	SourceIdentityColumn string                       `json:"sourceIdentityColumn"`
+	SourceRole           string                       `json:"sourceRole"`
+	OwnerOccurrenceID    string                       `json:"ownerOccurrenceId,omitempty"`
+	OwnerResourceType    string                       `json:"ownerResourceType,omitempty"`
+	OwnerSelector        string                       `json:"ownerSelector,omitempty"`
+	ConsumedBoundaries   []string                     `json:"consumedBoundaries,omitempty"`
+	OccurrenceID         string                       `json:"occurrenceId"`
+	ResourceType         string                       `json:"resourceType"`
+	BoundarySelector     string                       `json:"boundarySelector,omitempty"`
+	RowChoiceID          string                       `json:"rowChoiceId"`
+	ValueKind            string                       `json:"valueKind"`
+	CandidateID          string                       `json:"candidateId"`
+	NodeID               string                       `json:"nodeId"`
+	CanonicalPath        string                       `json:"canonicalPath"`
+	FHIRType             string                       `json:"fhirType"`
+	Cardinality          string                       `json:"cardinality"`
+	Shape                string                       `json:"shape"`
+	Reference            bool                         `json:"reference"`
+}
+
+func (GroupFieldChoiceSource) constructionChoiceSource() {}
 
 // SemanticBindingChoiceSource preserves the observed FHIR owner and terminology
 // identity. Display text is deliberately excluded from computational identity.
@@ -389,6 +419,260 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 		return ConstructionChoice{}, fmt.Errorf("candidate %q has no compiler-proved construction output", candidate.ID)
 	}
 	return choice, nil
+}
+
+// NewGroupFieldConstructionChoice creates an ephemeral Group-key authority
+// from compiler-issued source context and one authorized scalar candidate.
+func NewGroupFieldConstructionChoice(snapshotToken string, route []ConstructionRouteStep, source GroupFieldChoiceSource, candidate Candidate) (ConstructionChoice, error) {
+	source.Kind = ConstructionChoiceSourceGroupField
+	if strings.TrimSpace(snapshotToken) == "" {
+		return ConstructionChoice{}, fmt.Errorf("Group field choice requires a snapshot token")
+	}
+	if err := validateConstructionRoute(route); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if err := validateGroupFieldChoiceSource(source, route); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if err := ValidateConstructionSourceType(candidate, nil); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if source.ValueKind != "SCALAR" {
+		return ConstructionChoice{}, fmt.Errorf("scalar Group field choice must use SCALAR valueKind")
+	}
+	if err := validateGroupFieldCandidate(source, candidate); err != nil {
+		return ConstructionChoice{}, err
+	}
+	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
+		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceGroupField,
+		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+	})
+	if err != nil {
+		return ConstructionChoice{}, err
+	}
+	choice := ConstructionChoice{
+		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
+		Presentation: fieldChoicePresentation(FieldChoiceSource{
+			Kind: ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
+			ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality,
+			RepeatedBoundaries: append([]RepeatedBoundary(nil), candidate.RepeatedBoundaries...),
+		}, candidate),
+		Options: constructionOptionsForRoute(candidate, route),
+	}
+	if len(choice.Options) == 0 {
+		return ConstructionChoice{}, fmt.Errorf("candidate %q has no compiler-proved construction output", candidate.ID)
+	}
+	return choice, nil
+}
+
+// NewGroupCodingIdentityChoice exposes a compiler-proved current Coding item
+// as its normalized terminology identity without inventing an inventory
+// family binding.
+func NewGroupCodingIdentityChoice(snapshotToken string, route []ConstructionRouteStep, source GroupFieldChoiceSource) (ConstructionChoice, error) {
+	source.Kind = ConstructionChoiceSourceGroupField
+	source.ValueKind = "CODING_IDENTITY"
+	if strings.TrimSpace(snapshotToken) == "" {
+		return ConstructionChoice{}, fmt.Errorf("Coding identity choice requires a snapshot token")
+	}
+	if err := validateConstructionRoute(route); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if err := validateGroupFieldChoiceSource(source, route); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if source.SourceRole != "CURRENT_ITEM" || source.FHIRType != "Coding" || source.Shape != "CODING_IDENTITY" ||
+		source.CanonicalPath != source.OwnerSelector || source.CandidateID != "" {
+		return ConstructionChoice{}, fmt.Errorf("Coding identity choice must pin the exact current Coding item selector")
+	}
+	rowChoice, err := DecodeRowChoiceID(source.RowChoiceID)
+	if err != nil || rowChoice.Version != "row-choice/v1" || rowChoice.SnapshotToken != snapshotToken ||
+		rowChoice.Kind != RowChoiceExpandedScope || rowChoice.Occurrence.OccurrenceID != source.OwnerOccurrenceID ||
+		rowChoice.Occurrence.NodeID != source.NodeID || rowChoice.Occurrence.ResourceType != source.OwnerResourceType ||
+		!equalConstructionRouteSteps(rowChoice.Occurrence.Route, route) || rowChoice.Path != source.OwnerSelector ||
+		rowChoice.FHIRType != "Coding" || rowChoice.Cardinality != RowChoiceMany || rowChoice.Shape != RowChoiceArray || rowChoice.Reference {
+		return ConstructionChoice{}, fmt.Errorf("Coding identity choice requires one exact observed current Coding row choice")
+	}
+	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
+		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceGroupField,
+		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+	})
+	if err != nil {
+		return ConstructionChoice{}, err
+	}
+	return ConstructionChoice{
+		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
+		Presentation: ConstructionChoicePresentation{Summary: "Coding identity", Facts: []ConstructionChoiceFact{
+			{Label: "Field", Value: source.CanonicalPath},
+			{Label: "Scope", Value: source.SourceRole},
+		}},
+	}, nil
+}
+
+func equalConstructionRouteSteps(left, right []ConstructionRouteStep) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func validGroupFieldSourceRole(role string) bool {
+	switch role {
+	case "ROOT", "OWNER", "ANCESTOR", "CURRENT_ITEM":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateGroupFieldChoiceSource(source GroupFieldChoiceSource, route []ConstructionRouteStep) error {
+	if source.Kind != ConstructionChoiceSourceGroupField || strings.TrimSpace(source.SourceStageID) == "" ||
+		strings.TrimSpace(source.SourceShapeID) == "" || strings.TrimSpace(source.SourceIdentityColumn) == "" ||
+		!validGroupFieldSourceRole(source.SourceRole) || strings.TrimSpace(source.OccurrenceID) == "" ||
+		strings.TrimSpace(source.ResourceType) == "" || strings.TrimSpace(source.OwnerOccurrenceID) == "" ||
+		strings.TrimSpace(source.OwnerResourceType) == "" || strings.TrimSpace(source.NodeID) == "" ||
+		strings.TrimSpace(source.CanonicalPath) == "" ||
+		strings.TrimSpace(source.FHIRType) == "" || source.Cardinality != "ONE" || source.Reference {
+		return fmt.Errorf("Group field choice requires exact stage, shape, role, owner, and scalar field identity")
+	}
+	if (source.OwnerOccurrenceID == "") != (source.OwnerResourceType == "") {
+		return fmt.Errorf("Group field choice owner occurrence and resource must be supplied together")
+	}
+	if source.SourceRole == "ANCESTOR" && strings.TrimSpace(source.BoundarySelector) == "" {
+		return fmt.Errorf("ancestor Group field choice requires its exact repeated boundary selector")
+	}
+	if source.ValueKind == "SCALAR" {
+		if strings.TrimSpace(source.CandidateID) == "" || source.Shape != "SCALAR" {
+			return fmt.Errorf("scalar Group field choice requires a compiler-proved scalar candidate")
+		}
+	} else if source.ValueKind == "CODING_IDENTITY" {
+		if source.CandidateID != "" || source.RowChoiceID == "" || source.Shape != "CODING_IDENTITY" || source.FHIRType != "Coding" ||
+			source.SourceRole != "CURRENT_ITEM" || source.CanonicalPath != source.OwnerSelector {
+			return fmt.Errorf("Coding identity Group field choice requires one exact current Coding item")
+		}
+	} else {
+		return fmt.Errorf("Group field choice valueKind is unsupported")
+	}
+	if len(route) > 0 {
+		last := route[len(route)-1]
+		if last.ToNodeID != source.NodeID || last.ToResourceType != source.OwnerResourceType {
+			return fmt.Errorf("Group field choice route does not end at the exact field owner")
+		}
+	}
+	return nil
+}
+
+func validateGroupFieldCandidate(source GroupFieldChoiceSource, candidate Candidate) error {
+	if candidatePathForGroupFieldSource(source) != canonicalPath(candidate.FieldPath) ||
+		candidate.ID != source.CandidateID || candidate.NodeID != source.NodeID || candidate.ResourceType != source.OwnerResourceType ||
+		!candidate.Populated || !IsSupportedConstructionSourceType(candidate.LogicalType) ||
+		source.ValueKind != "SCALAR" {
+		return fmt.Errorf("Group field choice does not match one populated compiler-proved scalar candidate")
+	}
+	if source.SourceRole == "ROOT" {
+		if len(candidate.RepeatedBoundaries) != 0 || IsRepeatedCardinality(candidate.Cardinality) ||
+			!containsProjectionMode(candidate.ProjectionModes, ProjectionScalar) {
+			return fmt.Errorf("root Group field choice must be a one-valued scalar source")
+		}
+		return nil
+	}
+	consumed := make(map[string]struct{}, len(source.ConsumedBoundaries)+2)
+	orderedConsumed := make([]string, 0, len(source.ConsumedBoundaries)+2)
+	if len(source.ConsumedBoundaries) == 0 {
+		for _, boundary := range []string{source.OwnerSelector, source.BoundarySelector} {
+			if selector := canonicalPath(boundary); selector != "" {
+				if _, duplicate := consumed[selector]; !duplicate {
+					consumed[selector] = struct{}{}
+					orderedConsumed = append(orderedConsumed, selector)
+				}
+			}
+		}
+	} else {
+		for _, boundary := range source.ConsumedBoundaries {
+			selector := canonicalPath(boundary)
+			if selector == "" || selector != boundary {
+				return fmt.Errorf("Group field choice has a non-canonical consumed repeated boundary")
+			}
+			if _, duplicate := consumed[selector]; duplicate {
+				return fmt.Errorf("Group field choice repeats a consumed boundary")
+			}
+			consumed[selector] = struct{}{}
+			orderedConsumed = append(orderedConsumed, selector)
+		}
+		if source.SourceRole == "CURRENT_ITEM" {
+			if _, ok := consumed[canonicalPath(source.OwnerSelector)]; !ok {
+				return fmt.Errorf("current-item Group field choice lacks its exact compiler item selector")
+			}
+		}
+		if source.SourceRole == "ANCESTOR" {
+			if _, ok := consumed[canonicalPath(source.BoundarySelector)]; !ok {
+				return fmt.Errorf("ancestor Group field choice lacks its exact compiler boundary selector")
+			}
+		}
+	}
+	matchedIndex := -1
+	for _, boundary := range candidate.RepeatedBoundaries {
+		selector := canonicalPath(boundary.Path)
+		if _, ok := consumed[selector]; !ok {
+			return fmt.Errorf("Group field choice has an unconsumed repeated boundary %q", boundary.Path)
+		}
+		foundIndex := -1
+		for index := matchedIndex + 1; index < len(orderedConsumed); index++ {
+			if orderedConsumed[index] == selector {
+				foundIndex = index
+				break
+			}
+		}
+		if foundIndex < 0 {
+			return fmt.Errorf("Group field choice repeated boundaries do not follow the compiled consumed prefix")
+		}
+		matchedIndex = foundIndex
+	}
+	if IsRepeatedCardinality(candidate.Cardinality) && len(candidate.RepeatedBoundaries) == 0 {
+		return fmt.Errorf("repeated Group field choice has no exact consumed item or ancestor boundary")
+	}
+	if source.SourceRole == "CURRENT_ITEM" && source.OwnerSelector == "" {
+		return fmt.Errorf("current-item Group field choice requires the exact active item selector")
+	}
+	if source.SourceRole == "ANCESTOR" && source.BoundarySelector == "" {
+		return fmt.Errorf("ancestor Group field choice requires the exact repeated boundary selector")
+	}
+	return nil
+}
+
+func candidatePathForGroupFieldSource(source GroupFieldChoiceSource) string {
+	path := canonicalPath(source.CanonicalPath)
+	switch source.SourceRole {
+	case "ROOT", "OWNER":
+		return path
+	case "ANCESTOR":
+		return joinGroupFieldPath(source.BoundarySelector, path)
+	case "CURRENT_ITEM":
+		return joinGroupFieldPath(source.OwnerSelector, path)
+	default:
+		return ""
+	}
+}
+
+func joinGroupFieldPath(prefix, path string) string {
+	prefix, path = canonicalPath(prefix), canonicalPath(path)
+	if prefix == "" || path == "" {
+		return ""
+	}
+	return prefix + "." + path
+}
+
+func containsProjectionMode(modes []ProjectionMode, want ProjectionMode) bool {
+	for _, mode := range modes {
+		if mode == want {
+			return true
+		}
+	}
+	return false
 }
 
 // NewConstructionRelatedResourceRouteChoiceFromAnchor pins a route to one
@@ -763,6 +1047,18 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is invalid: %w", err)
 		}
 		identity.Source = source
+	case ConstructionChoiceSourceGroupField:
+		var source GroupFieldChoiceSource
+		if err := decodeChoiceJSON(token.Source, &source); err != nil {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("decode Group field choice source: %w", err)
+		}
+		if source.Kind != token.Kind || token.SemanticContextToken != "" || token.BuildID != "" {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("Group field choice identity is inconsistent")
+		}
+		if err := validateGroupFieldChoiceSource(source, identity.Route); err != nil {
+			return ConstructionChoiceIdentity{}, err
+		}
+		identity.Source = source
 	case ConstructionChoiceSourceSemanticFrame:
 		var source SemanticFrameChoiceSource
 		if err := decodeChoiceJSON(token.Source, &source); err != nil {
@@ -835,6 +1131,8 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	switch source := identity.Source.(type) {
 	case FieldChoiceSource:
 		kind = source.Kind
+	case GroupFieldChoiceSource:
+		kind = source.Kind
 	case SemanticBindingChoiceSource:
 		kind = source.Kind
 	case SemanticFrameChoiceSource:
@@ -856,6 +1154,9 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	}
 	if kind == ConstructionChoiceSourceField && (identity.SemanticContextToken != "" || identity.BuildID != "") {
 		return "", fmt.Errorf("field choice identity cannot include semantic inventory context")
+	}
+	if kind == ConstructionChoiceSourceGroupField && (identity.SemanticContextToken != "" || identity.BuildID != "") {
+		return "", fmt.Errorf("Group field choice identity cannot include semantic inventory context")
 	}
 	if kind == ConstructionChoiceSourceRelatedResource && (identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) == 0) {
 		return "", fmt.Errorf("related resource choice identity requires a route and cannot include semantic inventory context")

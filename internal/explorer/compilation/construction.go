@@ -305,7 +305,14 @@ func recipeConstructionStep(step authoringv2.ConstructionStep) (recipe.Construct
 	}
 	values := make([]recipe.ConstructionRowValue, 0, len(step.RowValues))
 	for _, value := range step.RowValues {
-		values = append(values, recipe.ConstructionRowValue{InputColumnID: value.InputColumnID, OutputColumnID: value.OutputColumnID, Policy: recipe.ConstructionRowValuePolicy(value.Policy)})
+		fieldSource, err := recipeConstructionGroupFieldSource(value.FieldSource)
+		if err != nil {
+			return recipe.ConstructionStep{}, err
+		}
+		values = append(values, recipe.ConstructionRowValue{
+			InputColumnID: value.InputColumnID, FieldSource: fieldSource,
+			OutputColumnID: value.OutputColumnID, Policy: recipe.ConstructionRowValuePolicy(value.Policy),
+		})
 	}
 	return recipe.ConstructionStep{ID: step.ID, Inputs: inputs, Operation: operation, Outputs: outputs, RowValues: values}, nil
 }
@@ -407,6 +414,13 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 		for _, key := range group.Keys {
 			mappedKey := recipe.ConstructionGroupKey{
 				InputColumnID: key.InputColumnID, OutputColumnID: key.OutputColumnID,
+			}
+			if key.FieldSource != nil {
+				mappedField, err := recipeConstructionGroupFieldSource(key.FieldSource)
+				if err != nil {
+					return recipe.ConstructionOperation{}, err
+				}
+				mappedKey.FieldSource = mappedField
 			}
 			if key.SemanticCategory != nil {
 				category := key.SemanticCategory
@@ -645,6 +659,24 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 		return recipe.ConstructionOperation{}, fmt.Errorf("unsupported operation kind %q", authored.Kind)
 	}
 	return operation, nil
+}
+
+func recipeConstructionGroupFieldSource(
+	field *authoringv2.ConstructionGroupFieldSource,
+) (*recipe.ConstructionGroupFieldSource, error) {
+	if field == nil {
+		return nil, nil
+	}
+	if field.Kind != "BINDING" || field.OwnerOccurrenceID != field.OccurrenceID {
+		return nil, fmt.Errorf("Group fieldSource must be a resolved BINDING for its exact owner occurrence")
+	}
+	return &recipe.ConstructionGroupFieldSource{
+		Kind: field.Kind, ValueKind: field.ValueKind, SourceStageID: field.SourceStageID,
+		SourceShapeID: field.SourceShapeID, SourceRole: field.SourceRole,
+		OccurrenceID: field.OccurrenceID, OwnerResourceType: field.OwnerResourceType,
+		ResourceType: field.ResourceType, CandidateID: field.CandidateID,
+		CanonicalPath: field.CanonicalPath, BoundarySelector: field.BoundarySelector,
+	}, nil
 }
 
 func constructionRelatedPredicate(predicate *authoringv2.ContributorPredicate) (*recipe.ConstructionRelatedPredicate, error) {

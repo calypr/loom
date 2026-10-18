@@ -94,9 +94,32 @@ const (
 // ConstructionRowValue populates a shaped row from the same records that
 // contributed to its grouping or pivot. It does not alter row membership.
 type ConstructionRowValue struct {
-	InputColumnID  string                     `json:"inputColumnId"`
-	OutputColumnID string                     `json:"outputColumnId"`
-	Policy         ConstructionRowValuePolicy `json:"policy"`
+	InputColumnID  string                        `json:"inputColumnId,omitempty"`
+	FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
+	OutputColumnID string                        `json:"outputColumnId"`
+	Policy         ConstructionRowValuePolicy    `json:"policy"`
+}
+
+func (value *ConstructionRowValue) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		InputColumnID  *string                        `json:"inputColumnId,omitempty"`
+		FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
+		OutputColumnID string                         `json:"outputColumnId"`
+		Policy         ConstructionRowValuePolicy     `json:"policy"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return err
+	}
+	if (wire.InputColumnID != nil) == (wire.FieldSource != nil) {
+		return fmt.Errorf("row value must contain exactly one of inputColumnId or fieldSource")
+	}
+	*value = ConstructionRowValue{
+		OutputColumnID: wire.OutputColumnID, FieldSource: wire.FieldSource, Policy: wire.Policy,
+	}
+	if wire.InputColumnID != nil {
+		value.InputColumnID = *wire.InputColumnID
+	}
+	return nil
 }
 
 // ConstructionInputRef is a closed source-stage, prior-stage, sibling-output,
@@ -620,8 +643,67 @@ func (group ConstructionGroup) MarshalJSON() ([]byte, error) {
 
 type ConstructionGroupKey struct {
 	InputColumnID    string                             `json:"inputColumnId,omitempty"`
+	FieldSource      *ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
 	OutputColumnID   string                             `json:"outputColumnId"`
 	SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+}
+
+func (key *ConstructionGroupKey) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		InputColumnID    *string                            `json:"inputColumnId,omitempty"`
+		FieldSource      *ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
+		OutputColumnID   string                             `json:"outputColumnId"`
+		SemanticCategory *ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return err
+	}
+	sources := 0
+	if wire.InputColumnID != nil {
+		sources++
+	}
+	if wire.FieldSource != nil {
+		sources++
+	}
+	if wire.SemanticCategory != nil {
+		sources++
+	}
+	if sources != 1 {
+		return fmt.Errorf("Group key must contain exactly one of inputColumnId, fieldSource, or semanticCategory")
+	}
+	*key = ConstructionGroupKey{OutputColumnID: wire.OutputColumnID, FieldSource: wire.FieldSource, SemanticCategory: wire.SemanticCategory}
+	if wire.InputColumnID != nil {
+		key.InputColumnID = *wire.InputColumnID
+	}
+	return nil
+}
+
+// ConstructionGroupFieldSource is a server-issued scalar or normalized
+// Coding-identity choice, or its durable stage-bound binding.
+type ConstructionGroupFieldSource struct {
+	Kind              string `json:"kind"`
+	ChoiceID          string `json:"choiceId,omitempty"`
+	ValueKind         string `json:"valueKind,omitempty"`
+	SourceStageID     string `json:"sourceStageId,omitempty"`
+	SourceShapeID     string `json:"sourceShapeId,omitempty"`
+	SourceRole        string `json:"sourceRole,omitempty"`
+	OccurrenceID      string `json:"occurrenceId,omitempty"`
+	ResourceType      string `json:"resourceType,omitempty"`
+	OwnerOccurrenceID string `json:"ownerOccurrenceId,omitempty"`
+	OwnerResourceType string `json:"ownerResourceType,omitempty"`
+	CandidateID       string `json:"candidateId,omitempty"`
+	CanonicalPath     string `json:"canonicalPath,omitempty"`
+	BoundarySelector  string `json:"boundarySelector,omitempty"`
+}
+
+func (source *ConstructionGroupFieldSource) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionGroupFieldSource
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	*source = ConstructionGroupFieldSource(decoded)
+	return nil
 }
 
 // ConstructionGroupSemanticCategory is either an ephemeral CHOICE supplied
