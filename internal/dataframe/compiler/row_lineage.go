@@ -66,6 +66,12 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		}
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: "SOURCE"}
 	}
+	if rowLineageRelatedCodingGroup(output) {
+		return RowLineageCapability{Available: true}
+	}
+	if rowLineageHasRelatedCodingGroup(sequence) {
+		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_RELATED_GROUP_UNSUPPORTED", Operation: "GROUP"}
+	}
 	if rowLineageHasRelatedExpand(sequence) {
 		return rowLineageRelatedSequenceCapability(output)
 	}
@@ -120,6 +126,176 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
 	}
 	return RowLineageCapability{Available: true}
+}
+
+// rowLineageRelatedCodingGroup admits only the terminal direct-root Group
+// shape whose Coding tuple and scalar sources are prepared by one typed route
+// adapter. All other related Groups keep the existing unsupported behavior.
+func rowLineageRelatedCodingGroup(output lower.CompiledRecipeOutput) bool {
+	sequence := output.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 ||
+		output.RootResourceType == "" || output.Plan.Source.ResourceType != output.RootResourceType || output.RowIdentity == nil ||
+		!rowLineageHasDirectRootSource(output.Plan.Operations) {
+		return false
+	}
+	stage := sequence.Stages[0]
+	group := stage.Group
+	if stage.Kind != ir.PhysicalStageGroupOp || group == nil || stage.InputStageID != sequence.SourceStageID ||
+		stage.ID != sequence.FinalStageID || stage.RowIdentityColumn != sequence.FinalRowIdentity ||
+		!rowLineageHasPhysicalIdentity(output, stage, sequence) || group.SemanticKey != nil ||
+		group.RootContributorInputColumn != "" || group.CodingKey == nil || group.RelatedOccurrence == nil ||
+		len(group.Aggregates) == 0 {
+		return false
+	}
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" || aggregate.InputColumn != "" || aggregate.InputKind != "" {
+			return false
+		}
+	}
+	coding, adapter := group.CodingKey, group.RelatedOccurrence
+	related := coding.RelatedSource
+	if related == nil || related.RouteID == "" || related.RouteID != adapter.RouteID ||
+		related.SourceStageID != sequence.SourceStageID || related.SourceShapeID == "" ||
+		coding.SourceStageID != related.SourceStageID || coding.SourceShapeID != related.SourceShapeID ||
+		coding.SourceOccurrenceKeyColumn == "" || coding.SourceOccurrenceKeyColumn != adapter.OccurrenceKeyColumn ||
+		coding.SourceUnnest != nil || coding.OwnerOccurrenceID != related.TargetOccurrenceID ||
+		coding.OwnerResourceType != related.TargetResourceType || coding.CodingPath == "" ||
+		coding.CodingPath != related.CodingSelector || coding.CodingPath != adapter.CodingSelector ||
+		coding.MembershipColumn == "" || coding.MembershipColumn != related.MembershipColumn ||
+		coding.MembershipColumn != adapter.CodingMembershipColumn || adapter.CodingArrayColumn == "" ||
+		adapter.CodingUnnest == nil || adapter.CodingUnnest.Ordinality == "" || adapter.OrdinalSemantics != "ZERO_BASED_POSITION_IN_FLATTENED_EXPANSION_ARRAY" ||
+		adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy || adapter.RelatedRecords.RouteID != adapter.RouteID ||
+		adapter.RouteHasItemVariable == "" || !rowLineageRelatedCodingEmptyPolicyMatches(related.CodingEmptyPolicy, adapter.CodingEmptyPolicy) ||
+		related.OrdinalSemantics != adapter.OrdinalSemantics || related.EmptyPolicy != string(adapter.RelatedRecords.EmptyPolicy) ||
+		related.Multiplicity != adapter.RelatedRecords.Multiplicity ||
+		adapter.RelatedRecords.AnchorKind != "root" || adapter.RelatedRecords.AnchorColumnID != "_key" ||
+		adapter.RelatedRecords.ParentIdentityColumn != "_key" || len(adapter.RelatedRecords.Route) == 0 ||
+		related.AnchorOccurrenceID != adapter.RelatedRecords.AnchorOccurrenceID ||
+		related.AnchorNodeID != adapter.RelatedRecords.AnchorNodeID || related.AnchorResourceType != adapter.RelatedRecords.AnchorResourceType ||
+		related.TargetOccurrenceID != adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID ||
+		related.TargetNodeID != adapter.RelatedRecords.TargetNodeID || related.TargetResourceType != adapter.RelatedRecords.TargetResourceType ||
+		!rowLineageRelatedRouteMatches(related.Route, adapter.RelatedRecords.Route) {
+		return false
+	}
+	scalarColumns := make(map[string]struct{}, len(adapter.ScalarProjections))
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || projection.ResultField == "" {
+			return false
+		}
+		scalarColumns[projection.InputColumn] = struct{}{}
+	}
+	for _, key := range group.Keys {
+		if key.InputColumn == "" || key.OutputColumn == "" || key.Variable == "" || key.Kind == "" ||
+			!rowLineageRelatedGroupSourceAvailable(key.FieldSource, key.InputColumn, scalarColumns, related, sequence.SourceStageID, stage.InputColumns) {
+			return false
+		}
+		if !rowLineageStageHasColumn(stage.OutputColumns, key.OutputColumn) {
+			return false
+		}
+	}
+	for _, rowValue := range group.RowValues {
+		if rowValue.InputColumn == "" || rowValue.Output == "" ||
+			!rowLineageRelatedGroupSourceAvailable(rowValue.FieldSource, rowValue.InputColumn, scalarColumns, related, sequence.SourceStageID, stage.InputColumns) {
+			return false
+		}
+	}
+	return rowLineageStageHasColumn(stage.OutputColumns, coding.OutputColumn)
+}
+
+func rowLineageRelatedCodingEmptyPolicyMatches(sourcePolicy string, physicalPolicy ir.PhysicalUnnestEmptyPolicy) bool {
+	switch sourcePolicy {
+	case "GROUP":
+		return physicalPolicy == ir.PhysicalUnnestPreserveParent
+	case "EXCLUDE":
+		return physicalPolicy == ir.PhysicalUnnestExclude
+	case "ERROR":
+		return physicalPolicy == ir.PhysicalUnnestError
+	default:
+		return false
+	}
+}
+
+func rowLineageHasRelatedCodingGroup(sequence *ir.PhysicalStageSequence) bool {
+	if sequence == nil {
+		return false
+	}
+	for _, stage := range sequence.Stages {
+		if stage.Group != nil && (stage.Group.RelatedOccurrence != nil ||
+			(stage.Group.CodingKey != nil && stage.Group.CodingKey.RelatedSource != nil)) {
+			return true
+		}
+	}
+	return false
+}
+
+func rowLineageRelatedGroupSourceAvailable(
+	fieldSource *ir.PhysicalStageGroupFieldSource,
+	inputColumn string,
+	relatedScalarColumns map[string]struct{},
+	groupRoute *ir.PhysicalStageGroupRelatedOccurrenceFieldSource,
+	sourceStageID string,
+	stageInputs []ir.PhysicalStageColumn,
+) bool {
+	if !rowLineageStageHasColumn(stageInputs, inputColumn) {
+		return false
+	}
+	if fieldSource == nil {
+		return inputColumn != ""
+	}
+	if fieldSource.Kind == ir.PhysicalStageGroupFieldSourceRelatedOccurrence {
+		source := fieldSource.RelatedOccurrence
+		_, projected := relatedScalarColumns[inputColumn]
+		return source != nil && source.ProjectionColumn == inputColumn && projected &&
+			rowLineageSameRelatedGroupRoute(source, groupRoute)
+	}
+	if fieldSource.Kind != ir.PhysicalStageGroupFieldSourceCurrentStage || fieldSource.RelatedOccurrence != nil ||
+		fieldSource.SourceStageID != sourceStageID || fieldSource.SourceShapeID == "" || fieldSource.Role == "" {
+		return false
+	}
+	return inputColumn != ""
+}
+
+func rowLineageSameRelatedGroupRoute(
+	left *ir.PhysicalStageGroupRelatedOccurrenceFieldSource,
+	right *ir.PhysicalStageGroupRelatedOccurrenceFieldSource,
+) bool {
+	return left != nil && right != nil && left.RouteID == right.RouteID &&
+		left.SourceStageID == right.SourceStageID &&
+		left.AnchorOccurrenceID == right.AnchorOccurrenceID && left.AnchorNodeID == right.AnchorNodeID &&
+		left.AnchorResourceType == right.AnchorResourceType && reflect.DeepEqual(left.Route, right.Route) &&
+		left.TargetOccurrenceID == right.TargetOccurrenceID && left.TargetNodeID == right.TargetNodeID &&
+		left.TargetResourceType == right.TargetResourceType && left.EmptyPolicy == right.EmptyPolicy &&
+		left.Multiplicity == right.Multiplicity
+}
+
+func rowLineageRelatedRouteMatches(
+	source []ir.PhysicalStageGroupRelatedRouteStep,
+	actual []ir.PhysicalStageRelatedRouteStep,
+) bool {
+	if len(source) == 0 || len(source) != len(actual) {
+		return false
+	}
+	for index, route := range source {
+		step := actual[index]
+		if route.StepIndex != index || route.StepIndex != step.StepIndex ||
+			route.FromOccurrenceID != step.FromOccurrenceID || route.ToOccurrenceID != step.ToOccurrenceID ||
+			route.EdgeID != step.EdgeID || route.FromNodeID != step.FromNodeID || route.ToNodeID != step.ToNodeID ||
+			route.FromResourceType != step.FromResourceType || route.ToResourceType != step.ToResourceType ||
+			route.Relationship != step.Relationship || route.StorageDirection != step.StorageDirection ||
+			route.MatchMode != step.MatchMode {
+			return false
+		}
+	}
+	return true
+}
+
+func rowLineageStageHasColumn(columns []ir.PhysicalStageColumn, name string) bool {
+	for _, column := range columns {
+		if column.Name == name && column.ID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func rowLineageExpandedCodingGroup(output lower.CompiledRecipeOutput) bool {
@@ -487,6 +663,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		return CompiledRowLineageQuery{}, &RowLineageUnsupportedError{Capability: capability}
 	}
 	expandedCodingGroup := rowLineageExpandedCodingGroup(output)
+	relatedCodingGroup := rowLineageRelatedCodingGroup(output)
 	if output.RootResourceType == "" {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source resource type is required")
 	}
@@ -635,6 +812,8 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	occurrenceKeyColumn := rowLineageOccurrenceKey
 	if expandedCodingGroup {
 		occurrenceKeyColumn = physical.StageSequence.Stages[0].Group.CodingKey.SourceOccurrenceKeyColumn
+	} else if relatedCodingGroup {
+		occurrenceKeyColumn = physical.StageSequence.Stages[0].Group.RelatedOccurrence.OccurrenceKeyColumn
 	}
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]
@@ -656,7 +835,7 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 			if !found {
 				return CompiledRowLineageQuery{}, fmt.Errorf("expanded Group source is missing exact occurrence projection %q", occurrenceKeyColumn)
 			}
-		} else {
+		} else if !relatedCodingGroup {
 			operation.Return.Projections = appendUniqueProjection(operation.Return.Projections,
 				ir.PhysicalProjection{Name: rowLineageOccurrenceKey, Hidden: true, Value: ir.PhysicalValue{Variable: root, Path: []string{"_key"}}},
 			)

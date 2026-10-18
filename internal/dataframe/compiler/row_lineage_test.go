@@ -111,6 +111,167 @@ func TestExpandedCodingGroupLineagePagesExactInputOccurrences(t *testing.T) {
 	}
 }
 
+func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T) {
+	output := relatedCodingGroupLineageOutput(t)
+	if !rowLineageRelatedCodingGroup(output) {
+		t.Fatal("compiler did not recognize the terminal related Coding Group lineage shape")
+	}
+	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+		t.Fatalf("related Coding Group row lineage is unavailable: %#v", capability)
+	}
+	stage := output.Plan.StageSequence.Stages[0]
+	if stage.Group == nil || stage.Group.RelatedOccurrence == nil || stage.Group.CodingKey == nil {
+		t.Fatalf("related Coding Group lost its shared route adapter: %#v", stage.Group)
+	}
+	adapter := stage.Group.RelatedOccurrence
+	rowID := `[["construction","group_related_id"],["operation","GROUP"],["status_group_id","final"],["coding_group_id","coding_identity",["urn:example:codes","1","same-code"]]]`
+	compiled, err := CompileRowLineageOutput(output, rowID, 2, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile related Coding Group row lineage: %v", err)
+	}
+	terminal := output.Plan.StageSequence.RowLineageReturn
+	if terminal != nil {
+		t.Fatal("compilation mutated its input output plan")
+	}
+	if compiled.BindVars[rowLineageRowIDBind] != rowID || compiled.BindVars[rowLineageOffsetBind] != 2 ||
+		compiled.BindVars[rowLineageFetchLimitBind] != 6 || compiled.BindVars[rowLineageLimitBind] != 5 {
+		t.Fatalf("lineage query has wrong identity/page bindings: %#v", compiled.BindVars)
+	}
+	if !rowLineageHasBindValue(compiled.BindVars, adapter.OccurrenceKeyColumn) ||
+		!rowLineageHasBindValue(compiled.BindVars, rowLineageResourceID) {
+		t.Fatalf("lineage output does not expose the exact Group occurrence and root resource ID columns: %#v", compiled.BindVars)
+	}
+	if _, ok := compiled.BindVars["@related_expand_0_hop_1_edge_collection"]; !ok {
+		t.Fatalf("related Group route collection bind is missing: %#v", compiled.BindVars)
+	}
+	for _, want := range []string{
+		"row_lineage_related_selected",
+		"coding_identity",
+		"codingTuple",
+		"TRIM(__loom_physical_construction_row_lineage_related_coding_membership.version)",
+		"TYPENAME(__loom_physical_construction_row_lineage_related_coding_membership.code) == \"string\"",
+		"COLLECT ",
+		"AGGREGATE __loom_physical_construction_row_lineage_related_count = SUM(1)",
+		"FILTER __loom_physical_construction_row_lineage_related_identity == @row_lineage_row_id",
+		"FILTER __loom_physical_construction_row_lineage_related_contributor_tuple == __loom_physical_construction_row_lineage_related_selected.codingTuple",
+		"SORT __loom_physical_construction_row_lineage_related_contributor[@__loom_physical_construction_row_lineage_related_occurrence_key_column] ASC",
+		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
+		"occurrenceKey: __loom_physical_construction_row_lineage_related_contributor[@__loom_physical_construction_row_lineage_related_occurrence_key_column]",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Errorf("related Coding Group lineage query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	for _, field := range []string{"root_id", "terminal_id", "item_present", "ordinal"} {
+		if !rowLineageHasBindValue(compiled.BindVars, field) {
+			t.Errorf("lineage occurrence projection does not bind %q", field)
+		}
+	}
+	if !strings.Contains(compiled.Query, " == 0 ? [null] : RANGE(0, LENGTH(") ||
+		!strings.Contains(compiled.Query, " AND "+adapter.CodingUnnest.HasItemVariable) {
+		t.Fatalf("lineage replay lost the route/Coding empty sentinels or route-gated Coding presence:\n%s", compiled.Query)
+	}
+	if strings.Count(compiled.Query, "FOR root IN @@root_collection") != 2 ||
+		strings.Count(compiled.Query, "FOR __loom_construction_related_expand_0_hop_1_edge_1 IN @@related_expand_0_hop_1_edge_collection") != 2 ||
+		strings.Count(compiled.Query, "LET "+adapter.CodingUnnest.OutputVariable+" =") != 2 {
+		t.Fatalf("lineage must replay the same scoped root, route, and Coding expansion for lookup and paging:\n%s", compiled.Query)
+	}
+	if strings.Contains(compiled.Query, " INTO ") {
+		t.Fatalf("related Coding Group lineage must preserve Coding ordinals without materializing or deduplicating contributors:\n%s", compiled.Query)
+	}
+
+	unsupported := output
+	unsupported.Plan = ir.ClonePhysicalPlan(output.Plan)
+	unsupported.Plan.StageSequence.Stages[0].Group.RelatedOccurrence.RouteID += "_other"
+	if capability := RowLineageCapabilityForOutput(unsupported); capability.Available {
+		t.Fatalf("mismatched route unexpectedly enabled related Group lineage: %#v", capability)
+	}
+}
+
+func rowLineageHasBindValue(bindVars map[string]any, value string) bool {
+	for _, candidate := range bindVars {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func relatedCodingGroupLineageOutput(t *testing.T) lower.CompiledRecipeOutput {
+	t.Helper()
+	bindings := recipe.RuntimeBindings{Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation"}
+	baseOutput := recipe.Output{
+		Name: "patient_related_group_source", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+	}
+	base := lowerConstructionOutput(t, baseOutput, bindings)
+	descriptor, err := lower.DescribeConstructionSourceStage(base.OutputSchema, baseOutput.RootResourceType, &base.Plan)
+	if err != nil || descriptor.GroupFieldSourceContext == nil {
+		t.Fatalf("describe direct Patient source context: descriptor=%#v err=%v", descriptor, err)
+	}
+	context := descriptor.GroupFieldSourceContext
+	makeSource := func(valueKind, resourceType, candidateID, canonicalPath string) recipe.ConstructionGroupFieldSource {
+		related := &recipe.ConstructionGroupRelatedOccurrenceFieldSource{
+			AnchorNodeID: "catalog-patient-node", AnchorResourceType: "Patient",
+			Route: []recipe.ConstructionGroupRelatedRouteStep{{
+				StepIndex: 0, FromNodeID: "catalog-patient-node", FromResourceType: "Patient",
+				EdgeID: "patient-observation-edge", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				ToNodeID: "catalog-observation-node", ToResourceType: "Observation",
+			}},
+			TargetNodeID: "catalog-observation-node", TargetResourceType: "Observation",
+			ResourceType: resourceType, CandidateID: candidateID, CanonicalPath: canonicalPath,
+			EmptyPolicy:  recipe.ExpansionPreserveParent,
+			Multiplicity: recipe.ConstructionGroupRelatedMultiplicityDistinctTargetPerInput,
+		}
+		if valueKind == "CODING_IDENTITY" {
+			related.ResourceType = "Coding"
+			related.CodingSelector = "valueCodeableConcept.coding[]"
+			related.CodingEmptyPolicy = recipe.ConstructionGroupCodingEmptyPolicyGroup
+			related.OrdinalSemantics = recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition
+		}
+		source := recipe.ConstructionGroupFieldSource{
+			Kind: "BINDING", ValueKind: valueKind,
+			Input: &recipe.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: related},
+		}
+		bound, err := lower.BindGroupRelatedOccurrenceSource(context, source)
+		if err != nil {
+			t.Fatalf("bind %s related Group source: %v", valueKind, err)
+		}
+		return bound
+	}
+	status := makeSource("SCALAR", "string", "observation-status", "status")
+	coding := makeSource("CODING_IDENTITY", "Coding", "", "")
+	quantity := makeSource("SCALAR", "decimal", "observation-value-quantity-value", "valueQuantity.value")
+	output := recipe.Output{
+		Name: "patient_related_coding_group", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_related", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_related_id", MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup,
+					Keys: []recipe.ConstructionGroupKey{
+						{OutputColumnID: "status_group_id", FieldSource: &status},
+						{OutputColumnID: "coding_group_id", FieldSource: &coding},
+					},
+					Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "row_count_id"}},
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "status_group_id", Name: "status_group", Type: "string"},
+					{ID: "coding_group_id", Name: "coding_group", Type: "string"},
+					{ID: "row_count_id", Name: "row_count", Type: "integer"},
+					{ID: "quantity_values_id", Name: "quantity_values", Type: "array"},
+				},
+				RowValues: []recipe.ConstructionRowValue{{
+					FieldSource: &quantity, OutputColumnID: "quantity_values_id", Policy: recipe.ConstructionRowValueAll,
+				}},
+			}},
+		},
+	}
+	return lowerConstructionOutput(t, output, bindings)
+}
+
 func expandedCodingRowLineageOutput(t *testing.T) lower.CompiledRecipeOutput {
 	t.Helper()
 	output := recipe.Output{

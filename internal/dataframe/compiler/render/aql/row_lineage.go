@@ -36,6 +36,12 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		}
 		return r.renderSemanticGroupRowLineage(sourceQuery, stage, terminal)
 	}
+	if group.RelatedOccurrence != nil {
+		if len(stages) != 1 || group.CodingKey == nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("related Group row lineage requires one terminal CODING_IDENTITY source Group")
+		}
+		return r.renderRelatedCodingIdentityGroupRowLineage(sourceQuery, stage, terminal)
+	}
 	if group.CodingKey != nil {
 		if len(stages) != 1 {
 			return RenderedPhysicalPlan{}, fmt.Errorf("CODING_IDENTITY Group row lineage requires one terminal source Group")
