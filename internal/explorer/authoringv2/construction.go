@@ -102,10 +102,10 @@ type ConstructionRowValue struct {
 
 func (value *ConstructionRowValue) UnmarshalJSON(raw []byte) error {
 	var wire struct {
-		InputColumnID  *string                        `json:"inputColumnId,omitempty"`
+		InputColumnID  *string                       `json:"inputColumnId,omitempty"`
 		FieldSource    *ConstructionGroupFieldSource `json:"fieldSource,omitempty"`
-		OutputColumnID string                         `json:"outputColumnId"`
-		Policy         ConstructionRowValuePolicy     `json:"policy"`
+		OutputColumnID string                        `json:"outputColumnId"`
+		Policy         ConstructionRowValuePolicy    `json:"policy"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
@@ -678,32 +678,346 @@ func (key *ConstructionGroupKey) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-// ConstructionGroupFieldSource is a server-issued scalar or normalized
-// Coding-identity choice, or its durable stage-bound binding.
+// ConstructionGroupFieldSource is a signed Group-key choice or its durable
+// binding. A binding pins exactly one input provenance variant. Flat fields
+// remain accepted for saved CURRENT_STAGE bindings and are preserved when
+// those saved values cross the authoring boundary again.
 type ConstructionGroupFieldSource struct {
-	Kind              string `json:"kind"`
-	ChoiceID          string `json:"choiceId,omitempty"`
-	ValueKind         string `json:"valueKind,omitempty"`
-	SourceStageID     string `json:"sourceStageId,omitempty"`
-	SourceShapeID     string `json:"sourceShapeId,omitempty"`
-	SourceRole        string `json:"sourceRole,omitempty"`
-	OccurrenceID      string `json:"occurrenceId,omitempty"`
-	ResourceType      string `json:"resourceType,omitempty"`
-	OwnerOccurrenceID string `json:"ownerOccurrenceId,omitempty"`
-	OwnerResourceType string `json:"ownerResourceType,omitempty"`
+	Kind          string                             `json:"kind"`
+	ChoiceID      string                             `json:"choiceId,omitempty"`
+	ValueKind     string                             `json:"valueKind,omitempty"`
+	SourceStageID string                             `json:"sourceStageId,omitempty"`
+	SourceShapeID string                             `json:"sourceShapeId,omitempty"`
+	Input         *ConstructionGroupFieldSourceInput `json:"input,omitempty"`
+
+	// Legacy flat CURRENT_STAGE fields. They are populated only when decoding
+	// saved recipes that predate the input provenance sum.
+	SourceRole        string `json:"-"`
+	OccurrenceID      string `json:"-"`
+	ResourceType      string `json:"-"`
+	OwnerOccurrenceID string `json:"-"`
+	OwnerResourceType string `json:"-"`
+	CandidateID       string `json:"-"`
+	CanonicalPath     string `json:"-"`
+	BoundarySelector  string `json:"-"`
+	legacyFlat        bool
+}
+
+type ConstructionGroupFieldSourceInput struct {
+	Kind              string                                   `json:"kind"`
+	CurrentStage      *ConstructionGroupFieldCurrentStage      `json:"currentStage,omitempty"`
+	RelatedOccurrence *ConstructionGroupFieldRelatedOccurrence `json:"relatedOccurrence,omitempty"`
+}
+
+func (input *ConstructionGroupFieldSourceInput) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Kind              string                                   `json:"kind"`
+		CurrentStage      *ConstructionGroupFieldCurrentStage      `json:"currentStage,omitempty"`
+		RelatedOccurrence *ConstructionGroupFieldRelatedOccurrence `json:"relatedOccurrence,omitempty"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
+		return err
+	}
+	if (wire.CurrentStage == nil) == (wire.RelatedOccurrence == nil) {
+		return fmt.Errorf("Group fieldSource input requires exactly one provenance payload")
+	}
+	switch wire.Kind {
+	case "CURRENT_STAGE":
+		if wire.CurrentStage == nil {
+			return fmt.Errorf("CURRENT_STAGE Group fieldSource input requires currentStage")
+		}
+	case "RELATED_OCCURRENCE":
+		if wire.RelatedOccurrence == nil {
+			return fmt.Errorf("RELATED_OCCURRENCE Group fieldSource input requires relatedOccurrence")
+		}
+	default:
+		return fmt.Errorf("unsupported Group fieldSource input kind %q", wire.Kind)
+	}
+	*input = ConstructionGroupFieldSourceInput(wire)
+	return nil
+}
+
+type ConstructionGroupFieldCurrentStage struct {
+	SourceRole        string `json:"sourceRole"`
+	OccurrenceID      string `json:"occurrenceId"`
+	OwnerResourceType string `json:"ownerResourceType"`
+	ResourceType      string `json:"resourceType"`
 	CandidateID       string `json:"candidateId,omitempty"`
-	CanonicalPath     string `json:"canonicalPath,omitempty"`
+	CanonicalPath     string `json:"canonicalPath"`
 	BoundarySelector  string `json:"boundarySelector,omitempty"`
 }
 
+type ConstructionGroupFieldRelatedRouteStep struct {
+	StepIndex        int    `json:"stepIndex"`
+	FromOccurrenceID string `json:"fromOccurrenceId"`
+	FromNodeID       string `json:"fromNodeId"`
+	FromResourceType string `json:"fromResourceType"`
+	EdgeID           string `json:"edgeId"`
+	Relationship     string `json:"relationship"`
+	StorageDirection string `json:"storageDirection"`
+	MatchMode        string `json:"matchMode"`
+	ToOccurrenceID   string `json:"toOccurrenceId"`
+	ToNodeID         string `json:"toNodeId"`
+	ToResourceType   string `json:"toResourceType"`
+}
+
+type ConstructionGroupFieldRelatedOccurrence struct {
+	AnchorOccurrenceID string                                   `json:"anchorOccurrenceId"`
+	AnchorNodeID       string                                   `json:"anchorNodeId"`
+	AnchorResourceType string                                   `json:"anchorResourceType"`
+	Route              []ConstructionGroupFieldRelatedRouteStep `json:"route"`
+	TargetOccurrenceID string                                   `json:"targetOccurrenceId"`
+	TargetNodeID       string                                   `json:"targetNodeId"`
+	TargetResourceType string                                   `json:"targetResourceType"`
+	ResourceType       string                                   `json:"resourceType"`
+	CandidateID        string                                   `json:"candidateId,omitempty"`
+	CanonicalPath      string                                   `json:"canonicalPath,omitempty"`
+	EmptyPolicy        string                                   `json:"emptyPolicy"`
+	Multiplicity       string                                   `json:"multiplicity"`
+	CodingSelector     string                                   `json:"codingSelector,omitempty"`
+	CodingEmptyPolicy  string                                   `json:"codingEmptyPolicy,omitempty"`
+	OrdinalSemantics   string                                   `json:"ordinalSemantics,omitempty"`
+}
+
 func (source *ConstructionGroupFieldSource) UnmarshalJSON(raw []byte) error {
-	type wire ConstructionGroupFieldSource
-	var decoded wire
-	if err := strictDecode(raw, &decoded); err != nil {
+	var wire struct {
+		Kind              string                             `json:"kind"`
+		ChoiceID          *string                            `json:"choiceId,omitempty"`
+		ValueKind         *string                            `json:"valueKind,omitempty"`
+		SourceStageID     *string                            `json:"sourceStageId,omitempty"`
+		SourceShapeID     *string                            `json:"sourceShapeId,omitempty"`
+		Input             *ConstructionGroupFieldSourceInput `json:"input,omitempty"`
+		SourceRole        *string                            `json:"sourceRole,omitempty"`
+		OccurrenceID      *string                            `json:"occurrenceId,omitempty"`
+		ResourceType      *string                            `json:"resourceType,omitempty"`
+		OwnerOccurrenceID *string                            `json:"ownerOccurrenceId,omitempty"`
+		OwnerResourceType *string                            `json:"ownerResourceType,omitempty"`
+		CandidateID       *string                            `json:"candidateId,omitempty"`
+		CanonicalPath     *string                            `json:"canonicalPath,omitempty"`
+		BoundarySelector  *string                            `json:"boundarySelector,omitempty"`
+	}
+	if err := strictDecode(raw, &wire); err != nil {
 		return err
 	}
-	*source = ConstructionGroupFieldSource(decoded)
+	flatPresent := wire.SourceRole != nil || wire.OccurrenceID != nil || wire.ResourceType != nil ||
+		wire.OwnerOccurrenceID != nil || wire.OwnerResourceType != nil || wire.CandidateID != nil ||
+		wire.CanonicalPath != nil || wire.BoundarySelector != nil
+	decoded := ConstructionGroupFieldSource{Kind: wire.Kind}
+	if wire.ChoiceID != nil {
+		decoded.ChoiceID = *wire.ChoiceID
+	}
+	if wire.ValueKind != nil {
+		decoded.ValueKind = *wire.ValueKind
+	}
+	if wire.SourceStageID != nil {
+		decoded.SourceStageID = *wire.SourceStageID
+	}
+	if wire.SourceShapeID != nil {
+		decoded.SourceShapeID = *wire.SourceShapeID
+	}
+	switch wire.Kind {
+	case "CHOICE":
+		if decoded.ChoiceID == "" || decoded.ValueKind != "" || decoded.SourceStageID != "" || decoded.SourceShapeID != "" || wire.Input != nil || flatPresent {
+			return fmt.Errorf("Group fieldSource CHOICE requires only choiceId")
+		}
+	case "BINDING":
+		if decoded.SourceStageID == "" || decoded.SourceShapeID == "" || decoded.ValueKind == "" || decoded.ChoiceID != "" {
+			return fmt.Errorf("Group fieldSource BINDING requires valueKind, sourceStageId, and sourceShapeId only")
+		}
+		if wire.Input != nil && flatPresent {
+			return fmt.Errorf("Group fieldSource BINDING cannot combine input with legacy flat fields")
+		}
+		if wire.Input != nil {
+			decoded.Input = wire.Input
+			if wire.Input.Kind == "CURRENT_STAGE" && wire.Input.CurrentStage != nil {
+				decoded.setLegacyCurrentStage(wire.Input.CurrentStage)
+			}
+		} else if flatPresent {
+			if wire.OwnerOccurrenceID != nil && wire.OccurrenceID != nil && *wire.OwnerOccurrenceID != *wire.OccurrenceID {
+				return fmt.Errorf("legacy CURRENT_STAGE binding owner occurrence must match its field occurrence")
+			}
+			current := &ConstructionGroupFieldCurrentStage{}
+			setString := func(target *string, value *string) {
+				if value != nil {
+					*target = *value
+				}
+			}
+			setString(&current.SourceRole, wire.SourceRole)
+			setString(&current.OccurrenceID, wire.OccurrenceID)
+			setString(&current.OwnerResourceType, wire.OwnerResourceType)
+			setString(&current.ResourceType, wire.ResourceType)
+			setString(&current.CandidateID, wire.CandidateID)
+			setString(&current.CanonicalPath, wire.CanonicalPath)
+			setString(&current.BoundarySelector, wire.BoundarySelector)
+			decoded.Input = &ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: current}
+			decoded.legacyFlat = true
+			decoded.setLegacyCurrentStage(current)
+		} else {
+			return fmt.Errorf("Group fieldSource BINDING requires one input provenance")
+		}
+		if err := decoded.Validate(); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported Group fieldSource kind %q", wire.Kind)
+	}
+	*source = decoded
 	return nil
+}
+
+func (source ConstructionGroupFieldSource) MarshalJSON() ([]byte, error) {
+	if source.Kind == "CHOICE" {
+		if source.ChoiceID == "" || source.ValueKind != "" || source.SourceStageID != "" || source.SourceShapeID != "" || source.Input != nil {
+			return nil, fmt.Errorf("Group fieldSource CHOICE requires only choiceId")
+		}
+		return json.Marshal(struct {
+			Kind     string `json:"kind"`
+			ChoiceID string `json:"choiceId"`
+		}{Kind: source.Kind, ChoiceID: source.ChoiceID})
+	}
+	if err := source.Validate(); err != nil {
+		return nil, err
+	}
+	if source.legacyFlat || source.Input == nil && source.hasLegacyCurrentStage() {
+		return json.Marshal(struct {
+			Kind              string `json:"kind"`
+			ValueKind         string `json:"valueKind"`
+			SourceStageID     string `json:"sourceStageId"`
+			SourceShapeID     string `json:"sourceShapeId"`
+			SourceRole        string `json:"sourceRole"`
+			OccurrenceID      string `json:"occurrenceId"`
+			ResourceType      string `json:"resourceType"`
+			OwnerOccurrenceID string `json:"ownerOccurrenceId,omitempty"`
+			OwnerResourceType string `json:"ownerResourceType"`
+			CandidateID       string `json:"candidateId,omitempty"`
+			CanonicalPath     string `json:"canonicalPath,omitempty"`
+			BoundarySelector  string `json:"boundarySelector,omitempty"`
+		}{
+			Kind: source.Kind, ValueKind: source.ValueKind, SourceStageID: source.SourceStageID,
+			SourceShapeID: source.SourceShapeID, SourceRole: source.SourceRole,
+			OccurrenceID: source.OccurrenceID, ResourceType: source.ResourceType,
+			OwnerOccurrenceID: source.OwnerOccurrenceID, OwnerResourceType: source.OwnerResourceType,
+			CandidateID: source.CandidateID, CanonicalPath: source.CanonicalPath,
+			BoundarySelector: source.BoundarySelector,
+		})
+	}
+	input := source.Input
+	if input == nil {
+		input = &ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: source.legacyCurrentStage()}
+	}
+	return json.Marshal(struct {
+		Kind          string                             `json:"kind"`
+		ValueKind     string                             `json:"valueKind"`
+		SourceStageID string                             `json:"sourceStageId"`
+		SourceShapeID string                             `json:"sourceShapeId"`
+		Input         *ConstructionGroupFieldSourceInput `json:"input"`
+	}{Kind: source.Kind, ValueKind: source.ValueKind, SourceStageID: source.SourceStageID, SourceShapeID: source.SourceShapeID, Input: input})
+}
+
+func (source ConstructionGroupFieldSource) Validate() error {
+	if source.Kind != "BINDING" || source.ChoiceID != "" || source.SourceStageID == "" || source.SourceShapeID == "" || source.ValueKind == "" {
+		return fmt.Errorf("Group fieldSource BINDING requires exact stage, shape, valueKind, and input provenance")
+	}
+	if source.ValueKind != "SCALAR" && source.ValueKind != "CODING_IDENTITY" {
+		return fmt.Errorf("unsupported Group fieldSource valueKind %q", source.ValueKind)
+	}
+	input := source.Input
+	if input == nil && source.hasLegacyCurrentStage() {
+		if source.OwnerOccurrenceID != "" && source.OwnerOccurrenceID != source.OccurrenceID {
+			return fmt.Errorf("legacy CURRENT_STAGE binding owner occurrence must match its field occurrence")
+		}
+		input = &ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: source.legacyCurrentStage()}
+	}
+	if input == nil {
+		return fmt.Errorf("Group fieldSource BINDING requires one input provenance")
+	}
+	switch input.Kind {
+	case "CURRENT_STAGE":
+		current := input.CurrentStage
+		if current == nil || input.RelatedOccurrence != nil || current.OccurrenceID == "" || current.OwnerResourceType == "" || current.ResourceType == "" || current.SourceRole == "" {
+			return fmt.Errorf("CURRENT_STAGE Group fieldSource requires one exact currentStage source")
+		}
+		if current.SourceRole != "ROOT" && current.SourceRole != "OWNER" && current.SourceRole != "ANCESTOR" && current.SourceRole != "CURRENT_ITEM" {
+			return fmt.Errorf("unsupported CURRENT_STAGE sourceRole %q", current.SourceRole)
+		}
+		if source.ValueKind == "SCALAR" && (current.CandidateID == "" || current.CanonicalPath == "") {
+			return fmt.Errorf("scalar CURRENT_STAGE binding requires candidateId and canonicalPath")
+		}
+		if source.ValueKind == "CODING_IDENTITY" && (current.SourceRole != "CURRENT_ITEM" || current.CandidateID != "" || current.CanonicalPath == "" || current.BoundarySelector != "") {
+			return fmt.Errorf("Coding identity CURRENT_STAGE binding requires a current item path without candidateId or redundant boundarySelector")
+		}
+		if current.SourceRole == "ANCESTOR" && current.BoundarySelector == "" {
+			return fmt.Errorf("ANCESTOR CURRENT_STAGE binding requires boundarySelector")
+		}
+	case "RELATED_OCCURRENCE":
+		related := input.RelatedOccurrence
+		if related == nil || input.CurrentStage != nil || related.AnchorOccurrenceID == "" || related.AnchorNodeID == "" || related.AnchorResourceType == "" ||
+			related.TargetOccurrenceID == "" || related.TargetNodeID == "" || related.TargetResourceType == "" || related.ResourceType == "" ||
+			len(related.Route) == 0 || related.Multiplicity != "DISTINCT_TARGET_PER_INPUT" {
+			return fmt.Errorf("RELATED_OCCURRENCE Group fieldSource requires an exact route, anchor, target, and DISTINCT_TARGET_PER_INPUT multiplicity")
+		}
+		if related.Route[0].FromOccurrenceID != related.AnchorOccurrenceID || related.Route[0].FromNodeID != related.AnchorNodeID ||
+			related.Route[0].FromResourceType != related.AnchorResourceType ||
+			related.Route[len(related.Route)-1].ToOccurrenceID != related.TargetOccurrenceID ||
+			related.Route[len(related.Route)-1].ToNodeID != related.TargetNodeID ||
+			related.Route[len(related.Route)-1].ToResourceType != related.TargetResourceType {
+			return fmt.Errorf("RELATED_OCCURRENCE route endpoints must match its exact anchor and target")
+		}
+		for index, step := range related.Route {
+			if step.StepIndex != index || step.FromOccurrenceID == "" || step.FromNodeID == "" || step.FromResourceType == "" ||
+				step.EdgeID == "" || step.Relationship == "" || step.ToOccurrenceID == "" || step.ToNodeID == "" || step.ToResourceType == "" ||
+				(step.StorageDirection != "INBOUND" && step.StorageDirection != "OUTBOUND") ||
+				(step.MatchMode != "OPTIONAL" && step.MatchMode != "REQUIRED") ||
+				(index > 0 && (related.Route[index-1].ToOccurrenceID != step.FromOccurrenceID || related.Route[index-1].ToNodeID != step.FromNodeID || related.Route[index-1].ToResourceType != step.FromResourceType)) {
+				return fmt.Errorf("RELATED_OCCURRENCE route step %d is invalid or disconnected", index)
+			}
+		}
+		if related.EmptyPolicy != "PRESERVE_PARENT" && related.EmptyPolicy != "EXCLUDE" && related.EmptyPolicy != "ERROR" {
+			return fmt.Errorf("unsupported RELATED_OCCURRENCE emptyPolicy %q", related.EmptyPolicy)
+		}
+		if source.ValueKind == "SCALAR" {
+			if related.CandidateID == "" || related.CanonicalPath == "" || related.CodingSelector != "" || related.OrdinalSemantics != "" || related.CodingEmptyPolicy != "" {
+				return fmt.Errorf("scalar RELATED_OCCURRENCE binding requires only candidateId and canonicalPath")
+			}
+		} else if related.CandidateID != "" || related.CanonicalPath != "" || related.CodingSelector == "" || related.OrdinalSemantics == "" || related.CodingEmptyPolicy == "" {
+			return fmt.Errorf("Coding identity RELATED_OCCURRENCE binding requires Coding selector, empty policy, and ordinal semantics")
+		}
+		if related.CodingEmptyPolicy != "" && related.CodingEmptyPolicy != "PRESERVE_PARENT" && related.CodingEmptyPolicy != "EXCLUDE" && related.CodingEmptyPolicy != "ERROR" {
+			return fmt.Errorf("unsupported Coding identity empty policy %q", related.CodingEmptyPolicy)
+		}
+	default:
+		return fmt.Errorf("unsupported Group fieldSource input kind %q", input.Kind)
+	}
+	return nil
+}
+
+func (source *ConstructionGroupFieldSource) setLegacyCurrentStage(current *ConstructionGroupFieldCurrentStage) {
+	if source == nil || current == nil {
+		return
+	}
+	source.SourceRole = current.SourceRole
+	source.OccurrenceID = current.OccurrenceID
+	source.ResourceType = current.ResourceType
+	source.OwnerResourceType = current.OwnerResourceType
+	source.CandidateID = current.CandidateID
+	source.CanonicalPath = current.CanonicalPath
+	source.BoundarySelector = current.BoundarySelector
+	source.OwnerOccurrenceID = current.OccurrenceID
+}
+
+func (source ConstructionGroupFieldSource) hasLegacyCurrentStage() bool {
+	return source.SourceRole != "" || source.OccurrenceID != "" || source.ResourceType != "" ||
+		source.OwnerOccurrenceID != "" || source.OwnerResourceType != "" || source.CandidateID != "" ||
+		source.CanonicalPath != "" || source.BoundarySelector != ""
+}
+
+func (source ConstructionGroupFieldSource) legacyCurrentStage() *ConstructionGroupFieldCurrentStage {
+	return &ConstructionGroupFieldCurrentStage{
+		SourceRole: source.SourceRole, OccurrenceID: source.OccurrenceID,
+		OwnerResourceType: source.OwnerResourceType, ResourceType: source.ResourceType,
+		CandidateID: source.CandidateID, CanonicalPath: source.CanonicalPath,
+		BoundarySelector: source.BoundarySelector,
+	}
 }
 
 // ConstructionGroupSemanticCategory is either an ephemeral CHOICE supplied

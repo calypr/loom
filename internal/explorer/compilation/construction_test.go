@@ -51,15 +51,102 @@ func TestRecipeConstructionStepCopiesResolvedFieldSourceForGroupRowValue(t *test
 	}
 	want := &recipe.ConstructionGroupFieldSource{
 		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: "source_projection", SourceShapeID: "shape-component",
-		SourceRole: "ANCESTOR", OccurrenceID: "base", OwnerResourceType: "Observation",
-		ResourceType: "ObservationComponent", CandidateID: "component-value",
-		CanonicalPath: "valueQuantity.value", BoundarySelector: "component[]",
+		Input: &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &recipe.ConstructionGroupCurrentStageFieldSource{
+			SourceRole: "ANCESTOR", OccurrenceID: "base", OwnerResourceType: "Observation",
+			ResourceType: "ObservationComponent", CandidateID: "component-value",
+			CanonicalPath: "valueQuantity.value", BoundarySelector: "component[]",
+		}},
 	}
 	if !reflect.DeepEqual(mapped.RowValues[0].FieldSource, want) {
 		t.Fatalf("recipe row-value FieldSource = %#v, want %#v", mapped.RowValues[0].FieldSource, want)
 	}
 	if len(mapped.Operation.Group.Keys) != 1 || !reflect.DeepEqual(mapped.Operation.Group.Keys[0].FieldSource, want) {
 		t.Fatalf("Group key and row-value FieldSource mapping differ: %#v", mapped.Operation.Group.Keys)
+	}
+}
+
+func TestRecipeConstructionStepCopiesRelatedFieldSourceRouteForGroupKeyAndRowValue(t *testing.T) {
+	fieldSource := &authoringv2.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: "source_projection", SourceShapeID: "shape-related",
+		Input: &authoringv2.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &authoringv2.ConstructionGroupFieldRelatedOccurrence{
+			AnchorOccurrenceID: "root", AnchorNodeID: "patient-node", AnchorResourceType: "Patient",
+			Route: []authoringv2.ConstructionGroupFieldRelatedRouteStep{{
+				StepIndex: 0, FromOccurrenceID: "root", FromNodeID: "patient-node", FromResourceType: "Patient",
+				EdgeID: "edge-subject", Relationship: "subject", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				ToOccurrenceID: "related-observation", ToNodeID: "observation-node", ToResourceType: "Observation",
+			}},
+			TargetOccurrenceID: "related-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			ResourceType: "string", CandidateID: "id-candidate", CanonicalPath: "id",
+			EmptyPolicy: "PRESERVE_PARENT", Multiplicity: "DISTINCT_TARGET_PER_INPUT",
+		}},
+	}
+	codingFieldSource := &authoringv2.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "CODING_IDENTITY", SourceStageID: "source_projection", SourceShapeID: "shape-related-coding",
+		Input: &authoringv2.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &authoringv2.ConstructionGroupFieldRelatedOccurrence{
+			AnchorOccurrenceID: "root", AnchorNodeID: "patient-node", AnchorResourceType: "Patient",
+			Route: []authoringv2.ConstructionGroupFieldRelatedRouteStep{{
+				StepIndex: 0, FromOccurrenceID: "root", FromNodeID: "patient-node", FromResourceType: "Patient",
+				EdgeID: "edge-subject", Relationship: "subject", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				ToOccurrenceID: "related-observation", ToNodeID: "observation-node", ToResourceType: "Observation",
+			}},
+			TargetOccurrenceID: "related-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			ResourceType: "Coding", EmptyPolicy: "PRESERVE_PARENT", Multiplicity: "DISTINCT_TARGET_PER_INPUT",
+			CodingSelector: "type.coding[]", CodingEmptyPolicy: "PRESERVE_PARENT",
+			OrdinalSemantics: recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition,
+		}},
+	}
+	step := authoringv2.ConstructionStep{
+		ID: "group", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			ConstructionID: "group", MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+			Keys: []authoringv2.ConstructionGroupKey{
+				{FieldSource: fieldSource, OutputColumnID: "status-key"},
+				{FieldSource: codingFieldSource, OutputColumnID: "coding-key"},
+			},
+			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row-count"}},
+		}},
+		RowValues: []authoringv2.ConstructionRowValue{{FieldSource: fieldSource, OutputColumnID: "status-values", Policy: authoringv2.ConstructionRowValueAll}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "status-key", Name: "status_key", Label: "Status", Type: "string"},
+			{ID: "coding-key", Name: "coding_key", Label: "Coding", Type: "string"},
+			{ID: "row-count", Name: "row_count", Label: "Rows", Type: "integer"},
+			{ID: "status-values", Name: "status_values", Label: "Status values", Type: "array"},
+		},
+	}
+
+	mapped, err := recipeConstructionStep(step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mapped.RowValues) != 1 || mapped.RowValues[0].InputColumnID != "" || mapped.RowValues[0].FieldSource == nil {
+		t.Fatalf("recipe row value = %#v, want route-bound FieldSource with no inputColumnId", mapped.RowValues)
+	}
+	want := &recipe.ConstructionGroupFieldSource{
+		Kind: "BINDING", ValueKind: "SCALAR", SourceStageID: "source_projection", SourceShapeID: "shape-related",
+		Input: &recipe.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &recipe.ConstructionGroupRelatedOccurrenceFieldSource{
+			AnchorOccurrenceID: "root", AnchorNodeID: "patient-node", AnchorResourceType: "Patient",
+			Route: []recipe.ConstructionGroupRelatedRouteStep{{
+				StepIndex: 0, FromOccurrenceID: "root", FromNodeID: "patient-node", FromResourceType: "Patient",
+				EdgeID: "edge-subject", Relationship: "subject", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				ToOccurrenceID: "related-observation", ToNodeID: "observation-node", ToResourceType: "Observation",
+			}},
+			TargetOccurrenceID: "related-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			ResourceType: "string", CandidateID: "id-candidate", CanonicalPath: "id",
+			EmptyPolicy: recipe.ExpansionPreserveParent, Multiplicity: "DISTINCT_TARGET_PER_INPUT",
+		}},
+	}
+	if !reflect.DeepEqual(mapped.RowValues[0].FieldSource, want) {
+		t.Fatalf("recipe row-value FieldSource = %#v, want %#v", mapped.RowValues[0].FieldSource, want)
+	}
+	if !reflect.DeepEqual(mapped.Operation.Group.Keys[0].FieldSource, want) {
+		t.Fatalf("Group key and row-value FieldSource mapping differ: %#v", mapped.Operation.Group.Keys[0].FieldSource)
+	}
+	relatedCoding := mapped.Operation.Group.Keys[1].FieldSource
+	if relatedCoding == nil || relatedCoding.Input == nil || relatedCoding.Input.Kind != "RELATED_OCCURRENCE" ||
+		relatedCoding.Input.RelatedOccurrence == nil || relatedCoding.Input.RelatedOccurrence.CodingSelector != "type.coding[]" ||
+		relatedCoding.Input.RelatedOccurrence.OrdinalSemantics != recipe.ConstructionGroupRelatedOrdinalSemanticsZeroBasedPosition ||
+		len(relatedCoding.Input.RelatedOccurrence.Route) != 1 || relatedCoding.Input.RelatedOccurrence.Route[0].EdgeID != "edge-subject" {
+		t.Fatalf("related Coding Group key lost its exact route/selector/ordinal facts: %#v", relatedCoding)
 	}
 }
 

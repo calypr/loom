@@ -1582,33 +1582,16 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 func validateConstructionGroupFieldSource(source ConstructionGroupFieldSource) error {
 	switch source.Kind {
 	case "CHOICE":
-		if !requiredID(source.ChoiceID) || source.ValueKind != "" || source.SourceStageID != "" || source.SourceShapeID != "" ||
+		if !requiredID(source.ChoiceID) || source.ValueKind != "" || source.SourceStageID != "" || source.SourceShapeID != "" || source.Input != nil ||
 			source.SourceRole != "" || source.OccurrenceID != "" || source.ResourceType != "" || source.OwnerOccurrenceID != "" ||
 			source.OwnerResourceType != "" || source.CandidateID != "" || source.CanonicalPath != "" || source.BoundarySelector != "" {
 			return fmt.Errorf("CHOICE requires only an exact server-issued choiceId")
 		}
 	case "BINDING":
-		if source.ChoiceID != "" || !requiredID(source.SourceStageID) || !requiredID(source.SourceShapeID) ||
-			!validConstructionGroupSourceRole(source.SourceRole) || !requiredID(source.OccurrenceID) ||
-			!requiredID(source.ResourceType) || !requiredID(source.OwnerOccurrenceID) || !requiredID(source.OwnerResourceType) ||
-			!requiredID(source.CanonicalPath) || source.OwnerOccurrenceID != source.OccurrenceID {
-			return fmt.Errorf("BINDING requires exact stage, source shape, role, occurrence, value and owner resources, and canonical path")
+		if source.ChoiceID != "" {
+			return fmt.Errorf("BINDING cannot carry choiceId")
 		}
-		switch source.ValueKind {
-		case "SCALAR":
-			if !requiredID(source.CandidateID) {
-				return fmt.Errorf("SCALAR BINDING requires candidateId")
-			}
-			if (source.SourceRole == "ANCESTOR" || source.SourceRole == "CURRENT_ITEM") != requiredID(source.BoundarySelector) {
-				return fmt.Errorf("SCALAR BINDING requires the exact boundary selector for ANCESTOR and CURRENT_ITEM roles only")
-			}
-		case "CODING_IDENTITY":
-			if source.CandidateID != "" || source.SourceRole != "CURRENT_ITEM" || source.BoundarySelector != "" {
-				return fmt.Errorf("CODING_IDENTITY BINDING requires a current Coding item without candidateId or redundant boundarySelector")
-			}
-		default:
-			return fmt.Errorf("BINDING valueKind must be SCALAR or CODING_IDENTITY")
-		}
+		return source.Validate()
 	default:
 		return fmt.Errorf("kind must be CHOICE or BINDING")
 	}

@@ -337,6 +337,58 @@ func TestGroupFieldChoicePinsStageShapeOwnerAndRoute(t *testing.T) {
 	}
 }
 
+func TestRelatedGroupFieldChoiceKeepsTaggedRouteAndObservedScalarAuthority(t *testing.T) {
+	step := ConstructionRouteStep{
+		EdgeID: "edge-subject", FromNodeID: "patient-node", ToNodeID: "observation-node",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}
+	route := []ConstructionRouteStep{step}
+	candidate := Candidate{
+		ID: "observation-id", NodeID: "observation-node", ResourceType: "Observation", FieldPath: "id",
+		LogicalType: "string", Cardinality: "optional_one", Populated: true, Observed: true,
+		ProjectionModes: []ProjectionMode{ProjectionScalar},
+	}
+	source := GroupFieldChoiceSource{
+		SourceStageID: "source_projection", SourceShapeID: "shape-related", SourceIdentityColumn: "_key",
+		ValueKind: "SCALAR", NodeID: "observation-node", FHIRType: "string", Cardinality: "ONE", Shape: "SCALAR",
+		Input: &GroupFieldChoiceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &GroupFieldRelatedOccurrenceInput{
+			AnchorOccurrenceID: "root", AnchorNodeID: "patient-node", AnchorResourceType: "Patient",
+			Route: []GroupFieldRelatedRouteStep{{
+				StepIndex: 0, FromOccurrenceID: "root", FromNodeID: "patient-node", FromResourceType: "Patient",
+				EdgeID: step.EdgeID, Relationship: step.Relationship, StorageDirection: step.StorageDirection, MatchMode: step.MatchMode,
+				ToOccurrenceID: "related-observation", ToNodeID: "observation-node", ToResourceType: "Observation",
+			}},
+			TargetOccurrenceID: "related-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			ResourceType: "string", CandidateID: candidate.ID, CanonicalPath: "id",
+			EmptyPolicy: "PRESERVE_PARENT", Multiplicity: "DISTINCT_TARGET_PER_INPUT",
+		}},
+	}
+	choice, err := NewGroupFieldConstructionChoice("snapshot-related", route, source, candidate)
+	if err != nil {
+		t.Fatalf("issue related scalar Group choice: %v", err)
+	}
+	identity, err := DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatalf("decode related Group choice: %v", err)
+	}
+	decoded, ok := identity.Source.(GroupFieldChoiceSource)
+	if !ok || decoded.Input == nil || decoded.Input.Kind != "RELATED_OCCURRENCE" || decoded.Input.RelatedOccurrence == nil ||
+		decoded.Input.RelatedOccurrence.Route[0].EdgeID != step.EdgeID || decoded.Input.RelatedOccurrence.TargetOccurrenceID != "related-observation" ||
+		decoded.Input.RelatedOccurrence.ResourceType != "string" || decoded.SourceShapeID != "shape-related" {
+		t.Fatalf("related Group choice lost tagged route authority: %#v", identity.Source)
+	}
+
+	candidate.Populated = false
+	if _, err := NewGroupFieldConstructionChoice("snapshot-related", route, source, candidate); err == nil {
+		t.Fatal("issued a related scalar choice without populated data evidence")
+	}
+	candidate.Populated, candidate.Observed = true, false
+	if _, err := NewGroupFieldConstructionChoice("snapshot-related", route, source, candidate); err == nil {
+		t.Fatal("issued a related scalar choice without observation evidence")
+	}
+}
+
 func TestNewFieldConstructionChoiceRejectsUnsupportedObjectProjection(t *testing.T) {
 	t.Parallel()
 

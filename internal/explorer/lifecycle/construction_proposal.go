@@ -45,7 +45,7 @@ type ConstructionCapabilitiesResponse struct {
 	PivotSourceInput               ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
 	GroupFieldChoices              []ConstructionGroupFieldChoice            `json:"groupFieldChoices"`
 	GroupFieldChoicesIncomplete    bool                                      `json:"groupFieldChoicesIncomplete,omitempty"`
-	GroupRowValueChoices            []ConstructionGroupFieldChoice            `json:"groupRowValueChoices"`
+	GroupRowValueChoices           []ConstructionGroupFieldChoice            `json:"groupRowValueChoices"`
 	SemanticGroupChoices           []ConstructionSemanticGroupChoice         `json:"semanticGroupChoices,omitempty"`
 	SemanticGroupChoicesIncomplete bool                                      `json:"semanticGroupChoicesIncomplete,omitempty"`
 	SourceProjectionAvailability   *ConstructionSourceProjectionAvailability `json:"sourceProjectionAvailability,omitempty"`
@@ -53,24 +53,34 @@ type ConstructionCapabilitiesResponse struct {
 }
 
 type ConstructionGroupFieldChoice struct {
-	Kind              string                                         `json:"kind"`
-	InputColumnID     string                                         `json:"inputColumnId,omitempty"`
-	FieldSource       *authoringv2.ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
-	SemanticCategory  *authoringv2.ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
-	ValueKind         string                                         `json:"valueKind,omitempty"`
-	SourceStageID     string                                         `json:"sourceStageId,omitempty"`
-	SourceShapeID     string                                         `json:"sourceShapeId,omitempty"`
-	CandidateID       string                                         `json:"candidateId,omitempty"`
-	Label             string                                         `json:"label"`
-	ScopeLabel        string                                         `json:"scopeLabel,omitempty"`
-	ValueType         string                                         `json:"valueType,omitempty"`
-	SourceRole        string                                         `json:"sourceRole,omitempty"`
-	OccurrenceID      string                                         `json:"occurrenceId,omitempty"`
-	ResourceType      string                                         `json:"resourceType,omitempty"`
-	OwnerOccurrenceID string                                         `json:"ownerOccurrenceId,omitempty"`
-	OwnerResourceType string                                         `json:"ownerResourceType,omitempty"`
-	CanonicalPath     string                                         `json:"canonicalPath,omitempty"`
-	BoundarySelector  string                                         `json:"boundarySelector,omitempty"`
+	Kind               string                                         `json:"kind"`
+	InputColumnID      string                                         `json:"inputColumnId,omitempty"`
+	FieldSource        *authoringv2.ConstructionGroupFieldSource      `json:"fieldSource,omitempty"`
+	SemanticCategory   *authoringv2.ConstructionGroupSemanticCategory `json:"semanticCategory,omitempty"`
+	ValueKind          string                                         `json:"valueKind,omitempty"`
+	SourceStageID      string                                         `json:"sourceStageId,omitempty"`
+	SourceShapeID      string                                         `json:"sourceShapeId,omitempty"`
+	CandidateID        string                                         `json:"candidateId,omitempty"`
+	Label              string                                         `json:"label"`
+	ScopeLabel         string                                         `json:"scopeLabel,omitempty"`
+	ValueType          string                                         `json:"valueType,omitempty"`
+	SourceRole         string                                         `json:"sourceRole,omitempty"`
+	OccurrenceID       string                                         `json:"occurrenceId,omitempty"`
+	ResourceType       string                                         `json:"resourceType,omitempty"`
+	OwnerOccurrenceID  string                                         `json:"ownerOccurrenceId,omitempty"`
+	OwnerResourceType  string                                         `json:"ownerResourceType,omitempty"`
+	CanonicalPath      string                                         `json:"canonicalPath,omitempty"`
+	BoundarySelector   string                                         `json:"boundarySelector,omitempty"`
+	RelatedOccurrence  *ConstructionGroupRelatedOccurrenceChoice      `json:"relatedOccurrence,omitempty"`
+	MatchedOutputKeyID string                                         `json:"matchedOutputKeyId,omitempty"`
+}
+
+// ConstructionGroupRelatedOccurrenceChoice is display/filter metadata for a
+// server-issued related occurrence CHOICE. RouteID is an opaque equality key
+// for one Group editor and carries no proposal authority.
+type ConstructionGroupRelatedOccurrenceChoice struct {
+	RouteID    string `json:"routeId"`
+	RouteLabel string `json:"routeLabel,omitempty"`
 }
 
 // ConstructionSourceProjectionAvailability indicates whether root scalar
@@ -343,7 +353,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile semantic group choices: %w", err)
 	}
 	groupFieldChoices, groupFieldChoicesIncomplete, err := s.constructionGroupFieldChoices(
-		ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "",
+		ctx, base, request.OutputID, *selected, semanticGroupChoices, semanticGroupChoicesIncomplete, "", request.GroupStepID,
 	)
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile Group field choices: %w", err)

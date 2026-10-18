@@ -22,6 +22,7 @@ func (s *Service) constructionGroupFieldChoices(
 	semanticChoices []ConstructionSemanticGroupChoice,
 	semanticChoicesIncomplete bool,
 	targetGroupStepID string,
+	selectedGroupStepID string,
 ) ([]ConstructionGroupFieldChoice, bool, error) {
 	choices := make([]ConstructionGroupFieldChoice, 0, len(semanticChoices)+16)
 	for _, semantic := range semanticChoices {
@@ -36,7 +37,7 @@ func (s *Service) constructionGroupFieldChoices(
 		return choices, semanticChoicesIncomplete, nil
 	}
 	if stage.ID != context.SourceStageID || stage.RowIdentityColumn != context.SourceIdentityColumn ||
-		context.SourceStageID != recipe.ConstructionSourceProjectionID || context.SourceShapeID == "" {
+		context.SourceStageID == "" || context.SourceShapeID == "" {
 		return nil, false, conflict("construction-capabilities", "INVALID_COMPILATION_RECEIPT", "the selected source stage has inconsistent Group field context", nil, nil)
 	}
 	if (context.SourceExpansion == nil) != (context.SourceIdentityColumn == "_key") ||
@@ -57,8 +58,8 @@ func (s *Service) constructionGroupFieldChoices(
 			return nil, false, conflict("construction-capabilities", "STALE_ROUTE", "the compiled Group root field owner changed", nil, nil)
 		}
 		for _, candidate := range base.snapshot.Candidates {
-			if candidate.NodeID != occurrence.NodeID || candidate.ResourceType != owner.OwnerResourceType || !candidate.Populated ||
-				fhirNonGroupableSourcePath(candidate.FieldPath) {
+			if candidate.NodeID != occurrence.NodeID || candidate.ResourceType != owner.OwnerResourceType || !candidate.Observed || !candidate.Populated ||
+				fhirNonGroupableGroupFieldPath(candidate.FieldPath) {
 				continue
 			}
 			fieldPath, ok := groupFieldPathForOwner(owner, context.SourceExpansion, candidate.FieldPath)
@@ -117,7 +118,16 @@ func (s *Service) constructionGroupFieldChoices(
 		}
 		expansion := context.SourceExpansion
 		owner, route, routeErr := constructionGroupFieldOwnerRoute(base, context, expansion.OwnerOccurrenceID)
+		observedCoding := false
 		if routeErr == nil {
+			for _, candidate := range base.snapshot.Candidates {
+				if observedGroupCodingSelector(candidate, owner.NodeID, expansion.OwnerResourceType, expansion.Selector) {
+					observedCoding = true
+					break
+				}
+			}
+		}
+		if routeErr == nil && observedCoding {
 			for _, rowChoice := range rowChoices {
 				if rowChoice.Kind != capability.RowChoiceExpandedScope || rowChoice.OccurrenceID != expansion.OwnerOccurrenceID ||
 					rowChoice.NodeID != owner.NodeID || rowChoice.ResourceType != expansion.OwnerResourceType ||
@@ -149,11 +159,47 @@ func (s *Service) constructionGroupFieldChoices(
 			}
 		}
 	}
+	relatedChoicesIncomplete := false
+	if targetGroupStepID == "" && context.SourceExpansion == nil {
+		relatedChoicesIncomplete, err = s.appendRelatedGroupFieldChoices(ctx, base, stage, context, index, choicesByID)
+		if err != nil {
+			return nil, false, err
+		}
+	}
 	for _, choice := range choicesByID {
 		choices = append(choices, choice)
 	}
+	markSavedGroupFieldChoices(base, stage.ID, selectedGroupStepID, choices)
 	sortConstructionGroupFieldChoices(choices)
-	return choices, semanticChoicesIncomplete, nil
+	return choices, semanticChoicesIncomplete || relatedChoicesIncomplete, nil
+}
+
+func markSavedGroupFieldChoices(base constructionBase, stageID, groupStepID string, choices []ConstructionGroupFieldChoice) {
+	if groupStepID == "" {
+		return
+	}
+	var selected *authoringv2.ConstructionStep
+	for index := range base.construction.Steps {
+		if base.construction.Steps[index].ID == groupStepID {
+			selected = &base.construction.Steps[index]
+			break
+		}
+	}
+	if selected == nil || selected.Operation.Kind != authoringv2.ConstructionOperationGroup || selected.Operation.Group == nil {
+		return
+	}
+	inputStageID, ok := constructionGroupInputStageID(*selected)
+	if !ok || inputStageID != stageID {
+		return
+	}
+	for choiceIndex := range choices {
+		for _, key := range selected.Operation.Group.Keys {
+			if key.FieldSource != nil && key.FieldSource.Kind == "BINDING" && groupFieldChoiceMatchesBinding(choices[choiceIndex], *key.FieldSource) {
+				choices[choiceIndex].MatchedOutputKeyID = key.OutputColumnID
+				break
+			}
+		}
+	}
 }
 
 func sortConstructionGroupFieldChoices(choices []ConstructionGroupFieldChoice) {
@@ -214,7 +260,7 @@ func (s *Service) constructionGroupRowValueChoices(
 	if !ok || inputStageID != stage.ID {
 		return nil, conflict("construction-capabilities", "STALE_GROUP_STEP_INPUT", "row-value choices must use the exact Group input stage", nil, nil)
 	}
-	choices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, stage, nil, false, groupStepID)
+	choices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, stage, nil, false, groupStepID, "")
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +306,8 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			}
 			continue
 		}
-		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, *stage, nil, false, "")
+		groupRelatedRouteID := ""
+		currentChoices, _, err := s.constructionGroupFieldChoices(ctx, base, outputID, *stage, nil, false, "", "")
 		if err != nil {
 			return candidate, err
 		}
@@ -271,6 +318,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			}
 			prior := groupFieldSourceForOutput(priorByStep[step.ID], key.OutputColumnID)
 			var matching *ConstructionGroupFieldChoice
+			resolveChoiceToBinding := key.FieldSource.Kind == "CHOICE"
 			switch key.FieldSource.Kind {
 			case "CHOICE":
 				if key.FieldSource.ChoiceID == "" {
@@ -301,19 +349,23 @@ func (s *Service) resolveConstructionGroupFieldSources(
 			if matching == nil || matching.FieldSource == nil || matching.FieldSource.Kind != "CHOICE" {
 				return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "reload the Group field choice for this exact stage and source shape", nil, nil)
 			}
+			if err := bindOneGroupRelatedRoute(matching, &groupRelatedRouteID); err != nil {
+				return candidate, err
+			}
 			identity, decodeErr := capability.DecodeConstructionChoiceID(matching.FieldSource.ChoiceID)
 			if decodeErr != nil || identity.SnapshotToken != base.snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceGroupField || identity.SemanticContextToken != "" || identity.BuildID != "" {
 				return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "reload the Group field choice for the current authorized snapshot", nil, decodeErr)
 			}
 			source, sourceOK := identity.Source.(capability.GroupFieldChoiceSource)
-			if !sourceOK || source.TargetGroupStepID != "" || source.SourceStageID != inputStageID || source.SourceShapeID != stage.GroupFieldSourceContext.SourceShapeID ||
-				source.SourceIdentityColumn != stage.GroupFieldSourceContext.SourceIdentityColumn || source.OwnerOccurrenceID != source.OccurrenceID {
+			if !sourceOK || source.TargetGroupStepID != "" || !groupChoiceMatchesInputContext(source, *stage.GroupFieldSourceContext) {
 				return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "the Group field choice no longer matches its exact compiled stage context", nil, nil)
 			}
 			if key.FieldSource.Kind == "BINDING" && !groupFieldChoiceMatchesBinding(*matching, *key.FieldSource) {
 				return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_BINDING", "the saved Group field binding no longer matches the live compiler-resolved occurrence", nil, nil)
 			}
-			key.FieldSource = constructionGroupFieldBinding(source)
+			if resolveChoiceToBinding {
+				key.FieldSource = constructionGroupFieldBinding(source)
+			}
 		}
 		if groupStepHasRowValueFieldSource(*step) {
 			rowChoices, choiceErr := s.constructionGroupRowValueChoices(ctx, base, outputID, *stage, step.ID)
@@ -327,6 +379,7 @@ func (s *Service) resolveConstructionGroupFieldSources(
 				}
 				prior := groupRowValueSourceForOutput(priorRowValuesByStep[step.ID], rowValue.OutputColumnID)
 				var matching *ConstructionGroupFieldChoice
+				resolveChoiceToBinding := rowValue.FieldSource.Kind == "CHOICE"
 				switch rowValue.FieldSource.Kind {
 				case "CHOICE":
 					if rowValue.FieldSource.ChoiceID == "" {
@@ -356,25 +409,54 @@ func (s *Service) resolveConstructionGroupFieldSources(
 				if matching == nil || matching.FieldSource == nil || matching.FieldSource.Kind != "CHOICE" {
 					return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "reload the scalar field choice for this exact Group input stage and source shape", nil, nil)
 				}
+				if err := bindOneGroupRelatedRoute(matching, &groupRelatedRouteID); err != nil {
+					return candidate, err
+				}
 				identity, decodeErr := capability.DecodeConstructionChoiceID(matching.FieldSource.ChoiceID)
 				if decodeErr != nil || identity.SnapshotToken != base.snapshot.Token || identity.Kind != capability.ConstructionChoiceSourceGroupField || identity.SemanticContextToken != "" || identity.BuildID != "" {
 					return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "reload the Group row-value choice for the current authorized snapshot", nil, decodeErr)
 				}
 				source, sourceOK := identity.Source.(capability.GroupFieldChoiceSource)
-				if !sourceOK || source.TargetGroupStepID != step.ID || source.SourceStageID != inputStageID ||
-					source.SourceShapeID != stage.GroupFieldSourceContext.SourceShapeID ||
-					source.SourceIdentityColumn != stage.GroupFieldSourceContext.SourceIdentityColumn ||
+				if !sourceOK || source.TargetGroupStepID != step.ID || !groupChoiceMatchesInputContext(source, *stage.GroupFieldSourceContext) ||
 					source.OwnerOccurrenceID != source.OccurrenceID || source.ValueKind != "SCALAR" {
 					return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "the Group row-value choice no longer matches its exact Group step, input stage, and source shape", nil, nil)
 				}
 				if rowValue.FieldSource.Kind == "BINDING" && !groupFieldChoiceMatchesBinding(*matching, *rowValue.FieldSource) {
 					return candidate, conflict("construction-proposal", "STALE_GROUP_FIELD_BINDING", "the saved Group row-value binding no longer matches the live compiler-resolved occurrence", nil, nil)
 				}
-				rowValue.FieldSource = constructionGroupFieldBinding(source)
+				if resolveChoiceToBinding {
+					rowValue.FieldSource = constructionGroupFieldBinding(source)
+				}
 			}
 		}
 	}
 	return candidate, nil
+}
+
+func bindOneGroupRelatedRoute(choice *ConstructionGroupFieldChoice, routeID *string) error {
+	if choice == nil || choice.RelatedOccurrence == nil {
+		return nil
+	}
+	choiceRouteID := strings.TrimSpace(choice.RelatedOccurrence.RouteID)
+	if choiceRouteID == "" {
+		return conflict("construction-proposal", "STALE_GROUP_FIELD_CHOICE", "the related Group field choice has no exact route identity", nil, nil)
+	}
+	if *routeID != "" && *routeID != choiceRouteID {
+		return unprocessable("construction-proposal", "GROUP_FIELD_ROUTE_MISMATCH", "all related fields in one Group must use the same exact route", nil)
+	}
+	*routeID = choiceRouteID
+	return nil
+}
+
+func groupChoiceMatchesInputContext(source capability.GroupFieldChoiceSource, context explorer.ReceiptConstructionGroupFieldSourceContext) bool {
+	if source.SourceStageID != context.SourceStageID || source.SourceIdentityColumn != context.SourceIdentityColumn ||
+		source.SourceShapeID == "" || source.OwnerOccurrenceID != source.OccurrenceID {
+		return false
+	}
+	if source.Input != nil && source.Input.Kind == "RELATED_OCCURRENCE" {
+		return source.Input.RelatedOccurrence != nil
+	}
+	return source.SourceShapeID == context.SourceShapeID
 }
 
 func constructionStepHasGroupFieldSource(step authoringv2.ConstructionStep) bool {
@@ -446,26 +528,78 @@ func groupFieldSourceForOutput(keys []authoringv2.ConstructionGroupKey, outputID
 }
 
 func groupFieldChoiceMatchesBinding(choice ConstructionGroupFieldChoice, binding authoringv2.ConstructionGroupFieldSource) bool {
-	if choice.Kind != "FIELD_SOURCE" || choice.ValueKind != binding.ValueKind || choice.SourceStageID != binding.SourceStageID ||
-		choice.SourceShapeID != binding.SourceShapeID || choice.SourceRole != binding.SourceRole || choice.OccurrenceID != binding.OccurrenceID ||
-		choice.ResourceType != binding.ResourceType || choice.OwnerOccurrenceID != binding.OwnerOccurrenceID ||
-		choice.OwnerResourceType != binding.OwnerResourceType || choice.CanonicalPath != binding.CanonicalPath ||
-		choice.BoundarySelector != binding.BoundarySelector {
+	if choice.Kind != "FIELD_SOURCE" || choice.FieldSource == nil || choice.FieldSource.Kind != "CHOICE" {
 		return false
 	}
-	if binding.ValueKind == "SCALAR" {
-		return choice.CandidateID == binding.CandidateID
+	identity, err := capability.DecodeConstructionChoiceID(choice.FieldSource.ChoiceID)
+	if err != nil || identity.Kind != capability.ConstructionChoiceSourceGroupField {
+		return false
 	}
-	return binding.ValueKind == "CODING_IDENTITY" && binding.CandidateID == ""
+	source, ok := identity.Source.(capability.GroupFieldChoiceSource)
+	if !ok || source.SourceStageID != binding.SourceStageID || source.SourceShapeID != binding.SourceShapeID || source.ValueKind != binding.ValueKind {
+		return false
+	}
+	resolved := constructionGroupFieldBinding(source)
+	return resolved != nil && sameConstructionGroupFieldBinding(*resolved, binding)
 }
 
 func constructionGroupFieldBinding(source capability.GroupFieldChoiceSource) *authoringv2.ConstructionGroupFieldSource {
+	var input *authoringv2.ConstructionGroupFieldSourceInput
+	if source.Input != nil {
+		switch source.Input.Kind {
+		case "CURRENT_STAGE":
+			if current := source.Input.CurrentStage; current != nil {
+				input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &authoringv2.ConstructionGroupFieldCurrentStage{
+					SourceRole: current.SourceRole, OccurrenceID: current.OccurrenceID,
+					OwnerResourceType: current.OwnerResourceType, ResourceType: current.ResourceType,
+					CandidateID: current.CandidateID, CanonicalPath: current.CanonicalPath,
+					BoundarySelector: current.BoundarySelector,
+				}}
+			}
+		case "RELATED_OCCURRENCE":
+			if related := source.Input.RelatedOccurrence; related != nil {
+				steps := make([]authoringv2.ConstructionGroupFieldRelatedRouteStep, len(related.Route))
+				for index, step := range related.Route {
+					steps[index] = authoringv2.ConstructionGroupFieldRelatedRouteStep{
+						StepIndex: step.StepIndex, FromOccurrenceID: step.FromOccurrenceID, FromNodeID: step.FromNodeID,
+						FromResourceType: step.FromResourceType, EdgeID: step.EdgeID, Relationship: step.Relationship,
+						StorageDirection: step.StorageDirection, MatchMode: step.MatchMode,
+						ToOccurrenceID: step.ToOccurrenceID, ToNodeID: step.ToNodeID, ToResourceType: step.ToResourceType,
+					}
+				}
+				input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &authoringv2.ConstructionGroupFieldRelatedOccurrence{
+					AnchorOccurrenceID: related.AnchorOccurrenceID, AnchorNodeID: related.AnchorNodeID, AnchorResourceType: related.AnchorResourceType,
+					Route: steps, TargetOccurrenceID: related.TargetOccurrenceID, TargetNodeID: related.TargetNodeID,
+					TargetResourceType: related.TargetResourceType, ResourceType: related.ResourceType,
+					CandidateID: related.CandidateID, CanonicalPath: related.CanonicalPath,
+					EmptyPolicy: related.EmptyPolicy, Multiplicity: related.Multiplicity,
+					CodingSelector: related.CodingSelector, CodingEmptyPolicy: related.CodingEmptyPolicy,
+					OrdinalSemantics: related.OrdinalSemantics,
+				}}
+			}
+		}
+	}
+	if input == nil {
+		return nil
+	}
 	return &authoringv2.ConstructionGroupFieldSource{
 		Kind: "BINDING", ValueKind: source.ValueKind, SourceStageID: source.SourceStageID,
-		SourceShapeID: source.SourceShapeID, SourceRole: source.SourceRole, OccurrenceID: source.OccurrenceID,
-		ResourceType: source.ResourceType, OwnerOccurrenceID: source.OwnerOccurrenceID,
-		OwnerResourceType: source.OwnerResourceType, CandidateID: source.CandidateID,
-		CanonicalPath: source.CanonicalPath, BoundarySelector: source.BoundarySelector,
+		SourceShapeID: source.SourceShapeID, Input: input,
+	}
+}
+
+func sameConstructionGroupFieldBinding(left, right authoringv2.ConstructionGroupFieldSource) bool {
+	if left.Kind != right.Kind || left.ValueKind != right.ValueKind || left.SourceStageID != right.SourceStageID ||
+		left.SourceShapeID != right.SourceShapeID || left.Input == nil || right.Input == nil || left.Input.Kind != right.Input.Kind {
+		return false
+	}
+	switch left.Input.Kind {
+	case "CURRENT_STAGE":
+		return reflect.DeepEqual(left.Input.CurrentStage, right.Input.CurrentStage)
+	case "RELATED_OCCURRENCE":
+		return reflect.DeepEqual(left.Input.RelatedOccurrence, right.Input.RelatedOccurrence)
+	default:
+		return false
 	}
 }
 
@@ -587,6 +721,80 @@ func groupConsumedFieldBoundaries(
 	default:
 		return nil, false
 	}
+}
+
+type constructionGroupRelatedAnchor struct {
+	occurrenceID string
+	nodeID       string
+	resourceType string
+	rootRoute    []capability.ConstructionRouteStep
+}
+
+func constructionGroupRelatedAnchorForStage(
+	base constructionBase,
+	context *explorer.ReceiptConstructionGroupFieldSourceContext,
+) (constructionGroupRelatedAnchor, error) {
+	if context == nil {
+		return constructionGroupRelatedAnchor{}, fmt.Errorf("Group source context is unavailable")
+	}
+	if expansion := context.SourceExpansion; expansion != nil {
+		occurrence, route, err := constructionGroupFieldOwnerRoute(base, context, expansion.OwnerOccurrenceID)
+		if err != nil {
+			return constructionGroupRelatedAnchor{}, fmt.Errorf("expanded Group anchor no longer matches its exact owner occurrence: %w", err)
+		}
+		if occurrence.ResourceType != expansion.OwnerResourceType {
+			return constructionGroupRelatedAnchor{}, fmt.Errorf("expanded Group anchor resource type changed")
+		}
+		return constructionGroupRelatedAnchor{
+			occurrenceID: expansion.OwnerOccurrenceID, nodeID: occurrence.NodeID,
+			resourceType: expansion.OwnerResourceType, rootRoute: route,
+		}, nil
+	}
+	rootOccurrence := base.document.Route.OccurrenceID
+	if rootOccurrence == "" || base.document.Route.ResourceType != base.document.RootResourceType {
+		return constructionGroupRelatedAnchor{}, fmt.Errorf("document has no exact compiler-rooted source occurrence")
+	}
+	occurrence, err := resolveRowChoiceOccurrence(base.snapshot, base.document.RootResourceType, base.document.Route, rootOccurrence, "")
+	if err != nil {
+		return constructionGroupRelatedAnchor{}, fmt.Errorf("source root occurrence no longer resolves to one authorized row root: %w", err)
+	}
+	if len(occurrence.Route) != 0 {
+		return constructionGroupRelatedAnchor{}, fmt.Errorf("source root occurrence unexpectedly carries a route")
+	}
+	return constructionGroupRelatedAnchor{
+		occurrenceID: rootOccurrence, nodeID: occurrence.NodeID,
+		resourceType: base.document.RootResourceType, rootRoute: occurrence.Route,
+	}, nil
+}
+
+func populatedGroupScalarCandidate(candidate capability.Candidate, index *fhirschema.Index) (fhirschema.RowPathFacts, bool) {
+	if index == nil || !candidate.Observed || !candidate.Populated || candidate.NodeID == "" || candidate.ResourceType == "" ||
+		candidate.FieldPath == "" || fhirNonGroupableGroupFieldPath(candidate.FieldPath) || !capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
+		return fhirschema.RowPathFacts{}, false
+	}
+	facts, err := index.ResolveRowPath(fhirschema.DefinitionName(candidate.ResourceType), candidate.FieldPath)
+	if err != nil || facts.CanonicalPath != candidate.FieldPath || facts.Shape != fhirschema.RowPathScalar ||
+		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
+		return fhirschema.RowPathFacts{}, false
+	}
+	return facts, true
+}
+
+func observedGroupCodingSelector(candidate capability.Candidate, nodeID, resourceType, selector string) bool {
+	if !candidate.Observed || !candidate.Populated || candidate.NodeID != nodeID || candidate.ResourceType != resourceType ||
+		canonicalRowPath(selector) == "" || canonicalRowPath(selector) != selector {
+		return false
+	}
+	fieldPath := canonicalRowPath(candidate.FieldPath)
+	for _, boundary := range candidate.RepeatedBoundaries {
+		if canonicalRowPath(boundary.Path) != selector {
+			continue
+		}
+		if fieldPath == selector || strings.HasPrefix(fieldPath, selector+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func stripGroupFieldPathPrefix(path, prefix string) (string, bool) {

@@ -667,15 +667,65 @@ func recipeConstructionGroupFieldSource(
 	if field == nil {
 		return nil, nil
 	}
-	if field.Kind != "BINDING" || field.OwnerOccurrenceID != field.OccurrenceID {
-		return nil, fmt.Errorf("Group fieldSource must be a resolved BINDING for its exact owner occurrence")
+	if err := field.Validate(); err != nil {
+		return nil, fmt.Errorf("Group fieldSource must be a resolved BINDING: %w", err)
+	}
+	input := field.Input
+	if input == nil {
+		// Flat saved bindings are accepted at the authoring boundary and
+		// normalized to the compiler's explicit input sum.
+		input = &authoringv2.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &authoringv2.ConstructionGroupFieldCurrentStage{
+			SourceRole: field.SourceRole, OccurrenceID: field.OccurrenceID,
+			OwnerResourceType: field.OwnerResourceType, ResourceType: field.ResourceType,
+			CandidateID: field.CandidateID, CanonicalPath: field.CanonicalPath,
+			BoundarySelector: field.BoundarySelector,
+		}}
+	}
+	var mappedInput *recipe.ConstructionGroupFieldSourceInput
+	switch input.Kind {
+	case "CURRENT_STAGE":
+		if input.CurrentStage == nil || input.RelatedOccurrence != nil {
+			return nil, fmt.Errorf("CURRENT_STAGE Group fieldSource requires one currentStage payload")
+		}
+		current := input.CurrentStage
+		mappedInput = &recipe.ConstructionGroupFieldSourceInput{Kind: "CURRENT_STAGE", CurrentStage: &recipe.ConstructionGroupCurrentStageFieldSource{
+			SourceRole: current.SourceRole, OccurrenceID: current.OccurrenceID,
+			OwnerResourceType: current.OwnerResourceType, ResourceType: current.ResourceType,
+			CandidateID: current.CandidateID, CanonicalPath: current.CanonicalPath,
+			BoundarySelector: current.BoundarySelector,
+		}}
+	case "RELATED_OCCURRENCE":
+		if input.RelatedOccurrence == nil || input.CurrentStage != nil {
+			return nil, fmt.Errorf("RELATED_OCCURRENCE Group fieldSource requires one relatedOccurrence payload")
+		}
+		related := input.RelatedOccurrence
+		steps := make([]recipe.ConstructionGroupRelatedRouteStep, len(related.Route))
+		for index, step := range related.Route {
+			steps[index] = recipe.ConstructionGroupRelatedRouteStep{
+				StepIndex: step.StepIndex, FromOccurrenceID: step.FromOccurrenceID,
+				FromNodeID: step.FromNodeID, FromResourceType: step.FromResourceType,
+				EdgeID: step.EdgeID, Relationship: step.Relationship,
+				StorageDirection: step.StorageDirection, MatchMode: step.MatchMode,
+				ToOccurrenceID: step.ToOccurrenceID, ToNodeID: step.ToNodeID,
+				ToResourceType: step.ToResourceType,
+			}
+		}
+		mappedInput = &recipe.ConstructionGroupFieldSourceInput{Kind: "RELATED_OCCURRENCE", RelatedOccurrence: &recipe.ConstructionGroupRelatedOccurrenceFieldSource{
+			AnchorOccurrenceID: related.AnchorOccurrenceID, AnchorNodeID: related.AnchorNodeID,
+			AnchorResourceType: related.AnchorResourceType, Route: steps,
+			TargetOccurrenceID: related.TargetOccurrenceID, TargetNodeID: related.TargetNodeID,
+			TargetResourceType: related.TargetResourceType, ResourceType: related.ResourceType,
+			CandidateID: related.CandidateID, CanonicalPath: related.CanonicalPath,
+			EmptyPolicy: recipe.ExpansionEmptyPolicy(related.EmptyPolicy), Multiplicity: related.Multiplicity,
+			CodingSelector: related.CodingSelector, CodingEmptyPolicy: recipe.ConstructionGroupCodingEmptyPolicy(related.CodingEmptyPolicy),
+			OrdinalSemantics: related.OrdinalSemantics,
+		}}
+	default:
+		return nil, fmt.Errorf("unsupported Group fieldSource input kind %q", input.Kind)
 	}
 	return &recipe.ConstructionGroupFieldSource{
 		Kind: field.Kind, ValueKind: field.ValueKind, SourceStageID: field.SourceStageID,
-		SourceShapeID: field.SourceShapeID, SourceRole: field.SourceRole,
-		OccurrenceID: field.OccurrenceID, OwnerResourceType: field.OwnerResourceType,
-		ResourceType: field.ResourceType, CandidateID: field.CandidateID,
-		CanonicalPath: field.CanonicalPath, BoundarySelector: field.BoundarySelector,
+		SourceShapeID: field.SourceShapeID, Input: mappedInput,
 	}, nil
 }
 
