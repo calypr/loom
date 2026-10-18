@@ -4473,7 +4473,7 @@ components:
         sourceStageId: {type: string, minLength: 1}
         sourceShapeId: {type: string, minLength: 1}
         candidateId: {type: string, minLength: 1}
-        sourceRole: {type: string, enum: [ROOT, OWNER, ANCESTOR, CURRENT_ITEM]}
+        sourceRole: {type: string, enum: [ROOT, OWNER, ANCESTOR, CURRENT_ITEM, RELATED_OCCURRENCE]}
         occurrenceId: {type: string, minLength: 1}
         resourceType: {type: string, minLength: 1}
         ownerOccurrenceId: {type: string, minLength: 1}
@@ -4495,7 +4495,7 @@ components:
         valueType: {type: string}
         sourceStageId: {type: string, minLength: 1}
         sourceShapeId: {type: string, minLength: 1}
-        sourceRole: {type: string, enum: [CURRENT_ITEM]}
+        sourceRole: {type: string, enum: [CURRENT_ITEM, RELATED_OCCURRENCE]}
         occurrenceId: {type: string, minLength: 1}
         resourceType: {type: string, minLength: 1}
         ownerOccurrenceId: {type: string, minLength: 1}
