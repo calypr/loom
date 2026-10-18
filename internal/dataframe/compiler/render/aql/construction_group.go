@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 type constructionGroupInput struct {
@@ -16,6 +17,11 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	group := stage.Group
 	if group == nil {
 		return nil, fmt.Errorf("group stage is missing payload")
+	}
+	if group.RelatedOccurrence != nil {
+		if err := validateConstructionGroupRelatedOccurrenceRendererShape(group.RelatedOccurrence); err != nil {
+			return nil, err
+		}
 	}
 	countRowsOnly := len(group.Aggregates) != 0
 	for _, aggregate := range group.Aggregates {
@@ -42,7 +48,7 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	rowSource := input.RowsVariable
 	inputRowVariable := stage.InputRowVariable
 	var projectedRowsVariable string
-	if !countRowsOnly && !aggregateRowValues {
+	if !countRowsOnly && !aggregateRowValues && group.RelatedOccurrence == nil {
 		projected, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.InputProjections})
 		if err != nil {
 			return nil, fmt.Errorf("input projection: %w", err)
@@ -61,6 +67,10 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			}
 		}
 	}
+	if group.RelatedOccurrence != nil && !countRowsOnly && !aggregateRowValues && input.RowsVariable != "" &&
+		!input.SourceRowInScope && len(group.Keys) == 0 && group.SemanticKey == nil && group.CodingKey == nil {
+		rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", input.RowsVariable, input.RowsVariable)
+	}
 	if aggregateRowValues && len(group.Keys) == 0 && input.RowsVariable != "" {
 		rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", input.RowsVariable, input.RowsVariable)
 	}
@@ -68,6 +78,17 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
 	} else if !input.SourceRowInScope && (!countRowsOnly || len(group.Keys) != 0 || group.SemanticKey != nil || group.CodingKey != nil) {
 		return nil, fmt.Errorf("only keyless COUNT_ROWS groups can consume the current source scope")
+	}
+	if group.RelatedOccurrence != nil {
+		mergedLines, mergedInput, err := r.renderConstructionGroupRelatedOccurrenceInput(
+			stage, inputRowVariable, group.RelatedOccurrence,
+			!countRowsOnly && !aggregateRowValues,
+		)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, mergedLines...)
+		inputRowVariable = mergedInput
 	}
 	semanticMembershipVariable := ""
 	if group.SemanticKey != nil {
@@ -319,6 +340,248 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		"  RETURN "+stage.OutputRowVariable,
 	)
 	return lines, nil
+}
+
+func validateConstructionGroupRelatedOccurrenceRendererShape(adapter *ir.PhysicalStageGroupRelatedOccurrenceAdapter) error {
+	if adapter.RouteID == "" || adapter.RelatedRecords.RouteID != adapter.RouteID ||
+		adapter.RelatedRecords.ItemVariable == "" || adapter.RelatedRecords.IndexVariable == "" ||
+		adapter.RelatedRecords.IdentityVariable == "" || adapter.RelatedRecords.RelatedRecordsVariable == "" ||
+		adapter.RelatedRecords.ConstructionIDBindKey == "" || adapter.RelatedRecords.ParentIdentityColumn == "" ||
+		adapter.RouteHasItemVariable == "" || adapter.OccurrenceKeyColumn == "" {
+		return fmt.Errorf("related Group adapter is missing its exact route or occurrence identity")
+	}
+	if len(adapter.RelatedRecords.Route) == 0 || adapter.RelatedRecords.RelatedRecords.Return.Kind != ir.PhysicalObjectExpression ||
+		adapter.RelatedRecords.RelatedRecords.Return.Object == nil {
+		return fmt.Errorf("related Group adapter has no typed target projection")
+	}
+	seenInputs := make(map[string]struct{}, len(adapter.ScalarProjections))
+	seenFields := make(map[string]struct{}, len(adapter.ScalarProjections))
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || projection.ResultField == "" || projection.OwnerResourceType == "" ||
+			projection.ValueResourceType == "" || projection.CandidateID == "" || projection.CanonicalPath == "" {
+			return fmt.Errorf("related Group adapter has an incomplete scalar projection")
+		}
+		if _, exists := seenInputs[projection.InputColumn]; exists {
+			return fmt.Errorf("related Group adapter repeats scalar input column %q", projection.InputColumn)
+		}
+		if _, exists := seenFields[projection.ResultField]; exists {
+			return fmt.Errorf("related Group adapter repeats target result field %q", projection.ResultField)
+		}
+		seenInputs[projection.InputColumn] = struct{}{}
+		seenFields[projection.ResultField] = struct{}{}
+	}
+	if adapter.CodingSelector == "" {
+		if adapter.CodingUnnest != nil || adapter.CodingArrayColumn != "" || adapter.CodingMembershipColumn != "" || adapter.OrdinalSemantics != "" {
+			return fmt.Errorf("related Group adapter has Coding details without a Coding selector")
+		}
+		return nil
+	}
+	if adapter.CodingUnnest == nil || adapter.CodingArrayColumn == "" || adapter.CodingMembershipColumn == "" ||
+		adapter.OrdinalSemantics == "" || adapter.CodingUnnest.OutputVariable == "" ||
+		adapter.CodingUnnest.HasItemVariable == "" || adapter.CodingUnnest.Ordinality == "" ||
+		adapter.OrdinalSemantics != "ZERO_BASED_POSITION" || len(adapter.CodingUnnest.Ancestors) != 0 ||
+		adapter.CodingUnnest.Expression.Kind != ir.PhysicalValueExpression || adapter.CodingUnnest.Expression.Value == nil ||
+		adapter.CodingUnnest.Expression.Value.Variable != adapter.RelatedRecords.ItemVariable ||
+		len(adapter.CodingUnnest.Expression.Value.Path) != 1 || adapter.CodingUnnest.Expression.Value.Path[0] != adapter.CodingArrayColumn {
+		return fmt.Errorf("related Group adapter has an incomplete exact Coding expansion")
+	}
+	if adapter.CodingEmptyPolicy != ir.PhysicalUnnestPreserveParent &&
+		adapter.CodingEmptyPolicy != ir.PhysicalUnnestExclude && adapter.CodingEmptyPolicy != ir.PhysicalUnnestError {
+		return fmt.Errorf("related Group adapter has unsupported Coding empty policy %q", adapter.CodingEmptyPolicy)
+	}
+	if adapter.CodingUnnest.EmptyPolicy != adapter.CodingEmptyPolicy {
+		return fmt.Errorf("related Group Coding expansion policy does not match its typed unnest")
+	}
+	return nil
+}
+
+func (r *physicalPlanRenderer) renderConstructionGroupRelatedOccurrenceInput(
+	stage ir.PhysicalConstructionStage,
+	parentRow string,
+	adapter *ir.PhysicalStageGroupRelatedOccurrenceAdapter,
+	projectBaseRow bool,
+) ([]string, string, error) {
+	if parentRow == "" {
+		return nil, "", fmt.Errorf("related Group adapter has no in-scope parent row")
+	}
+	lines := make([]string, 0, len(adapter.ScalarProjections)+16)
+	baseRow := parentRow
+	if projectBaseRow {
+		relatedColumns := make(map[string]struct{}, len(adapter.ScalarProjections)+2)
+		for _, projection := range adapter.ScalarProjections {
+			relatedColumns[projection.InputColumn] = struct{}{}
+		}
+		if adapter.CodingMembershipColumn != "" {
+			relatedColumns[adapter.CodingMembershipColumn] = struct{}{}
+		}
+		relatedColumns[adapter.OccurrenceKeyColumn] = struct{}{}
+		baseProjections := make([]ir.PhysicalProjection, 0, len(stage.InputProjections))
+		for _, projection := range stage.InputProjections {
+			if _, related := relatedColumns[projection.Name]; related {
+				continue
+			}
+			baseProjections = append(baseProjections, projection)
+		}
+		projected, err := r.renderReturn(ir.PhysicalReturn{Projections: baseProjections})
+		if err != nil {
+			return nil, "", fmt.Errorf("related Group base input projection: %w", err)
+		}
+		baseRow = r.newInternalVariable("construction_group_related_base_row")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s", baseRow, projected))
+	}
+
+	related := adapter.RelatedRecords
+	targetField := "__loom_related_target"
+	indexField := "__loom_related_index"
+	routeResult := r.newInternalVariable("construction_group_related_route_result")
+	routeRow := r.newInternalVariable("construction_group_related_route_row")
+	relatedStage := ir.PhysicalConstructionStage{
+		ID:                stage.ID + "_related_input",
+		InputRowVariable:  parentRow,
+		OutputRowVariable: routeRow,
+		OutputProjections: []ir.PhysicalProjection{
+			{Name: targetField, Value: ir.PhysicalValue{Variable: related.ItemVariable}},
+			{Name: indexField, Value: ir.PhysicalValue{Variable: related.IndexVariable}},
+		},
+		RelatedExpand: &related,
+	}
+	routeLines, err := r.renderConstructionRelatedExpandStage(relatedStage, "")
+	if err != nil {
+		return nil, "", fmt.Errorf("render related Group route: %w", err)
+	}
+	lines = append(lines, fmt.Sprintf("  FOR %s IN (", routeResult))
+	lines = append(lines, appendIndented(nil, routeLines)...)
+	lines = append(lines, "  )")
+	targetVariable := r.newInternalVariable("construction_group_related_target")
+	indexVariable := r.newInternalVariable("construction_group_related_index")
+	lines = append(lines,
+		fmt.Sprintf("  LET %s = %s[@%s]", targetVariable, routeResult, r.newInternalBindKeyWithValue("construction_group_related_target_field", targetField)),
+		fmt.Sprintf("  LET %s = %s[@%s]", indexVariable, routeResult, r.newInternalBindKeyWithValue("construction_group_related_index_field", indexField)),
+		fmt.Sprintf("  LET %s = %s != null", adapter.RouteHasItemVariable, indexVariable),
+	)
+
+	itemPresent := ""
+	ordinalVariable := ""
+	terminalVariable := r.newInternalVariable("construction_group_related_terminal_id")
+	lines = append(lines, fmt.Sprintf("  LET %s = (%s ? %s.terminal_id : null)", terminalVariable, adapter.RouteHasItemVariable, targetVariable))
+	if adapter.CodingUnnest != nil {
+		coding := *adapter.CodingUnnest
+		occurrenceID := adapter.RelatedRecords.TargetResourceType
+		if len(adapter.RelatedRecords.Route) != 0 {
+			occurrenceID = adapter.RelatedRecords.Route[len(adapter.RelatedRecords.Route)-1].ToOccurrenceID
+		}
+		coding.Owner = ir.PhysicalUnnestOwner{
+			OccurrenceID:  occurrenceID,
+			ResourceType:  adapter.RelatedRecords.TargetResourceType,
+			RootVariable:  targetVariable,
+			OwnerVariable: targetVariable,
+		}
+		coding.Expression = ir.PhysicalExpression{
+			Kind:         ir.PhysicalValueExpression,
+			Cardinality:  ir.PhysicalArrayCardinality,
+			NullBehavior: ir.PhysicalEmptyOnNull,
+			Value:        &ir.PhysicalValue{Variable: targetVariable, Path: []string{adapter.CodingArrayColumn}},
+		}
+		// Preserve one sentinel for both a missing route and an empty Coding
+		// array, then apply the Coding policy only when a target matched.
+		coding.EmptyPolicy = ir.PhysicalUnnestPreserveParent
+		codingLines, unnestErr := r.renderUnnest(coding, "  ", 0, 0)
+		if unnestErr != nil {
+			return nil, "", fmt.Errorf("render related Group Coding expansion: %w", unnestErr)
+		}
+		lines = append(lines, codingLines...)
+		itemPresent = r.newInternalVariable("construction_group_related_coding_present")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s AND %s", itemPresent, adapter.RouteHasItemVariable, coding.HasItemVariable))
+		ordinalVariable = r.newInternalVariable("construction_group_related_coding_ordinal")
+		lines = append(lines, fmt.Sprintf("  LET %s = (%s ? %s : null)", ordinalVariable, itemPresent, coding.Ordinality))
+		switch adapter.CodingEmptyPolicy {
+		case ir.PhysicalUnnestPreserveParent:
+		case ir.PhysicalUnnestExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER !%s OR %s", adapter.RouteHasItemVariable, coding.HasItemVariable))
+		case ir.PhysicalUnnestError:
+			errorBind := r.newInternalBindKeyWithValue("construction_group_related_coding_occurrence", coding.Owner.OccurrenceID)
+			message := fmt.Sprintf("CONCAT(\"%s: row expansion occurrence \", @%s, \" has no items for owner \", %s)", dataframeerrors.CodeConstructionExpansionEmpty, errorBind, terminalVariable)
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(!%s OR %s, %s)", adapter.RouteHasItemVariable, coding.HasItemVariable, message))
+		default:
+			return nil, "", fmt.Errorf("unsupported related Group Coding empty policy %q", adapter.CodingEmptyPolicy)
+		}
+	}
+
+	valueExpression := func(variable string, path ...string) ir.PhysicalExpression {
+		value := ir.PhysicalValue{Variable: variable, Path: path}
+		return ir.PhysicalExpression{
+			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull, Value: &value,
+		}
+	}
+	objectExpression := func(fields ...ir.PhysicalExpressionProjection) *ir.PhysicalExpression {
+		return &ir.PhysicalExpression{
+			Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality,
+			NullBehavior: ir.PhysicalPreserveNull, Object: &ir.PhysicalObject{Fields: fields},
+		}
+	}
+	projections := make([]ir.PhysicalProjection, 0, len(adapter.ScalarProjections)+3)
+	for _, projection := range adapter.ScalarProjections {
+		projections = append(projections, ir.PhysicalProjection{
+			Name:  projection.InputColumn,
+			Value: ir.PhysicalValue{Variable: targetVariable, Path: []string{projection.ResultField}},
+		})
+	}
+	if adapter.CodingUnnest != nil {
+		coding := adapter.CodingUnnest
+		projections = append(projections, ir.PhysicalProjection{
+			Name: adapter.CodingMembershipColumn,
+			Expression: objectExpression(
+				ir.PhysicalExpressionProjection{Name: "system", Expression: valueExpression(coding.OutputVariable, "system")},
+				ir.PhysicalExpressionProjection{Name: "version", Expression: valueExpression(coding.OutputVariable, "version")},
+				ir.PhysicalExpressionProjection{Name: "code", Expression: valueExpression(coding.OutputVariable, "code")},
+				ir.PhysicalExpressionProjection{Name: "display", Expression: valueExpression(coding.OutputVariable, "display")},
+			),
+		})
+	}
+	rootID := valueExpression(parentRow, "_key")
+	terminalID := valueExpression(terminalVariable)
+	var ifItemPresent, ordinalValue ir.PhysicalExpression
+	if adapter.CodingUnnest == nil {
+		ifItemPresent = r.groupRelatedOccurrenceLiteral(false, "construction_group_related_occurrence_item_present")
+		ordinalValue = r.groupRelatedOccurrenceLiteral(nil, "construction_group_related_occurrence_ordinal")
+	} else {
+		ifItemPresent = r.groupRelatedOccurrenceValue(itemPresent)
+		ordinalValue = r.groupRelatedOccurrenceValue(ordinalVariable)
+	}
+	projections = append(projections, ir.PhysicalProjection{
+		Name: adapter.OccurrenceKeyColumn,
+		Expression: objectExpression(
+			ir.PhysicalExpressionProjection{Name: "root_id", Expression: rootID},
+			ir.PhysicalExpressionProjection{Name: "terminal_id", Expression: terminalID},
+			ir.PhysicalExpressionProjection{Name: "item_present", Expression: ifItemPresent},
+			ir.PhysicalExpressionProjection{Name: "ordinal", Expression: ordinalValue},
+		),
+	})
+	relatedProjection, err := r.renderReturn(ir.PhysicalReturn{Projections: projections})
+	if err != nil {
+		return nil, "", fmt.Errorf("render related Group occurrence projection: %w", err)
+	}
+	merged := r.newInternalVariable("construction_group_related_input")
+	lines = append(lines, fmt.Sprintf("  LET %s = (%s == null ? null : MERGE(%s, %s))", merged, parentRow, baseRow, relatedProjection))
+	return lines, merged, nil
+}
+
+func (r *physicalPlanRenderer) groupRelatedOccurrenceLiteral(value any, base string) ir.PhysicalExpression {
+	bind := r.newInternalBindKey(base)
+	r.bindVars[bind] = value
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: bind},
+	}
+}
+
+func (r *physicalPlanRenderer) groupRelatedOccurrenceValue(value string) ir.PhysicalExpression {
+	physicalValue := ir.PhysicalValue{Variable: value}
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Value: &physicalValue,
+	}
 }
 
 func codingIdentityMembershipTypeAssertions(membership string) []string {
