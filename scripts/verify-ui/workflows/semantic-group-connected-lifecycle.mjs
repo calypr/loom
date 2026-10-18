@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';
+import { captureBuilderScreenshot } from './verify-cda-builder-related-source-chooser.mjs';
 
 const ACTION_BUDGET_MS = 5_000;
 const ROOT_DISCOVERY_LIMIT = 300;
@@ -578,6 +579,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
     'Connected Group keys must be selected before public columns.');
   const initialExpected = expectedGrid(candidateStep, oracle, { patientID: patientIDChoice, coding: specimenCodingChoice });
   await assertGrid(page, 'proposal', initialExpected, 'connected Group Preview');
+  await captureBuilderScreenshot({ page, cda, report, name: 'connected-group-picker.png' });
   const groupApplyStarted = Date.now();
   await page.getByTestId('construction-apply-proposal').click({ timeout: ACTION_BUDGET_MS });
   await page.getByTestId('construction-proposal-panel').waitFor({ state: 'hidden', timeout: ACTION_BUDGET_MS });
@@ -773,6 +775,7 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
       groupedRows: finalActual.rows.length,
       oracleDigest: oracleEvidence.digest,
     });
+  await captureBuilderScreenshot({ page, cda, report, name: 'connected-group-applied.png' });
 
   const beforeGroupReload = structuredClone(builder);
   await page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_BUDGET_MS });
