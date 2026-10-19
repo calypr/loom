@@ -665,16 +665,21 @@ const assertProposalPanel = async (pivot, label) => {
 
 const openPivotEditor = async () => {
   if (isFixture) await page.setViewportSize({ width: 1440, height: 1000 });
-  await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
-  assert(!document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'),
+  const startState = await inspectPage(page, () => ({
+    pivotEditorOpen: Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]')),
+    proposalOpen: Boolean(document.querySelector('[data-testid="construction-proposal-panel"]')),
+    settingsOpen: Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]')),
+  }));
+  assert(!startState.pivotEditorOpen,
     'Opening a new Pivot preview must not reuse a stale editor from a canceled proposal');
-  assert(!document.querySelector('[data-testid="construction-proposal-panel"]'),
+  assert(!startState.proposalOpen,
     'Opening a new Pivot preview requires the canceled proposal panel to be closed');
-  if (!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')) {
+  if (!startState.settingsOpen) {
     await clickNative(page, '[data-testid="construction-rows-settings-trigger"]');
   }
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-row-intent-reshape"]')?.disabled===false));
-  if (document.querySelector('[data-testid="construction-row-intent-reshape"]')?.getAttribute('aria-pressed') !== 'true') {
+  const reshapeIntent = page.locator('[data-testid="construction-row-intent-reshape"]');
+  if (await reshapeIntent.getAttribute('aria-pressed') !== 'true') {
     await clickNative(page, '[data-testid="construction-row-intent-reshape"]');
   }
   await waitForObservable(page, () => Boolean(document.querySelector('[aria-label="Reshape table options"]')

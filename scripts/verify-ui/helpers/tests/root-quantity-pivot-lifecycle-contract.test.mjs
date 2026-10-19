@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
 import { rootQuantityPivotLifecycleEvidence } from '../../workflows/root-quantity-pivot-workflow.mjs';
 
 const stringDIdentity = JSON.stringify({ kind: 'STRING', string: 'd' });
@@ -64,4 +66,38 @@ test('full-population Pivot evidence rejects request drift and a collapsed MISSI
   collapsedOracle.categoryIdentities = [stringDIdentity];
   collapsedOracle.categories = collapsedOracle.categories.filter(category => category.present);
   assert.throws(() => rootQuantityPivotLifecycleEvidence(lifecycleRequests(), collapsedOracle), /MISSING category/);
+});
+
+test('reopening a Pivot after Cancel reads browser state through the page snapshot boundary', async () => {
+  const source = await readFile(new URL('../../workflows/root-quantity-pivot-workflow.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('const openPivotEditor = async () => {');
+  const end = source.indexOf('\n};', start);
+  assert(start >= 0 && end > start, 'Workflow must retain the focused Pivot reopening helper');
+  const helper = source.slice(start, end + 3);
+
+  const runHelper = async ({ settingsOpen, reshapePressed }) => {
+    const clicks = [];
+    const openPivotEditor = runInNewContext(`${helper}\nopenPivotEditor`, {
+      assert,
+      isFixture: false,
+      page: { locator: () => ({ getAttribute: async () => reshapePressed ? 'true' : 'false' }) },
+      inspectPage: async (_page, inspect) => {
+        assert.equal(typeof inspect, 'function', 'DOM inspection must be passed across the Playwright page boundary');
+        return { pivotEditorOpen: false, proposalOpen: false, settingsOpen };
+      },
+      waitForObservable: async () => {},
+      clickNative: async (_page, selector) => clicks.push(selector),
+    });
+    await openPivotEditor();
+    return clicks;
+  };
+
+  assert.deepEqual(await runHelper({ settingsOpen: true, reshapePressed: true }), [
+    '[data-testid="construction-action-table-pivot-rows"]',
+  ]);
+  assert.deepEqual(await runHelper({ settingsOpen: false, reshapePressed: false }), [
+    '[data-testid="construction-rows-settings-trigger"]',
+    '[data-testid="construction-row-intent-reshape"]',
+    '[data-testid="construction-action-table-pivot-rows"]',
+  ]);
 });
