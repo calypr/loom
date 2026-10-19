@@ -118,11 +118,12 @@ test('preview collection returns through Back to table only while row settings c
     };
     const closeSettings = runInNewContext(`${helper}\nreturnToTableBeforePreview`, {
       assert,
+      actionRenderBudgetMs: 100,
       page: { getByRole: () => dialog },
       action: async (_label, target, perform) => perform(target),
       waitForBrowser: async (_page, predicate) => assert.match(predicate, /Row definition settings/),
     });
-    return { closed: await closeSettings(100), clicks };
+    return { closed: await closeSettings(), clicks };
   };
 
   const closed = await runHelper(1);

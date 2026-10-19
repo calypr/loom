@@ -655,7 +655,7 @@ const assertRendered = async (columns, rows, label, timeoutMs = actionRenderBudg
   return actual;
 };
 
-const returnToTableBeforePreview = async (timeoutMs = actionBudgetMs) => {
+const returnToTableBeforePreview = async (timeoutMs = actionRenderBudgetMs) => {
   const rowSettings = page.getByRole('dialog', { name: 'Row definition settings' });
   const count = await rowSettings.count();
   assert(count <= 1, 'At most one row settings dialog may cover the table preview');
