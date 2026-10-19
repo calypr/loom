@@ -665,9 +665,18 @@ const assertProposalPanel = async (pivot, label) => {
 
 const openPivotEditor = async () => {
   if (isFixture) await page.setViewportSize({ width: 1440, height: 1000 });
-  await clickNative(page, '[data-testid="construction-rows-settings-trigger"]');
+  await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false));
+  assert(!document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'),
+    'Opening a new Pivot preview must not reuse a stale editor from a canceled proposal');
+  assert(!document.querySelector('[data-testid="construction-proposal-panel"]'),
+    'Opening a new Pivot preview requires the canceled proposal panel to be closed');
+  if (!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')) {
+    await clickNative(page, '[data-testid="construction-rows-settings-trigger"]');
+  }
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-row-intent-reshape"]')?.disabled===false));
-  await clickNative(page, '[data-testid="construction-row-intent-reshape"]');
+  if (document.querySelector('[data-testid="construction-row-intent-reshape"]')?.getAttribute('aria-pressed') !== 'true') {
+    await clickNative(page, '[data-testid="construction-row-intent-reshape"]');
+  }
   await waitForObservable(page, () => Boolean(document.querySelector('[aria-label="Reshape table options"]')
     ?.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
   await clickNative(page, '[data-testid="construction-action-table-pivot-rows"]');
