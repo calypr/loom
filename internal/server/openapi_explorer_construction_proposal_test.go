@@ -2088,6 +2088,271 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	}
 }
 
+func TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP(t *testing.T) {
+	const (
+		outputID     = "out_5b1_coding_group_fixture"
+		explorerID   = "specimen-coding-group-fixture"
+		observation  = "focus-observation"
+		codingPath   = "valueCodeableConcept.coding[]"
+		draftVersion = 86
+	)
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Nodes = []capability.Node{
+		{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 12},
+		{ID: "n_observation", ResourceType: "Observation", Populated: true, DocumentCount: 12},
+	}
+	snapshot.Edges = []capability.Edge{{
+		ID: "e_specimen_focus_observation", FromNodeID: "n_specimen", ToNodeID: "n_observation",
+		SourceResourceType: "Specimen", TargetResourceType: "Observation", Label: "focus_Specimen", StorageDirection: "INBOUND",
+	}}
+	snapshot.Candidates = []capability.Candidate{{
+		ID: "c_observation_value_coding", NodeID: "n_observation", ResourceType: "Observation",
+		FieldPath: codingPath + ".code", Label: "Observation value coding", LogicalType: "string", Cardinality: "many",
+		RepeatedBoundaries:  []capability.RepeatedBoundary{{Path: codingPath, MaxItems: 8}},
+		ProjectionModes:     []capability.ProjectionMode{capability.ProjectionArray},
+		SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+	}}
+
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := workspace.Documents[0]
+	document.RootResourceType = "Specimen"
+	document.Route = authoringv2.RouteNode{
+		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Specimen",
+		Children: []authoringv2.RouteNode{{OccurrenceID: observation, ResourceType: "Observation", Relationship: "focus_Specimen"}},
+	}
+	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
+		OccurrenceID: observation, ScopePath: codingPath, EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+	}}
+	document.Columns = []authoringv2.Column{}
+	document.Output = authoringv2.Output{ID: outputID, Title: "Specimen coding groups", RowLabel: "Specimens"}
+	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0] = document
+	workspace.Tabs[0].OutputID = outputID
+	workspace.Tabs[0].Title = "Specimen coding groups"
+	catalogSnapshot := authoringV2Catalog(snapshot, explorerID)
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, catalogSnapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, catalogSnapshot).NormalizePresentationOrders()
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate fresh Specimen-to-Observation Coding workspace: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: explorerID, Title: "Specimen coding groups",
+		DraftConfig: draft, DraftVersion: draftVersion, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest, RootPageRows: 100,
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowChoices, err := lifecycle.NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		RowChoicePlanner: rowChoices,
+		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+			return compileConstructionSourceStage(ctx, request, recipeEngine)
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+		},
+		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != outputID {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("expected the exact current Coding proposal receipt and output binding")
+			}
+			var sourceStage explorer.ReceiptConstructionStage
+			foundSourceStage := false
+			for _, stage := range receipt.ConstructionStages[outputID] {
+				if stage.ID == "source_projection" {
+					sourceStage = stage
+					foundSourceStage = true
+					break
+				}
+			}
+			if !foundSourceStage || sourceStage.RowIdentityColumn != "__loom_expansion_identity" || sourceStage.GroupFieldSourceContext == nil ||
+				sourceStage.GroupFieldSourceContext.SourceStageID != "source_projection" ||
+				sourceStage.GroupFieldSourceContext.SourceIdentityColumn != "__loom_expansion_identity" ||
+				sourceStage.GroupFieldSourceContext.SourceExpansion == nil ||
+				sourceStage.GroupFieldSourceContext.SourceExpansion.OwnerResourceType != "Observation" ||
+				sourceStage.GroupFieldSourceContext.SourceExpansion.Selector != codingPath {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compiled source projection lost the exact expanded Observation Coding context: found=%t stage=%#v", foundSourceStage, sourceStage)
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("validate proposal receipt before native preview: %w", err)
+			}
+			return recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: outputID, Limit: 100}, visit)
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	basePath := "/api/v1/projects/project-a/explorers/" + explorerID + "/authoring/v2"
+	capabilitiesResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":%q,"stageId":"source_projection"}`,
+		snapshot.Token, draftVersion, digest, outputID,
+	))
+	if capabilitiesResponse.StatusCode != http.StatusOK {
+		t.Fatalf("Specimen focus Observation Coding capabilities status=%d body=%s", capabilitiesResponse.StatusCode, capabilitiesResponse.Body)
+	}
+	var capabilities struct {
+		SelectedStage struct {
+			ID          string `json:"id"`
+			RowIdentity string `json:"rowIdentityColumn"`
+			GroupSource *struct {
+				SourceStage     string `json:"sourceStageId"`
+				SourceShape     string `json:"sourceShapeId"`
+				SourceIdentity  string `json:"sourceIdentityColumn"`
+				SourceExpansion *struct {
+					OwnerResourceType string `json:"ownerResourceType"`
+					Selector          string `json:"selector"`
+				} `json:"sourceExpansion"`
+			} `json:"groupFieldSourceContext"`
+		} `json:"selectedStage"`
+		GroupFieldChoices []struct {
+			Kind          string `json:"kind"`
+			ValueKind     string `json:"valueKind"`
+			SourceStage   string `json:"sourceStageId"`
+			SourceShape   string `json:"sourceShapeId"`
+			SourceRole    string `json:"sourceRole"`
+			OccurrenceID  string `json:"occurrenceId"`
+			ResourceType  string `json:"resourceType"`
+			OwnerType     string `json:"ownerResourceType"`
+			CanonicalPath string `json:"canonicalPath"`
+			FieldSource   struct {
+				ChoiceID string `json:"choiceId"`
+			} `json:"fieldSource"`
+		} `json:"groupFieldChoices"`
+	}
+	if err := json.Unmarshal([]byte(capabilitiesResponse.Body), &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if capabilities.SelectedStage.ID != "source_projection" || capabilities.SelectedStage.RowIdentity != "__loom_expansion_identity" ||
+		capabilities.SelectedStage.GroupSource == nil || capabilities.SelectedStage.GroupSource.SourceStage != "source_projection" ||
+		capabilities.SelectedStage.GroupSource.SourceShape == "" || capabilities.SelectedStage.GroupSource.SourceIdentity != "__loom_expansion_identity" ||
+		capabilities.SelectedStage.GroupSource.SourceExpansion == nil ||
+		capabilities.SelectedStage.GroupSource.SourceExpansion.OwnerResourceType != "Observation" ||
+		capabilities.SelectedStage.GroupSource.SourceExpansion.Selector != codingPath {
+		t.Fatalf("source projection lost the exact expanded Observation Coding identity before proposal: %#v", capabilities.SelectedStage)
+	}
+	var codingChoice *struct {
+		Kind          string `json:"kind"`
+		ValueKind     string `json:"valueKind"`
+		SourceStage   string `json:"sourceStageId"`
+		SourceShape   string `json:"sourceShapeId"`
+		SourceRole    string `json:"sourceRole"`
+		OccurrenceID  string `json:"occurrenceId"`
+		ResourceType  string `json:"resourceType"`
+		OwnerType     string `json:"ownerResourceType"`
+		CanonicalPath string `json:"canonicalPath"`
+		FieldSource   struct {
+			ChoiceID string `json:"choiceId"`
+		} `json:"fieldSource"`
+	}
+	for i := range capabilities.GroupFieldChoices {
+		choice := &capabilities.GroupFieldChoices[i]
+		if choice.ValueKind == "CODING_IDENTITY" && choice.SourceRole == "CURRENT_ITEM" && choice.CanonicalPath == codingPath {
+			codingChoice = choice
+			break
+		}
+	}
+	if codingChoice == nil || codingChoice.Kind != "FIELD_SOURCE" || codingChoice.FieldSource.ChoiceID == "" ||
+		codingChoice.SourceStage != "source_projection" || codingChoice.SourceShape == "" ||
+		codingChoice.OccurrenceID != observation || codingChoice.ResourceType != "Coding" || codingChoice.OwnerType != "Observation" {
+		t.Fatalf("current Coding field choice lost Specimen -> focus_Specimen INBOUND -> Observation identity: %#v", capabilities.GroupFieldChoices)
+	}
+
+	stepID := "group_specimen_observation_coding"
+	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: stepID, Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+			ConstructionID: stepID, MissingKeyPolicy: authoringv2.ConstructionGroupMissingKeyGroup,
+			Keys:       []authoringv2.ConstructionGroupKey{{OutputColumnID: "coding_identity", FieldSource: &authoringv2.ConstructionGroupFieldSource{Kind: "CHOICE", ChoiceID: codingChoice.FieldSource.ChoiceID}}},
+			Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "row_count"}},
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "coding_identity", Name: "coding_identity", Label: "Observation coding", Type: "string"},
+			{ID: "row_count", Name: "row_count", Label: "Count", Type: "integer"},
+		},
+	}}}
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposalBody := fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":%q,"changedStepId":%q,"candidateConstruction":%s,"limit":100}`,
+		snapshot.Token, draftVersion, digest, outputID, stepID, candidateJSON,
+	)
+	proposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", proposalBody)
+	if proposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("exact current Coding Group proposal status=%d body=%s", proposalResponse.StatusCode, proposalResponse.Body)
+	}
+	var proposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(proposalResponse.Body), &proposal); err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalId == nil || proposal.PreviewStatus != loomapi.ConstructionProposalResponsePreviewStatusREADY || proposal.Preview == nil {
+		t.Fatalf("exact current Coding Group proposal did not complete native preview: %#v", proposal)
+	}
+	resolvedJSON, err := json.Marshal(proposal.CandidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved authoringv2.Construction
+	if err := json.Unmarshal(resolvedJSON, &resolved); err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Steps) != 1 || resolved.Steps[0].Operation.Group == nil || len(resolved.Steps[0].Operation.Group.Keys) != 1 {
+		t.Fatalf("resolved Specimen Observation Coding Group = %#v", resolved)
+	}
+	binding := resolved.Steps[0].Operation.Group.Keys[0].FieldSource
+	if binding == nil || binding.Kind != "BINDING" || binding.ValueKind != "CODING_IDENTITY" ||
+		binding.SourceStageID != "source_projection" || binding.SourceShapeID != codingChoice.SourceShape ||
+		binding.SourceRole != "CURRENT_ITEM" || binding.ResourceType != "Coding" || binding.OwnerResourceType != "Observation" ||
+		binding.OccurrenceID != observation || binding.CanonicalPath != codingPath || binding.CandidateID != "" {
+		t.Fatalf("resolved current Coding binding = %#v", binding)
+	}
+}
+
 func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Nodes = []capability.Node{{ID: "n_observation", ResourceType: "Observation", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1}}
