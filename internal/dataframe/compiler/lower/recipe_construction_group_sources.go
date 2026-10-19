@@ -217,11 +217,6 @@ func validateGroupCodingIdentitySource(
 	context *CompiledGroupFieldSourceContext,
 	inputStageID string,
 ) (*ir.PhysicalUnnest, error) {
-	var normalizeErr error
-	source, normalizeErr = normalizeConstructionCurrentGroupFieldSource(source)
-	if normalizeErr != nil {
-		return nil, normalizeErr
-	}
 	if context == nil || source.SourceStageID != inputStageID || source.SourceStageID != context.SourceStageID ||
 		source.SourceShapeID != context.SourceShapeID || context.SourceExpansion == nil ||
 		source.SourceRole != "CURRENT_ITEM" || source.ResourceType != "Coding" ||
@@ -266,6 +261,11 @@ func lowerConstructionGroupCodingKey(
 	stepIndex int,
 	stage *ir.PhysicalConstructionStage,
 ) (ir.PhysicalStageGroupCodingKey, CompiledOutputColumn, ir.PhysicalProjection, CompiledOutputColumn, ir.PhysicalProjection, error) {
+	var err error
+	source, err = normalizeConstructionCurrentGroupFieldSource(source)
+	if err != nil {
+		return ir.PhysicalStageGroupCodingKey{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, err
+	}
 	unnest, err := validateGroupCodingIdentitySource(plan, source, context, source.SourceStageID)
 	if err != nil {
 		return ir.PhysicalStageGroupCodingKey{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, CompiledOutputColumn{}, ir.PhysicalProjection{}, err

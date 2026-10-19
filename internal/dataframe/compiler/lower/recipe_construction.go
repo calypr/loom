@@ -664,7 +664,11 @@ func constructionTerminalCodingGroupRequeriesExpandedPreimage(
 	if err != nil || context == nil || context.SourceExpansion == nil {
 		return false
 	}
-	_, err = validateGroupCodingIdentitySource(plan, *codingSource, context, recipe.ConstructionSourceProjectionID)
+	normalizedSource, err := normalizeConstructionCurrentGroupFieldSource(*codingSource)
+	if err != nil {
+		return false
+	}
+	_, err = validateGroupCodingIdentitySource(plan, normalizedSource, context, recipe.ConstructionSourceProjectionID)
 	return err == nil
 }
 
