@@ -666,7 +666,10 @@ const assertProposalPanel = async (pivot, label) => {
 const openPivotEditor = async () => {
   if (isFixture) await page.setViewportSize({ width: 1440, height: 1000 });
   await clickNative(page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
+  await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-row-intent-reshape"]')?.disabled===false));
+  await clickNative(page, '[data-testid="construction-row-intent-reshape"]');
+  await waitForObservable(page, () => Boolean(document.querySelector('[aria-label="Reshape table options"]')
+    ?.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
   await clickNative(page, '[data-testid="construction-action-table-pivot-rows"]');
   await waitForObservable(page, () => Boolean(Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))));
   if (isFixture) {
@@ -1464,9 +1467,12 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await clickNative(page, `[data-testid="construction-table-${outputId}"]`);
   await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false));
   await clickNative(page, '[data-testid="construction-rows-settings-trigger"]');
-  await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
+  await waitForObservable(page, () => Boolean(document.querySelector('[data-testid="construction-row-intent-reshape"]')?.disabled===false));
+  await clickNative(page, '[data-testid="construction-row-intent-reshape"]');
+  await waitForObservable(page, () => Boolean(document.querySelector('[aria-label="Reshape table options"]')
+    ?.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled===false));
   const reshapeActions = await inspectPage(page, () => {
-const menu=document.querySelector('[aria-label="Choose a row change"]');return [...(menu?.querySelectorAll('button')??[])].map(button=>({testId:button.dataset.testid??'',label:button.innerText.trim().replace(/\s+/g,' ').slice(0,140),disabled:button.disabled}));
+const options=document.querySelector('[aria-label="Reshape table options"]');return [...(options?.querySelectorAll('button')??[])].map(button=>({testId:button.dataset.testid??'',label:button.innerText.trim().replace(/\s+/g,' ').slice(0,140),disabled:button.disabled}));
 });
   report.reshapeActions = reshapeActions;
   const genericPivotAction = reshapeActions.find(action => action.testId === 'construction-action-table-pivot-rows' && !action.disabled);
