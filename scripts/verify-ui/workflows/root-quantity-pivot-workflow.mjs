@@ -1178,6 +1178,16 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   assert.deepEqual(savedSourceBindings.groupKeyIds, applyPivot.operation.groupKeyIds, 'Saved status grouping must match the accepted source binding');
   assert.equal(savedSourceBindings.categoryColumnId, applyPivot.operation.categoryColumnId, 'Saved category source must match the accepted source binding');
   assert.equal(savedSourceBindings.valueColumnId, applyPivot.operation.valueColumnId, 'Saved numeric value source must match the accepted source binding');
+  const savedSourceLabel = columnId => {
+    const source = applyPreview.request?.pivotSources?.find(binding => binding.columnId === columnId);
+    assert(source?.choiceId, `Accepted Pivot preview must retain the choice identity for saved source column ${columnId}`);
+    const label = selectedPivotSourceLabels.get(`source:${source.choiceId}`);
+    assert(label, `Accepted Pivot preview must retain the displayed label for saved source column ${columnId}`);
+    return label;
+  };
+  const savedGroupSourceLabel = savedSourceLabel(savedSourceBindings.groupKeyIds[0]);
+  const savedCategorySourceLabel = savedSourceLabel(savedSourceBindings.categoryColumnId);
+  const savedValueSourceLabel = savedSourceLabel(savedSourceBindings.valueColumnId);
   const assertSavedScope = (state, expectedPolicy, expectedHeading, label) => {
     const scopedDocument = assertBuilderScope(state, label);
     assert.deepEqual(scopedDocument.rows, prePivotDocument.rows, `${label} must retain the exact root Observation population definition`);
@@ -1221,9 +1231,9 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const editedHeading = `${originalHeading} maximum`;
   const editorBefore = await browserEval(page, `const root=document.querySelector('[data-testid="construction-reshape-pivot"]');return {policy:root.querySelector('select[aria-label="Pivot duplicate policy"]')?.value,groups:[...root.querySelectorAll('input[aria-label^="Pivot group"]')].filter(input=>input.checked).map(input=>input.getAttribute('aria-label')),category:root.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:root.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,labels:[...root.querySelectorAll('input[aria-label^="Pivot output label "]')].map(input=>({ariaLabel:input.getAttribute('aria-label'),value:input.value}))};`);
   assert.equal(editorBefore.policy, 'SUM', 'Saved full CDA Pivot edit must restore SUM');
-  assert(editorBefore.groups.includes(`Pivot group ${selectedPivotSourceLabels.get(groupSourceValue)}`), `Saved full CDA Pivot edit must retain the displayed status grouping for its exact source choice: ${JSON.stringify(editorBefore.groups)}`);
-  assert.equal(editorBefore.category, selectedPivotSourceLabels.get(categorySourceValue), 'Saved full CDA Pivot edit must retain the selected category source label');
-  assert.equal(editorBefore.value, selectedPivotSourceLabels.get(valueSourceValue), 'Saved full CDA Pivot edit must retain the selected value source label');
+  assert(editorBefore.groups.includes(`Pivot group ${savedGroupSourceLabel}`), `Saved full CDA Pivot edit must retain the displayed status grouping for its exact persisted source binding: ${JSON.stringify(editorBefore.groups)}`);
+  assert.equal(editorBefore.category, savedCategorySourceLabel, 'Saved full CDA Pivot edit must retain the selected category source label');
+  assert.equal(editorBefore.value, savedValueSourceLabel, 'Saved full CDA Pivot edit must retain the selected value source label');
   assert(editorBefore.labels.some(item => item.value === originalHeading), `Saved Pivot editor must expose category label ${originalHeading}`);
   const editRequestOffset = requestCheckpoint();
   const priorEditProposal = await browserEval(page, `return document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalId??'';`);
