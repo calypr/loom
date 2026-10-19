@@ -57,6 +57,27 @@ func RenderPhysicalPlanWithRootIndexDisabled(plan ir.PhysicalPlan) (RenderedPhys
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{disableRootIndex: true})
 }
 
+// RenderPhysicalPlanWithSemanticGroupProjectionFactorization renders a narrow
+// direct-source semantic Group after identical complete Coding projections
+// have been collected with occurrence weights.
+func RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (RenderedPhysicalPlan, error) {
+	return renderSemanticGroupProjectionPreview(plan, indexName, disableIndex, false)
+}
+
+// RenderPhysicalPlanWithSemanticGroupProjectionAssessment renders a bounded
+// metadata-only sample of complete Coding projections for runtime admission.
+func RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (RenderedPhysicalPlan, error) {
+	return renderSemanticGroupProjectionPreview(plan, indexName, disableIndex, true)
+}
+
+// ValidateSemanticGroupProjectionPreviewPlan reports whether plan is within
+// the exact direct-source Group shape shared by the factorized and assessment
+// renderers.
+func ValidateSemanticGroupProjectionPreviewPlan(plan ir.PhysicalPlan) error {
+	_, _, _, err := semanticGroupProjectionPreviewShape(plan)
+	return err
+}
+
 // RenderPhysicalRootScopeCount renders an exact count of a direct source
 // plan's canonical project, generation, and authorization scope. It drops
 // source projections and is only valid when those are the plan's sole row

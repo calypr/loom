@@ -101,6 +101,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		}
 	}
 	previewGroupScan := previewGroupScanSpec(physical, previewCoveringIndex)
+	previewGroupProjection := previewGroupProjectionSpec(physical)
 	var rendered aql.RenderedPhysicalPlan
 	if streamingMissingCategoryPivot {
 		if previewCoveringIndex != nil && len(previewCoveringIndex.StoredValues) != 0 {
@@ -164,9 +165,10 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		Limit:              limit,
 		PartialValidation: rendered.PartialValidation || (physical.StageSequence != nil && physical.StageSequence.PreviewLimitBindKey != "" &&
 			(physical.StageSequence.PreviewSourceWindowByRootID || physical.StageSequence.PreviewTerminalPivotWindow)),
-		PreviewCoveringIndex: previewCoveringIndex,
-		PreviewGroupScan:     previewGroupScan,
-		PlanDiagnostics:      physicalPlanDiagnostics(physical),
+		PreviewCoveringIndex:   previewCoveringIndex,
+		PreviewGroupScan:       previewGroupScan,
+		PreviewGroupProjection: previewGroupProjection,
+		PlanDiagnostics:        physicalPlanDiagnostics(physical),
 	}, nil
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/store/arango"
 )
 
 func newGroupPreviewCacheTestEngine(t *testing.T, rows QueryRows, revision func(context.Context, string) (string, error)) (*Engine, Resolved) {
@@ -308,6 +309,56 @@ func TestGroupPreviewRowsCacheKeyUsesExactQueryBindingsCollectionRevisionAndLimi
 	for _, variant := range variants {
 		if reflect.DeepEqual(base, variant) {
 			t.Fatalf("cache key failed to separate variant %#v", variant)
+		}
+	}
+}
+
+func TestGroupPreviewProjectionDecisionCacheSeparatesExactScopeRevisionAndIndex(t *testing.T) {
+	base, _, ok := newGroupPreviewProjectionDecisionKey(
+		"RETURN @project, @dataset_generation", map[string]any{"project": "P1", "dataset_generation": "G1"},
+		"Observation", "revision-1", "index:loom_pivot_preview_a",
+	)
+	if !ok {
+		t.Fatal("base projection decision key was rejected")
+	}
+	variants := []groupPreviewRowsKey{
+		{query: "RETURN @other", bindVars: base.bindVars, collection: base.collection, revision: base.revision, indexIdentity: base.indexIdentity, decision: true},
+		{query: base.query, bindVars: `{"dataset_generation":"G2","project":"P1"}`, collection: base.collection, revision: base.revision, indexIdentity: base.indexIdentity, decision: true},
+		{query: base.query, bindVars: base.bindVars, collection: base.collection, revision: "revision-2", indexIdentity: base.indexIdentity, decision: true},
+		{query: base.query, bindVars: base.bindVars, collection: base.collection, revision: base.revision, indexIdentity: "index:loom_pivot_preview_b", decision: true},
+	}
+	for _, variant := range variants {
+		if reflect.DeepEqual(base, variant) {
+			t.Fatalf("projection decision key failed to separate variant %#v", variant)
+		}
+	}
+
+	cache := &groupPreviewRowsCache{}
+	want := groupPreviewProjectionDecision{Factorized: true, SampleRows: 512, DistinctProjections: 2, SerializedCharacters: 18, EstimatedDictionaryBytes: 4096}
+	cache.putDecision(base, want)
+	got, found := cache.getDecision(base)
+	if !found || got != want {
+		t.Fatalf("decision cache returned %#v, %t; want %#v, true", got, found, want)
+	}
+	if _, found := cache.get(base); found {
+		t.Fatal("projection strategy metadata was returned as decoded row payload")
+	}
+}
+
+func TestGroupProjectionIndexIdentityIncludesCompleteSelectedDefinition(t *testing.T) {
+	base := arango.PreviewCoveringIndex{
+		Collection: "Observation", Name: "loom_pivot_preview_selected",
+		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "payload.code.coding"},
+		StoredValues: []string{"payload.status"},
+	}
+	fieldChanged := base
+	fieldChanged.Fields = append([]string(nil), base.Fields...)
+	fieldChanged.Fields[3] = "payload.component.code.coding"
+	storedValueChanged := base
+	storedValueChanged.StoredValues = []string{"payload.display"}
+	for _, variant := range []arango.PreviewCoveringIndex{fieldChanged, storedValueChanged} {
+		if groupProjectionIndexIdentity(base) == groupProjectionIndexIdentity(variant) {
+			t.Fatalf("selected index identity ignored its full definition: base=%+v variant=%+v", base, variant)
 		}
 	}
 }

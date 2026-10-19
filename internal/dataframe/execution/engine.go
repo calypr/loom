@@ -179,6 +179,9 @@ type OutputStream struct {
 	resolveClickHouseInputs  ResolveClickHouseInputs
 	withExecutionReadPins    WithExecutionReadPins
 	queryLimit               int
+	queryMemoryLimit         int64
+	projectionDecisionKey    *groupPreviewRowsKey
+	projectionDecision       *groupPreviewProjectionDecision
 	recipeDigest             string
 	planFingerprint          string
 	stageID                  string
@@ -1152,6 +1155,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		return summary, normalizePreviewError(visitorErr, false)
 	}
 	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
+		e.rejectGroupProjectionDecisionAfterResourceLimit(stream, queryErr)
 		return summary, normalizePreviewError(queryErr, true)
 	}
 	if errors.Is(queryErr, errPreviewLimit) {
@@ -1159,6 +1163,9 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		summary.Truncated = true
 	}
 	if err := contextError(ctx); err != nil {
+		return summary, err
+	}
+	if err := e.confirmGroupProjectionDecision(ctx, stream); err != nil {
 		return summary, err
 	}
 	if previewCacheEnabled && previewCacheHitRows == nil && capture.cacheable &&
@@ -1175,6 +1182,30 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
 	}
 	return summary, nil
+}
+
+func (e *Engine) rejectGroupProjectionDecisionAfterResourceLimit(stream OutputStream, queryErr error) {
+	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
+		return
+	}
+	decision := *stream.projectionDecision
+	decision.Factorized = false
+	e.groupPreviewRowsCache.putDecision(*stream.projectionDecisionKey, decision)
+}
+
+func (e *Engine) confirmGroupProjectionDecision(ctx context.Context, stream OutputStream) error {
+	if stream.projectionDecisionKey == nil || stream.projectionDecision == nil || e.previewCollectionRevision == nil {
+		return nil
+	}
+	key := *stream.projectionDecisionKey
+	revision, err := e.previewCollectionRevision(ctx, key.collection)
+	if ctxErr := contextError(ctx); ctxErr != nil {
+		return ctxErr
+	}
+	if err == nil && revision == key.revision {
+		e.groupPreviewRowsCache.putDecision(key, *stream.projectionDecision)
+	}
+	return nil
 }
 
 const (
@@ -1347,6 +1378,9 @@ func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared pre
 }
 
 func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
+	if s.queryMemoryLimit > 0 {
+		ctx = arango.WithQueryMemoryLimit(ctx, s.queryMemoryLimit)
+	}
 	if s.physicalEngine == ir.PhysicalEngineClickHouse {
 		return s.withPreparedClickHouse(ctx, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
 			return s.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)

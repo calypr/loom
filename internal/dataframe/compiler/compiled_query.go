@@ -48,6 +48,24 @@ type PreviewGroupScanSpec struct {
 	ScopeCountBindVars map[string]any
 }
 
+// PreviewGroupProjectionSpec marks a direct semantic Group whose complete
+// Coding-array projection can be safely factored. Runtime must use the exact
+// scoped count evidence before considering the alternative query.
+type PreviewGroupProjectionSpec struct {
+	Collection         string
+	ScopeCountQuery    string
+	ScopeCountBindVars map[string]any
+	ReadOnlyIndex      *PreviewGroupProjectionIndexSpec
+}
+
+// PreviewGroupProjectionIndexSpec describes read-only requirements for
+// checking whether an existing root index covers the source scope and the
+// complete Coding projection. It cannot request index creation.
+type PreviewGroupProjectionIndexSpec struct {
+	RequiredFields []string
+	ProjectionPath string
+}
+
 // CompiledQuery is the executable result of the canonical recipe compiler.
 // It contains parameterized AQL plus stable metadata for execution, export,
 // and diagnostics; it does not expose a transport-specific request builder.
@@ -79,8 +97,9 @@ type CompiledQuery struct {
 	Limit         int
 	// PartialValidation is true when a preview-only source or terminal Pivot
 	// group window bounds validation to a deterministic subset of output rows.
-	PartialValidation    bool
-	PreviewCoveringIndex *PreviewCoveringIndexSpec
-	PreviewGroupScan     *PreviewGroupScanSpec
-	PlanDiagnostics      ir.CompilerPlanDiagnostics
+	PartialValidation      bool
+	PreviewCoveringIndex   *PreviewCoveringIndexSpec
+	PreviewGroupScan       *PreviewGroupScanSpec
+	PreviewGroupProjection *PreviewGroupProjectionSpec
+	PlanDiagnostics        ir.CompilerPlanDiagnostics
 }

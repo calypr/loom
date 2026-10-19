@@ -692,6 +692,26 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
 	}
 	rawLines = append(rawLines, "      RETURN "+pathExpression, "  )")
 	lines = append(lines, rawLines...)
+	membershipLines, memberships, err := r.renderConstructionGroupSemanticMembershipFromRaw(semantic, rawCodings)
+	if err != nil {
+		return nil, "", err
+	}
+	lines = append(lines, membershipLines...)
+	return lines, memberships, nil
+}
+
+// renderConstructionGroupSemanticMembershipFromRaw applies the ordinary
+// semantic Coding matcher and per-input tuple dedup to one complete raw Coding
+// projection. The projection-factorization preview calls the same extractor
+// after COLLECT has collapsed identical arrays and retained their weight.
+func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembershipFromRaw(
+	semantic *ir.PhysicalStageGroupSemanticKey,
+	rawCodings string,
+) ([]string, string, error) {
+	if semantic == nil || rawCodings == "" {
+		return nil, "", fmt.Errorf("semantic group raw Coding projection is incomplete")
+	}
+	lines := make([]string, 0, 8)
 	matched := r.newInternalVariable("construction_group_semantic_matches")
 	codeSystemBind := r.newInternalBindKeyWithValue("construction_group_semantic_system", semantic.System)
 	codeVersionBind := r.newInternalBindKeyWithValue("construction_group_semantic_version", semantic.Version)
@@ -719,8 +739,9 @@ func (r *physicalPlanRenderer) renderConstructionGroupSemanticMembership(
 		fmt.Sprintf("  LET %s = (LENGTH(%s) == 0 ? [{system: null, version: null, code: null, display: null}] : (FOR %s IN %s COLLECT %s = %s AGGREGATE %s = MIN(%s) RETURN {system: (%s != null ? @%s : null), version: (%s != null ? %s : null), code: %s, display: %s}))",
 			local, matched, matchedCoding, matched, code, localCode, display, localDisplay, code, codeSystemBind, code, matchedVersion, code, display),
 	)
-	// Local aggregation collapses duplicate Coding tuples within this one
-	// physical input row. The outer Group still sees every physical row.
+	// Local aggregation collapses duplicate semantic tuples within this
+	// projection. Ordinary Group supplies one source row at a time; factoring
+	// supplies each distinct projection with its occurrence weight.
 	return lines, local, nil
 }
 
@@ -798,4 +819,332 @@ func (r *physicalPlanRenderer) renderConstructionGroupAggregate(group *ir.Physic
 	}
 	return fmt.Sprintf("FIRST(FOR %s IN [%s] RETURN LENGTH(%s) == 0 ? null : %s)",
 		valuesVariable, values, valuesVariable, result), nil
+}
+
+const semanticGroupProjectionSampleLimit = 512
+
+func semanticGroupProjectionPreviewShape(
+	plan ir.PhysicalPlan,
+) (*ir.PhysicalRootScan, *ir.PhysicalConstructionStage, *ir.PhysicalStageGroupSemanticKey, error) {
+	if plan.Engine == ir.PhysicalEngineClickHouse {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview requires AQL")
+	}
+	if err := plan.Validate(); err != nil {
+		return nil, nil, nil, fmt.Errorf("validate semantic Group projection plan: %w", err)
+	}
+	if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
+		return nil, nil, nil, fmt.Errorf("verify semantic Group projection source scope: %w", err)
+	}
+	sequence := plan.StageSequence
+	if sequence == nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
+		sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil ||
+		sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 1 ||
+		sequence.SourceStageID == "" || sequence.FinalStageID == "" {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview requires one unwindowed direct source Group")
+	}
+	if sequence.PreviewLimitBindKey != "" {
+		limit, ok := plan.BindVars[sequence.PreviewLimitBindKey].(int)
+		if !ok || limit <= 0 {
+			return nil, nil, nil, fmt.Errorf("semantic Group projection preview has an invalid result limit")
+		}
+	}
+	stage := &sequence.Stages[0]
+	group := stage.Group
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStageGroupOp || group == nil || len(group.Keys) != 0 ||
+		group.SemanticKey == nil || group.CodingKey != nil || group.RelatedOccurrence != nil ||
+		len(group.Aggregates) != 1 || group.Aggregates[0].Operation != "COUNT_ROWS" ||
+		group.Aggregates[0].InputColumn != "" || group.Aggregates[0].InputKind != "" ||
+		len(group.RowValues) != 0 || group.RootContributorInputColumn != "" || group.RootContributorInputMany ||
+		group.RootContributorOutputColumn != "" || group.RootContributorVariable != "" ||
+		group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup &&
+			group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyExclude &&
+			group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyError ||
+		stage.InputRowVariable == "" || stage.OutputRowVariable == "" || group.IdentityVariable == "" ||
+		group.ConstructionIDBindKey == "" || group.Aggregates[0].Output == "" || group.Aggregates[0].Variable == "" {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview requires one COUNT_ROWS semantic key without row values or lineage")
+	}
+	if sequence.FinalRowIdentity != "__loom_row_id" {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview requires its semantic tuple identity")
+	}
+	semantic := group.SemanticKey
+	if semantic.OutputColumn == "" || semantic.TupleVariable == "" || semantic.LabelVariable == "" ||
+		semantic.SourceRootVariable == "" || semantic.SourceIdentityColumn != "_key" ||
+		semantic.RootCollectionBindKey == "" || semantic.ResourceType == "" || semantic.CodingPath == "" ||
+		semantic.BindingID == "" || semantic.RuleVersion == "" || semantic.FamilyID == "" || semantic.System == "" ||
+		len(semantic.PathSegments) == 0 || semantic.PathSegments[len(semantic.PathSegments)-1].Name != "coding" ||
+		!semantic.PathSegments[len(semantic.PathSegments)-1].Repeated {
+		return nil, nil, nil, fmt.Errorf("semantic Group key is not one complete repeated Coding projection")
+	}
+	for index, segment := range semantic.PathSegments {
+		if !previewSourcePathSegmentPattern.MatchString(segment.Name) {
+			return nil, nil, nil, fmt.Errorf("semantic Group Coding path segment %d is unsafe", index)
+		}
+	}
+	if _, ok := plan.BindVars[group.ConstructionIDBindKey]; !ok {
+		return nil, nil, nil, fmt.Errorf("semantic Group construction identity bind is missing")
+	}
+	rootOperation := plan.Operations[0]
+	if rootOperation.Kind != ir.PhysicalRootScanOp || rootOperation.RootScan == nil {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview requires a direct root scan")
+	}
+	root := rootOperation.RootScan
+	collection, ok := plan.BindVars[root.CollectionBindKey].(string)
+	if !ok || collection == "" || root.Variable == "" || root.Population != nil || root.CohortSource != nil ||
+		root.PageCandidateSeed != nil || plan.PreviewSourceWindowByRootID ||
+		root.CollectionBindKey != semantic.RootCollectionBindKey || root.Variable != semantic.SourceRootVariable ||
+		collection != semantic.ResourceType || collection != plan.Source.ResourceType {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview source is not the exact direct root")
+	}
+	if len(plan.Operations) < 5 || plan.Operations[len(plan.Operations)-1].Kind != ir.PhysicalReturnOp ||
+		plan.Operations[len(plan.Operations)-1].Return == nil {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview source has no terminal projection")
+	}
+	for index, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 {
+				return nil, nil, nil, fmt.Errorf("semantic Group projection preview has more than one root scan")
+			}
+		case ir.PhysicalFilterOp:
+		case ir.PhysicalDerivedLetOp:
+			if operation.DerivedLet == nil || operation.DerivedLet.Operator != "AUTH_RESOURCE_PATH_ALLOWED" {
+				return nil, nil, nil, fmt.Errorf("semantic Group projection preview has a non-scope derived stage")
+			}
+		case ir.PhysicalReturnOp:
+			if index != len(plan.Operations)-1 {
+				return nil, nil, nil, fmt.Errorf("semantic Group projection preview has an intermediate return")
+			}
+		default:
+			return nil, nil, nil, fmt.Errorf("semantic Group projection preview does not support source operation %q", operation.Kind)
+		}
+	}
+	if len(stage.OutputProjections) != 3 {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview has unexpected output projections")
+	}
+	seenSemantic, seenCount, seenIdentity := false, false, false
+	for _, projection := range stage.OutputProjections {
+		if projection.Expression != nil || projection.Presence != nil || projection.PresenceOutput {
+			return nil, nil, nil, fmt.Errorf("semantic Group projection preview has a transformed output")
+		}
+		switch projection.Name {
+		case semantic.OutputColumn:
+			seenSemantic = projection.Value.Variable == semantic.LabelVariable
+		case group.Aggregates[0].Output:
+			seenCount = projection.Value.Variable == group.Aggregates[0].Variable
+		case "__loom_row_id":
+			seenIdentity = projection.Hidden && projection.Value.Variable == group.IdentityVariable
+		default:
+			return nil, nil, nil, fmt.Errorf("semantic Group projection preview has an unexpected output column %q", projection.Name)
+		}
+	}
+	if !seenSemantic || !seenCount || !seenIdentity {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview outputs do not match its tuple, count, and identity")
+	}
+	if _, err := RenderPhysicalRootScopeCount(plan); err != nil {
+		return nil, nil, nil, fmt.Errorf("semantic Group projection preview has no exact scoped count: %w", err)
+	}
+	return root, stage, semantic, nil
+}
+
+func renderSemanticGroupProjectionPreview(plan ir.PhysicalPlan, indexName string, disableIndex, assessment bool) (RenderedPhysicalPlan, error) {
+	root, stage, semantic, err := semanticGroupProjectionPreviewShape(plan)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	if disableIndex && indexName != "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("a disabled root index cannot also carry index hint %q", indexName)
+	}
+	if indexName != "" && !rootIndexHintPattern.MatchString(indexName) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexName)
+	}
+	collectionKeys, err := collectionBindKeys(plan)
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	sourcePlan := ir.ClonePhysicalPlan(plan)
+	sourcePlan.StageSequence = nil
+	sourcePlan.PreviewSourceWindowByRootID = false
+	source, err := renderPhysicalPlanWithOptions(sourcePlan, physicalRenderOptions{
+		rootIndexHint: indexName, disableRootIndex: disableIndex,
+		internalPrefix: "semantic_group_projection_source_", omitTerminalReturn: true,
+	})
+	if err != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("render semantic Group projection source: %w", err)
+	}
+	bindVars := make(map[string]any, len(source.BindVars)+len(plan.BindVars)+16)
+	if err := mergeRenderedBindVars(bindVars, source.BindVars); err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	if err := mergeRenderedBindVars(bindVars, runtimePhysicalBindVars(plan.BindVars, collectionKeys)); err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	renderer := physicalPlanRenderer{
+		bindVars: bindVars, collectionKeys: collectionKeys,
+		reservedVars: stageSequenceVariableNames(plan), internalPrefix: "semantic_group_projection_",
+	}
+	for variable := range physicalPlanVariableNames(sourcePlan) {
+		renderer.reservedVars[variable] = struct{}{}
+	}
+	lines := make([]string, 0, 48)
+	if assessment {
+		lines, err = renderer.renderSemanticGroupProjectionAssessment(source.Query, root, semantic)
+	} else {
+		lines, err = renderer.renderSemanticGroupProjectionFactorization(
+			source.Query, root, stage, semantic, plan.StageSequence.PreviewLimitBindKey,
+		)
+	}
+	if err != nil {
+		return RenderedPhysicalPlan{}, err
+	}
+	query := strings.Join(lines, "\n") + "\n"
+	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupProjectionRawCodings(root string, semantic *ir.PhysicalStageGroupSemanticKey) (string, error) {
+	if root == "" || semantic == nil || len(semantic.PathSegments) == 0 {
+		return "", fmt.Errorf("semantic Group Coding projection is incomplete")
+	}
+	pathExpression := root + ".payload"
+	lines := make([]string, 0, len(semantic.PathSegments)+2)
+	seenRepeated := false
+	for index, segment := range semantic.PathSegments {
+		attribute := fmt.Sprintf("%s[%q]", pathExpression, segment.Name)
+		if !segment.Repeated {
+			pathExpression = attribute
+			continue
+		}
+		if index == len(semantic.PathSegments)-1 && !seenRepeated {
+			return fmt.Sprintf("(IS_ARRAY(%s) ? %s : [])", attribute, attribute), nil
+		}
+		seenRepeated = true
+		item := r.newInternalVariable(fmt.Sprintf("semantic_group_projection_path_%d", index+1))
+		lines = append(lines, fmt.Sprintf("FOR %s IN (%s == null ? [] : (IS_ARRAY(%s) ? %s : []))", item, attribute, attribute, attribute))
+		pathExpression = item
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("semantic Group Coding path has no repeated segment")
+	}
+	lines = append(lines, "RETURN "+pathExpression)
+	for index := range lines {
+		lines[index] = "  " + lines[index]
+	}
+	return "(\n" + strings.Join(lines, "\n") + "\n)", nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupProjectionAssessment(
+	sourceQuery string,
+	root *ir.PhysicalRootScan,
+	semantic *ir.PhysicalStageGroupSemanticKey,
+) ([]string, error) {
+	rawProjection, err := r.renderSemanticGroupProjectionRawCodings(root.Variable, semantic)
+	if err != nil {
+		return nil, err
+	}
+	sample := r.newInternalVariable("semantic_group_projection_sample")
+	projection := r.newInternalVariable("semantic_group_projection_sample_value")
+	distinct := r.newInternalVariable("semantic_group_projection_distinct")
+	distinctProjection := r.newInternalVariable("semantic_group_projection_distinct_value")
+	serialized := r.newInternalVariable("semantic_group_projection_serialized_lengths")
+	serializedCharacters := r.newInternalVariable("semantic_group_projection_serialized_characters")
+	limitBind := r.newInternalBindKey("semantic_group_projection_sample_limit")
+	r.bindVars[limitBind] = semanticGroupProjectionSampleLimit
+	lines := []string{"LET " + sample + " = ("}
+	for _, line := range strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n") {
+		lines = append(lines, "  "+line)
+	}
+	lines = append(lines,
+		"  LET "+projection+" = "+rawProjection,
+		"  FILTER LENGTH("+projection+") > 0",
+		"  LIMIT @"+limitBind,
+		"  RETURN "+projection,
+		")",
+		"LET "+distinct+" = UNIQUE("+sample+")",
+		"LET "+serialized+" = (FOR "+distinctProjection+" IN "+distinct+" RETURN LENGTH(JSON_STRINGIFY("+distinctProjection+")))",
+		"LET "+serializedCharacters+" = SUM("+serialized+")",
+		"RETURN {sampleRows: LENGTH("+sample+"), distinctProjections: LENGTH("+distinct+"), serializedCharacters: "+serializedCharacters+"}",
+	)
+	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderSemanticGroupProjectionFactorization(
+	sourceQuery string,
+	root *ir.PhysicalRootScan,
+	stage *ir.PhysicalConstructionStage,
+	semantic *ir.PhysicalStageGroupSemanticKey,
+	previewLimitBindKey string,
+) ([]string, error) {
+	group := stage.Group
+	rawProjection, err := r.renderSemanticGroupProjectionRawCodings(root.Variable, semantic)
+	if err != nil {
+		return nil, err
+	}
+	raw := r.newInternalVariable("semantic_group_projection_raw")
+	projection := r.newInternalVariable("semantic_group_projection_distinct_raw")
+	weight := r.newInternalVariable("semantic_group_projection_weight")
+	membership := r.newInternalVariable("semantic_group_projection_membership")
+	count := r.newInternalVariable("semantic_group_projection_count_rows")
+	displayMin := r.newInternalVariable("semantic_group_projection_min_display")
+	lines := strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n")
+	lines = append(lines, "LET "+raw+" = "+rawProjection)
+	lines = append(lines, "COLLECT "+projection+" = "+raw+" WITH COUNT INTO "+weight)
+	semanticLines, localMemberships, err := r.renderConstructionGroupSemanticMembershipFromRaw(semantic, projection)
+	if err != nil {
+		return nil, fmt.Errorf("render semantic Group extractor: %w", err)
+	}
+	for _, line := range semanticLines {
+		lines = append(lines, strings.TrimPrefix(line, "  "))
+	}
+	lines = append(lines, "FOR "+membership+" IN "+localMemberships)
+	switch group.MissingKeyPolicy {
+	case ir.PhysicalStageGroupMissingKeyGroup:
+	case ir.PhysicalStageGroupMissingKeyExclude:
+		lines = append(lines, "FILTER "+membership+".code != null")
+	case ir.PhysicalStageGroupMissingKeyError:
+		lines = append(lines, "FILTER ASSERT("+membership+".code != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")")
+	default:
+		return nil, fmt.Errorf("unsupported semantic Group missing-key policy %q", group.MissingKeyPolicy)
+	}
+	lines = append(lines, fmt.Sprintf("COLLECT %s = [%s.system, %s.version, %s.code] AGGREGATE %s = SUM(%s), %s = MIN(%s.display)",
+		semantic.TupleVariable, membership, membership, membership, count, weight, displayMin, membership))
+	lines = append(lines, "SORT "+semantic.TupleVariable+" ASC")
+	if previewLimitBindKey != "" {
+		lines = append(lines, "LIMIT @"+previewLimitBindKey)
+	}
+	lines = append(lines,
+		fmt.Sprintf("LET %s = (%s != null ? %s : %s[2])", semantic.LabelVariable, displayMin, displayMin, semantic.TupleVariable),
+		fmt.Sprintf("LET %s = %s", group.Aggregates[0].Variable, count),
+	)
+	constructionBind := group.ConstructionIDBindKey
+	semanticOutputID := ""
+	for _, column := range stage.OutputColumns {
+		if column.Name == semantic.OutputColumn {
+			semanticOutputID = column.ID
+			break
+		}
+	}
+	if semanticOutputID == "" {
+		return nil, fmt.Errorf("semantic Group output %q has no stable column ID", semantic.OutputColumn)
+	}
+	semanticOutputBind := r.newInternalBindKeyWithValue("semantic_group_projection_output_column", semanticOutputID)
+	familyBinding := r.newInternalBindKeyWithValue("semantic_group_projection_binding", semantic.BindingID)
+	familyRule := r.newInternalBindKeyWithValue("semantic_group_projection_rule", semantic.RuleVersion)
+	familyID := r.newInternalBindKeyWithValue("semantic_group_projection_family", semantic.FamilyID)
+	familySystem := r.newInternalBindKeyWithValue("semantic_group_projection_system", semantic.System)
+	familyVersion := r.newInternalBindKeyWithValue("semantic_group_projection_version", semantic.Version)
+	familyPath := r.newInternalBindKeyWithValue("semantic_group_projection_path", semantic.CodingPath)
+	identityParts := []string{
+		"[\"construction\", @" + constructionBind + "]",
+		"[\"operation\", \"GROUP\"]",
+		"[@" + semanticOutputBind + ", \"semantic_family\", @" + familyBinding + ", @" + familyRule + ", @" + familyID +
+			", @" + familySystem + ", @" + familyVersion + ", @" + familyPath + ", " + semantic.TupleVariable + "]",
+	}
+	identity := "TO_STRING([" + strings.Join(identityParts, ", ") + "])"
+	lines = append(lines, fmt.Sprintf("LET %s = %s", group.IdentityVariable, identity))
+	output, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.OutputProjections})
+	if err != nil {
+		return nil, fmt.Errorf("render semantic Group output row: %w", err)
+	}
+	lines = append(lines, fmt.Sprintf("LET %s = %s", stage.OutputRowVariable, output), "RETURN "+stage.OutputRowVariable)
+	return lines, nil
 }

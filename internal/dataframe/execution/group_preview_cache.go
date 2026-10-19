@@ -18,11 +18,13 @@ const (
 // source collection version. It deliberately retains the full query and
 // canonical bind JSON so a cache hit cannot depend on a digest collision.
 type groupPreviewRowsKey struct {
-	query      string
-	bindVars   string
-	collection string
-	revision   string
-	limit      int
+	query         string
+	bindVars      string
+	collection    string
+	revision      string
+	indexIdentity string
+	limit         int
+	decision      bool
 }
 
 func newGroupPreviewRowsKey(query string, bindVars map[string]any, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
@@ -40,14 +42,46 @@ func newGroupPreviewRowsKey(query string, bindVars map[string]any, collection, r
 		revision:   revision,
 		limit:      limit,
 	}
-	weight := groupPreviewCacheEntryOverhead + len(key.query) + len(key.bindVars) + len(key.collection) + len(key.revision) + 16
+	weight := groupPreviewCacheKeyWeight(key)
 	return key, weight, weight <= groupPreviewCacheMaxEntryBytes
 }
 
+func newGroupPreviewProjectionDecisionKey(query string, bindVars map[string]any, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
+	if query == "" || collection == "" || revision == "" || indexIdentity == "" {
+		return groupPreviewRowsKey{}, 0, false
+	}
+	canonicalBinds, err := json.Marshal(bindVars)
+	if err != nil {
+		return groupPreviewRowsKey{}, 0, false
+	}
+	key := groupPreviewRowsKey{
+		query: query, bindVars: string(canonicalBinds), collection: collection, revision: revision,
+		indexIdentity: indexIdentity, decision: true,
+	}
+	weight := groupPreviewCacheKeyWeight(key) + groupPreviewDecisionWeight
+	return key, weight, weight <= groupPreviewCacheMaxEntryBytes
+}
+
+const groupPreviewDecisionWeight = 32
+
+func groupPreviewCacheKeyWeight(key groupPreviewRowsKey) int {
+	return groupPreviewCacheEntryOverhead + len(key.query) + len(key.bindVars) + len(key.collection) +
+		len(key.revision) + len(key.indexIdentity) + 16
+}
+
+type groupPreviewProjectionDecision struct {
+	Factorized               bool
+	SampleRows               int64
+	DistinctProjections      int64
+	SerializedCharacters     int64
+	EstimatedDictionaryBytes uint64
+}
+
 type groupPreviewRowsEntry struct {
-	key    groupPreviewRowsKey
-	rows   [][]byte
-	weight int
+	key      groupPreviewRowsKey
+	rows     [][]byte
+	decision *groupPreviewProjectionDecision
+	weight   int
 }
 
 // groupPreviewRowsCache is a zero-value-usable LRU. Entries contain immutable
@@ -67,7 +101,7 @@ func (c *groupPreviewRowsCache) get(key groupPreviewRowsKey) ([][]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	element := c.entries[key]
-	if element == nil {
+	if element == nil || key.decision {
 		return nil, false
 	}
 	c.lru.MoveToFront(element)
@@ -77,6 +111,24 @@ func (c *groupPreviewRowsCache) get(key groupPreviewRowsKey) ([][]byte, bool) {
 		rows[index] = append([]byte(nil), row...)
 	}
 	return rows, true
+}
+
+func (c *groupPreviewRowsCache) getDecision(key groupPreviewRowsKey) (groupPreviewProjectionDecision, bool) {
+	if c == nil || !key.decision {
+		return groupPreviewProjectionDecision{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	element := c.entries[key]
+	if element == nil {
+		return groupPreviewProjectionDecision{}, false
+	}
+	c.lru.MoveToFront(element)
+	entry := element.Value.(groupPreviewRowsEntry)
+	if entry.decision == nil {
+		return groupPreviewProjectionDecision{}, false
+	}
+	return *entry.decision, true
 }
 
 func (c *groupPreviewRowsCache) delete(key groupPreviewRowsKey) {
@@ -91,10 +143,10 @@ func (c *groupPreviewRowsCache) delete(key groupPreviewRowsKey) {
 }
 
 func (c *groupPreviewRowsCache) put(key groupPreviewRowsKey, rows [][]byte) {
-	if c == nil {
+	if c == nil || key.decision {
 		return
 	}
-	weight := groupPreviewCacheEntryOverhead + len(key.query) + len(key.bindVars) + len(key.collection) + len(key.revision) + 16
+	weight := groupPreviewCacheKeyWeight(key)
 	for _, row := range rows {
 		weight += len(row) + groupPreviewCacheRowOverhead
 		if weight > groupPreviewCacheMaxEntryBytes {
@@ -109,18 +161,34 @@ func (c *groupPreviewRowsCache) put(key groupPreviewRowsKey, rows [][]byte) {
 		ownedRows[index] = append([]byte(nil), row...)
 	}
 	entry := groupPreviewRowsEntry{key: key, rows: ownedRows, weight: weight}
+	c.putEntry(entry)
+}
 
+func (c *groupPreviewRowsCache) putDecision(key groupPreviewRowsKey, decision groupPreviewProjectionDecision) {
+	if c == nil || !key.decision {
+		return
+	}
+	weight := groupPreviewCacheKeyWeight(key) + groupPreviewDecisionWeight
+	if weight > groupPreviewCacheMaxEntryBytes {
+		return
+	}
+	ownedDecision := decision
+	entry := groupPreviewRowsEntry{key: key, decision: &ownedDecision, weight: weight}
+	c.putEntry(entry)
+}
+
+func (c *groupPreviewRowsCache) putEntry(entry groupPreviewRowsEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entries == nil {
 		c.entries = make(map[groupPreviewRowsKey]*list.Element)
 	}
-	if existing := c.entries[key]; existing != nil {
+	if existing := c.entries[entry.key]; existing != nil {
 		c.remove(existing)
 	}
 	element := c.lru.PushFront(entry)
-	c.entries[key] = element
-	c.bytes += weight
+	c.entries[entry.key] = element
+	c.bytes += entry.weight
 	for len(c.entries) > groupPreviewCacheMaxEntries || c.bytes > groupPreviewCacheMaxBytes {
 		c.remove(c.lru.Back())
 	}

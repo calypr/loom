@@ -29,6 +29,14 @@ type Client struct {
 
 const previewCursorCleanupTimeout = time.Second
 
+type queryMemoryLimitContextKey struct{}
+
+// WithQueryMemoryLimit adds a per-query ArangoDB memory cap. Callers that do
+// not set this option keep the server's configured query behavior.
+func WithQueryMemoryLimit(ctx context.Context, bytes int64) context.Context {
+	return context.WithValue(ctx, queryMemoryLimitContextKey{}, bytes)
+}
+
 // RowQueryer is the narrow row-query surface shared by Arango adapters. It is
 // also the only capability exposed to transaction callbacks.
 type RowQueryer interface {
@@ -273,6 +281,24 @@ func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, 
 		BatchSize: batchSize,
 		BindVars:  bindVars,
 		Options:   driver.QuerySubOptions{MaxRuntime: maxRuntime.Seconds()},
+	}
+	if memoryLimit, ok := ctx.Value(queryMemoryLimitContextKey{}).(int64); ok {
+		if memoryLimit <= 0 {
+			return fmt.Errorf("arango query memory limit must be positive")
+		}
+		options.MemoryLimit = memoryLimit
+		if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return context.DeadlineExceeded
+			}
+			if remaining < maxRuntime {
+				options.Options.MaxRuntime = remaining.Seconds()
+			}
+		}
 	}
 	return queryRowsWithOptions(ctx, queryer, query, options, visit, previewCursorCleanupTimeout)
 }
