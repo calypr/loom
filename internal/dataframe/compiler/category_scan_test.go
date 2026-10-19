@@ -668,3 +668,44 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 		t.Fatalf("category-only discovery without explicit Pivot value intent emitted prewarm metadata: %+v", withoutPair.PreviewCoveringIndex)
 	}
 }
+
+func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *testing.T) {
+	probe := "__expand_category_probe"
+	output := constructionExpandOutput()
+	construction := *output.Construction
+	construction.Steps = append([]recipe.ConstructionStep(nil), construction.Steps...)
+	construction.Steps = append(construction.Steps, recipe.ConstructionStep{
+		ID:     "pivot_after_expand",
+		Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_tags"}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+			ConstructionID: "pivot_after_expand", GroupKeyIDs: []string{"ordinal_id"},
+			CategoryColumnID: "status_id", ValueColumnID: "tag_id",
+			Categories: []recipe.ConstructionPivotCategory{{
+				Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &probe}, OutputColumnID: "probe_value_id",
+			}},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+		}},
+		Outputs: []recipe.StageColumn{
+			{ID: "ordinal_id", Name: "ordinal"},
+			{ID: "probe_value_id", Name: "__category_discovery_probe"},
+		},
+	})
+	output.Construction = &construction
+	compiled := compilePopulationMappingOutput(t, output)
+
+	scanned, err := CompileCategoryScanStageWithPolicy(compiled, "expand_tags", "status_id", "tag_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scanned.Proof.PresenceTracked {
+		t.Fatalf("source presence was dropped through Expand: proof=%#v\n%s", scanned.Proof, scanned.Query)
+	}
+	companion, ok := scanned.BindVars["__loom_category_presence_column"].(string)
+	if !ok || companion == "" {
+		t.Fatalf("Expand category scan did not consume its source presence companion: %#v", scanned.BindVars)
+	}
+	if !strings.Contains(scanned.Query, companion) {
+		t.Fatalf("Expand category query omitted presence companion %q:\n%s", companion, scanned.Query)
+	}
+}

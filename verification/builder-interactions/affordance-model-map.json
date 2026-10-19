@@ -1,0 +1,643 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
+  "modelFiles": [
+    "verification/builder-interactions/BuilderOperations.tla",
+    "verification/builder-interactions/BuilderPreview.tla",
+    "verification/builder-interactions/WorkspaceLifecycle.tla"
+  ],
+  "affordances": [
+    {
+      "id": "builder.add_columns.catalog_field",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React ConceptCatalog/BuilderWorkspace tests, Playwright raw-field selection, and Go construction_choice tests exercise browse, selection, proposal, and Apply."
+    },
+    {
+      "id": "builder.add_columns.catalog_semantic",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React ConceptCatalog coded-concept tests, Playwright coded-field selection, and Go semantic construction-choice tests exercise catalog semantic selection."
+    },
+    {
+      "id": "builder.add_columns.grouped_row_values",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React grouped-row policy tests, Playwright grouped-row value policy, and Go row_value_policy tests exercise ALL/ONE grouped-row values. The outer select is not separately browser-asserted."
+    },
+    {
+      "id": "builder.add_columns.related_field",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React related-field tests, the registered Playwright related-expand-field lifecycle, and Go related-field choice/removal/receipt tests exercise RELATED_FIELD."
+    },
+    {
+      "id": "builder.add_columns.source_selection",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React source-scope tests, Playwright source switching, and Go frame_source tests exercise exact source selection."
+    },
+    {
+      "id": "builder.automatic_preview_refresh_and_recovery",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "StartPreview",
+        "PreviewComplete",
+        "PreviewFailed",
+        "RetryTransient",
+        "RecompileReceipt",
+        "RefreshCatalog",
+        "AbortPreview",
+        "AcceptPreview"
+      ],
+      "implementationStatus": "tested",
+      "reason": "WorkspaceLifecycle.tla models preview identity, ready/loading/failed phases, transient retry, receipt recompilation, catalog refresh, abort, and accepted-identity stability."
+    },
+    {
+      "id": "builder.calculate.derive",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep",
+        "StartProposal",
+        "ProposalComplete",
+        "StartPreview",
+        "PreviewComplete",
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Covered by the real-controller schedules and the registered Go/UI replay fixtures."
+    },
+    {
+      "id": "builder.calculate.table_shape_derived_column",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React TableShape derived-column tests and Go table-shape proposal and capability tests exercise derived columns; no Playwright case exists."
+    },
+    {
+      "id": "builder.column.grouped_row_value_policy",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SetRowValuePolicy"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla models a row-value binding policy separate from ADD_COLUMNS policy; PreviewTable tests edit only saved explicit-group member bindings and reject missing/field-grouped bindings."
+    },
+    {
+      "id": "builder.column.presentation",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "RenameColumn",
+        "MoveColumn",
+        "ToggleVisibility"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla models non-empty label restoration, visibility, and ordering; ColumnSelector and PreviewTable tests cover rename, hide, reorder, and constructed-output presentation."
+    },
+    {
+      "id": "builder.column_filter_presentation",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SetFilterOffered"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla gates filter offering on capability; ColumnSelector tests disable unsupported filter/chart presentations and preserve configured filter toggles."
+    },
+    {
+      "id": "builder.column_selector.feature_policy",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SetFeaturePolicy"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla models capability-derived feature policy choices; FeaturePolicyEditor tests cover temporal windows, unit normalization, aggregate changes, and canceled edits."
+    },
+    {
+      "id": "builder.column_selector.local_search",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SearchColumns"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla models local query-to-result behavior; peripheral and ColumnSelector tests exercise case-insensitive local search without new requests."
+    },
+    {
+      "id": "builder.column_selector.related_aggregate_source",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "CreateRelatedAggregate"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla models the direct aggregate-source shortcut; ColumnSelector tests add related COUNT/EXISTS features without replacing fields."
+    },
+    {
+      "id": "builder.column_selector.remove_configured_column",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "RemoveConfiguredColumn"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla models removal and hiding; PreviewTable and ColumnSelector tests remove configured columns immediately and through constructed output ownership."
+    },
+    {
+      "id": "builder.column_source.inspect",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "InspectColumn",
+        "InspectSucceeded",
+        "InspectRejected"
+      ],
+      "implementationStatus": "tested",
+      "reason": "ColumnPresentation.tla binds inspection responses to the requested column and rejects mismatches; ColumnSelector tests show exact source details and hand off the feature to the graph."
+    },
+    {
+      "id": "builder.combine.append",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React combine-editor tests, Playwright draft/published append lifecycles, and Go compile, validation, and apply tests exercise APPEND."
+    },
+    {
+      "id": "builder.combine.key_join",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React combine-editor tests, Playwright Group-to-Group and Group-to-Pivot joins, and Go compile, validation, and IR tests exercise KEY_JOIN."
+    },
+    {
+      "id": "builder.combine.membership",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React membership tests, Playwright INCLUDE/EXCLUDE lifecycle, and Go validation and IR tests exercise MEMBERSHIP."
+    },
+    {
+      "id": "builder.construction_proposal_apply_cancel_retry",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "StartProposal",
+        "ReplaceProposal",
+        "ProposalComplete",
+        "ProposalError",
+        "CancelProposal",
+        "RetryProposal",
+        "StartPreview",
+        "PreviewComplete",
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "implementationStatus": "tested",
+      "reason": "BuilderPreview.tla and BuilderPreviewSafety.cfg cover proposal start/replace/complete/error, cancel, retry, preview, Apply, and acknowledgment ownership. Transport persistence remains workspace orchestration outside the ownership model."
+    },
+    {
+      "id": "builder.construction_step_editor_routing",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "RouteSavedStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "RouteSavedStep selects an existing saved step and Inv_RoutedEditorMatchesSavedOperation binds the routed editor family to the saved operation."
+    },
+    {
+      "id": "builder.dataset_review.navigation",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "FocusReview"
+      ],
+      "implementationStatus": "tested",
+      "reason": "SupportingSurfaces.tla models review focus without writes; DatasetReviewPanel tests route incomplete tables, publication blockers, and field diagnostics to the responsible action."
+    },
+    {
+      "id": "builder.delete_explorer_no_fallback",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "DeleteCapability",
+        "DeleteExplorer",
+        "Inv_DeleteKeepsFallback"
+      ],
+      "implementationStatus": "tested",
+      "reason": "WorkspaceLifecycle.tla models the delete-capability gate, confirmed deletion, last-explorer guard, and fallback selection; server deletion remains out of scope."
+    },
+    {
+      "id": "builder.demo_entry_route",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ParseRoute",
+        "SelectionReady",
+        "SelectionFailed",
+        "ReplaceExplorer",
+        "SetFeatureFocus"
+      ],
+      "implementationStatus": "tested",
+      "reason": "LifecycleEntry.tla models demo query selection/focus and history-replace navigation; BuilderWorkspace.route tests cover route-selected Explorer, client-side navigation, controlled updates, and feature focus."
+    },
+    {
+      "id": "builder.explorer_create_delete",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "CreateExplorer",
+        "DeleteExplorer",
+        "SelectExplorer",
+        "DeleteCapability"
+      ],
+      "implementationStatus": "tested",
+      "reason": "WorkspaceLifecycle.tla models explorer creation, deletion, selection, fallback, and disabled deletion when unsupported. Positive server deletion remains out of scope until the backend exposes a DELETE route."
+    },
+    {
+      "id": "builder.filter_rows.related_eligibility",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "RELATED_ELIGIBILITY is an authored operation in BuilderOperations.tla; the model requires a related anchor and scalar input, and Inv_NoUiOfferedUnsupportedOperation covers the offer/support boundary. Route and contributor validation remain Go-tested."
+    },
+    {
+      "id": "builder.filter_rows.scalar_condition",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep",
+        "StartProposal",
+        "ProposalComplete",
+        "StartPreview",
+        "PreviewComplete",
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Covered by the real-controller schedules and the registered Go/UI replay fixtures."
+    },
+    {
+      "id": "builder.first_table_from_root",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep",
+        "StartProposal",
+        "ProposalComplete",
+        "StartPreview",
+        "PreviewComplete",
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Covered by the real-controller schedules and the registered Go/UI replay fixtures."
+    },
+    {
+      "id": "builder.frame_source.manage_existing",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "BeginFrameReplace",
+        "BeginFrameRemove",
+        "ConfirmFrameChange",
+        "ApplyFrameReplace",
+        "ApplyFrameRemove",
+        "CancelFrameChange"
+      ],
+      "implementationStatus": "tested",
+      "reason": "SupportingSurfaces.tla models confirmation-gated replace/remove and the disabled new-source path; FrameSourcePanel tests pass alone and cover scoped page ownership and saved-source identity."
+    },
+    {
+      "id": "builder.guided_graph.view_state",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ToggleGraphOrphans",
+        "ExpandGraph",
+        "InspectGraphNode"
+      ],
+      "implementationStatus": "tested",
+      "reason": "SupportingSurfaces.tla models orphan visibility, expansion, and inline inspection; GuidedGraphWorkspace tests cover all three plus stale-route and sibling selection behavior."
+    },
+    {
+      "id": "builder.interpretation.create_revision_from_column",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "BeginCreate",
+        "CreateRevision",
+        "CreateBlocked",
+        "CreateFailed",
+        "CancelCreate"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Interpretation.tla requires a non-empty explanation and applicable/new library identity and keeps a created revision unapplied; InterpretationPanel tests cover creation without rules or auto-apply."
+    },
+    {
+      "id": "builder.interpretation.preview_and_apply_candidate",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ReviewCandidate",
+        "ReviewReady",
+        "ApplyCandidate",
+        "ReviewStale"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Interpretation.tla binds review/apply to the exact receipt and revision and marks bounded reviews incomplete; InterpretationPanel tests review, cancel, and apply the exact receipt."
+    },
+    {
+      "id": "builder.population.attach_or_replace_selection",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "LookupRoutes",
+        "AttachSelection",
+        "ReplaceSelection",
+        "RouteLookupFailed"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Population.tla keeps the attached collection until an explicit supported replacement and models route-search failures; PopulationPanel tests direct/alternate routes and replacement withholding."
+    },
+    {
+      "id": "builder.population.clear_attached_selection",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ClearAttached"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Population.tla models explicit clear to no selection; PopulationPanel tests expose the all-authorized-resource path without clearing on revision load."
+    },
+    {
+      "id": "builder.population.exclude_unmapped_member",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ExcludeMember",
+        "ExcludeRouteFound",
+        "ExcludeRouteMissing"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Population.tla models an immutable exclusion revision attached only when the matching route returns; PopulationPanel tests fail closed when no route is found."
+    },
+    {
+      "id": "builder.population.review_and_remove_attached_member",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ReviewRemoval",
+        "RemovalReviewReady",
+        "ApplyRemoval",
+        "RemovalFailed"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Population.tla requires a review receipt before Apply and preserves the accepted collection on failure; PopulationMemberRemoval tests cover preview, Cancel, exact receipt Apply, and stale completion rejection."
+    },
+    {
+      "id": "builder.population.selected_resource_coverage_check",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "RequestCoverage",
+        "CoverageComplete",
+        "CoverageIncomplete",
+        "CoverageStale"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Population.tla rejects stale scope responses and keeps incomplete coverage out of exact counts; PopulationPanel tests complete/incomplete report states and ignore deferred reports after receipt/selection changes."
+    },
+    {
+      "id": "builder.preview_table.inspect_row_sources",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "RequestRowSources",
+        "RowSourcesReady",
+        "RowSourcesUnavailable",
+        "NextLineagePage"
+      ],
+      "implementationStatus": "tested",
+      "reason": "SupportingSurfaces.tla binds lineage to the requested row, pages 25 contributors, and marks unavailable lineage incomplete; PreviewTable tests cover saved row identity, grouped rows, pagination, and unsupported lineage."
+    },
+    {
+      "id": "builder.related_source_column",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React related-source tests, the Playwright related-expand-field lifecycle, and Go related-source route/apply tests exercise related source."
+    },
+    {
+      "id": "builder.reshape.expand_scalar_list",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React reshape tests, Go EXPAND compile tests, and the implemented EXPAND browser scenario exercise scalar-list expansion."
+    },
+    {
+      "id": "builder.reshape.group_coded",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React reshape tests, Go coded-GROUP tests, and implemented browser scenarios exercise coded grouping."
+    },
+    {
+      "id": "builder.reshape.group_field",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep",
+        "StartProposal",
+        "ProposalComplete",
+        "StartPreview",
+        "PreviewComplete",
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Covered by the real-controller schedules and the registered Go/UI replay fixtures."
+    },
+    {
+      "id": "builder.reshape.pivot_coded",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React coded-Pivot tests and Go coded-Pivot lower/compiler tests exercise CODED_PIVOT. Registered browser cases have not been rerun at current source."
+    },
+    {
+      "id": "builder.reshape.pivot_values",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React reshape tests, Go table-reshape tests, and the implemented Pivot browser scenario exercise Pivot values."
+    },
+    {
+      "id": "builder.reshape.related_expand",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React RelatedExpand tests, Go related-expand tests, and the implemented five-hop browser scenario exercise bounded related expansion."
+    },
+    {
+      "id": "builder.reshape.unpivot",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React reshape tests, Go Unpivot tests, and the implemented related-Unpivot browser scenario exercise Unpivot."
+    },
+    {
+      "id": "builder.restore_previous_draft_undo",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SaveDraft",
+        "StartRestore",
+        "RestoreComplete",
+        "CancelRestore",
+        "StaleDraft"
+      ],
+      "implementationStatus": "tested",
+      "reason": "DraftRestore.tla models the immediate-predecessor restore request, restart on new saves, cancellation, and request clearing after completion or stale drafts."
+    },
+    {
+      "id": "builder.root.change_or_replace",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "BeginChange",
+        "WorkspaceChanged",
+        "AssessmentNoChange",
+        "AssessmentBlocked",
+        "AssessmentStale",
+        "AssessmentReady",
+        "PreviewReady",
+        "PreviewUnavailable",
+        "ApplyPreview",
+        "Cancel"
+      ],
+      "implementationStatus": "tested",
+      "reason": "RootChange.tla models assessment, stale-epoch rejection, blocked choices, preview identity, apply restricted to the current preview, cancellation, and workspace changes."
+    },
+    {
+      "id": "builder.row_definition.expanded_source_rows",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep",
+        "StartProposal",
+        "ProposalComplete",
+        "StartPreview",
+        "PreviewComplete",
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "implementationStatus": "tested",
+      "reason": "Covered by the real-controller schedules and the registered Go/UI replay fixtures."
+    },
+    {
+      "id": "builder.row_definition.explicit_groups",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React explicit-group tests, the Playwright cohort-membership revision case, and Go row-proposal and explicit-group tests exercise explicit groups."
+    },
+    {
+      "id": "builder.row_definition.rows_per_starting_record",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React row-definition policy tests, Playwright repeated-rows selection, and Go expanded-row proposal tests exercise records-per-starting-record. The Go replay registry still rejects this exact entry ID."
+    },
+    {
+      "id": "builder.row_definition_proposal_apply_cancel",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SelectRow",
+        "RequestProposal",
+        "ProposalComplete",
+        "ProposalFailed",
+        "CancelProposal",
+        "ApplyProposal"
+      ],
+      "implementationStatus": "tested",
+      "reason": "RowDefinitionLifecycle.tla models row selection, versioned proposal request, ready/failed outcomes, cancellation, and apply restricted to the current selection version."
+    },
+    {
+      "id": "builder.server_saved_draft_and_reconcile",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "StartCommand",
+        "CommandSuccess",
+        "CommandStale",
+        "ReconcileStart",
+        "ReconcileSuccess",
+        "ReconcileRepair",
+        "AuthoredChange",
+        "RetryReconcile"
+      ],
+      "implementationStatus": "tested",
+      "reason": "LifecycleEntry.tla models current-draft command identity, authoritative stale reload, receipt fingerprint/explorer validity, rooted-table reconciliation, and bounded retry; focused reconciliation tests cover persisted drafts, automatic reconcile/preview, and pending-command abort."
+    },
+    {
+      "id": "builder.table_route_and_occurrence_selection",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "SelectTable",
+        "SelectOccurrence",
+        "AddRoute",
+        "RemoveRoute",
+        "CommandsApplied"
+      ],
+      "implementationStatus": "tested",
+      "reason": "WorkspaceLifecycle.tla models table selection reset, occurrence membership, legal route edges, removal fallback, and command application fallback."
+    },
+    {
+      "id": "builder.workspace_hydration_and_explorer_selection",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "ExplorerListComplete",
+        "ExplorerListError",
+        "HydrateBuilder",
+        "SelectExplorer"
+      ],
+      "implementationStatus": "tested",
+      "reason": "WorkspaceLifecycle.tla models list completion/error, effective-explorer resolution, remembered-table hydration, and explorer-switch invalidation."
+    },
+    {
+      "id": "legacy.table_shape.grouped_pivot",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React legacy table-shape grouped-Pivot tests and Go table-shape proposal/capability tests exercise the legacy grouped Pivot. No Playwright case exists for this legacy path."
+    },
+    {
+      "id": "legacy.table_shape.unpivot",
+      "modelStatus": "modeled",
+      "modelActions": [
+        "AuthorStep"
+      ],
+      "implementationStatus": "tested",
+      "reason": "React legacy table-shape Unpivot tests and Go table-shape proposal/comparison tests exercise the legacy Unpivot. No Playwright case exists for this legacy path."
+    }
+  ]
+}

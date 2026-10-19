@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "source-backed-provisional; model-and-adapter-coverage-pending",
-  "sourceCommit": "63e330d12cc62c30563e3735d6e33ab6f88afdb0",
+  "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
   "scope": {
     "included": "Mounted Builder workspace and preview affordances, including capability-conditional and visible-disabled controls, lifecycle, and actual app entry/routing behavior.",
     "excluded": [
@@ -255,7 +255,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-        "sha256": "1a24c75f5e2ff2c7a11740ef5305e33cd3c169661108930edfbc1cae9fe27a14"
+        "sha256": "c50c4f9c7210d70be7760d282659264690eb6f9073b70152efff74520906380e"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
@@ -359,7 +359,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-        "sha256": "02ca6f5b6e629c88bcc0d581f1ff9cf811a7c5f361fd54373919b16e523c8e06"
+        "sha256": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/discovery/ObservedCodeEvidence.tsx",

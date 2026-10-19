@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { exploreOperationHistory } from '../verification/builder-interactions/operationHistoryModel.mjs';
 
 const ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+process.env.GOCACHE = process.env.LOOM_GO_CACHE || join(tmpdir(), 'loom-go-build-cache');
 const OPERATION_SOURCES = [
   {
     path: 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx',
@@ -21,7 +22,7 @@ const OPERATION_SOURCES = [
   },
   {
     path: 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx',
-    sha256: '1a24c75f5e2ff2c7a11740ef5305e33cd3c169661108930edfbc1cae9fe27a14',
+    sha256: 'c50c4f9c7210d70be7760d282659264690eb6f9073b70152efff74520906380e',
   },
   {
     path: 'internal/explorer/authoringv2/construction_change.go',
@@ -42,7 +43,7 @@ const OPERATION_SOURCES = [
 ];
 const OPERATION_SERVER_TEST = {
   path: 'internal/server/openapi_explorer_construction_proposal_test.go',
-  sha256: 'a8a51c2eb72207d0e0ec2e347c136ca0d79dc154a4d07b88aed3a49b9747a767',
+  sha256: '9c0f2d5646356e492bcdc15b85903923751f3611d922e89a3a7e38187b977885',
 };
 const GO_SERVER_TESTS = [
   'TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly',

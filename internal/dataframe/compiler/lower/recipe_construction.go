@@ -1113,10 +1113,17 @@ func carryConstructionPresenceCompanions(input, output []CompiledOutputColumn, p
 		if !found || prior.PresenceCompanionName != companionName {
 			continue
 		}
-		projections = append(projections, ir.PhysicalProjection{
+		presenceProjection := ir.PhysicalProjection{
 			Name: companionName, Hidden: true,
 			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{companionName}},
-		})
+		}
+		// Expand already emits its generated row identity projection; keep the
+		// presence projection before it so schema and projection order stay aligned.
+		if hasPhysicalProjectionName(projections, constructionRowID) {
+			projections = insertProjectionBeforeIdentity(projections, presenceProjection, constructionRowID)
+		} else {
+			projections = append(projections, presenceProjection)
+		}
 	}
 	return output, projections
 }

@@ -247,11 +247,14 @@ describe('useConstructionLifecycle', () => {
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.canApply).toBe(true);
     let proposalId: string | undefined;
+    let duplicateProposalId: string | undefined;
     await act(async () => {
       const ready = await repairedAttempt;
       proposalId = result.current.beginApply(ready);
+      duplicateProposalId = result.current.beginApply(ready);
     });
     expect(proposalId).toBe('proposal-1');
+    expect(duplicateProposalId).toBeUndefined();
     expect(result.current.proposal.status).toBe('applying');
     unmount();
   });

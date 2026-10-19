@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
+  "models": {
+    "BuilderPreview": {
+      "module": "BuilderPreview.tla",
+      "safetyConfig": "BuilderPreviewSafety.cfg",
+      "actions": [
+        "StartProposal",
+        "ReplaceProposal",
+        "ProposalComplete",
+        "ProposalError",
+        "LateProposalCompleteIgnored",
+        "CancelProposal",
+        "RetryProposal",
+        "StartPreview",
+        "PreviewComplete",
+        "LatePreviewCompleteIgnored",
+        "BeginApply",
+        "ApplyAck",
+        "ChangeDraft",
+        "Reconcile",
+        "SetPivotPair",
+        "ScheduleDiscovery",
+        "DiscoveryComplete",
+        "ChangePivotKey",
+        "UnmountEditor",
+        "AdoptDiscovery"
+      ]
+    },
+    "ConstructionLifecycle": {
+      "module": "ConstructionLifecycle.tla",
+      "actions": [
+        "StartProposal(P1)",
+        "StartProposal(P2)",
+        "ReplaceProposalOwner",
+        "RetryProposal(P1-to-P2)",
+        "CancelProposalOwner",
+        "ProposalComplete(P1)",
+        "ProposalComplete(P2)",
+        "ProposalError(P1)",
+        "ProposalError(P2)",
+        "LateProposalErrorIgnored(P1)",
+        "LateProposalErrorIgnored(P2)",
+        "LateProposalCompleteIgnored(P1)",
+        "LateProposalCompleteIgnored(P2)",
+        "PreviewComplete(P1)",
+        "PreviewComplete(P2)",
+        "PreviewError(P1)",
+        "PreviewError(P2)",
+        "LatePreviewErrorIgnored(P1)",
+        "LatePreviewErrorIgnored(P2)",
+        "LatePreviewCompleteIgnored(P1)",
+        "LatePreviewCompleteIgnored(P2)",
+        "BeginApply(accepted)",
+        "BeginApply(rejected)",
+        "ChangeDraftIdentity(A-to-B)",
+        "ChangeDraftIdentity(B-to-A)"
+      ]
+    }
+  },
+  "actionBindings": {
+    "StartProposal": {
+      "event": "propose-construction",
+      "trigger": "client.proposeConstruction"
+    },
+    "ReplaceProposal": {
+      "event": "propose-construction",
+      "trigger": "client.proposeConstruction replacement"
+    },
+    "ProposalComplete": {
+      "event": "proposal-response",
+      "trigger": "proposal response accepted as ready"
+    },
+    "ProposalError": {
+      "event": "proposal-response",
+      "trigger": "proposal response rejected, needs repair, missing receipt, or transport error"
+    },
+    "StartPreview": {
+      "event": "preview",
+      "trigger": "client.preview or accepted embedded preview"
+    },
+    "PreviewComplete": {
+      "event": "preview-response",
+      "trigger": "preview response accepted or rejected"
+    },
+    "CancelProposal": {
+      "event": "cancel",
+      "trigger": "lifecycle.cancel"
+    },
+    "RetryProposal": {
+      "event": "retry",
+      "trigger": "lifecycle.retry"
+    },
+    "BeginApply": {
+      "event": "begin-apply",
+      "trigger": "lifecycle.beginApply accepted"
+    },
+    "ApplyAck": {
+      "event": "finish-apply",
+      "trigger": "lifecycle.finishApply"
+    },
+    "ChangeDraft": {
+      "event": "identity-change",
+      "trigger": "capabilities request identity rerender"
+    },
+    "StartProposal(P1)": {
+      "event": "propose-construction",
+      "trigger": "ConstructionLifecycle client.proposeConstruction"
+    },
+    "ChangeDraftIdentity(A-to-B)": {
+      "event": "identity-change",
+      "trigger": "ConstructionLifecycle A-to-B rerender"
+    },
+    "ChangeDraftIdentity(B-to-A)": {
+      "event": "identity-change",
+      "trigger": "ConstructionLifecycle B-to-A rerender"
+    },
+    "ProposalComplete(P1)": {
+      "event": "proposal-response",
+      "trigger": "ConstructionLifecycle proposal response accepted with embedded preview"
+    },
+    "BeginApply(accepted)": {
+      "event": "begin-apply",
+      "trigger": "ConstructionLifecycle lifecycle.beginApply accepted"
+    }
+  },
+  "observationFields": [
+    "status",
+    "canApply",
+    "proposalIdPresent",
+    "previewReceiptPresent",
+    "rowsPresent"
+  ],
+  "phase1": {
+    "expectedTraceCount": 61,
+    "expectedScheduleCount": 61,
+    "expectedFindingCount": 0,
+    "requiredModels": [
+      "BuilderPreview",
+      "ConstructionLifecycle"
+    ],
+    "requiredActions": [
+      "StartProposal",
+      "ReplaceProposal",
+      "ProposalComplete",
+      "ProposalError",
+      "CancelProposal",
+      "RetryProposal",
+      "StartPreview",
+      "PreviewComplete",
+      "BeginApply",
+      "ApplyAck",
+      "ChangeDraft",
+      "StartProposal(P1)",
+      "ChangeDraftIdentity(A-to-B)",
+      "ChangeDraftIdentity(B-to-A)",
+      "ProposalComplete(P1)",
+      "BeginApply(accepted)"
+    ],
+    "requiredEvents": [
+      "propose-construction",
+      "proposal-response",
+      "preview",
+      "preview-response",
+      "cancel",
+      "retry",
+      "begin-apply",
+      "finish-apply",
+      "identity-change"
+    ]
+  }
+}

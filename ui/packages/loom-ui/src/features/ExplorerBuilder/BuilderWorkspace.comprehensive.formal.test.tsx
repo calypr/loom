@@ -534,7 +534,7 @@ if (contractPhase === 'inventory') {
       const unknownIds = registryIds.filter((id) => !inventoryIds.has(id));
       const missingAdapterIds = [...inventoryIds].filter((id) => !registryIds.includes(id)).sort();
       expect(inventory.schemaVersion).toBe(1);
-      expect(inventory.sourceCommit).toBe('63e330d12cc62c30563e3735d6e33ab6f88afdb0');
+      expect(inventory.sourceCommit).toBe('dc331783dde3f61e764bab3a421b66b28698c9d4');
       expect(duplicateIds).toEqual([]);
       expect(unknownIds).toEqual([]);
       const adapterSources = adapterSourceManifest();
@@ -769,7 +769,7 @@ if (contractPhase === 'inventory') {
         recordType: 'header',
         schemaVersion: 1,
         phase: 'capture',
-        sourceCommit: '63e330d12cc62c30563e3735d6e33ab6f88afdb0',
+        sourceCommit: 'dc331783dde3f61e764bab3a421b66b28698c9d4',
         adapterCommit: process.env.BUILDER_CONTRACT_ADAPTER_COMMIT ?? null,
         inventorySha256: inventoryBytes ? createHash('sha256').update(inventoryBytes).digest('hex') : null,
         modelJsonlSha256: captureModelFile?.bytes ? createHash('sha256').update(captureModelFile.bytes).digest('hex') : null,
