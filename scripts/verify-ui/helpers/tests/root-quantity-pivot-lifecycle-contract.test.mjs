@@ -101,3 +101,33 @@ test('reopening a Pivot after Cancel reads browser state through the page snapsh
     '[data-testid="construction-action-table-pivot-rows"]',
   ]);
 });
+
+test('preview collection returns through Back to table only while row settings cover the result', async () => {
+  const source = await readFile(new URL('../../workflows/root-quantity-pivot-workflow.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('const returnToTableBeforePreview = async');
+  const end = source.indexOf('\n};', start);
+  assert(start >= 0 && end > start, 'Workflow must retain the preview row-settings transition');
+  const helper = source.slice(start, end + 3);
+
+  const runHelper = async dialogCount => {
+    const clicks = [];
+    const backButton = { click: async ({ timeout }) => clicks.push(timeout) };
+    const dialog = {
+      count: async () => dialogCount,
+      getByRole: () => backButton,
+    };
+    const closeSettings = runInNewContext(`${helper}\nreturnToTableBeforePreview`, {
+      assert,
+      page: { getByRole: () => dialog },
+      action: async (_label, target, perform) => perform(target),
+      waitForBrowser: async (_page, predicate) => assert.match(predicate, /Row definition settings/),
+    });
+    return { closed: await closeSettings(100), clicks };
+  };
+
+  const closed = await runHelper(1);
+  assert.equal(closed.closed, true);
+  assert.equal(closed.clicks.length, 1);
+  assert(closed.clicks[0] > 0 && closed.clicks[0] <= 100, 'Native Back to table click must inherit the remaining action budget');
+  assert.deepEqual(await runHelper(0), { closed: false, clicks: [] });
+});
