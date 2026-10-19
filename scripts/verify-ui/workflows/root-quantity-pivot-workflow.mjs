@@ -76,6 +76,55 @@ export function authoringRequestsFromNative(nativeRequests) {
     }));
 }
 
+export function rootQuantityPivotLifecycleEvidence(authoringRequests, oracle) {
+  const requestCounts = {
+    categoryDiscoveries: authoringRequests.filter(request => request.endpoint === 'construction-category-discoveries').length,
+    proposals: authoringRequests.filter(request => request.endpoint === 'construction-proposals').length,
+    expectedCardinalityValidations: authoringRequests.filter(request => request.endpoint === 'construction-proposals'
+      && request.status === 422 && request.response?.error?.code === 'TABLE_PIVOT_CELL_CARDINALITY').length,
+    successfulProposals: authoringRequests.filter(request => request.endpoint === 'construction-proposals' && request.status === 200).length,
+    commands: authoringRequests.filter(request => request.endpoint === 'commands').length,
+  };
+  assert.deepEqual(requestCounts, {
+    categoryDiscoveries: 2,
+    proposals: 6,
+    expectedCardinalityValidations: 2,
+    successfulProposals: 4,
+    commands: 3,
+  }, 'Full-population Pivot must issue exactly two discoveries, two expected duplicate validations, four ready proposals, and three Apply commands');
+
+  const missingIdentity = 'MISSING';
+  const stringDIdentity = JSON.stringify({ kind: 'STRING', string: 'd' });
+  const rawCategoryIdentities = [...oracle.categoryIdentities].sort();
+  assert(rawCategoryIdentities.includes(missingIdentity), 'Independent full-population oracle must retain the MISSING category');
+  assert(rawCategoryIdentities.includes(stringDIdentity), 'Independent full-population oracle must retain the exact string category d');
+  const missingCategory = oracle.categories.find(category => !category.present);
+  const stringDCategory = oracle.categories.find(category => category.present && category.value === 'd');
+  assert(missingCategory && missingCategory.rowCount > 0, 'Raw full-population MISSING category must have source rows');
+  assert(stringDCategory && stringDCategory.rowCount > 0, 'Raw full-population string d category must have source rows');
+  const witness = oracle.duplicateWitness;
+  assert(witness?.present && witness.value === 'd', 'The independent duplicate witness must target the exact string d category');
+  assert(witness.rowCount > 1 && witness.numericCount > 1, 'The raw d witness must contain multiple numeric values');
+  assert.notEqual(witness.valueSum, witness.valueMax, 'The raw d witness must make SUM and MAX observably different');
+
+  return {
+    requestCounts,
+    rawCategoryIdentities,
+    rawCategoryRows: {
+      missing: missingCategory.rowCount,
+      stringD: stringDCategory.rowCount,
+    },
+    duplicateWitness: {
+      category: stringDIdentity,
+      status: witness.status,
+      rowCount: witness.rowCount,
+      numericCount: witness.numericCount,
+      sum: witness.valueSum,
+      max: witness.valueMax,
+    },
+  };
+}
+
 export const pivotSourceSelectionReady = ({ selector, sourceValue, role, expectedLabel }) => {
   const control = document.querySelector(selector);
   const sourceOptionRemains = control && [...control.options].some(option => option.value === sourceValue);
@@ -202,6 +251,8 @@ const recordRequirement = (name, condition, evidence = {}, dimension = 'correctn
   return check(dimension, name, passed, evidence);
 };
 const requestCheckpoint = () => browserRequestCapture?.requests.length ?? 0;
+const authoringRequestCount = endpoint => authoringRequestsFromNative(browserRequestCapture?.requests ?? [])
+  .filter(request => request.endpoint === endpoint).length;
 const waitForAuthoringEntry = async (fromIndex, endpoint, timeoutMs = observerTimeoutBudgetMs) => {
   const entry = await browserRequestCapture.waitForResponse(
     request => request.path.split('/').at(-1) === endpoint && request.method === 'POST',
@@ -1069,9 +1120,11 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
       && validation.rawDuplicateBucket?.sum !== validation.rawDuplicateBucket?.max),
   { validations: report.expectedAuthoringValidations });
 
+  const commandsBeforeInitialApply = authoringRequestCount('commands');
   const applyStarted = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
+  assert.equal(authoringRequestCount('commands'), commandsBeforeInitialApply + 1, 'Initial Pivot Apply must issue exactly one native command');
   await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Applied full CDA quantity Pivot');
   measure('full CDA quantity Pivot Apply to render', applyStarted);
   builder = await api(base + '/builder');
@@ -1168,9 +1221,11 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   assert.notEqual(witnessSum, witnessMax, 'The selected duplicate witness must make the SUM→MAX edit observable');
   await assertProposalPanel(editPivot, 'Edited full CDA Pivot preview');
   measure('full CDA quantity Pivot edit preview', editStarted);
+  const commandsBeforeEditApply = authoringRequestCount('commands');
   const editApplyStarted = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
+  assert.equal(authoringRequestCount('commands'), commandsBeforeEditApply + 1, 'SUM→MAX edit Apply must issue exactly one native command');
   await assertRendered(editPivot.columns, editPivot.expectedRows, 'Edited full CDA quantity Pivot');
   measure('full CDA quantity Pivot edit Apply to render', editApplyStarted);
   builder = await api(base + '/builder');
@@ -1237,9 +1292,11 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
     rawTuples: boundedRawTuples,
   };
   measure('full CDA quantity Pivot removal preview', removeStarted, removePreviewRenderedAt);
+  const commandsBeforeRemovalApply = authoringRequestCount('commands');
   const removeApplyStarted = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 10000);
+  assert.equal(authoringRequestCount('commands'), commandsBeforeRemovalApply + 1, 'Pivot removal Apply must issue exactly one native command');
   await assertRendered(sourceColumns, displayedRestoredRows, 'Restored full CDA quantity source preview');
   measure('full CDA quantity Pivot removal Apply to render', removeApplyStarted);
   builder = await api(base + '/builder');
@@ -1327,6 +1384,11 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   report.fullPopulationLifecycle.editedWitnessSum = witnessSum;
   report.fullPopulationLifecycle.editedWitnessMax = witnessMax;
   report.fullPopulationLifecycle.lifecycle = ['Preview', 'Cancel', 'Apply', 'reload', 'edit heading/policy', 'Apply', 'reload', 'remove', 'restore', 'reload'];
+  const lifecycleEvidence = rootQuantityPivotLifecycleEvidence(report.authoringRequests, oracle);
+  report.fullPopulationLifecycle.requestCounts = lifecycleEvidence.requestCounts;
+  report.fullPopulationLifecycle.rawCategoryIdentities = lifecycleEvidence.rawCategoryIdentities;
+  report.fullPopulationLifecycle.rawCategoryRows = lifecycleEvidence.rawCategoryRows;
+  recordRequirement('full-population Pivot request counts and independent MISSING/string categories match the lifecycle contract', true, lifecycleEvidence);
 };
   try {
   if (isFixture) {

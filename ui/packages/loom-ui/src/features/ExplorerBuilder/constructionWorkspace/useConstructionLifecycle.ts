@@ -14,6 +14,7 @@ import type {
   ExplorerBuilderPreviewResult,
 } from '../../../types';
 import type {
+  CompletePivotDiscovery,
   ConstructionReshapePivotDiscovery,
   ConstructionReshapePivotDiscoveryRequest,
 } from '../constructionOperations/ConstructionReshapeEditor';
@@ -62,6 +63,19 @@ type PivotDiscoveryLoad = {
   readonly key: string;
   readonly state: ConstructionReshapePivotDiscovery | undefined;
 };
+
+const pivotDiscoveryLoadIdentity = (
+  requestKey: string,
+  request: ConstructionReshapePivotDiscoveryRequest,
+): string => JSON.stringify([
+  requestKey,
+  request.stageId,
+  request.categoryColumnId,
+  request.valueColumnId,
+  request.pivotSources?.length
+    ? { pivotStepId: request.pivotStepId, groupKeyIds: request.groupKeyIds, pivotSources: request.pivotSources }
+    : undefined,
+]);
 
 const capabilitiesIdentity = (
   args: GetConstructionCapabilitiesArgs | undefined,
@@ -348,10 +362,13 @@ export const useConstructionLifecycle = ({
     candidateIntent.current = undefined;
   }, [invalidateProposalRequest]);
 
-  const onDiscoverCategories = useCallback((request: ConstructionReshapePivotDiscoveryRequest) => {
+  const onDiscoverCategories = useCallback((
+    request: ConstructionReshapePivotDiscoveryRequest,
+    onComplete?: (discovery: CompletePivotDiscovery) => void,
+  ) => {
     invalidatePivotDiscovery();
     const args = capabilitiesRequestRef.current;
-    const discoveryKey = JSON.stringify([requestKey, request.stageId, request.categoryColumnId, request.valueColumnId, request.pivotSources]);
+    const discoveryKey = pivotDiscoveryLoadIdentity(requestKey, request);
     if (!args || request.stageId !== args.stageId) {
       setPivotDiscoveryLoad({
         key: discoveryKey,
@@ -427,6 +444,7 @@ export const useConstructionLifecycle = ({
           key: discoveryKey,
           state: nextState,
         });
+        if (nextState.status === 'complete') onComplete?.(nextState);
       },
     ).catch((error: unknown) => {
       if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
@@ -495,13 +513,7 @@ export const useConstructionLifecycle = ({
       ? { status: 'loading' as const }
       : { status: 'idle' as const };
   const activePivotDiscoveryKey = pivotDiscoveryLoad.state
-    ? JSON.stringify([
-        requestKey,
-        pivotDiscoveryLoad.state.stageId,
-        pivotDiscoveryLoad.state.categoryColumnId,
-        pivotDiscoveryLoad.state.valueColumnId,
-        pivotDiscoveryLoad.state.pivotSources,
-      ])
+    ? pivotDiscoveryLoadIdentity(requestKey, pivotDiscoveryLoad.state)
     : '';
   const activePivotDiscovery = pivotDiscoveryLoad.key === activePivotDiscoveryKey
     ? pivotDiscoveryLoad.state

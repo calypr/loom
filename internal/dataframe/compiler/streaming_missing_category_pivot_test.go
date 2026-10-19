@@ -92,15 +92,22 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		}
 	}
 	pivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
-	categoryColumnBind := streamingTestBindKey(query.BindVars, "reshape_category_column", pivot.CategoryColumn)
-	presenceColumnBind := streamingTestBindKey(query.BindVars, "reshape_category_presence_column", pivot.CategoryPresenceColumn)
-	if categoryColumnBind == "" || presenceColumnBind == "" {
-		t.Fatalf("category/presence bind keys missing: category=%q presence=%q", categoryColumnBind, presenceColumnBind)
+	if streamingTestBindKey(query.BindVars, "reshape_category_column", pivot.CategoryColumn) != "" ||
+		streamingTestBindKey(query.BindVars, "reshape_category_presence_column", pivot.CategoryPresenceColumn) != "" {
+		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", query.BindVars)
 	}
-	missingMatch := fmt.Sprintf("NOT (%s[@%s] == true)", pivot.InputRowVariable, presenceColumnBind)
-	nullMatch := fmt.Sprintf("(%s[@%s] == true AND %s[@%s] == null)", pivot.InputRowVariable, presenceColumnBind, pivot.InputRowVariable, categoryColumnBind)
+	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
+	presenceValue := streamingTestDirectScalarVariable(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
+	if categoryValue == "" || presenceValue == "" {
+		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, query.Query)
+	}
+	missingMatch := fmt.Sprintf("NOT (%s == true)", presenceValue)
+	nullMatch := fmt.Sprintf("(%s == true AND %s == null)", presenceValue, categoryValue)
 	if !strings.Contains(query.Query, missingMatch) || !strings.Contains(query.Query, nullMatch) {
 		t.Fatalf("MISSING and explicit NULL categories are not distinguished by the presence sidecar: missing=%q null=%q\n%s", missingMatch, nullMatch, query.Query)
+	}
+	if strings.Contains(query.Query, "LET "+pivot.InputRowVariable+" = {") || strings.Contains(query.Query, pivot.InputRowVariable+"[@") {
+		t.Fatalf("direct scalar Pivot retained its temporary input row object or field reads:\n%s", query.Query)
 	}
 
 	// The renderer must not rewrite the validated canonical stage while it
@@ -320,6 +327,20 @@ func streamingTestBindKey(bindVars map[string]any, nameFragment string, expected
 	for key, value := range bindVars {
 		if strings.Contains(key, nameFragment) && value == expected {
 			return key
+		}
+	}
+	return ""
+}
+
+func streamingTestDirectScalarVariable(query, expressionFragment string) string {
+	for _, line := range strings.Split(query, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "LET __loom_physical_construction_reshape_stream_input_") || !strings.Contains(line, expressionFragment) {
+			continue
+		}
+		let := strings.TrimPrefix(line, "LET ")
+		if variable, _, ok := strings.Cut(let, " = "); ok {
+			return variable
 		}
 	}
 	return ""

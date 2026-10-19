@@ -169,10 +169,11 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 		"FILTER root.project == @project",
 		"FILTER root.dataset_generation == @dataset_generation",
 		"FILTER root_scope_allowed == @scope_allowed",
-		"FIRST([root.payload.valueQuantity]).code",
-		"FIRST([root.payload.valueQuantity]).value",
-		"IS_OBJECT(FIRST([root.payload.valueQuantity]))",
-		"HAS(FIRST([root.payload.valueQuantity]), \"code\")",
+		"LET __loom_physical_construction_reshape_stream_source_parent = FIRST([root.payload.valueQuantity])",
+		"__loom_physical_construction_reshape_stream_source_parent.code",
+		"__loom_physical_construction_reshape_stream_source_parent.value",
+		"IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)",
+		"HAS(__loom_physical_construction_reshape_stream_source_parent, @",
 		"TABLE_PIVOT_UNLISTED_CATEGORY",
 	} {
 		if !strings.Contains(query.Query, required) {
@@ -180,13 +181,17 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 		}
 	}
 	compiledPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
-	categoryColumnBind := streamingTestBindKey(query.BindVars, "reshape_category_column", compiledPivot.CategoryColumn)
-	presenceColumnBind := streamingTestBindKey(query.BindVars, "reshape_category_presence_column", compiledPivot.CategoryPresenceColumn)
-	if categoryColumnBind == "" || presenceColumnBind == "" {
-		t.Fatalf("typed category binds missing: category=%q presence=%q", categoryColumnBind, presenceColumnBind)
+	if streamingTestBindKey(query.BindVars, "reshape_category_column", compiledPivot.CategoryColumn) != "" ||
+		streamingTestBindKey(query.BindVars, "reshape_category_presence_column", compiledPivot.CategoryPresenceColumn) != "" {
+		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", query.BindVars)
 	}
-	missingMatch := fmt.Sprintf("NOT (%s[@%s] == true)", compiledPivot.InputRowVariable, presenceColumnBind)
-	nullMatch := fmt.Sprintf("(%s[@%s] == true AND %s[@%s] == null)", compiledPivot.InputRowVariable, presenceColumnBind, compiledPivot.InputRowVariable, categoryColumnBind)
+	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
+	presenceValue := streamingTestDirectScalarVariable(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
+	if categoryValue == "" || presenceValue == "" {
+		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, query.Query)
+	}
+	missingMatch := fmt.Sprintf("NOT (%s == true)", presenceValue)
+	nullMatch := fmt.Sprintf("(%s == true AND %s == null)", presenceValue, categoryValue)
 	if !strings.Contains(query.Query, missingMatch) || !strings.Contains(query.Query, nullMatch) {
 		t.Fatalf("stored-parent projection merged MISSING and explicit NULL categories: missing=%q null=%q\n%s", missingMatch, nullMatch, query.Query)
 	}

@@ -330,6 +330,119 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 	}
 }
 
+func TestStreamingMissingCategoryPivotDirectScalarsPreserveValueSemanticsAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	project := "loom_streaming_scalar_pivot_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	generation := "generation_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.ExecuteAQL(cleanupCtx, `
+FOR document IN Observation
+  FILTER document.project == @project
+  FILTER document.dataset_generation == @generation
+  REMOVE document IN Observation`, map[string]any{"project": project, "generation": generation}); err != nil {
+			t.Errorf("remove direct-scalar Pivot fixtures: %v", err)
+		}
+	})
+
+	payloads := []map[string]any{
+		{"id": "missing-parent", "status": "missing-parent"},
+		{"id": "null-parent", "status": "null-parent", "valueQuantity": nil},
+		{"id": "scalar-parent", "status": "scalar-parent", "valueQuantity": "malformed-parent"},
+		{"id": "missing-code", "status": "missing-code", "valueQuantity": map[string]any{"value": 12}},
+		{"id": "explicit-null", "status": "explicit-null", "valueQuantity": map[string]any{"code": nil, "value": 20}},
+		{"id": "all-null", "status": "all-null", "valueQuantity": map[string]any{"code": "d", "value": nil}},
+		{"id": "duplicate-a", "status": "duplicate", "valueQuantity": map[string]any{"code": "d", "value": 1}},
+		{"id": "duplicate-b", "status": "duplicate", "valueQuantity": map[string]any{"code": "d", "value": 2}},
+		{"id": "wrong-type", "status": "wrong-type", "valueQuantity": map[string]any{"code": "d", "value": "not-a-number"}},
+	}
+	insertConstructionReshapeRows(t, ctx, client, project, generation, payloads)
+
+	output := streamingMissingCategoryPivotTestOutput()
+	output.Filters = []recipe.Filter{{
+		Select: "root.status", Operator: recipe.FilterIn,
+		Values: []recipe.FilterValue{
+			reshapeOracleStringFilter("missing-parent"), reshapeOracleStringFilter("null-parent"),
+			reshapeOracleStringFilter("scalar-parent"), reshapeOracleStringFilter("missing-code"),
+			reshapeOracleStringFilter("explicit-null"), reshapeOracleStringFilter("all-null"),
+			reshapeOracleStringFilter("duplicate"),
+		},
+	}}
+	query := compileConstructionOutputQueryWithBindings(t, output, project, generation, recipe.RuntimeBindings{})
+	compiledOutput := lowerConstructionOutput(t, output, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+	pivot := compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot
+	if pivot == nil {
+		t.Fatal("compiled output has no grouped Pivot")
+	}
+	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") ||
+		!strings.Contains(query.Query, "FIRST([root.payload.valueQuantity])") ||
+		!strings.Contains(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)") {
+		t.Fatalf("eligible direct-scalar Pivot did not emit the shared source-parent projection and streaming aggregate:\n%s", query.Query)
+	}
+	if strings.Contains(query.Query, "LET "+pivot.InputRowVariable+" = {") || strings.Contains(query.Query, pivot.InputRowVariable+"[@") {
+		t.Fatalf("eligible direct-scalar Pivot retained its per-row input object or repeated bound reads:\n%s", query.Query)
+	}
+	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
+	amountValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.value")
+	if categoryValue == "" || amountValue == "" {
+		t.Fatalf("direct category/value scalar expressions are missing: category=%q amount=%q\n%s", categoryValue, amountValue, query.Query)
+	}
+
+	rows := executeReshapeOracleQuery(t, ctx, client, query)
+	byStatus := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		status, ok := row["status"].(string)
+		if !ok {
+			t.Fatalf("Pivot status = %#v, want string", row["status"])
+		}
+		byStatus[status] = row
+	}
+	for _, status := range []string{"missing-parent", "null-parent", "scalar-parent", "missing-code", "explicit-null", "all-null", "duplicate"} {
+		if byStatus[status] == nil {
+			t.Errorf("Pivot omitted group %q: %#v", status, rows)
+		}
+	}
+	for status, expected := range map[string]map[string]any{
+		"missing-parent": {"missing_value": nil, "null_value": nil, "d": nil},
+		"null-parent":    {"missing_value": nil, "null_value": nil, "d": nil},
+		"scalar-parent":  {"missing_value": nil, "null_value": nil, "d": nil},
+		"missing-code":   {"missing_value": float64(12), "null_value": nil, "d": nil},
+		"explicit-null":  {"missing_value": nil, "null_value": float64(20), "d": nil},
+		"all-null":       {"missing_value": nil, "null_value": nil, "d": nil},
+		"duplicate":      {"missing_value": nil, "null_value": nil, "d": float64(3)},
+	} {
+		for column, want := range expected {
+			if got := byStatus[status][column]; !reflect.DeepEqual(got, want) {
+				t.Errorf("Pivot %s.%s = %#v, want %#v", status, column, got, want)
+			}
+		}
+	}
+
+	for _, test := range []struct {
+		status        string
+		duplicate     recipe.PivotDuplicatePolicy
+		wantErrorCode string
+	}{
+		{status: "wrong-type", duplicate: recipe.PivotDuplicateSum, wantErrorCode: "TABLE_PIVOT_VALUE_TYPE_MISMATCH"},
+		{status: "duplicate", duplicate: recipe.PivotDuplicateError, wantErrorCode: "TABLE_PIVOT_CELL_CARDINALITY"},
+	} {
+		t.Run(test.status+" error", func(t *testing.T) {
+			errorOutput := streamingMissingCategoryPivotTestOutput()
+			errorOutput.Filters = []recipe.Filter{{Select: "root.status", Operator: recipe.FilterIn, Values: []recipe.FilterValue{reshapeOracleStringFilter(test.status)}}}
+			errorOutput.Construction.Steps[0].Operation.Pivot.DuplicatePolicy = test.duplicate
+			errorQuery := compileConstructionOutputQueryWithBindings(t, errorOutput, project, generation, recipe.RuntimeBindings{})
+			if !strings.Contains(errorQuery.Query, "FIRST([root.payload.valueQuantity])") || strings.Contains(errorQuery.Query, "LET "+pivot.InputRowVariable+" = {") {
+				t.Fatalf("error case did not retain the direct-scalar streaming path:\n%s", errorQuery.Query)
+			}
+			err := client.QueryRows(ctx, errorQuery.Query, 500, errorQuery.BindVars, func(map[string]any) error { return nil })
+			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
+				t.Fatalf("direct-scalar Pivot error = %v, want %s", err, test.wantErrorCode)
+			}
+		})
+	}
+}
+
 func dynamicConstructionPivotOutput(policy recipe.PivotDuplicatePolicy) recipe.Output {
 	alpha, beta := "alpha", "beta"
 	return recipe.Output{

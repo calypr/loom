@@ -26,16 +26,28 @@ func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation
 }
 
 func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot, sortGroups bool, previewLimitBindKey string) ([]string, error) {
-	input, err := r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
-	if err != nil {
-		return nil, err
+	var err error
+	var input string
+	var inputLines []string
+	var scalarInputs map[string]string
+	if r.streamingMissingCategoryPivotPreview && !pivot.OneInputRowPerGroup {
+		inputLines, scalarInputs, err = r.renderStreamingPivotDirectScalarInputs(pivot)
+		if err != nil {
+			return nil, err
+		}
 	}
-	input, err = r.renderTraceSourceInput(input, pivot.InputProjections, pivot.OutputRowVariable)
-	if err != nil {
-		return nil, err
+	if scalarInputs == nil {
+		input, err = r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
+		if err != nil {
+			return nil, err
+		}
+		input, err = r.renderTraceSourceInput(input, pivot.InputProjections, pivot.OutputRowVariable)
+		if err != nil {
+			return nil, err
+		}
 	}
 	categoryColumnBind, valueColumnBind := "", ""
-	if pivot.CodedCorrelation == nil {
+	if pivot.CodedCorrelation == nil && scalarInputs == nil {
 		categoryColumnBind = r.newInternalBindKey("reshape_category_column")
 		r.bindVars[categoryColumnBind] = pivot.CategoryColumn
 		valueColumnBind = r.newInternalBindKey("reshape_value_column")
@@ -57,7 +69,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	valueTypeBind := r.newInternalBindKey("reshape_value_type")
 	r.bindVars[valueTypeBind] = valueType
 	categoryPresenceBind := ""
-	if pivot.CategoryPresence != nil {
+	if pivot.CategoryPresence != nil && scalarInputs == nil {
 		presence, err := r.renderProjectionPresence(*pivot.CategoryPresence)
 		if err != nil {
 			return nil, fmt.Errorf("category presence: %w", err)
@@ -66,22 +78,33 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
 		categoryPresenceBind = presenceNameBind
 		input = fmt.Sprintf("MERGE(%s, {[@%s]: %s})", input, presenceNameBind, presence)
-	} else if pivot.CategoryPresenceFromInput {
+	} else if pivot.CategoryPresenceFromInput && scalarInputs == nil {
 		presenceNameBind := r.newInternalBindKey("reshape_category_presence_column")
 		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
 		categoryPresenceBind = presenceNameBind
 	}
-	lines := []string{fmt.Sprintf("  LET %s = %s", pivot.InputRowVariable, input)}
+	lines := inputLines
+	if scalarInputs == nil {
+		lines = []string{fmt.Sprintf("  LET %s = %s", pivot.InputRowVariable, input)}
+	}
 	collect := make([]string, 0, len(pivot.GroupKeys))
 	sort := make([]string, 0, len(pivot.GroupKeys))
 	for index, key := range pivot.GroupKeys {
-		columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_group_column_%d", index))
-		r.bindVars[columnBind] = key.Column
-		collect = append(collect, fmt.Sprintf("%s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
-		sort = append(sort, key.Variable+" ASC")
-		if pivot.OneInputRowPerGroup {
-			lines = append(lines, fmt.Sprintf("  LET %s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
+		if scalarInputs != nil {
+			value, ok := scalarInputs[key.Column]
+			if !ok {
+				return nil, fmt.Errorf("streaming Pivot input projection %q is missing", key.Column)
+			}
+			collect = append(collect, fmt.Sprintf("%s = %s", key.Variable, value))
+		} else {
+			columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_group_column_%d", index))
+			r.bindVars[columnBind] = key.Column
+			collect = append(collect, fmt.Sprintf("%s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
+			if pivot.OneInputRowPerGroup {
+				lines = append(lines, fmt.Sprintf("  LET %s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
+			}
 		}
+		sort = append(sort, key.Variable+" ASC")
 	}
 	if !pivot.OneInputRowPerGroup {
 		collectClause := fmt.Sprintf(
@@ -90,7 +113,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		if r.streamingMissingCategoryPivotPreview {
 			return r.renderGroupedTablePivotStreamingMissingPreview(
 				pivot, lines, collect, categoryColumnBind, valueColumnBind, categoryPresenceBind,
-				categoryTypeBind, valueTypeBind, previewLimitBindKey, sortGroups,
+				categoryTypeBind, valueTypeBind, previewLimitBindKey, sortGroups, scalarInputs,
 			)
 		}
 		lines = append(lines, collectClause)
@@ -383,6 +406,16 @@ func groupedPivotCategoryMatchPredicate(category ir.PhysicalGroupedPivotCategory
 	if categoryPresenceBind != "" {
 		present = fmt.Sprintf("%s[@%s] == true", itemVariable, categoryPresenceBind)
 	}
+	return groupedPivotCategoryMatchExpression(category, column, present, categoryTypeBind, categoryPresenceBind != "")
+}
+
+func groupedPivotCategoryMatchExpression(
+	category ir.PhysicalGroupedPivotCategory,
+	column string,
+	present string,
+	categoryTypeBind string,
+	presenceAware bool,
+) (string, error) {
 	switch category.MatchKind {
 	case ir.PhysicalPivotCategoryValueMatch:
 		if category.ValueBindKey == "" || categoryTypeBind == "" {
@@ -392,7 +425,7 @@ func groupedPivotCategoryMatchPredicate(category ir.PhysicalGroupedPivotCategory
 	case ir.PhysicalPivotCategoryNullMatch:
 		return fmt.Sprintf("(%s AND %s == null)", present, column), nil
 	case ir.PhysicalPivotCategoryMissingMatch:
-		if categoryPresenceBind == "" {
+		if !presenceAware {
 			return "", fmt.Errorf("MISSING category requires a preserved category presence contract")
 		}
 		return "NOT (" + present + ")", nil

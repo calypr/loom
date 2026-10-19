@@ -2280,6 +2280,23 @@ export const registry = Object.freeze([
               'scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs',
             ],
           },
+          {
+            id: 'root-quantity-pivot-discovery-identity',
+            cwd: 'ui/packages/loom-ui',
+            command: [
+              'vitest',
+              'run',
+              '--config',
+              'vitest.config.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.unit.test.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx',
+            ],
+            sourceFiles: [
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts',
+            ],
+          },
         ],
         requiredChecks: [
           "fresh owned project contains the four exact raw Observation IDs and independent MISSING, NULL, and string d quantity-code states",

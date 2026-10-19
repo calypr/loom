@@ -3,6 +3,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  type CompletePivotDiscovery,
   type ConstructionReshapeEditorProps,
   type ConstructionReshapeStep,
 } from './ConstructionReshapeEditor';
@@ -94,6 +95,13 @@ const controlChecked = (label: string): boolean => {
   const control = screen.getByLabelText(label);
   return control instanceof HTMLInputElement && control.checked;
 };
+
+type PivotDiscoveryRequest = Parameters<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>[0];
+
+const completePivotDiscovery = (
+  request: PivotDiscoveryRequest,
+  categories: CompletePivotDiscovery['categories'],
+): CompletePivotDiscovery => ({ ...request, status: 'complete', categories });
 
 const openReshapeIntent = (intent: 'group' | 'reshape') => {
   const intentButton = screen.queryByTestId(`construction-reshape-intent-${intent}`);
@@ -1874,9 +1882,11 @@ describe('ConstructionReshapeEditor', () => {
     expect(request.categoryColumnId).toBe(request.pivotSources[1].columnId);
     expect(request.valueColumnId).toBe(request.pivotSources[2].columnId);
     expect(request.pivotStepId).toEqual(expect.any(String));
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'final' }, label: 'Final' }]);
+    act(() => onDiscoverCategories.mock.lastCall?.[1]?.(discovery));
     view.rerender(<ConstructionReshapeEditor construction={base} capabilities={capabilities} initialKind="pivot" disabled={false}
       onCandidateChange={onCandidateChange} onEditStep={vi.fn()} onDiscoverCategories={onDiscoverCategories}
-      pivotDiscovery={{ ...request, status: 'complete', categories: [{ key: { kind: 'STRING', string: 'final' }, label: 'Final' }] }} />);
+      pivotDiscovery={discovery} />);
     const candidate = onCandidateChange.mock.lastCall?.[0];
     expect(candidate?.pivotSources).toEqual(request.pivotSources);
     expect(candidate?.candidateConstruction.steps).toHaveLength(1);
@@ -3471,7 +3481,200 @@ describe('ConstructionReshapeEditor', () => {
     expect(intent?.candidateConstruction.steps[0]?.outputs).toContainEqual(expect.objectContaining({ id: 'result-id', label: 'Visit result' }));
   });
 
-  it('selects discovered categories when an edited Pivot changes its field pair', () => {
+  it('does not rediscover the known pair when a saved Pivot editor opens', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const step: ConstructionReshapeStep = {
+      id: 'saved-pivot', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'PIVOT', pivot: {
+        constructionId: 'saved-pivot', groupKeyIds: [], categoryColumnId: 'site-id', valueColumnId: 'age-id',
+        categories: [{ key: { kind: 'STRING', string: 'site-a' }, outputColumnId: 'old-category' }],
+        duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL', unlistedCategoryPolicy: 'ERROR',
+      } },
+      outputs: [{ id: 'old-category', name: 'old_category', label: 'Site A', type: 'decimal' }],
+    };
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const request = { stageId: stage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id' };
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }]);
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [step] },
+      capabilities: capabilitiesFor([stage], stage),
+      editingStep: step,
+      pivotDiscovery: discovery,
+      disabled: false,
+      onCandidateChange,
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    render(<ConstructionReshapeEditor {...props} />);
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    expect(onCandidateChange.mock.calls.filter(([candidate]) => candidate !== undefined)).toEqual([]);
+  });
+
+  it('restarts unsaved Pivot discovery after the debounce is skipped while disabled', async () => {
+    const stage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([stage], stage),
+      initialKind: 'pivot',
+      disabled: false,
+      onCandidateChange: vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>(),
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+
+    view.rerender(<ConstructionReshapeEditor {...props} disabled />);
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+
+    view.rerender(<ConstructionReshapeEditor {...props} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    expect(onDiscoverCategories.mock.lastCall?.[0]).toEqual({
+      stageId: stage.id,
+      categoryColumnId: 'site-id',
+      valueColumnId: 'age-id',
+    });
+  });
+
+  it('adopts a matching cached proof for a new Pivot without refetching', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const pivotForm = {
+      kind: 'pivot',
+      stepId: 'new-pivot',
+      groupKeyIds: [],
+      categoryColumnId: 'site-id',
+      valueColumnId: 'age-id',
+      categories: [],
+      duplicatePolicy: 'ERROR',
+      missingCellPolicy: 'NULL',
+      unlistedCategoryPolicy: 'ERROR',
+    } satisfies Extract<NonNullable<ConstructionReshapeEditorProps['initialEntry']>['form'], { readonly kind: 'pivot' }>;
+    const initialEntry = {
+      form: pivotForm,
+      candidateIntent: { candidateConstruction: { version: 1, steps: [] }, changedStepId: 'new-pivot' },
+    } satisfies NonNullable<ConstructionReshapeEditorProps['initialEntry']>;
+    const request = { stageId: stage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id' };
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }]);
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([stage], stage),
+      initialEntry,
+      pivotDiscovery: discovery,
+      disabled: false,
+      onCandidateChange,
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+
+    render(<ConstructionReshapeEditor {...props} />);
+    await waitFor(() => expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Site A'));
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+  });
+
+  it('keeps one discovery when an equivalent initial Pivot entry is passed again', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const createInitialEntry = () => ({
+      form: {
+        kind: 'pivot',
+        stepId: 'new-pivot',
+        groupKeyIds: [],
+        categoryColumnId: 'site-id',
+        valueColumnId: 'age-id',
+        categories: [],
+        duplicatePolicy: 'ERROR',
+        missingCellPolicy: 'NULL',
+        unlistedCategoryPolicy: 'ERROR',
+      } satisfies Extract<NonNullable<ConstructionReshapeEditorProps['initialEntry']>['form'], { readonly kind: 'pivot' }>,
+      candidateIntent: { candidateConstruction: { version: 1, steps: [] }, changedStepId: 'new-pivot' },
+    } satisfies NonNullable<ConstructionReshapeEditorProps['initialEntry']>);
+    const initialEntry = createInitialEntry();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([stage], stage),
+      initialEntry,
+      disabled: false,
+      onCandidateChange: vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>(),
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+
+    view.rerender(<ConstructionReshapeEditor {...props} initialEntry={createInitialEntry()} />);
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(onDiscoverCategories).toHaveBeenCalledTimes(1);
+    expect(onDiscoverCategories.mock.calls[0]?.[0]).toEqual({
+      stageId: stage.id,
+      categoryColumnId: 'site-id',
+      valueColumnId: 'age-id',
+    });
+  });
+
+  it('keeps an in-flight Pivot completion current through disable and re-enable', async () => {
+    const stage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([stage], stage),
+      initialKind: 'pivot',
+      disabled: false,
+      onCandidateChange: vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>(),
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.calls[0]?.[0];
+    const onComplete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!request || !onComplete) throw new Error('Expected the in-flight Pivot request and completion callback');
+
+    view.rerender(<ConstructionReshapeEditor {...props} disabled />);
+    view.rerender(<ConstructionReshapeEditor {...props} />);
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }]);
+    act(() => onComplete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Site A');
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(onDiscoverCategories).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects discovered categories when an edited Pivot changes its field pair', async () => {
     const stage = {
       ...sourceStage,
       columns: [...sourceStage.columns, { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'required_one' as const }, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
@@ -3487,23 +3690,28 @@ describe('ConstructionReshapeEditor', () => {
       outputs: [{ id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string' }, { id: 'old-category', name: 'old_category', label: 'Site A', type: 'decimal' }],
     };
     const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
     const props: ConstructionReshapeEditorProps = {
       construction: { version: 1, steps: [step] }, capabilities: capabilitiesFor([stage], stage),
-      editingStep: step, disabled: false, onCandidateChange, onEditStep: vi.fn(), onDiscoverCategories: vi.fn(),
+      editingStep: step, disabled: false, onCandidateChange, onEditStep: vi.fn(), onDiscoverCategories,
     };
     const view = render(<ConstructionReshapeEditor {...props} />);
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'sex-id' } });
-    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={{
-      stageId: stage.id, categoryColumnId: 'sex-id', valueColumnId: 'age-id', status: 'complete',
-      categories: [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }],
-    }} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const sexRequest = onDiscoverCategories.mock.lastCall?.[0];
+    if (!sexRequest) throw new Error('Expected discovery for the changed saved Pivot pair');
+    const sexDiscovery = completePivotDiscovery(sexRequest, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }]);
+    act(() => onDiscoverCategories.mock.lastCall?.[1]?.(sexDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={sexDiscovery} />);
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Female');
     expect(props.onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({ candidateConstruction: expect.any(Object) }));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
-    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={{
-      stageId: stage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id', status: 'complete',
-      categories: [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }],
-    }} />);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    const siteRequest = onDiscoverCategories.mock.lastCall?.[0];
+    if (!siteRequest) throw new Error('Expected discovery when restoring the saved Pivot pair');
+    const siteDiscovery = completePivotDiscovery(siteRequest, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }]);
+    act(() => onDiscoverCategories.mock.lastCall?.[1]?.(siteDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={siteDiscovery} />);
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Site A');
     const restored = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
     expect(restored?.operation).toMatchObject({ kind: 'PIVOT', pivot: { categories: [{ outputColumnId: 'old-category' }] } });
@@ -3513,7 +3721,7 @@ describe('ConstructionReshapeEditor', () => {
 
   it('requests stage-scoped pivot discovery and defaults every complete result', async () => {
     const onCandidateChange = vi.fn();
-    const onDiscoverCategories = vi.fn();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
     const discoveryStage = {
       ...sourceStage,
       columns: [...sourceStage.columns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
@@ -3542,28 +3750,22 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByText('Choose fields for New column names and Cell values to find categories.')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
     await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalled());
-    expect(onDiscoverCategories).toHaveBeenCalledWith({ stageId: 'source_projection', categoryColumnId: 'site-id', valueColumnId: 'age-id' });
+    expect(onDiscoverCategories).toHaveBeenCalledWith(
+      { stageId: 'source_projection', categoryColumnId: 'site-id', valueColumnId: 'age-id' },
+      expect.any(Function),
+    );
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     const request = onDiscoverCategories.mock.lastCall?.[0];
     if (!request) throw new Error('Expected category discovery to be requested');
     view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={{ ...request, status: 'loading' }} />);
     expect(screen.getByText('Finding categories…')).toBeInTheDocument();
 
-    view.rerender(
-      <ConstructionReshapeEditor
-        {...props}
-        pivotDiscovery={{
-          stageId: 'source_projection',
-          categoryColumnId: 'site-id',
-          valueColumnId: 'age-id',
-          status: 'complete',
-          categories: [
-            { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
-            { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
-          ],
-        }}
-      />,
-    );
+    const firstDiscovery = completePivotDiscovery(request, [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ]);
+    act(() => onDiscoverCategories.mock.lastCall?.[1]?.(firstDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories: Site A, Site B');
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     fireEvent.click(screen.getByText('Change selected categories'));
@@ -3594,7 +3796,183 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.queryByText(/available category list belongs/)).not.toBeInTheDocument();
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
     await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
-    expect(onDiscoverCategories).toHaveBeenLastCalledWith({ stageId: 'source_projection', categoryColumnId: 'age-id', valueColumnId: 'site-id' });
+    const secondRequest = onDiscoverCategories.mock.lastCall?.[0];
+    if (!secondRequest) throw new Error('Expected discovery for the second field pair');
+    expect(onDiscoverCategories).toHaveBeenLastCalledWith(secondRequest, expect.any(Function));
+    const secondDiscovery = completePivotDiscovery(secondRequest, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }]);
+    act(() => onDiscoverCategories.mock.lastCall?.[1]?.(secondDiscovery));
+    expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({ candidateConstruction: expect.any(Object) }));
+  });
+
+  it('keeps an ordinary pending category request through row-group edits and accepts its result', async () => {
+    const stage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([stage], stage),
+      initialKind: 'pivot' as const,
+      disabled: false,
+      onCandidateChange,
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.lastCall?.[0];
+    const onComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!request || !onComplete) throw new Error('Expected the ordinary category request owner and result callback');
+    expect(request).toEqual({ stageId: stage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id' });
+
+    fireEvent.click(screen.getByLabelText('Pivot group Sex'));
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(onDiscoverCategories).toHaveBeenCalledTimes(1);
+
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }]);
+    act(() => onComplete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Site A');
+    expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      candidateConstruction: expect.objectContaining({
+        steps: [expect.objectContaining({ operation: expect.objectContaining({
+          kind: 'PIVOT', pivot: expect.objectContaining({ groupKeyIds: ['sex-id'] }),
+        }) })],
+      }),
+    }));
+  });
+
+  it('cancels an unsent category request when the editor unmounts', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { view } = renderEditor({
+      capabilities: capabilitiesFor([stage], stage),
+      initialKind: 'pivot',
+      onDiscoverCategories,
+    });
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    view.unmount();
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ordinary delayed result after the pair and draft context change', async () => {
+    const stage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const baseCapabilities = capabilitiesFor([stage], stage);
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props = {
+      construction: { version: 1, steps: [] },
+      capabilities: baseCapabilities,
+      initialKind: 'pivot' as const,
+      disabled: false,
+      onCandidateChange,
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const firstRequest = onDiscoverCategories.mock.calls[0]?.[0];
+    const firstComplete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!firstRequest || !firstComplete) throw new Error('Expected the initial ordinary category request');
+
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'sex-id' } });
+    act(() => firstComplete(completePivotDiscovery(firstRequest, [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }])));
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    const secondRequest = onDiscoverCategories.mock.calls[1]?.[0];
+    const secondComplete = onDiscoverCategories.mock.calls[1]?.[1];
+    if (!secondRequest || !secondComplete) throw new Error('Expected a replacement request for the changed pair');
+    expect(secondRequest).toEqual({ stageId: stage.id, categoryColumnId: 'sex-id', valueColumnId: 'age-id' });
+
+    const nextCapabilities = { ...baseCapabilities, draftVersion: baseCapabilities.draftVersion + 1, draftDigest: 'draft-digest-2' };
+    view.rerender(<ConstructionReshapeEditor {...props} capabilities={nextCapabilities} pivotDiscovery={undefined} />);
+    act(() => secondComplete(completePivotDiscovery(secondRequest, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }])));
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'sex-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(3));
+    expect(onDiscoverCategories.mock.calls[2]?.[0]).toEqual({ stageId: stage.id, categoryColumnId: 'sex-id', valueColumnId: 'age-id' });
+  });
+
+  it('rejects source-backed results as soon as a Pivot row-key identity changes', async () => {
+    const stage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const choices = ['Category', 'Value'].map((label, index) => ({
+      choiceId: `choice-${index}`, occurrenceId: 'base', fieldPath: label.toLowerCase(), label,
+      fhirType: 'string', logicalType: 'string', valueType: 'VALUE',
+      isIdentifier: false, isReference: false, isPopulated: true,
+    }));
+    const capabilities = {
+      ...capabilitiesFor([stage], stage),
+      pivotSourceInput: { supported: true, stageId: stage.id, choices },
+    };
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const props = {
+      construction: { version: 1, steps: [] },
+      capabilities,
+      initialKind: 'pivot' as const,
+      selectedColumns: ['site-id'],
+      disabled: false,
+      onCandidateChange,
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'source:choice-0' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'source:choice-1' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const firstRequest = onDiscoverCategories.mock.calls[0]?.[0];
+    const firstComplete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!firstRequest || !firstComplete) throw new Error('Expected the initial source-backed request');
+    expect(firstRequest.pivotStepId).toEqual(expect.any(String));
+    expect(firstRequest.groupKeyIds).toEqual(['site-id']);
+    expect(firstRequest.pivotSources).toHaveLength(2);
+
+    fireEvent.click(screen.getByLabelText('Pivot group Age'));
+    const staleDiscovery = completePivotDiscovery(firstRequest, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }]);
+    act(() => firstComplete(staleDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={staleDiscovery} />);
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    const secondRequest = onDiscoverCategories.mock.calls[1]?.[0];
+    const secondComplete = onDiscoverCategories.mock.calls[1]?.[1];
+    if (!secondRequest || !secondComplete) throw new Error('Expected the new source-backed row-key request');
+    expect(secondRequest.pivotStepId).toBe(firstRequest.pivotStepId);
+    expect(secondRequest.groupKeyIds).toEqual(['site-id', 'age-id']);
+    expect(secondRequest.pivotSources).toEqual(firstRequest.pivotSources);
+
+    const discovery = completePivotDiscovery(secondRequest, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }]);
+    act(() => secondComplete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Female');
+    expect(onCandidateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      pivotSources: firstRequest.pivotSources,
+      candidateConstruction: expect.any(Object),
+    }));
   });
 
   it('proposes valid pivot outputs for discovered digit-leading categories', () => {
@@ -3692,7 +4070,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(onCandidateChange.mock.lastCall?.[0]).toEqual(candidate);
   });
 
-  it('keeps a manual category opt-out when discovery refreshes', () => {
+  it('keeps a manual category opt-out when discovery refreshes', async () => {
     const categories = [
       { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
       { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
@@ -3703,6 +4081,7 @@ describe('ConstructionReshapeEditor', () => {
       capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
     const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
     const props: ConstructionReshapeEditorProps = {
       construction: { version: 1, steps: [] },
       capabilities: capabilitiesFor([pivotStage], pivotStage),
@@ -3710,19 +4089,20 @@ describe('ConstructionReshapeEditor', () => {
       disabled: false,
       onCandidateChange,
       onEditStep: vi.fn(),
-      onDiscoverCategories: vi.fn(),
+      onDiscoverCategories,
     };
     const view = render(<ConstructionReshapeEditor {...props} />);
 
     chooseReshapeOperation('reshape', 'pivot');
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
-    view.rerender(
-      <ConstructionReshapeEditor
-        {...props}
-        pivotDiscovery={{ stageId: pivotStage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id', status: 'complete', categories }}
-      />,
-    );
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.lastCall?.[0];
+    const firstComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!request || !firstComplete) throw new Error('Expected the first category request and accepted-result callback');
+    const firstDiscovery = completePivotDiscovery(request, categories);
+    act(() => firstComplete(firstDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
     expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
     fireEvent.click(screen.getByText('Change selected categories'));
     fireEvent.click(screen.getByLabelText('Include category Site B'));
@@ -3730,16 +4110,21 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlChecked('Include category Site B')).toBe(false);
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
 
+    const failedDiscovery = { ...request, status: 'failed', reason: 'Retry this category request.' } satisfies NonNullable<ConstructionReshapeEditorProps['pivotDiscovery']>;
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={failedDiscovery} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry finding categories' }));
+    expect(onDiscoverCategories).toHaveBeenCalledTimes(2);
+    const refreshComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!refreshComplete) throw new Error('Expected a callback for the retried category request');
+    const refreshedDiscovery = completePivotDiscovery(request, [
+      ...categories,
+      { key: { kind: 'STRING', string: 'site-c' }, label: 'Site C' },
+    ]);
+    act(() => refreshComplete(refreshedDiscovery));
     view.rerender(
       <ConstructionReshapeEditor
         {...props}
-        pivotDiscovery={{
-          stageId: pivotStage.id,
-          categoryColumnId: 'site-id',
-          valueColumnId: 'age-id',
-          status: 'complete',
-          categories: [...categories, { key: { kind: 'STRING', string: 'site-c' }, label: 'Site C' }],
-        }}
+        pivotDiscovery={refreshedDiscovery}
       />,
     );
     expect(controlChecked('Include category Site A')).toBe(true);

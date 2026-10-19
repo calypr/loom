@@ -401,24 +401,88 @@ describe('useConstructionLifecycle', () => {
 
     const firstPair = { stageId: request.stageId, categoryColumnId: 'status-id', valueColumnId: 'value-id' };
     const secondPair = { stageId: request.stageId, categoryColumnId: 'kind-id', valueColumnId: 'value-id' };
-    act(() => result.current.onDiscoverCategories(firstPair));
+    const firstAccepted = vi.fn();
+    const secondAccepted = vi.fn();
+    act(() => result.current.onDiscoverCategories(firstPair, firstAccepted));
     expect(result.current.pivotDiscovery?.status).toBe('loading');
-    act(() => result.current.onDiscoverCategories(secondPair));
+    act(() => result.current.onDiscoverCategories(secondPair, secondAccepted));
     expect(result.current.pivotDiscovery).toMatchObject({ ...secondPair, status: 'loading' });
 
     await act(async () => {
       resolveFirst?.(categoriesFor({ ...request, ...firstPair }));
       await Promise.resolve();
     });
+    expect(firstAccepted).not.toHaveBeenCalled();
+    expect(secondAccepted).not.toHaveBeenCalled();
     expect(result.current.pivotDiscovery).toMatchObject({ ...secondPair, status: 'loading' });
     await act(async () => {
       resolveSecond?.(categoriesFor({ ...request, ...secondPair }));
       await Promise.resolve();
     });
     expect(result.current.pivotDiscovery).toMatchObject({ ...secondPair, status: 'complete' });
+    expect(firstAccepted).not.toHaveBeenCalled();
+    expect(secondAccepted).toHaveBeenCalledWith(expect.objectContaining({ ...secondPair, status: 'complete' }));
 
     rerender({ capabilitiesRequest: { ...request, expectedDraftVersion: request.expectedDraftVersion + 1 } });
     expect(result.current.pivotDiscovery).toBeUndefined();
+    unmount();
+  });
+
+  it('delivers only the current source-backed Pivot identity to its accepted-result callback', async () => {
+    let resolveFirst: ((response: ConstructionCategoryDiscoveryResponse) => void) | undefined;
+    let resolveSecond: ((response: ConstructionCategoryDiscoveryResponse) => void) | undefined;
+    const first = new Promise<ConstructionCategoryDiscoveryResponse>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<ConstructionCategoryDiscoveryResponse>((resolve) => { resolveSecond = resolve; });
+    let discoveryCalls = 0;
+    const discoverConstructionCategories = vi.fn((_args: DiscoverConstructionCategoriesArgs, _signal?: AbortSignal) => {
+      discoveryCalls += 1;
+      return discoveryCalls === 1 ? first : second;
+    });
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories,
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const firstRequest = {
+      stageId: request.stageId,
+      categoryColumnId: 'category-id',
+      valueColumnId: 'value-id',
+      pivotStepId: 'pivot-step-one',
+      groupKeyIds: ['row-one'],
+      pivotSources: [{ choiceId: 'category-source', columnId: 'category-id' }],
+      candidateConstruction: { version: 1, steps: [] } satisfies NonNullable<DiscoverConstructionCategoriesArgs['candidateConstruction']>,
+    };
+    const secondRequest = { ...firstRequest, groupKeyIds: ['row-two'] };
+    const firstAccepted = vi.fn();
+    const secondAccepted = vi.fn();
+    act(() => result.current.onDiscoverCategories(firstRequest, firstAccepted));
+    act(() => result.current.onDiscoverCategories(secondRequest, secondAccepted));
+    expect(result.current.pivotDiscovery).toMatchObject({ ...secondRequest, status: 'loading' });
+
+    await act(async () => {
+      resolveFirst?.(categoriesFor({ ...request, ...firstRequest }));
+      await Promise.resolve();
+    });
+    expect(firstAccepted).not.toHaveBeenCalled();
+    expect(secondAccepted).not.toHaveBeenCalled();
+    expect(result.current.pivotDiscovery).toMatchObject({ ...secondRequest, status: 'loading' });
+
+    await act(async () => {
+      resolveSecond?.(categoriesFor({ ...request, ...secondRequest }));
+      await Promise.resolve();
+    });
+    expect(firstAccepted).not.toHaveBeenCalled();
+    expect(secondAccepted).toHaveBeenCalledWith(expect.objectContaining({
+      ...secondRequest,
+      status: 'complete',
+    }));
     unmount();
   });
 
