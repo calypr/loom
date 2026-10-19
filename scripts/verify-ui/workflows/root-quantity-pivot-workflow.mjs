@@ -1135,7 +1135,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const commandsBeforeInitialApply = authoringRequestCount('commands');
   const applyStarted = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
+  await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.querySelector('[data-testid="construction-reshape-pivot"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
   assert.equal(authoringRequestCount('commands'), commandsBeforeInitialApply + 1, 'Initial Pivot Apply must issue exactly one native command');
   await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Applied full CDA quantity Pivot');
   measure('full CDA quantity Pivot Apply to render', applyStarted);
@@ -1172,7 +1172,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await navigate(page, browserURL({ uiUrl: uiOrigin }, project, explorer, 'builder'));
   await waitForBrowser(page, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 10000);
   await click(page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await waitForBrowser(page, `document.querySelector('[data-testid="construction-table-${outputId}"]')?.getAttribute('aria-current')==='page'&&document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
   await assertRendered(applyPivot.columns, applyPivot.expectedRows, 'Reloaded full CDA quantity Pivot');
   builder = await api(base + '/builder');
   document = assertSavedScope(builder, 'SUM', undefined, 'After full CDA quantity Pivot reload');
@@ -1185,12 +1185,9 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   { project, generation: builder.catalog.generation, outputId, sourceRows: oracle.sourceRows, savedSourceBindings }, 'persistence');
   measure('full CDA quantity Pivot reload to render', reloadStarted);
 
-  const history = await browserEval(page, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
-  const pivotHistory = history.findLast(item => /pivot|categories into columns/i.test(item.text));
-  assert(pivotHistory, 'Reloaded full CDA construction history must expose the saved Pivot');
-  await click(page, `[data-testid=${JSON.stringify(pivotHistory.testId)}]`);
-  await waitForBrowser(page, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 5000);
-  await click(page, '[data-testid^="construction-edit-step-"]');
+  const reloadedPivotStep = document.construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert(reloadedPivotStep, 'Reloaded full CDA construction history must expose the saved Pivot');
+  await click(page, `[data-testid=${JSON.stringify(`construction-history-step-${reloadedPivotStep.id}`)}]`);
   await waitForBrowser(page, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]'))`, 5000);
   const categoryKey = categoryIdentity(witness.present, witness.value);
   const editedCategory = applyPivot.categories.find(category => pivotIdentity(category.key) === categoryKey);
@@ -1236,7 +1233,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const commandsBeforeEditApply = authoringRequestCount('commands');
   const editApplyStarted = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
+  await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.querySelector('[data-testid="construction-reshape-pivot"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 10000);
   assert.equal(authoringRequestCount('commands'), commandsBeforeEditApply + 1, 'SUM→MAX edit Apply must issue exactly one native command');
   await assertRendered(editPivot.columns, editPivot.expectedRows, 'Edited full CDA quantity Pivot');
   measure('full CDA quantity Pivot edit Apply to render', editApplyStarted);
@@ -1246,7 +1243,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await navigate(page, browserURL({ uiUrl: uiOrigin }, project, explorer, 'builder'));
   await waitForBrowser(page, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 10000);
   await click(page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await waitForBrowser(page, `document.querySelector('[data-testid="construction-table-${outputId}"]')?.getAttribute('aria-current')==='page'&&document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
   await assertRendered(editPivot.columns, editPivot.expectedRows, 'Reloaded edited full CDA quantity Pivot');
   builder = await api(base + '/builder');
   document = assertSavedScope(builder, 'MAX', { column: editedCategory.output.name, label: editedHeading }, 'After edited full CDA quantity Pivot reload');
@@ -1256,14 +1253,14 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   { duplicateWitness: report.fullPopulationLifecycle.duplicateWitness, sum: witnessSum, max: witnessMax, persistedHeading: editedHeading, generation: builder.catalog.generation }, 'persistence');
   measure('full CDA quantity Pivot edited reload to render', editReloadStarted);
 
-  const removeHistory = await browserEval(page, `return [...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(button=>({testId:button.getAttribute('data-testid'),text:button.innerText}));`);
-  const removeStep = removeHistory.findLast(item => /pivot|categories into columns/i.test(item.text));
-  assert(removeStep, 'Edited full CDA Pivot history must remain available for removal');
-  await click(page, `[data-testid=${JSON.stringify(removeStep.testId)}]`);
-  await waitForBrowser(page, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 5000);
+  const editedPivotStep = document.construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert(editedPivotStep, 'Edited full CDA Pivot history must remain available for removal');
+  const removePivotTestId = `construction-remove-step-${editedPivotStep.id}`;
+  await click(page, `[data-testid=${JSON.stringify(`construction-history-step-${editedPivotStep.id}`)}]`);
+  await waitForBrowser(page, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]')&&document.querySelector('[data-testid="${removePivotTestId}"]'))`, 5000);
   const removeRequestOffset = requestCheckpoint();
   const removeStarted = Date.now();
-  await click(page, '[data-testid^="construction-remove-step-"]');
+  await click(page, `[data-testid=${JSON.stringify(removePivotTestId)}]`);
   await waitForBrowser(page, `document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus==='ready'`, 10000);
   const removePreviewRenderedAt = Date.now();
   const removeRequest = await waitForAuthoringRequest(removeRequestOffset, 'construction-proposals', observerTimeoutBudgetMs);
@@ -1307,7 +1304,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   const commandsBeforeRemovalApply = authoringRequestCount('commands');
   const removeApplyStarted = Date.now();
   await click(page, '[data-testid="construction-apply-proposal"]');
-  await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 10000);
+  await waitForBrowser(page, `!document.querySelector('[data-testid="construction-proposal-panel"]')&&!document.querySelector('[data-testid="construction-reshape-pivot"]')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 10000);
   assert.equal(authoringRequestCount('commands'), commandsBeforeRemovalApply + 1, 'Pivot removal Apply must issue exactly one native command');
   await assertRendered(sourceColumns, displayedRestoredRows, 'Restored full CDA quantity source preview');
   measure('full CDA quantity Pivot removal Apply to render', removeApplyStarted);
@@ -1327,7 +1324,7 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   await navigate(page, browserURL({ uiUrl: uiOrigin }, project, explorer, 'builder'));
   await waitForBrowser(page, `Boolean(document.querySelector('[data-testid="construction-table-${outputId}"]'))`, 10000);
   await click(page, `[data-testid="construction-table-${outputId}"]`);
-  await waitForBrowser(page, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
+  await waitForBrowser(page, `document.querySelector('[data-testid="construction-table-${outputId}"]')?.getAttribute('aria-current')==='page'&&document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`, 10000);
   await waitForBrowser(page, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='${Math.min(25, oracle.sourceRows) + 1}'&&!document.body.innerText.includes('Loading your table…')`, 10000);
   await waitForAuthoringRequest(finalReloadNativeOffset, 'preview', observerTimeoutBudgetMs);
   const reloadPreviewContext = assertReloadPreviewContext({
