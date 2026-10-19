@@ -445,12 +445,13 @@ export async function semanticGroupConnectedLifecycle({ page, cda }) {
   const reconcilePath = `${authoringPath}/reconcile`;
   const previewPath = `${authoringPath}/preview`;
   const constructionPaths = new Set([constructionProposalPath, commandsPath, reconcilePath, previewPath]);
+  const constructionOrigins = new Set([apiOrigin, uiOrigin].map(value => new URL(value).origin));
   const constructionRequests = createPlaywrightNetworkObserver(page, {
-    appOrigins: [apiOrigin],
+    appOrigins: [...constructionOrigins],
     scopeRequest: request => {
       try {
         const url = new URL(request.url());
-        return url.origin === apiOrigin && request.method() === 'POST' && constructionPaths.has(url.pathname);
+        return constructionOrigins.has(url.origin) && request.method() === 'POST' && constructionPaths.has(url.pathname);
       } catch { return false; }
     },
     responsePaths: [constructionProposalPath, commandsPath],
