@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { rootQuantityPivotLifecycleEvidence } from '../../workflows/root-quantity-pivot-workflow.mjs';
+import { rootQuantityPivotLifecycleEvidence, savedPivotSourceLabel } from '../../workflows/root-quantity-pivot-workflow.mjs';
 
 const stringDIdentity = JSON.stringify({ kind: 'STRING', string: 'd' });
 const lifecycleOracle = () => ({
@@ -131,4 +131,28 @@ test('preview collection returns through Back to table only while row settings c
   assert.equal(closed.clicks.length, 1);
   assert(closed.clicks[0] > 0 && closed.clicks[0] <= 100, 'Native Back to table click must inherit the remaining action budget');
   assert.deepEqual(await runHelper(0), { closed: false, clicks: [] });
+});
+
+test('saved Pivot source labels follow the normalized proposal entry request body and exact column IDs', () => {
+  const normalizedEntry = {
+    request: {
+      pivotSources: [
+        { choiceId: 'group-choice', columnId: 'pivot-input-group' },
+        { choiceId: 'category-choice', columnId: 'pivot-input-category' },
+        { choiceId: 'value-choice', columnId: 'pivot-input-value' },
+      ],
+    },
+    response: { proposalId: 'proposal-receipt' },
+  };
+  const selectedLabels = new Map([
+    ['source:group-choice', 'Observation.status'],
+    ['source:category-choice', 'Observation.valueQuantity.code'],
+    ['source:value-choice', 'Observation.valueQuantity.value'],
+  ]);
+
+  assert.equal(savedPivotSourceLabel(normalizedEntry, 'pivot-input-group', selectedLabels), 'Observation.status');
+  assert.equal(savedPivotSourceLabel(normalizedEntry, 'pivot-input-category', selectedLabels), 'Observation.valueQuantity.code');
+  assert.equal(savedPivotSourceLabel(normalizedEntry, 'pivot-input-value', selectedLabels), 'Observation.valueQuantity.value');
+  assert.throws(() => savedPivotSourceLabel({ pivotSources: normalizedEntry.request.pivotSources }, 'pivot-input-group', selectedLabels), /normalized request pivotSources array/);
+  assert.throws(() => savedPivotSourceLabel(normalizedEntry, 'pivot-input-missing', selectedLabels), /exactly one choice/);
 });

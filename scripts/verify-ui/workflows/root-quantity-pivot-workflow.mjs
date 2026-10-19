@@ -125,6 +125,18 @@ export function rootQuantityPivotLifecycleEvidence(authoringRequests, oracle) {
   };
 }
 
+export function savedPivotSourceLabel(normalizedEntry, columnId, selectedLabels) {
+  const bindings = normalizedEntry?.request?.pivotSources;
+  assert(Array.isArray(bindings), 'Accepted Pivot proposal entry must retain its normalized request pivotSources array');
+  const matches = bindings.filter(binding => binding.columnId === columnId);
+  assert.equal(matches.length, 1, `Accepted Pivot proposal must retain exactly one choice for saved source column ${columnId}`);
+  const choiceId = matches[0].choiceId;
+  assert(typeof choiceId === 'string' && choiceId.length > 0, `Accepted Pivot source column ${columnId} must retain its choice identity`);
+  const label = selectedLabels.get(`source:${choiceId}`);
+  assert(typeof label === 'string' && label.length > 0, `Accepted Pivot source column ${columnId} must retain its native picker label`);
+  return label;
+}
+
 export const pivotSourceSelectionReady = ({ selector, sourceValue, role, expectedLabel }) => {
   const control = document.querySelector(selector);
   const sourceOptionRemains = control && [...control.options].some(option => option.value === sourceValue);
@@ -1178,13 +1190,8 @@ const runFullPopulationLifecycle = async (discovery, oracle, prePivotWorkspace, 
   assert.deepEqual(savedSourceBindings.groupKeyIds, applyPivot.operation.groupKeyIds, 'Saved status grouping must match the accepted source binding');
   assert.equal(savedSourceBindings.categoryColumnId, applyPivot.operation.categoryColumnId, 'Saved category source must match the accepted source binding');
   assert.equal(savedSourceBindings.valueColumnId, applyPivot.operation.valueColumnId, 'Saved numeric value source must match the accepted source binding');
-  const savedSourceLabel = columnId => {
-    const source = applyPreview.request?.pivotSources?.find(binding => binding.columnId === columnId);
-    assert(source?.choiceId, `Accepted Pivot preview must retain the choice identity for saved source column ${columnId}`);
-    const label = selectedPivotSourceLabels.get(`source:${source.choiceId}`);
-    assert(label, `Accepted Pivot preview must retain the displayed label for saved source column ${columnId}`);
-    return label;
-  };
+  const savedSourceLabel = columnId => savedPivotSourceLabel(
+    applyPreview.request, columnId, selectedPivotSourceLabels);
   const savedGroupSourceLabel = savedSourceLabel(savedSourceBindings.groupKeyIds[0]);
   const savedCategorySourceLabel = savedSourceLabel(savedSourceBindings.categoryColumnId);
   const savedValueSourceLabel = savedSourceLabel(savedSourceBindings.valueColumnId);
