@@ -86,6 +86,7 @@ export type BuilderAction =
   | {
       readonly type: 'commandsApplied';
       readonly value: ExplorerBuilderCommandsResult;
+      readonly acceptedReceipt?: ExplorerBuilderCompileResult;
     }
   | { readonly type: 'compiled'; readonly value: ExplorerBuilderCompileResult }
   | {
@@ -447,7 +448,7 @@ export const builderAuthoringReducer = (
     case 'compiling':
       return { ...state, reconciliation: 'pending', diagnostics: [] };
     case 'commandsApplied':
-      return stateFromCommands(state, action.value);
+      return stateFromCommands(state, action.value, action.acceptedReceipt);
     case 'compiled': {
       const normalized = stateFromBuilder(
         {

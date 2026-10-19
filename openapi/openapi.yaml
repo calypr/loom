@@ -2958,6 +2958,8 @@ components:
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}
+        acceptedConstruction:
+          $ref: '#/components/schemas/AcceptedConstruction'
     ReconcileRequest:
       type: object
       additionalProperties: false
@@ -6389,13 +6391,16 @@ components:
         columns:
           type: array
           items: {$ref: '#/components/schemas/ContractColumn'}
+    CompileResponseKind:
+      type: string
+      enum: [ExplorerBuilderReceipt]
     CompileResponse:
       type: object
       additionalProperties: false
       required: [apiVersion, kind, receiptId, snapshotToken, generation, intentDigest, compilerVersion, builder, outputs, diagnostics]
       properties:
         apiVersion: {$ref: '#/components/schemas/APIVersion'}
-        kind: {type: string, enum: [ExplorerBuilderReceipt]}
+        kind: {$ref: '#/components/schemas/CompileResponseKind'}
         receiptId: {type: string, minLength: 1}
         snapshotToken: {type: string, minLength: 1}
         generation: {type: string, minLength: 1}
@@ -6409,6 +6414,39 @@ components:
         authorizationScopeDigest: {type: string, minLength: 1}
         capabilitySchemaDigest: {type: string, minLength: 1}
         builder: {$ref: '#/components/schemas/Workspace'}
+        outputs:
+          type: array
+          items: {$ref: '#/components/schemas/ReceiptOutput'}
+        diagnostics:
+          type: array
+          items: {$ref: '#/components/schemas/Diagnostic'}
+    AcceptedConstruction:
+      type: object
+      additionalProperties: false
+      required: [receipt, preview, previewLimit]
+      properties:
+        receipt: {$ref: '#/components/schemas/AcceptedConstructionReceipt'}
+        preview: {$ref: '#/components/schemas/PreviewResponse'}
+        previewLimit: {type: integer, minimum: 1, maximum: 1000}
+    AcceptedConstructionReceipt:
+      type: object
+      additionalProperties: false
+      required: [apiVersion, kind, receiptId, snapshotToken, generation, intentDigest, compilerVersion, outputs, diagnostics]
+      properties:
+        apiVersion: {$ref: '#/components/schemas/APIVersion'}
+        kind: {$ref: '#/components/schemas/CompileResponseKind'}
+        receiptId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        generation: {type: string, minLength: 1}
+        intentDigest: {type: string, minLength: 1}
+        compilerVersion: {type: string, minLength: 1}
+        shapeDigest: {type: string, minLength: 1}
+        recipeDigest: {type: string, minLength: 1}
+        resolvedRecipeDigest: {type: string, minLength: 1}
+        resolvedSchemaDigest: {type: string, minLength: 1}
+        outputContractDigest: {type: string, minLength: 1}
+        authorizationScopeDigest: {type: string, minLength: 1}
+        capabilitySchemaDigest: {type: string, minLength: 1}
         outputs:
           type: array
           items: {$ref: '#/components/schemas/ReceiptOutput'}

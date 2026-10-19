@@ -289,6 +289,25 @@ type PreviewResult struct {
 	Summary dataframeexecution.PreviewSummary
 }
 
+// PreviewSinkFactory adapts native preview rows to a transport-owned sink.
+// Lifecycle owns preview authorization and ordering; transports own encoding.
+type PreviewSinkFactory func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error)
+
+// AcceptedConstruction is the exact Apply-time preview that validated the
+// candidate construction. It is returned only after the draft CAS succeeds.
+type AcceptedConstruction struct {
+	Preview      PreviewResult
+	PreviewLimit int
+}
+
+// ApplyCommandsWithConstructionPreviewResponse keeps the established Apply
+// result alongside an optional request-local preview for construction Apply.
+// Accepted is absent for replay or when the sink factory reports capture failure.
+type ApplyCommandsWithConstructionPreviewResponse struct {
+	Commands *authoringv2.ApplyCommandsResponse
+	Accepted *AcceptedConstruction
+}
+
 // PreviewInterpretationCandidateRequest identifies an immutable candidate
 // revision and the exact draft against which it was proposed. The draft CAS
 // is checked before either receipt is compiled, but this operation never

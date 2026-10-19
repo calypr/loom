@@ -17,6 +17,25 @@ import (
 )
 
 func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string) (*authoringv2.ApplyCommandsResponse, error) {
+	response, err := s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, nil)
+	if err != nil {
+		return nil, err
+	}
+	return response.Commands, nil
+}
+
+// ApplyCommandsWithConstructionPreview returns the exact Apply-time preview
+// alongside a successful construction Apply. The sink factory is transport
+// owned and capture failures are best-effort; they never change Apply's
+// existing validation or save behavior.
+func (s *Service) ApplyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, sinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
+	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandApplyConstructionProposal {
+		return nil, malformed("commands", "APPLY_CONSTRUCTION_PROPOSAL must be the only command in its atomic request", nil)
+	}
+	return s.applyCommandsWithConstructionPreview(ctx, project, explorerID, request, actor, sinkFactory)
+}
+
+func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, actor string, previewSinkFactory PreviewSinkFactory) (*ApplyCommandsWithConstructionPreviewResponse, error) {
 	if err := request.Validate(); err != nil {
 		if strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
 			return nil, conflict("commands", "UNSUPPORTED_SEMANTICS_VERSION", "the authoring semantics version is unsupported; reload the workspace", nil, err)
@@ -40,6 +59,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 	}
 	var constructionCandidate *explorer.CompilationReceipt
+	var acceptedConstruction *AcceptedConstruction
 	var populationMemberCandidate *explorer.CompilationReceipt
 	var rowChangeReplacementCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
@@ -160,8 +180,9 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 	} else if constructionProposalCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
-			prepared, receipt, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
+			prepared, receipt, accepted, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands, previewSinkFactory)
 			constructionCandidate = receipt
+			acceptedConstruction = accepted
 			return prepared, prepareErr
 		}
 	} else if populationMemberProposalCommand {
@@ -260,7 +281,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		return nil, unprocessable("commands", "INVALID_AUTHORING_COMMAND", err.Error(), err)
 	default:
-		return response, nil
+		return &ApplyCommandsWithConstructionPreviewResponse{Commands: response, Accepted: acceptedConstruction}, nil
 	}
 }
 

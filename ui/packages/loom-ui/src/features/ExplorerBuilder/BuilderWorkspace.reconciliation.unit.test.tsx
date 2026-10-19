@@ -758,6 +758,73 @@ const openPivotPresentationProposal = async () => {
   return { view, proposalPreview };
 };
 
+const openFilterConstructionProposal = async () => {
+  const sourceStage = {
+    id: 'source_projection',
+    inputStageId: '',
+    rowIdentityColumn: 'source-row-id',
+    columns: [
+      { id: 'specimen-id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+      { id: 'gender-id', name: 'gender', label: 'Gender', type: 'string' },
+    ],
+    capabilities: [
+      { kind: 'FILTER' as const, supported: true },
+      { kind: 'DERIVE' as const, supported: true },
+      { kind: 'PIVOT' as const, supported: false, reason: 'Not needed by this test.' },
+      { kind: 'UNPIVOT' as const, supported: false, reason: 'Not needed by this test.' },
+    ],
+  };
+  mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+    readonly snapshotToken: string;
+    readonly expectedDraftVersion: number;
+    readonly expectedDraftDigest: string;
+    readonly outputId: string;
+    readonly stageId: string;
+  }) => ({
+    snapshotToken: args.snapshotToken,
+    draftVersion: args.expectedDraftVersion,
+    draftDigest: args.expectedDraftDigest,
+    outputId: args.outputId,
+    stageId: args.stageId,
+    baseConstruction: { version: 1, steps: [] },
+    stages: [sourceStage],
+    selectedStage: sourceStage,
+  }));
+  mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+    proposalId: 'fallback-filter-proposal',
+    outputId: args.outputId,
+    snapshotToken: args.snapshotToken,
+    draftVersion: args.expectedDraftVersion,
+    draftDigest: args.expectedDraftDigest,
+    baseDocumentDigest: 'document-1',
+    candidateWorkspaceDigest: 'candidate-workspace-1',
+    changedStepId: args.changedStepId ?? '',
+    candidateConstruction: args.candidateConstruction,
+    dependencyImpact: { affectedStepIds: [] },
+    stages: [sourceStage],
+    previewStatus: 'READY',
+    previewDurationMs: 1,
+  }));
+  mockLoomClient.preview.mockResolvedValue({
+    apiVersion,
+    kind: 'ExplorerBuilderPreview',
+    rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+    receiptId: 'fallback-filter-proposal',
+    outputId: 'specimens',
+    columns: receipt.outputs[0].columns,
+    rows: [],
+    rowCount: 0,
+    diagnostics: [],
+  });
+  const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+  fireEvent.click(await screen.findByTestId('construction-action-keep-rows'));
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Column' }), { target: { value: 'gender-id' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'EQUALS' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+  await screen.findByTestId('construction-proposal-ready');
+  return view;
+};
+
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
   let assessRowChange: Mock;
@@ -1835,6 +1902,69 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClient.proposeConstruction.mockClear();
   });
 
+  it.each(['omitted', 'mismatched receipt identity'] as const)(
+    'uses normal reconciliation and preview when accepted Apply data is %s',
+    async (acceptedData) => {
+      const view = await openFilterConstructionProposal();
+      await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+
+      const commandResponse = {
+        commandId: 'apply-command',
+        workspace,
+        draftVersion: 2,
+        draftDigest: 'sha256:draft-2',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
+        diagnostics: [],
+      };
+      if (acceptedData === 'omitted') {
+        applyCommands.mockReturnValue(resolvedRequest(commandResponse));
+      } else {
+        const { builder: receiptWorkspace, ...acceptedReceipt } = receipt;
+        expect(receiptWorkspace).toEqual(workspace);
+        applyCommands.mockReturnValue(resolvedRequest({
+          ...commandResponse,
+          acceptedConstruction: {
+            receipt: {
+              ...acceptedReceipt,
+              receiptId: 'unrelated-receipt',
+              generation: 'generation-1',
+              compilerVersion: 'compiler-v1',
+              intentDigest: 'sha256:draft-2',
+            },
+            preview: {
+              apiVersion,
+              kind: 'ExplorerBuilderPreview' as const,
+              rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+              receiptId: 'unrelated-receipt',
+              outputId: 'specimens',
+              columns: receipt.outputs[0].columns,
+              rows: [{ specimen_identifier: 'should-not-be-adopted' }],
+              rowCount: 1,
+              diagnostics: [],
+            },
+            previewLimit: 25,
+          },
+        }));
+      }
+
+      fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+      await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+      expect(reconcile.mock.calls[1]?.[0]).toMatchObject({
+        draftVersion: 2,
+        draftDigest: 'sha256:draft-2',
+      });
+      expect(preview.mock.calls[1]?.[0]).toMatchObject({
+        outputId: 'specimens',
+        receiptId: 'receipt-1',
+      });
+      await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
+
+      view.unmount();
+    },
+  );
+
   it('pauses related-path pagination before closing a canceled construction proposal', async () => {
     const { view } = await openPivotPresentationProposal();
     let finishRouteDrain: (() => void) | undefined;
@@ -1968,7 +2098,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  it('reconciles a new draft version when its content digest stays the same', async () => {
+  it('adopts the Apply-time preview once and refreshes normally after a later workspace edit', async () => {
     const sourceStage = {
       id: 'source_projection',
       inputStageId: '',
@@ -2050,7 +2180,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         construction: latestCandidate,
       };
       savedWorkspace = { ...workspace, documents: [savedDocument] };
-      return resolvedRequest({
+      const commandResponse = {
         commandId: args.commandId,
         workspace: savedWorkspace,
         draftVersion: nextDraftVersion,
@@ -2058,6 +2188,33 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         draftDigest: 'sha256:draft-2',
         results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'specimen_identifier' }],
         diagnostics: [],
+      };
+      if (proposalNumber !== 1) return resolvedRequest(commandResponse);
+      const { builder: receiptWorkspace, ...acceptedReceipt } = receipt;
+      expect(receiptWorkspace).toEqual(workspace);
+      return resolvedRequest({
+        ...commandResponse,
+        acceptedConstruction: {
+          receipt: {
+            ...acceptedReceipt,
+            receiptId: `stable-content-proposal-${proposalNumber}`,
+            generation: 'generation-1',
+            compilerVersion: 'compiler-v1',
+            intentDigest: 'sha256:draft-2',
+          },
+          preview: {
+            apiVersion,
+            kind: 'ExplorerBuilderPreview' as const,
+            rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+            receiptId: `stable-content-proposal-${proposalNumber}`,
+            outputId: 'specimens',
+            columns: receipt.outputs[0].columns,
+            rows: [],
+            rowCount: 0,
+            diagnostics: [],
+          },
+          previewLimit: 25,
+        },
       });
     });
     reconcile.mockImplementation((args: {
@@ -2104,14 +2261,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(screen.getByTestId('construction-apply-proposal'));
 
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
-    expect(reconcile.mock.calls[1]?.[0]).toMatchObject({
-      draftVersion: 2,
-      draftDigest: 'sha256:draft-2',
-    });
-    expect(preview.mock.calls[1]?.[0]).toMatchObject({ outputId: 'specimens', receiptId: 'receipt-v2' });
-    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'receipt-v2'));
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'stable-content-proposal-1'));
+    expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready');
+    expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2');
+    expect(reconcile).toHaveBeenCalledTimes(1);
+    expect(preview).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId(`construction-history-step-${firstStepId}`));
     fireEvent.click(await screen.findByTestId(`construction-edit-step-${firstStepId}`));
@@ -2126,13 +2280,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     fireEvent.click(screen.getByTestId('construction-apply-proposal'));
 
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
-    expect(reconcile.mock.calls[2]?.[0]).toMatchObject({
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(reconcile.mock.calls[1]?.[0]).toMatchObject({
       draftVersion: 3,
       draftDigest: 'sha256:draft-2',
     });
-    expect(preview.mock.calls[2]?.[0]).toMatchObject({ outputId: 'specimens', receiptId: 'receipt-v3' });
+    expect(preview.mock.calls[1]?.[0]).toMatchObject({ outputId: 'specimens', receiptId: 'receipt-v3' });
     await waitFor(() => {
       const previewPanel = screen.getByTestId('construction-preview');
       expect(previewPanel).toHaveAttribute('data-preview-receipt-id', 'receipt-v3');
@@ -2145,8 +2299,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 300));
     });
-    expect(reconcile).toHaveBeenCalledTimes(3);
-    expect(preview).toHaveBeenCalledTimes(3);
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(preview).toHaveBeenCalledTimes(2);
   });
 
   it('automatically previews a hydrated draft and opens Review with its compile receipt and sample', async () => {

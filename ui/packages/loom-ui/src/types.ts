@@ -3184,6 +3184,7 @@ export const explorerBuilderCommandsResultSchema = z
     previousDraftRevisionId: opaqueIdSchema.optional(),
     results: z.array(explorerBuilderCommandResultSchema),
     diagnostics: z.array(explorerAuthoringDiagnosticSchema),
+    acceptedConstruction: z.lazy(() => explorerBuilderAcceptedConstructionSchema).optional(),
   })
   .strict();
 export type ExplorerBuilderCommandsResult = z.infer<
@@ -3289,6 +3290,16 @@ export const explorerBuilderCompileResultSchema = z
 export type ExplorerBuilderCompileResult = z.infer<
   typeof explorerBuilderCompileResultSchema
 >;
+export const explorerBuilderAcceptedConstructionReceiptSchema = explorerBuilderCompileResultSchema
+  .omit({ builder: true })
+  .extend({
+    generation: opaqueIdSchema,
+    intentDigest: opaqueIdSchema,
+    compilerVersion: opaqueIdSchema,
+  });
+export type ExplorerBuilderAcceptedConstructionReceipt = z.infer<
+  typeof explorerBuilderAcceptedConstructionReceiptSchema
+>;
 
 export const explorerBuilderPreviewColumnSchema =
   explorerBuilderContractColumnSchema;
@@ -3341,6 +3352,17 @@ export const explorerBuilderPreviewResultSchema = z
   });
 export type ExplorerBuilderPreviewResult = z.infer<
   typeof explorerBuilderPreviewResultSchema
+>;
+
+export const explorerBuilderAcceptedConstructionSchema = z
+  .object({
+    receipt: explorerBuilderAcceptedConstructionReceiptSchema,
+    preview: explorerBuilderPreviewResultSchema,
+    previewLimit: z.number().int().min(1).max(1000),
+  })
+  .strict();
+export type ExplorerBuilderAcceptedConstruction = z.infer<
+  typeof explorerBuilderAcceptedConstructionSchema
 >;
 
 export const explorerBuilderPublishResultSchema = z

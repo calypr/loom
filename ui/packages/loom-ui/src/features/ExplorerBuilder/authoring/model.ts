@@ -247,6 +247,7 @@ export const stateFromBuilder = (
 export const stateFromCommands = (
   state: BuilderAuthoringState,
   value: ExplorerBuilderCommandsResult,
+  acceptedReceipt?: ExplorerBuilderCompileResult,
 ): BuilderAuthoringState => {
   const normalized = stateFromBuilder(
     {
@@ -283,14 +284,21 @@ export const stateFromCommands = (
     routeNode(selectedTable.document.route, requestedOccurrenceId)
       ? requestedOccurrenceId
       : 'base';
+  const accepted = acceptedReceipt &&
+    acceptedReceipt.snapshotToken === state.catalog.snapshotToken &&
+    acceptedReceipt.intentDigest === value.draftDigest &&
+    acceptedReceipt.outputs.some((output) => output.outputId === selectedOutputId)
+    ? { ...acceptedReceipt, builder: value.workspace }
+    : undefined;
   return {
     ...normalized,
     previewRequestVersion: state.previewRequestVersion,
     selectedOutputId,
     selectedOccurrenceId,
-    diagnostics: value.diagnostics,
+    receipt: accepted,
+    diagnostics: accepted?.diagnostics ?? value.diagnostics,
     dirty: false,
-    reconciliation: 'idle',
+    reconciliation: accepted ? 'resolved' : 'idle',
   };
 };
 
