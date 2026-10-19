@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
@@ -13,13 +14,15 @@ import (
 
 type fakeQueryer struct {
 	driver.DatabaseQuery
-	cursor driver.Cursor
-	err    error
-	called int
+	cursor  driver.Cursor
+	err     error
+	called  int
+	options *driver.QueryOptions
 }
 
-func (q *fakeQueryer) Query(context.Context, string, *driver.QueryOptions) (driver.Cursor, error) {
+func (q *fakeQueryer) Query(_ context.Context, _ string, options *driver.QueryOptions) (driver.Cursor, error) {
 	q.called++
+	q.options = options
 	if q.err != nil {
 		return nil, q.err
 	}
@@ -28,13 +31,15 @@ func (q *fakeQueryer) Query(context.Context, string, *driver.QueryOptions) (driv
 
 type fakeCursor struct {
 	driver.Cursor
-	rows       []map[string]any
-	readErr    error
-	closeErr   error
-	closeCount int
-	hasMore    int
-	readCount  int
-	onRead     func()
+	rows        []map[string]any
+	readErr     error
+	closeErr    error
+	closeCount  int
+	closeCtx    context.Context
+	closeCtxErr error
+	hasMore     int
+	readCount   int
+	onRead      func()
 }
 
 func (c *fakeCursor) HasMore() bool {
@@ -62,6 +67,13 @@ func (c *fakeCursor) Close() error {
 	return c.closeErr
 }
 
+func (c *fakeCursor) CloseWithContext(ctx context.Context) error {
+	c.closeCount++
+	c.closeCtx = ctx
+	c.closeCtxErr = ctx.Err()
+	return c.closeErr
+}
+
 func TestQueryRowsChecksCancellationBeforeQuery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -71,6 +83,51 @@ func TestQueryRowsChecksCancellationBeforeQuery(t *testing.T) {
 	}
 	if queryer.called != 0 {
 		t.Fatalf("query called %d times", queryer.called)
+	}
+}
+
+func TestQueryRowsWithMaxRuntimeBoundsServerQueryAndCursorCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cursor := &fakeCursor{rows: []map[string]any{{"id": "1"}, {"id": "2"}}}
+	queryer := &fakeQueryer{cursor: cursor}
+	visited := 0
+	err := queryRowsWithMaxRuntime(ctx, queryer, "RETURN 1", 7, map[string]any{"project": "P1"}, 2500*time.Millisecond, func(map[string]any) error {
+		visited++
+		cancel()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || visited != 1 {
+		t.Fatalf("error=%v visited=%d, want cancellation after one row", err, visited)
+	}
+	if queryer.called != 1 || queryer.options == nil || queryer.options.Options.MaxRuntime != 2.5 {
+		t.Fatalf("query options=%#v called=%d, want maxRuntime 2.5 seconds", queryer.options, queryer.called)
+	}
+	if queryer.options.BatchSize != 7 || queryer.options.BindVars["project"] != "P1" {
+		t.Fatalf("query options lost ordinary fields: %#v", queryer.options)
+	}
+	if cursor.closeCount != 1 || cursor.closeCtx == nil || cursor.closeCtxErr != nil {
+		t.Fatalf("cursor close count=%d context=%v, want one close with a live cleanup context", cursor.closeCount, cursor.closeCtx)
+	}
+	if _, ok := cursor.closeCtx.Deadline(); !ok {
+		t.Fatal("cursor cleanup context has no deadline")
+	}
+}
+
+func TestQueryRowsWithMaxRuntimeRejectsNonPositiveRuntime(t *testing.T) {
+	queryer := &fakeQueryer{cursor: &fakeCursor{}}
+	err := queryRowsWithMaxRuntime(context.Background(), queryer, "RETURN 1", 1, nil, 0, func(map[string]any) error { return nil })
+	if err == nil || queryer.called != 0 {
+		t.Fatalf("error=%v query calls=%d, want invalid runtime rejected before querying", err, queryer.called)
+	}
+}
+
+func TestQueryRowsLeavesRuntimeUnboundedOutsidePreview(t *testing.T) {
+	queryer := &fakeQueryer{cursor: &fakeCursor{}}
+	if err := queryRows(context.Background(), queryer, "RETURN 1", 1, nil, func(map[string]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if queryer.options == nil || queryer.options.Options.MaxRuntime != 0 {
+		t.Fatalf("ordinary query options=%#v, want no preview runtime limit", queryer.options)
 	}
 }
 
@@ -114,6 +171,19 @@ func TestIsQueryMemoryLimitExceededRecognizesWrappedArangoResourceLimit(t *testi
 	}
 	if !IsQueryResourceLimitExceeded(otherResource) {
 		t.Fatal("non-memory resource limit was not recognized")
+	}
+}
+
+func TestIsQueryUserAssertionRecognizesOnlyTheRequestedStableCode(t *testing.T) {
+	err := fmt.Errorf("arango query: %w", shared.ArangoError{
+		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
+		ErrorMessage: "AQL: RELATIONSHIP_CARDINALITY_VIOLATION (while executing)",
+	})
+	if !IsQueryUserAssertion(err, "RELATIONSHIP_CARDINALITY_VIOLATION") {
+		t.Fatal("stable user assertion was not recognized")
+	}
+	if IsQueryUserAssertion(err, "SOME_OTHER_ASSERTION") || IsQueryUserAssertion(errors.New("RELATIONSHIP_CARDINALITY_VIOLATION"), "RELATIONSHIP_CARDINALITY_VIOLATION") {
+		t.Fatal("unrelated error was classified as the requested user assertion")
 	}
 }
 

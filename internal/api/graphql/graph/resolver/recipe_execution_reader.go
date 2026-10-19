@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
@@ -87,11 +88,9 @@ func recipeExecutionLookupError(err error) error {
 	if errors.Is(err, materialization.ErrBundleNotFound) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeExecutionNotFound, "")
 	}
-	if errors.Is(err, authscope.ErrUnauthenticated) {
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnauthenticated, "")
-	}
-	if errors.Is(err, authscope.ErrForbidden) {
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeExecutionNotFound, "")
+	classified := authpolicy.Classify(err, authpolicy.OperationConcealedLookup)
+	if _, ok := dataframeerrors.AsUserError(classified); ok {
+		return classified
 	}
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }

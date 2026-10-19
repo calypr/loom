@@ -1,0 +1,258 @@
+{
+  "epoch": 89,
+  "status": "CLOSED_FAILED_HARNESS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "645515c8bb3b8a82de7fb4ff77b321d236db375d99c07d50caf459332e1f048b",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "645515c8bb3b8a82de7fb4ff77b321d236db375d99c07d50caf459332e1f048b",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/source-before.json",
+        "sha256": "e81769b619472c2ab64432a8432012e39c028d8a84a957825180d7bde23dbe8e"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/source-after.json",
+        "sha256": "bc294b5707bfa23922411551ed6398f0a8c58608f80666e8504b59e9e96f6020"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "852646ba4a8253981786dfd2fea1080df79b15e4544cee71c975568bfafcd97f",
+        "files": 208
+      },
+      "after": {
+        "sha256": "852646ba4a8253981786dfd2fea1080df79b15e4544cee71c975568bfafcd97f",
+        "files": 208
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/docs-before.json",
+        "sha256": "5dbd102d692d94e9d5703e1b4f12706b13253676bfbb4b8b0dd7df0beb4c0e27"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/docs-after.json",
+        "sha256": "0ab9157dfe360e3d68d4ccddaadd44e89736b1817c19dc5bbc53c7685c348a12"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/api-identity-before.json",
+        "sha256": "2d7ec4ff7adce8aa1150838e053437a59178198280c5d851273ce69731c40c35"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/api-identity-after.json",
+        "sha256": "0ad5422afdbe37e8e59704fa3a94e03473045bed2e2506614f617f812b3b9412"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/api-build-precheck-confirmed.json",
+        "sha256": "3707f1957d1faf779eaf75620f803312415e5be975cc49f8bfd6f1b64d1c8a91"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/owned-mounts-before.json",
+        "sha256": "6f41e1bb058f37bac3c777f755a429b7849a46fb2e50df3b16bdb0bfb951f912"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/owned-mounts-after.json",
+        "sha256": "74c9215ddfd1365921cd8a75ae701c5645479759e3d0e0e39235209459dec3e8"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/health-before.json",
+        "sha256": "79efcb05e806171bf71f04608956f975367e6e0f489a73763f94f75b1e930031"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave89/health-after.json",
+        "sha256": "af157b86bd5602b1f276aad2cbd14002ef0f23246d7f7a8e0e7378d95cbae0be"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "cda-workspace-combine",
+    "caseName": "group-pivot-join",
+    "title": "CDA current-draft Group→Pivot→Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+    "status": "failed_harness",
+    "failureAttribution": "HARNESS_STRICT_LOCATOR_AMBIGUITY",
+    "requiredChecks": {
+      "total": 30,
+      "passed": 13,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 17,
+      "evidence": [
+        {
+          "name": "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+          "status": "passed"
+        },
+        {
+          "name": "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "left Group native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "left Group saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Left native Group produces the exact shared count 3 and left-only count 1",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+          "status": "passed"
+        },
+        {
+          "name": "all native lifecycle actions complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 65,
+      "failed": 0,
+      "total": 65
+    },
+    "actions": {
+      "passed": 34,
+      "failed": 0,
+      "total": 34,
+      "maxElapsedMs": 1381,
+      "budgetMs": 5000
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "passed"
+    },
+    "expectedSelectionCancellation": {
+      "count": 1,
+      "method": "GET",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-cac986c6-aef8-4669-b27c-c471853ef18e/selections/selection_3d024f9ca28831e95a4c06df1f1ee11ef81b330c8b26203c83af2d810cfd564e",
+      "requestId": "cda-request-376",
+      "expected": true,
+      "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+      "proof": {
+        "project": "loom_dev_cda_fhir",
+        "explorer": "cda-group-pivot-join-cac986c6-aef8-4669-b27c-c471853ef18e",
+        "generation": "cda-fhir-v1",
+        "previousOutputId": "out_067ea4c515d3c9203caa6c82",
+        "previousSelectionRevisionId": "selection_3d024f9ca28831e95a4c06df1f1ee11ef81b330c8b26203c83af2d810cfd564e",
+        "nextOutputId": "out_62e85175b09306e8d5fbe88f",
+        "nextSelectionRevisionId": "selection_76a19e2ee134596bbd2230f50273113c24a1f59a9f6dd0ba7b1b42c06990880a",
+        "query": {
+          "method": "GET",
+          "limit": 1
+        },
+        "retirement": "BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.",
+        "scopeAction": "Select right Group Pivot exact source population",
+        "scopeRequest": {
+          "requestId": null,
+          "draftVersion": null,
+          "draftDigest": null,
+          "outputId": null,
+          "stageId": null
+        }
+      },
+      "replacementRead": {
+        "selectionId": "selection_76a19e2ee134596bbd2230f50273113c24a1f59a9f6dd0ba7b1b42c06990880a",
+        "status": 200,
+        "limit": "1"
+      },
+      "strictUnexpectedNetworkErrors": 0
+    },
+    "nativeRequests": {
+      "recordedEntries": 74,
+      "http200": 74,
+      "non200OrNoStatus": 0,
+      "unexpectedNetworkErrors": 0,
+      "expectedCancellationEvents": 1
+    },
+    "primaryFailure": {
+      "classification": "harness-strict-locator-ambiguity",
+      "description": "The Pivot category wait used a singular Playwright locator that matched both visible category checkboxes, so strict mode stopped the workflow before selecting/applying categories.",
+      "workflowPath": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+      "workflowLine": 750,
+      "selector": "[data-testid=\"construction-reshape-pivot-categories\"] input[aria-label^=\"Include category \"]",
+      "matchedCategories": [
+        "1222593009",
+        "81247-9"
+      ],
+      "rawFailure": "Error: locator.waitFor: Error: strict mode violation: locator('[data-testid=\"construction-reshape-pivot-categories\"] input[aria-label^=\"Include category \"]') resolved to 2 elements:\n    1) <input type=\"checkbox\" aria-label=\"Include category 1222593009\"/> aka getByRole('checkbox', { name: 'Include category 1222593009' })\n    2) <input type=\"checkbox\" aria-label=\"Include category 81247-9\"/> aka getByRole('checkbox', { name: 'Include category 81247-' })\n\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"construction-reshape-pivot-categories\"] input[aria-label^=\"Include category \"]') to be visible\u001b[22m\n",
+      "interpretation": "Harness failure after right Group save/reload and entry into the native Pivot category chooser. The strict locator did not show a product failure; the Pivot save/reload and native Join lifecycle were not reached."
+    }
+  },
+  "coordinatorClosure": {
+    "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+    "sha256": "216417d8c8a9059cedba1d5cf530c6b35be4241060447b953101a2d6c9b21829",
+    "rootAcceptance": {
+      "baselineAccepted": true,
+      "browserReleased": true,
+      "closureAccepted": false
+    }
+  }
+}

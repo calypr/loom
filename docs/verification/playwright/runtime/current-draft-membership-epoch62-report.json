@@ -1,0 +1,15 @@
+{
+  "epoch": 62,
+  "scenario": "builder-combine-draft/membership",
+  "status": "failed",
+  "lifecycleStatus": "unverified",
+  "classification": "PRODUCT_CAPABILITY_RESTRICTION_UNDER_INVESTIGATION",
+  "failureSummary": "The focused capability response bound successfully to the exact draft/output. Both Group ID key outputs were optional_one and nullable:true; only sourceKeysAreActualNonNullScalars failed. No eligible Membership key or Membership lifecycle request was reached.",
+  "sourceFingerprint": "91ec48ffd83d426f8073140a2b4714d0e0472b875ce1d1ed2739bead0552df03",
+  "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+  "browserDurationMs": 4902,
+  "reportPath": "/private/tmp/loom-native-parallel-wave62/basic-membership/attempt1/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-d1fc47fc0e1e14fb10a8377975e9ba79b7b6ddef.json",
+  "reportSha256": "abced6d99851da197c6a3b461cb895a14dca7ff4664e52016044f4c9206e27b7",
+  "nextAction": "Investigate nullable-key Membership semantics and eligibility; preserve the ID regression.",
+  "integrityStatus": "PASS"
+}

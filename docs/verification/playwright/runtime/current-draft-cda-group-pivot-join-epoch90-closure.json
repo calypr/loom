@@ -1,0 +1,224 @@
+{
+  "epoch": 90,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "47e0b5f4097f8f6626ce65de3b44822c093ece8a3bda1da151c89621ca4c97d6",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "47e0b5f4097f8f6626ce65de3b44822c093ece8a3bda1da151c89621ca4c97d6",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/source-before.json",
+        "sha256": "e882805a341d1fa530230a360c6107b341c0cbebe6173fb8091a696b35ee3f4b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/source-after.json",
+        "sha256": "374d04db36446bc31cab44f9e3002f4e6576b580688d2961fcd70f02293a0f94"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "7fd9d6ba97715e9da5d9cb0e005ec50f41e5f145b63ca26d194cfebc0609de6b",
+        "files": 211
+      },
+      "after": {
+        "sha256": "7fd9d6ba97715e9da5d9cb0e005ec50f41e5f145b63ca26d194cfebc0609de6b",
+        "files": 211
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/docs-before.json",
+        "sha256": "0c8e8545399828700191f49c0ac86bb252484de29541977f1b894d02830caf4d"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/docs-after.json",
+        "sha256": "3c6a1b3dd43c7d4d58bce43233d37720367dc1d5a8507908fdb5d1e231d0968f"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/api-identity-before.json",
+        "sha256": "a6fa2521bebd3851b67d034d127255d418b053e3406993f98c137ea4d5b01b25"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/api-identity-after.json",
+        "sha256": "2317ceebe08b1543ace3e06474684a7a16722a38e3e42d72e9a858374502e71c"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/api-build-precheck-confirmed.json",
+        "sha256": "8d2c519478583a43560af9998ffa353720170ddc5b96977ca4653cca356244e3"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/owned-mounts-before.json",
+        "sha256": "c44948d306ff3b23d4cea7d86c86a7097ea6181afcad2a1e1107caaf67bbc3a9"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/owned-mounts-after.json",
+        "sha256": "7939abffd3fe4b3ec852a4c851d2800f0110f957ea443d17e0fbd256aaeac5b0"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/health-before.json",
+        "sha256": "8fd4a8e4a4b87d30c3aaf868307aa7f4d9c39a9bcc7b9ae797cb0ba394b9b2b1"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave90/health-after.json",
+        "sha256": "4ed2b70205c89d224c220995c1e7609f091a3d6087d870e650aa35bfdf08daff"
+      }
+    }
+  },
+  "caseResult": {
+    "status": "FAILED_HARNESS",
+    "failureAttribution": "HARNESS_WAIT_FOR_FUNCTION_SYNTAX_ERROR",
+    "browserSession": 9003,
+    "browserExitCode": 1,
+    "caseDurationMs": 54668,
+    "primaryFailure": {
+      "workflow": "beginEdit",
+      "workflowLine": 981,
+      "action": "Open saved Join history step",
+      "error": "page.waitForFunction threw SyntaxError: Invalid or unexpected token."
+    },
+    "requiredChecks": {
+      "total": 30,
+      "reachedPassed": 20,
+      "notReached": 10,
+      "notReachedNames": [
+        "Edited INNER proposal matches exact shared-key rows",
+        "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+        "Canceled INNER edit retains LEFT values",
+        "INNER Join proposal matches exact shared-key rows",
+        "Apply saved LEFT Join edit as INNER persists exact visible values",
+        "Cancel INNER Join removal preserves existing target rows",
+        "Cancel removal preserves saved INNER values",
+        "Join removal Apply restores exact empty target and preserves scoped Group/Pivot sources",
+        "CDA Group/Pivot/Join lifecycle never publishes or pins TABLE_REVISION inputs",
+        "All native Group/Pivot/Join browser actions remain within five seconds"
+      ]
+    },
+    "assertions": {
+      "passed": 156,
+      "failed": 3,
+      "total": 159
+    },
+    "actions": {
+      "passed": 94,
+      "failed": 1,
+      "total": 95,
+      "maxElapsedMs": 1393
+    },
+    "dimensionsAsReported": {
+      "usability": "failed",
+      "correctness": "failed",
+      "persistence": "passed",
+      "performance": "failed"
+    },
+    "performanceAttribution": "No product latency failure established; the workflow ended on a harness SyntaxError before later assertions.",
+    "expectedSelectionCancellation": {
+      "count": 1,
+      "events": [
+        {
+          "method": null,
+          "url": null,
+          "failure": "net::ERR_ABORTED",
+          "expected": true,
+          "triggerAction": null,
+          "cancellationReason": null
+        }
+      ]
+    },
+    "nativeRequests": {
+      "recordedEntries": 116,
+      "http200": 115,
+      "non200OrNoStatus": 1,
+      "unexpectedNetworkErrors": 0
+    },
+    "artifacts": {
+      "report": {
+        "path": "/private/tmp/loom-native-parallel-wave90/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/attachments/cda-domain-report-json-6d65e084f2bdf4a139cc6b7b5485a9a8cf6f42ee.json",
+        "sha256": "21451fb2f3ed6ce3709e5b135231e192b7a201682c3251e2e229da8083a2dcc9"
+      },
+      "results": {
+        "path": "/private/tmp/loom-native-parallel-wave90/cda-current-draft-group-pivot-join/attempt1/results.json",
+        "sha256": "2a21332b6c2b93697a66812ff27f998bcd50b7c94b6e177773e4fe2e55e06e60"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave90/cda-current-draft-group-pivot-join/attempt1/runner.log",
+        "sha256": "4a82b38ca453b7c72500853329aa124c2cab5b7dc566e68c5eda8a40b840db53"
+      },
+      "errorContext": {
+        "path": "/private/tmp/loom-native-parallel-wave90/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/error-context.md",
+        "sha256": "a714ccde34d51744db08b551f3b2d479632b57538048795eba0c39583c19d348"
+      }
+    }
+  },
+  "captureHandles": {
+    "precheck": {
+      "session": 22645,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 91320,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 7171,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 9003,
+      "exitCode": 1
+    },
+    "afterCapture": {
+      "session": 41942,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 65129,
+      "exitCode": 0
+    }
+  },
+  "rootAcceptance": {
+    "baselineAccepted": true,
+    "browserReleased": true,
+    "closureAccepted": false
+  }
+}

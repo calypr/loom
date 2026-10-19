@@ -9,11 +9,13 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 // prepareRunInput resolves field references and returns the effective scope
 // and selected generation alongside the GraphQL-shaped input.
 func (s *Service) prepareRunInput(ctx context.Context, input model.FhirDataframeInput) (model.FhirDataframeInput, authscope.ReadScope, string, error) {
+	input.Project = projectid.Canonical(input.Project)
 	if input.Project == "" {
 		return input, authscope.ReadScope{}, "", dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}

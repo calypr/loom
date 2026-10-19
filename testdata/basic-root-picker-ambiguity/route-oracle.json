@@ -1,0 +1,49 @@
+{
+  "startRoot": "Condition",
+  "patientSubjectPath": {
+    "resourceType": "Patient",
+    "relationship": "subject_Patient",
+    "conditionId": "condition-subject-route",
+    "patientId": "patient-subject-anchor"
+  },
+  "alternatives": [
+    {
+      "key": "condition-stage-assessment",
+      "path": [
+        "Condition.stage[].assessment -> Observation",
+        "Observation.specimen -> Specimen"
+      ],
+      "observationId": "observation-stage-route",
+      "specimenId": "specimen-stage-route",
+      "conditionId": "condition-stage-route",
+      "patientId": "patient-observation-anchor"
+    },
+    {
+      "key": "observation-focus-inbound",
+      "path": [
+        "Condition <- Observation.focus -> Observation",
+        "Observation.specimen -> Specimen"
+      ],
+      "specimenId": "specimen-focus-route",
+      "conditionId": "condition-focus-route",
+      "patientId": "patient-focus-anchor"
+    },
+    {
+      "key": "condition-patient-subject",
+      "path": [
+        "Condition.subject -> Patient",
+        "Specimen.subject -> Patient (inverse from Patient to Specimen)"
+      ],
+      "anchorOccurrence": "Condition.subject_Patient",
+      "specimenId": "specimen-subject-route",
+      "conditionId": "condition-subject-route",
+      "patientId": "patient-subject-anchor"
+    }
+  ],
+  "unmatched": {
+    "specimenId": "specimen-unmatched",
+    "conditionId": null,
+    "patientId": null
+  },
+  "note": "This file is the independent expected-value oracle; workflow code cross-checks every listed ID and relationship against the separate NDJSON source files before browser actions."
+}

@@ -86,6 +86,7 @@ export type BuilderAction =
   | {
       readonly type: 'commandsApplied';
       readonly value: ExplorerBuilderCommandsResult;
+      readonly acceptedReceipt?: ExplorerBuilderCompileResult;
     }
   | { readonly type: 'compiled'; readonly value: ExplorerBuilderCompileResult }
   | {
@@ -102,6 +103,20 @@ export type BuilderAction =
     }
   | { readonly type: 'requestRecompile' }
   | { readonly type: 'preview'; readonly value?: ExplorerBuilderPreviewResult }
+  | {
+      readonly type: 'previewAccepted';
+      readonly identity: {
+        readonly project: string;
+        readonly explorerId: string;
+        readonly snapshotToken: string;
+        readonly draftVersion: number;
+        readonly draftDigest: string;
+        readonly previewRequestVersion: number;
+        readonly outputId: string;
+      };
+      readonly receipt: ExplorerBuilderCompileResult;
+      readonly preview: ExplorerBuilderPreviewResult;
+    }
   | { readonly type: 'published' };
 
 const reconcileSharedFilters = (
@@ -188,7 +203,8 @@ export const builderAuthoringReducer = (
         project: state.project,
         explorerId: action.explorerId ?? state.explorerId,
       });
-    case 'selectTable':
+    case 'selectTable': {
+      if (state.selectedOutputId === action.outputId) return state;
       return state.tables.some((table) => table.outputId === action.outputId)
         ? {
             ...state,
@@ -197,6 +213,7 @@ export const builderAuthoringReducer = (
             preview: undefined,
           }
         : state;
+    }
     case 'selectOccurrence': {
       const table = state.tables.find(
         (candidate) => candidate.outputId === state.selectedOutputId,
@@ -325,6 +342,7 @@ export const builderAuthoringReducer = (
             {
               occurrenceId: action.occurrenceId,
               resourceType: target.resourceType,
+              catalogEdgeId: edge.edgeId,
               relationship: edge.label,
             },
           ],
@@ -430,7 +448,7 @@ export const builderAuthoringReducer = (
     case 'compiling':
       return { ...state, reconciliation: 'pending', diagnostics: [] };
     case 'commandsApplied':
-      return stateFromCommands(state, action.value);
+      return stateFromCommands(state, action.value, action.acceptedReceipt);
     case 'compiled': {
       const normalized = stateFromBuilder(
         {
@@ -496,6 +514,7 @@ export const builderAuthoringReducer = (
     case 'requestRecompile':
       return {
         ...state,
+        previewRequestVersion: state.previewRequestVersion + 1,
         receipt: undefined,
         preview: undefined,
         diagnostics: [],
@@ -503,6 +522,28 @@ export const builderAuthoringReducer = (
       };
     case 'preview':
       return { ...state, preview: action.value };
+    case 'previewAccepted': {
+      const { identity, receipt, preview } = action;
+      if (
+        state.project !== identity.project ||
+        state.explorerId !== identity.explorerId ||
+        state.catalog.snapshotToken !== identity.snapshotToken ||
+        state.draftVersion !== identity.draftVersion ||
+        state.draftDigest !== identity.draftDigest ||
+        state.previewRequestVersion !== identity.previewRequestVersion ||
+        receipt.snapshotToken !== identity.snapshotToken ||
+        !receipt.outputs.some((output) => output.outputId === identity.outputId) ||
+        preview.receiptId !== receipt.receiptId ||
+        preview.outputId !== identity.outputId
+      ) return state;
+      return {
+        ...state,
+        receipt,
+        preview,
+        diagnostics: receipt.diagnostics,
+        reconciliation: 'resolved',
+      };
+    }
     case 'published':
       return { ...state, dirty: false };
   }

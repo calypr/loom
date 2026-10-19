@@ -1,0 +1,1 @@
+{"resourceType":"Observation","id":"basic-presence-positive-observation-001","status":"final","code":{"text":"Basic positive related Observation"},"subject":{"reference":"Patient/basic-presence-positive-patient-001"}}

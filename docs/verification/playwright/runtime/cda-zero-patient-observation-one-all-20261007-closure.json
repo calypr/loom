@@ -1,0 +1,507 @@
+{
+  "schemaVersion": 1,
+  "status": "CLOSED_PASS",
+  "case": {
+    "scenarioId": "cda-related-one-all-zero-observation",
+    "caseName": "zero-patient-observation-one-all-stable-parent-lifecycle",
+    "title": "keeps an exact zero-match Patient through native ONE/ALL and restoration",
+    "classification": "EXACT_CDA_ZERO_MATCH_PATIENT_OBSERVATION_ONE_ALL_PARENT_PRESERVING_LIFECYCLE",
+    "requiredChecks": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "unrun": 0,
+      "outcomes": [
+        {
+          "name": "zero Patient Observation ONE/ALL preserves the exact scoped parent through the native lifecycle",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "run": {
+    "runId": "vIeqOD",
+    "runDirectory": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD",
+    "startedAt": "2026-10-07T20:28:22.363Z",
+    "finishedAt": "2026-10-07T20:29:44.504Z",
+    "bracketDurationMs": 82140,
+    "selectionExact": true,
+    "selectedTest": {
+      "file": "standalone-cda-rows.spec.mjs",
+      "line": 74,
+      "column": 3,
+      "titlePath": "CDA zero Observation related source ONE and ALL › keeps an exact zero-match Patient through native ONE/ALL and restoration",
+      "title": "keeps an exact zero-match Patient through native ONE/ALL and restoration"
+    },
+    "nativeSpec": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+    "grep": "keeps an exact zero-match Patient through native ONE/ALL and restoration$",
+    "browserExitCode": 0,
+    "playwrightCommandDurationMs": 59220,
+    "selectedTestDurationMs": 56958,
+    "retryCount": 0,
+    "canonicalBracketInvocation": {
+      "workingDirectory": "/private/tmp/loom-construction-implementation",
+      "executable": "node",
+      "arguments": [
+        "scripts/run-native-verification-bracket.mjs",
+        "--scenario",
+        "cda-related-one-all-zero-observation",
+        "--case",
+        "zero-patient-observation-one-all-stable-parent-lifecycle",
+        "--grep",
+        "keeps an exact zero-match Patient through native ONE/ALL and restoration$",
+        "--evidence-parent",
+        "/private/tmp/loom-verification-runs"
+      ],
+      "shellCommand": "node scripts/run-native-verification-bracket.mjs --scenario cda-related-one-all-zero-observation --case zero-patient-observation-one-all-stable-parent-lifecycle --grep 'keeps an exact zero-match Patient through native ONE/ALL and restoration$' --evidence-parent /private/tmp/loom-verification-runs",
+      "evidenceRunDirectory": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD"
+    }
+  },
+  "source": {
+    "before": {
+      "sha256": "af289f720cebe0a83b946d0d1a77f7a79fcc029dda168abfacdd5e49495210fd",
+      "files": 1602
+    },
+    "after": {
+      "sha256": "af289f720cebe0a83b946d0d1a77f7a79fcc029dda168abfacdd5e49495210fd",
+      "files": 1602
+    },
+    "unchanged": true,
+    "watchedFileCount": 1127,
+    "changedPaths": []
+  },
+  "apiBuildIdentity": {
+    "before": "891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:4663a6741ed1c3ba096ef1e190ca785619d475dd59a1bf50a20e20e18adc4ea3",
+    "after": "891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:4663a6741ed1c3ba096ef1e190ca785619d475dd59a1bf50a20e20e18adc4ea3",
+    "precheck": "891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:4663a6741ed1c3ba096ef1e190ca785619d475dd59a1bf50a20e20e18adc4ea3",
+    "unchanged": true,
+    "precheckFresh": true
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "af289f720cebe0a83b946d0d1a77f7a79fcc029dda168abfacdd5e49495210fd",
+        "files": 1602
+      },
+      "after": {
+        "sha256": "af289f720cebe0a83b946d0d1a77f7a79fcc029dda168abfacdd5e49495210fd",
+        "files": 1602
+      },
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/source-before.json",
+        "sha256": "004b4e7eb1e36bae4ed7c7897806013f3a1b4462384fb4f130c4f99d17f9d503",
+        "sizeBytes": 206656
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/source-after.json",
+        "sha256": "3183828304f20344c15f08dba225e77ea3dce989281229aeff6d30e3c03eb7a4",
+        "sizeBytes": 206655
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "8a573ddd82914e27e9b9c9e9b3f724943ac83344e2225abdbdde5b7fd9ffe1cf",
+        "files": 298
+      },
+      "after": {
+        "sha256": "8a573ddd82914e27e9b9c9e9b3f724943ac83344e2225abdbdde5b7fd9ffe1cf",
+        "files": 298
+      },
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/docs-before.json",
+        "sha256": "fffa3ccd8d17643eca5b1dc5f90f062d4d137c5d1f396ec64591c6d287c36202",
+        "sizeBytes": 44805
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/docs-after.json",
+        "sha256": "d6392746f5f0027ac6a1f0438ffa07f3e43f568c2bf4265901b6893f26c3385d",
+        "sizeBytes": 44804
+      }
+    },
+    "apiBuildIdentityUnchanged": true,
+    "apiBuildPrecheck": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/api-build-precheck.json",
+      "sha256": "292c31862c4dd348a671424d6a56e78478a22713544f26e0b2d76f676f358309",
+      "sizeBytes": 686
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/owned-mounts-before.json",
+        "sha256": "90564679a37584af5d604d6af55bdbbcaf1d65c264fbac5c41c04fdd8941e3dc",
+        "sizeBytes": 734
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/owned-mounts-after.json",
+        "sha256": "a986060c5cf9c6565db74e81821befdd40e729d8cc5b64bc04b1804e5a44888a",
+        "sizeBytes": 733
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "sampleCount": 3
+      },
+      "after": {
+        "status": "PASS",
+        "sampleCount": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/health-before.json",
+        "sha256": "76a23bfbf3a5f25f1953986d7d4df9b25bcf817dcd41fd42e18ae9f94e1d60b2",
+        "sizeBytes": 2057
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/health-after.json",
+        "sha256": "762d062b7e2c6d28ddd65262d04fa2b17e3bf71f747e9c38a7e7baa762ea67bc",
+        "sizeBytes": 2057
+      }
+    }
+  },
+  "lifecycle": {
+    "status": "passed",
+    "requiredChecksPassed": 2,
+    "nativeAssertionCount": 66,
+    "nativeActionCount": 63,
+    "checkpoints": [
+      {
+        "name": "reload-exact-available-cardinality-source-members",
+        "durationMs": 1550
+      },
+      {
+        "name": "expand-Patient-Observation-preview",
+        "durationMs": 760
+      },
+      {
+        "name": "expand-Patient-Observation-apply-to-render",
+        "durationMs": 893
+      },
+      {
+        "name": "group-available-patient-witnesses-preview-cancel-target",
+        "durationMs": 818
+      },
+      {
+        "name": "cancel-group-proposal-preserves-source-bindings",
+        "durationMs": 753
+      },
+      {
+        "name": "reload-expanded-source-after-group-cancel",
+        "durationMs": 1414
+      },
+      {
+        "name": "group-available-patient-witnesses-preview",
+        "durationMs": 741
+      },
+      {
+        "name": "group-available-patient-witnesses-apply-to-render",
+        "durationMs": 472
+      },
+      {
+        "name": "reload-independent-grouped-witnesses",
+        "durationMs": 1420
+      },
+      {
+        "name": "zero-observation-one-preview",
+        "durationMs": 902
+      },
+      {
+        "name": "cancel-zero-observation-one-preserves-group",
+        "durationMs": 705
+      },
+      {
+        "name": "same-chooser-all-repair-preview",
+        "durationMs": 871
+      },
+      {
+        "name": "cancel-related-all-proposal-preserves-group",
+        "durationMs": 728
+      },
+      {
+        "name": "reopened-all-preview-before-apply",
+        "durationMs": 867
+      },
+      {
+        "name": "apply-related-all-to-native-table-render",
+        "durationMs": 518
+      },
+      {
+        "name": "native-preview-matches-exact-related-field-oracle",
+        "durationMs": 3
+      },
+      {
+        "name": "reload-related-all-available-cardinality-values",
+        "durationMs": 1422
+      },
+      {
+        "name": "edit-related-field-output-label",
+        "durationMs": 1011
+      },
+      {
+        "name": "reload-edited-related-field-output-label",
+        "durationMs": 1406
+      },
+      {
+        "name": "remove-related-source-step-preview",
+        "durationMs": 823
+      },
+      {
+        "name": "apply-remove-related-step-restores-native-group-table",
+        "durationMs": 931
+      },
+      {
+        "name": "reload-restored-available-witness-group-table",
+        "durationMs": 1394
+      }
+    ],
+    "phases": [
+      "construct and reload the exact Patient-root source",
+      "expand the direct Patient-to-Observation route and preserve the parent on a zero edge result",
+      "preview and cancel ONE without losing the grouped source",
+      "reopen the chooser and preview ALL as an empty typed collection",
+      "apply ALL and compare native rows to the exact independent raw oracle",
+      "reload, edit the output label, remove the related field, and reload the restored grouped table"
+    ],
+    "errors": [],
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "oracle": {
+    "kind": "bounded scoped Patient finder for no incoming typed Observation.subject_Patient edge, followed by an exact selected-Patient reread",
+    "scope": {
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "rootResourceType": "Patient",
+      "selectedRootCount": 1,
+      "incomingObservationEdgeCount": 0,
+      "exactRootRereadPerformed": true,
+      "authorizationScope": "[REDACTED]"
+    },
+    "searchBounds": {
+      "patientCandidates": {
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1",
+        "sortedBy": "id",
+        "limit": 2000
+      },
+      "edge": {
+        "fromResourceType": "Observation",
+        "toResourceType": "Patient",
+        "relationship": "subject_Patient",
+        "storageDirection": "INBOUND"
+      },
+      "targetDocumentScope": {
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1"
+      },
+      "authorizationScope": "[REDACTED]",
+      "missingWitnessMeaning": "No witness in this bounded candidate scan is unavailability, not proof of global absence."
+    },
+    "fixtureAvailability": {
+      "zeroIncomingObservationWitnessAvailable": true,
+      "patientCandidateLimit": 2000
+    },
+    "witnessSummary": {
+      "category": "zero-observation",
+      "rootResourceType": "Patient",
+      "rootCount": 1,
+      "distinctIncomingObservationCount": 0
+    },
+    "finalScopedRereadMatched": true,
+    "parentPreservation": {
+      "emptyPolicy": "PRESERVE_PARENT",
+      "previewRowCount": 1,
+      "unmatchedObservationOutputIsNull": true,
+      "savedPolicy": "PRESERVE_PARENT"
+    },
+    "one": {
+      "status": 200,
+      "previewStatus": "READY",
+      "rowCount": 1,
+      "nullableValueIsNull": true
+    },
+    "all": {
+      "previewStatus": "READY",
+      "previewValueIsEmptyArray": true,
+      "sourceContract": "RELATED_SOURCE ALL returns a typed array subplan with empty-on-null behavior when no terminal record matches"
+    }
+  },
+  "performance": {
+    "wholeWorkflow": {
+      "sourceArtifact": {
+        "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/playwright-results/standalone-cda-rows-CDA-ze-1872e-ive-ONE-ALL-and-restoration/attachments/standalone-cda-related-one-all.json",
+        "sha256": "11000679def02fc81c73599419d8147ee6ea44a7209673a3bf18d1440d12b8bd",
+        "sizeBytes": 972485
+      },
+      "timedCheckpointCount": 22,
+      "maximumDurationMs": 1550,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpointDurations": [
+        {
+          "name": "reload-exact-available-cardinality-source-members",
+          "durationMs": 1550
+        },
+        {
+          "name": "expand-Patient-Observation-preview",
+          "durationMs": 760
+        },
+        {
+          "name": "expand-Patient-Observation-apply-to-render",
+          "durationMs": 893
+        },
+        {
+          "name": "group-available-patient-witnesses-preview-cancel-target",
+          "durationMs": 818
+        },
+        {
+          "name": "cancel-group-proposal-preserves-source-bindings",
+          "durationMs": 753
+        },
+        {
+          "name": "reload-expanded-source-after-group-cancel",
+          "durationMs": 1414
+        },
+        {
+          "name": "group-available-patient-witnesses-preview",
+          "durationMs": 741
+        },
+        {
+          "name": "group-available-patient-witnesses-apply-to-render",
+          "durationMs": 472
+        },
+        {
+          "name": "reload-independent-grouped-witnesses",
+          "durationMs": 1420
+        },
+        {
+          "name": "zero-observation-one-preview",
+          "durationMs": 902
+        },
+        {
+          "name": "cancel-zero-observation-one-preserves-group",
+          "durationMs": 705
+        },
+        {
+          "name": "same-chooser-all-repair-preview",
+          "durationMs": 871
+        },
+        {
+          "name": "cancel-related-all-proposal-preserves-group",
+          "durationMs": 728
+        },
+        {
+          "name": "reopened-all-preview-before-apply",
+          "durationMs": 867
+        },
+        {
+          "name": "apply-related-all-to-native-table-render",
+          "durationMs": 518
+        },
+        {
+          "name": "native-preview-matches-exact-related-field-oracle",
+          "durationMs": 3
+        },
+        {
+          "name": "reload-related-all-available-cardinality-values",
+          "durationMs": 1422
+        },
+        {
+          "name": "edit-related-field-output-label",
+          "durationMs": 1011
+        },
+        {
+          "name": "reload-edited-related-field-output-label",
+          "durationMs": 1406
+        },
+        {
+          "name": "remove-related-source-step-preview",
+          "durationMs": 823
+        },
+        {
+          "name": "apply-remove-related-step-restores-native-group-table",
+          "durationMs": 931
+        },
+        {
+          "name": "reload-restored-available-witness-group-table",
+          "durationMs": 1394
+        }
+      ]
+    },
+    "nativeActions": {
+      "actionCount": 63,
+      "maximumMeasuredActionLatencyMs": 198,
+      "measurementScope": "native browser control-action timing only; not the full transition/render checkpoint latency"
+    },
+    "bracket": {
+      "totalDurationMs": 82140,
+      "playwrightCommandDurationMs": 59220,
+      "selectedTestDurationMs": 56958
+    }
+  },
+  "scope": [
+    "The no-edge witness is one exact Patient found within the first 2000 project/generation-scoped Patient candidates sorted by id. A bounded scan is not a project-wide absence claim.",
+    "The browser lifecycle verifies this one selected Patient and the direct inbound Observation.subject_Patient edge only; it does not generalize to other routes, resource types, or restricted-authorization behavior.",
+    "This result is bound to the recorded source fingerprint and API build identity. It does not prove behavior after later source or API changes.",
+    "The only retained browser incidental error is the explicitly recorded favicon 404; network failures, HTTP failures, page errors, and workflow errors are empty."
+  ],
+  "report": {
+    "path": "docs/verification/playwright/runtime/cda-zero-patient-observation-one-all-20261007-report.json",
+    "sha256": "8c0121b2627f1be70b36cd761ae960d9bcbbe177777205f5893c479ebeb7a713",
+    "sizeBytes": 18888,
+    "status": "passed"
+  },
+  "canonicalArtifacts": {
+    "summary": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/summary.json",
+      "sha256": "109a69adeefba9ff5a7958338daedf3e3f4390a68ac88baf486d4573289a9d87",
+      "sizeBytes": 59887
+    },
+    "playwrightJson": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/playwright-report.json",
+      "sha256": "97c027d6d81e9fb41dbc4fc357265be36a6c164c767c9a724e8f334ed8217316",
+      "sizeBytes": 18069
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/playwright-results/standalone-cda-rows-CDA-ze-1872e-ive-ONE-ALL-and-restoration/attachments/cda-domain-report-json-a42297026c39cb1a5dc8addb69d450acc494cb53.json",
+      "sha256": "18bfdcc7bd54e9ed5d0e59c07e06ee425ad8fed670dff1e8d68e5b14312c913d",
+      "sizeBytes": 1989810
+    },
+    "standaloneWorkflowReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/playwright-results/standalone-cda-rows-CDA-ze-1872e-ive-ONE-ALL-and-restoration/attachments/standalone-cda-related-one-all.json",
+      "sha256": "11000679def02fc81c73599419d8147ee6ea44a7209673a3bf18d1440d12b8bd",
+      "sizeBytes": 972485
+    },
+    "nativeCdaReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-related-one-all-zero-observation-zero-patient-observation-one-all-stable-parent-lifecycle-vIeqOD/playwright-results/standalone-cda-rows-CDA-ze-1872e-ive-ONE-ALL-and-restoration/cda-report.json",
+      "sha256": "18bfdcc7bd54e9ed5d0e59c07e06ee425ad8fed670dff1e8d68e5b14312c913d",
+      "sizeBytes": 1989810
+    }
+  },
+  "noRawPayloadsEmbedded": true
+}

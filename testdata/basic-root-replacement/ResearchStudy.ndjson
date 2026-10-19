@@ -1,0 +1,2 @@
+{"resourceType":"ResearchStudy","id":"replacement-study-001","status":"active","title":"Replacement study alpha","result":[{"reference":"DiagnosticReport/replacement-report-001"}]}
+{"resourceType":"ResearchStudy","id":"replacement-study-002","status":"completed","title":"Replacement study beta","result":[{"reference":"DiagnosticReport/replacement-report-002"}]}

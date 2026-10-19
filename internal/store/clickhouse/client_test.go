@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -96,5 +97,84 @@ func TestNormalizeInsertValuePassesNativeJSONValuesThrough(t *testing.T) {
 	items, ok := value.([]*ch.JSON)
 	if !ok || len(items) != 2 {
 		t.Fatalf("native JSON array = %#v", value)
+	}
+}
+
+func TestNormalizeInsertValueEncodesOnlyLogicalObjectsStoredAsText(t *testing.T) {
+	value, err := normalizeInsertValue(Column{Name: "profile", Type: "Nullable(String)", LogicalType: "object"}, map[string]any{
+		"unit":   nil,
+		"nested": map[string]any{"value": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value, `{"nested":{"value":null},"unit":null}`; got != want {
+		t.Fatalf("JSON text object = %#v, want %s", got, want)
+	}
+
+	value, err = normalizeInsertValue(Column{Name: "owners", Type: "Array(Nullable(String))", LogicalType: "object"}, []any{
+		map[string]any{"id": "first", "unit": nil}, nil, map[string]any{"id": "last"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := value, []any{`{"id":"first","unit":null}`, nil, `{"id":"last"}`}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("JSON text object array = %#v, want %#v", got, want)
+	}
+
+	value, err = normalizeInsertValue(Column{Name: "text", Type: "String", LogicalType: "string"}, `{"unit":null}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := value; got != `{"unit":null}` {
+		t.Fatalf("logical string changed = %#v", got)
+	}
+}
+
+func TestNormalizeNativeJSONArrayUsesDynamicTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     []any
+		wantTypes []string
+	}{
+		{name: "number", value: []any{float64(111)}, wantTypes: []string{"Float64"}},
+		{name: "empty", value: []any{}, wantTypes: []string{}},
+		{name: "null", value: []any{nil}, wantTypes: []string{""}},
+		{
+			name: "heterogeneous",
+			value: []any{
+				true,
+				"mixed",
+				nil,
+				[]any{float64(2), nil},
+				map[string]any{"nested": map[string]any{"score": float64(0)}},
+			},
+			wantTypes: []string{"Bool", "String", "", "Array(Dynamic)", "JSON"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := normalizeNativeJSONField(test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dynamic, ok := got.(ch.Dynamic)
+			if !ok || dynamic.Type() != "Array(Dynamic)" {
+				t.Fatalf("normalized array = %#v, want Array(Dynamic)", got)
+			}
+			items, ok := dynamic.Any().([]ch.Dynamic)
+			if !ok || len(items) != len(test.wantTypes) {
+				t.Fatalf("dynamic array = %#v, want %d items", dynamic.Any(), len(test.wantTypes))
+			}
+			for index, item := range items {
+				if item.Type() != test.wantTypes[index] {
+					t.Errorf("item %d type = %q, want %q", index, item.Type(), test.wantTypes[index])
+				}
+				if item.Type() == "" && !item.Nil() {
+					t.Errorf("item %d has an untyped non-null value: %#v", index, item.Any())
+				}
+			}
+		})
 	}
 }

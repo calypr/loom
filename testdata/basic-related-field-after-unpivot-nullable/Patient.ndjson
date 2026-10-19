@@ -1,0 +1,2 @@
+{"resourceType":"Patient","id":"basic-nullable-gender-patient-001"}
+{"resourceType":"Patient","id":"basic-nullable-gender-schema-patient-002","gender":"female"}

@@ -69,11 +69,12 @@ snapshot. It supports:
 - compiler-proven projection modes; and
 - deterministic public column, emission, traversal alias, and recipe IDs.
 
-Semantic Builder outputs use `traversalColumnNaming: ALIAS`. Builder occurrence
-IDs are globally unique namespaces, so a nested column keeps its authored
-`occurrence__column` name instead of acquiring ancestor prefixes during
-physical lowering. General recipes retain the backwards-compatible `PATH`
-default and continue to compose every traversal alias.
+Semantic Builder outputs use `traversalColumnNaming: EXACT`. Every authored
+column key is already globally unique, so physical lowering emits that key
+without deriving identity from the column's current route position. This lets
+a checked row rebase preserve feature identity. General recipes retain the
+backwards-compatible `PATH` default; `ALIAS` remains available for recipes that
+use a globally unique owning alias as their namespace.
 
 An invalid route, stale candidate, ambiguous occurrence, unsupported projection
 mode, or invalid presentation reference is returned as a structured error with

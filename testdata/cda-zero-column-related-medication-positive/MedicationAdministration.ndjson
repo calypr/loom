@@ -1,0 +1,2 @@
+{"resourceType":"MedicationAdministration","id":"route-admin-a","status":"completed","subject":{"reference":"Patient/route-patient"},"medication":{"reference":{"reference":"Medication/medication-a"}}}
+{"resourceType":"MedicationAdministration","id":"route-admin-b","status":"completed","subject":{"reference":"Patient/route-patient"},"medication":{"reference":{"reference":"Medication/medication-b"}}}

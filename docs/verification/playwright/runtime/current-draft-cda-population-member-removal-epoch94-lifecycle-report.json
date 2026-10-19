@@ -1,0 +1,172 @@
+{
+  "epoch": 94,
+  "scenario": "builder-population-member-removal",
+  "case": "mapped-plus-orphan-to-empty",
+  "title": "Builder population member removal removes the mapped source member and restores the full population after undo",
+  "status": "failed_harness_setup",
+  "runnerStatus": "failed",
+  "coverageStatus": "partial",
+  "classification": "FAILED_HARNESS_SETUP_BEFORE_UI",
+  "classificationNote": "The independent bounded fixture oracle passed, then Builder bootstrap failed because the helper truncated a valid Builder JSON response before parsing it. No native UI lifecycle action ran; this establishes no product failure and no lifecycle pass.",
+  "browserProcess": {
+    "session": 73508,
+    "exitCode": 1,
+    "caseDurationMs": 10912,
+    "playwrightRunDurationMs": 12844.667000000001,
+    "runnerWallDurationMs": null,
+    "runnerWallDurationNote": "Not separately measured; do not infer runner duration from case or Playwright duration."
+  },
+  "requiredChecks": {
+    "passed": 1,
+    "failed": 0,
+    "unrun": 9,
+    "total": 10,
+    "names": [
+      "bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation",
+      "saved source table contains the exact Observation population route followed by GROUP and RELATED_SOURCE COUNT",
+      "opening native Rows settings reveals the attached starting collection and mapped member within five seconds",
+      "mapped-member click automatically previews an exact base-minus-one candidate with the correct proposal, draft, output, snapshot, and scope bindings",
+      "Cancel leaves the exact saved workspace, draft version, digest, and base selection attached",
+      "reopening issues a fresh request for the current intent and returns its content-addressed candidate selection",
+      "Apply sends only the exact APPLY_POPULATION_MEMBER_PROPOSAL command and attaches that proposal candidate",
+      "candidate membership is the exact base membership minus the mapped member while the immutable base remains unchanged",
+      "reload preserves project, generation, route, GROUP, RELATED_SOURCE, output columns, and the exact empty candidate preview",
+      "native removal, Apply, and reload stay within five seconds; product API errors fail and incidental favicon 404s are recorded separately"
+    ]
+  },
+  "assertions": {
+    "passed": 2,
+    "failed": 0,
+    "total": 2,
+    "note": "The recorded assertions are the bounded raw oracle and source-freeze check; source freeze is not one of the ten registered case checks."
+  },
+  "dimensions": {
+    "usability": "untested",
+    "correctness": "passed",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "dimensionInterpretation": "Raw correctness is passed only for the mapped/orphan fixture oracle and source freeze. The ten-check Builder lifecycle was not exercised.",
+  "nativeActions": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0,
+    "maxElapsedMs": null,
+    "budgetMs": 5000
+  },
+  "network": {
+    "unexpectedNetworkErrors": 0,
+    "domainErrors": 0,
+    "nativeRequestsRecorded": 0
+  },
+  "failure": {
+    "kind": "harness_setup",
+    "attribution": "HARNESS_BUILDER_RESPONSE_SANITIZER_TRUNCATION",
+    "action": "initial Builder bootstrap after new Explorer creation",
+    "workflowLine": 213,
+    "error": "TypeError: Cannot read properties of undefined (reading generation)",
+    "diagnosis": "The helper sanitizeBody(raw) truncates a valid large Builder JSON response at 12,000 characters before parsing; api() then exposes an unparsed string, so builder.catalog is undefined. Owner confirmed Explorer POST 201 and Builder GET 200.",
+    "productFailureEstablished": false,
+    "uiActionsReached": false,
+    "requestSummary": [
+      {
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers",
+        "status": 201
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/population-member-removal-1791297079431/authoring/v2/builder",
+        "status": 200
+      }
+    ]
+  },
+  "fixtureOracle": {
+    "status": "passed",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "resourceType": "Specimen",
+    "scanLimit": 2000,
+    "witness": "One mapped Specimen with a routed Observation and one orphan Specimen with no parent route and zero routed Observations.",
+    "registeredCheck": "bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation"
+  },
+  "workflowAssertionsBeyondRegistry": {
+    "countedAsRegisteredRequiredChecks": false,
+    "title": "Workflow additionally asserts exact workspace restoration, restored digest, advanced draft version, original selection/construction/columns, unchanged base membership, restored rows, and restoration reload.",
+    "status": "unrun",
+    "note": "Undo and restored-row assertions occur later in the workflow and were not reached."
+  },
+  "timing": {
+    "fixtureSetupMs": 2359,
+    "browserLifecycleDurationMs": 8932,
+    "caseDurationMs": 10912,
+    "playwrightRunDurationMs": 12844.667000000001,
+    "runnerWallDurationMs": null
+  },
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "population-member-removal-1791297079431",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "3223bc668476fdd895ed6a13978a9f3291ea7679abfe4fcd1f6babb5262e5c74",
+      "files": 1527
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+  },
+  "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "3223bc668476fdd895ed6a13978a9f3291ea7679abfe4fcd1f6babb5262e5c74",
+        "files": 1527
+      },
+      "after": {
+        "sha256": "3223bc668476fdd895ed6a13978a9f3291ea7679abfe4fcd1f6babb5262e5c74",
+        "files": 1527
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "nextCheck": "Fix Builder response parsing so valid large JSON remains parsed, then rerun this exact case with a fresh Explorer and require all ten registered lifecycle checks. Keep Undo assertions separate from the ten registry checks.",
+  "rawReportPath": "/private/tmp/loom-native-population-member-removal-wave94/attempt1/artifacts/population-member-removal--5760a--full-population-after-undo/cda-report.json",
+  "rawReportSha256": "ea02654c1215fdd3b274fd401540b18e7e2bf708e66cb179aa92e849913db188",
+  "playwrightResultsPath": "/private/tmp/loom-native-population-member-removal-wave94/attempt1/results.json",
+  "playwrightResultsSha256": "ef1899f2f4130b5fd6c71882362ffad7312f46a0948aed970d7cae8f615c99ed",
+  "runnerLogPath": "/private/tmp/loom-native-population-member-removal-wave94/attempt1/runner.log",
+  "runnerLogSha256": "256535a493d4aa148b76043bbb29168212156128b15c8ed3e4a5dc8509112b12",
+  "errorContextPath": "/private/tmp/loom-native-population-member-removal-wave94/attempt1/artifacts/population-member-removal--5760a--full-population-after-undo/error-context.md",
+  "errorContextSha256": "43f1bd0842bd85147e666b5bee75d4c148ed944b4323673a7e8ec1ae159cbaef",
+  "coordinatorClosurePath": "/private/tmp/loom-native-population-member-removal-wave94/closure.json",
+  "coordinatorClosureSha256": "d1b2a393a777351eaafb1945a4f68650ee87148bb42edc6b2775d6d5848a44ff",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch94-lifecycle-closure.json",
+  "byteExactCoordinatorClosurePath": "docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch94-closure.json"
+}

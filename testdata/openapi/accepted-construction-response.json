@@ -1,0 +1,86 @@
+{
+  "commandId": "apply-construction-1",
+  "workspace": {
+    "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+    "kind": "ExplorerBuilderWorkspace",
+    "explorer": {"title": "Patients"},
+    "documents": [],
+    "tabs": []
+  },
+  "draftVersion": 7,
+  "draftDigest": "sha256:accepted-candidate",
+  "results": [],
+  "diagnostics": [],
+  "acceptedConstruction": {
+    "receipt": {
+      "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+      "kind": "ExplorerBuilderReceipt",
+      "receiptId": "receipt-construction-1",
+      "snapshotToken": "snapshot-1",
+      "generation": "generation-1",
+      "intentDigest": "sha256:accepted-candidate",
+      "compilerVersion": "compiler-1",
+      "shapeDigest": "sha256:shape",
+      "recipeDigest": "sha256:recipe",
+      "resolvedRecipeDigest": "sha256:resolved-recipe",
+      "resolvedSchemaDigest": "sha256:schema",
+      "outputContractDigest": "sha256:contract",
+      "authorizationScopeDigest": "sha256:scope",
+      "capabilitySchemaDigest": "sha256:capability",
+      "outputs": [
+        {
+          "outputId": "patients",
+          "title": "Patients",
+          "rowGrain": "Patient",
+          "rootResourceType": "Patient",
+          "rowMultiplication": "none",
+          "lossless": true,
+          "mlReady": true,
+          "structuralSuitability": "scalar",
+          "columns": [
+            {
+              "column": "patient_id",
+              "label": "Patient ID",
+              "logicalType": "string",
+              "filterable": true,
+              "chartable": false,
+              "nullable": false,
+              "shape": "scalar",
+              "lossless": true,
+              "mlReady": true,
+              "structuralSuitability": "scalar"
+            }
+          ]
+        }
+      ],
+      "diagnostics": []
+    },
+    "preview": {
+      "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+      "kind": "ExplorerBuilderPreview",
+      "receiptId": "receipt-construction-1",
+      "outputId": "patients",
+      "columns": [
+        {
+          "column": "patient_id",
+          "label": "Patient ID",
+          "logicalType": "string",
+          "filterable": true,
+          "chartable": false,
+          "nullable": false,
+          "shape": "scalar",
+          "lossless": true,
+          "mlReady": true,
+          "structuralSuitability": "scalar"
+        }
+      ],
+      "rows": [{"patient_id": "p1"}],
+      "rowSources": [{"kind": "SINGLE", "resourceType": "Patient", "id": "p1"}],
+      "rowLineageCapability": {"status": "AVAILABLE"},
+      "rowCount": 1,
+      "sampled": false,
+      "diagnostics": []
+    },
+    "previewLimit": 100
+  }
+}

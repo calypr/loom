@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-08T04:59:18Z",
+  "status": "genuinely-unresolved-external-prerequisite",
+  "purpose": "Readiness gap for a future restricted-authorization starting-collection repair case; the focused server selection-boundary result is recorded separately, but no authenticated browser repair result is asserted.",
+  "sourceSnapshot": {
+    "scope": "historical-inspection-snapshot",
+    "originalRecordTimestampUtc": "2026-10-06T13:09:39Z",
+    "canonicalCheckout": "/private/tmp/loom-construction-implementation",
+    "gitHead": "4a8d22ce01e499bd40486167d9ddb6c6b7ee513c",
+    "method": "Per-file SHA-256 hashes below bind the source contents recorded in the October 6 inspection snapshot. They are historical and were not refreshed by later record updates."
+  },
+  "existingCase": {
+    "scenario": "cda-collection-repair-partial",
+    "case": "partial-long-route-repair-and-reload",
+    "title": "remove an unmapped selected resource, verify the saved route, and reload",
+    "fixture": {
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "target": "owned local AllowAll stack"
+    },
+    "preservation": "Keep this scoped case and its passing evidence unchanged; restricted authorization requires a distinct native case/target."
+  },
+  "currentFixtureAuthorizationEvidence": {
+    "conclusion": "Current case is unauthenticated/unrestricted and cannot establish denied-path behavior.",
+    "browser": "Fresh Playwright context is explicitly marked browserNoAuth=true.",
+    "directApi": "Collection-repair helper adds no Authorization header.",
+    "authorizer": "The local --no-auth path wires AllowAllAuthorizer; local verification Compose documentation explicitly says unauthorized-principal behavior cannot be exercised.",
+    "oracle": "Epoch72 raw AQL oracle filters project and dataset_generation but has no auth_resource_path predicate; its scope is not an authorization partition.",
+    "sources": [
+      {
+        "path": "internal/server/options.go",
+        "sha256": "d757d46137cd46cf373b47f2adb07d4454774e09591ad92bc47c92bde51177bb",
+        "lines": "143-150",
+        "evidence": "--no-auth explicitly enables unauthenticated server/auth settings."
+      },
+      {
+        "path": "internal/server/auth_wiring.go",
+        "sha256": "567220d3c04d6221e6df493ee40e3a409d47904aad50ad2982f1109502e03bfa",
+        "lines": "19-31",
+        "evidence": "--no-auth wires anonymous plus AllowAllAuthorizer; Basic mode also uses AllowAllAuthorizer."
+      },
+      {
+        "path": "scripts/loom-dev.mjs",
+        "sha256": "299fb1c3832f11ece21305583a4106fe3aa149a60a61caf30108691ab61ca1e1",
+        "lines": "4722",
+        "evidence": "Local verification Compose limitation states that its AllowAll authorizer cannot exercise an unauthorized principal."
+      },
+      {
+        "path": "scripts/verify-ui/helpers/cda-fixtures.mjs",
+        "sha256": "c26418716b329b87415dc01cf5353086bfa44c9b53c7b7177236219307f63306",
+        "lines": "365-369,1092-1096",
+        "evidence": "Fixture reports a fresh Playwright context with browserNoAuth=true; direct credential presence is only reported, not injected."
+      },
+      {
+        "path": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
+        "sha256": "80200de8af8ad47c3e58a11737b52313c242c9037b0b315000387460cc07255d",
+        "lines": "38-47",
+        "evidence": "Collection-repair API helper sends Content-Type and X-Request-ID only; no bearer token is added."
+      },
+      {
+        "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+        "sha256": "3bfb26642867c8442f3cbaad43e6a7246a1e767b5f86455035a4183c636b2a49",
+        "lines": "155-166",
+        "evidence": "Preserves the existing partial collection repair case and exact test title."
+      }
+    ]
+  },
+  "focusedServerBoundaryRegression": {
+    "status": "passed-focused-server-boundary",
+    "scope": "Restricted starting-collection selection boundary only; it does not close the authenticated browser repair lifecycle.",
+    "test": "TestRestrictedStartingCollectionRejectsDeniedReferences",
+    "source": {
+      "path": "internal/server/openapi_explorer_restricted_starting_collection_integration_test.go",
+      "sha256": "5986b55cb588357ee9f0c9987f0cfbc4305b13ed9a787d7068c5b4adc5a70fa6",
+      "testedHead": "ef9dc95fb7b00a24c7ce7a0c2ecdd30b3f478a05",
+      "promotedHead": "5bb2c57c892ba3242852aec32dc48832bf5cb54e"
+    },
+    "result": "PASS against local Arango 3.12.11; denied auth_resource_path write rejected by ScopeAuthorizer, denied resource reference rejected by Arango ValidateSelectionReferences before selection persistence, allowed-only selection create/read returned exact allowed IDs.",
+    "historicalExecutedCommand": "docker run --rm --network loom-dev-6d7df93d6a37_default -v /private/tmp/loom-restricted-collection-repair-stage:/workspace -v /Users/peterkor/go/pkg/mod:/go/pkg/mod:ro -w /workspace -e GOMODCACHE=/go/pkg/mod -e LOOM_TEST_ARANGO_URL=http://loom-dev-6d7df93d6a37-arangodb-1:8529 -e LOOM_TEST_ARANGO_DATABASE=loom_test_restricted_starting_collection_dde50fa1-03f7-408d-b619-84d85bf3e914 golang:1.26.5-bookworm go test -v ./internal/server -run '^TestRestrictedStartingCollectionRejectsDeniedReferences$' -count=1",
+    "disposableDatabase": {
+      "name": "loom_test_restricted_starting_collection_dde50fa1-03f7-408d-b619-84d85bf3e914",
+      "historicalCleanupCommand": "docker exec loom-dev-6d7df93d6a37-arangodb-1 arangosh --server.endpoint tcp://127.0.0.1:8529 --server.database _system --javascript.execute-string 'db._dropDatabase(\"loom_test_restricted_starting_collection_dde50fa1-03f7-408d-b619-84d85bf3e914\"); print(\"dropped loom_test_restricted_starting_collection_dde50fa1-03f7-408d-b619-84d85bf3e914\")'",
+      "cleanupVerifiedAbsent": true
+    },
+    "rerunPrerequisites": {
+      "service": "Use the owned local Arango container loom-dev-6d7df93d6a37-arangodb-1 on network loom-dev-6d7df93d6a37_default and the Go 1.26.5 image/module-cache mount shown in the historical command.",
+      "databaseNameCommand": "export LOOM_TEST_ARANGO_DATABASE=loom_test_restricted_starting_collection_$(uuidgen | tr '[:upper:]' '[:lower:]')",
+      "createDatabaseCommand": "docker exec loom-dev-6d7df93d6a37-arangodb-1 arangosh --server.endpoint tcp://127.0.0.1:8529 --server.database _system --javascript.execute-string \"db._createDatabase('$LOOM_TEST_ARANGO_DATABASE')\"",
+      "runCommand": "docker run --rm --network loom-dev-6d7df93d6a37_default -v /private/tmp/loom-restricted-collection-repair-stage:/workspace -v /Users/peterkor/go/pkg/mod:/go/pkg/mod:ro -w /workspace -e GOMODCACHE=/go/pkg/mod -e LOOM_TEST_ARANGO_URL=http://loom-dev-6d7df93d6a37-arangodb-1:8529 -e LOOM_TEST_ARANGO_DATABASE=\"$LOOM_TEST_ARANGO_DATABASE\" golang:1.26.5-bookworm go test -v ./internal/server -run '^TestRestrictedStartingCollectionRejectsDeniedReferences$' -count=1",
+      "dropDatabaseCommand": "docker exec loom-dev-6d7df93d6a37-arangodb-1 arangosh --server.endpoint tcp://127.0.0.1:8529 --server.database _system --javascript.execute-string \"db._dropDatabase('$LOOM_TEST_ARANGO_DATABASE')\"",
+      "verifyDatabaseAbsentCommand": "docker exec loom-dev-6d7df93d6a37-arangodb-1 arangosh --server.endpoint tcp://127.0.0.1:8529 --server.database _system --javascript.execute-string \"print(!db._databases().includes('$LOOM_TEST_ARANGO_DATABASE'))\"",
+      "safety": "Run all commands in one shell so the generated name is shared. Create a fresh prefixed UUID database, then drop only that same run's database and verify the command prints true. Never point the test at loom_dev or any pre-existing database."
+    },
+    "notEstablished": [
+      "Restricted coverage, repair-candidate, and preview filtering.",
+      "Authenticated browser/API repair, save, and reload lifecycle."
+    ]
+  },
+  "epoch72Evidence": {
+    "closure": {
+      "path": "/private/tmp/loom-native-parallel-wave72/closure.json",
+      "sha256": "f85130e142e96abb2277044b618779ae849799a527d6612444c37310c8316b65",
+      "status": "CLOSED_PASS"
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave72/durable-stage/docs/verification/playwright/runtime/cda-collection-repair-partial-epoch72-report.json",
+      "sha256": "2b426497546e11e7fdee566a0063988ec60435edb152bfa210c6bf56fd0abcce",
+      "requiredChecks": "11/11",
+      "assertions": "28/28",
+      "nativeActions": "16/16",
+      "maxNativeActionMs": 247,
+      "maxWorkflowCheckpointMs": 2652,
+      "budgetMs": 5000
+    },
+    "rawBrowserReport": {
+      "path": "/private/tmp/loom-native-parallel-wave72/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "sha256": "1d817708e3985abed5cdcfc41e3c308b65ecdbe376c63ee87a33bd92fa96eebc"
+    },
+    "proved": "Two mapped plus one unmapped Specimen in the project/generation-bounded oracle; exact immutable removal; two-hop route, preview, columns and construction; clear; reattach; reload and exact authorized-source membership.",
+    "limitations": [
+      "restrictedAuthorizationScenario=false",
+      "construction preservation was asserted, but construction was not established as non-empty",
+      "raw oracle did not partition by auth_resource_path",
+      "no denied principal/path witness was exercised"
+    ]
+  },
+  "externalPrerequisite": {
+    "status": "unavailable-in-current-case",
+    "needed": "A separately owned auth-enabled API/UI target with a real restricted resource-scope authorizer and an authenticated test principal; --no-auth and Basic/AllowAll do not qualify.",
+    "principal": "A test bearer credential kept out of reports and source for a principal granted read and write access to one explicit allowed auth_resource_path and no access to a distinct denied path; the same identity must reach direct API setup and the Playwright browser context.",
+    "dataPartition": "Within one project and generation, seed or provide path-tagged resources and relationship edges for two allowed mapped Specimens plus one allowed unmapped Specimen, and at least one denied-path witness. Keep route edges path-consistent; do not create cross-path edges that blur the authorization boundary.",
+    "oracle": "An independent trusted setup/oracle identity must bind project, generation and the actual allowed path set, and separately identify denied witness IDs for negative leakage assertions without exposing those IDs to the restricted browser.",
+    "whyExternal": "The focused server regression proves selection scoping only. It does not exercise authenticated browser/API repair, coverage, candidate repair, or preview. The Epoch72 no-auth browser/direct helper and project/generation-only oracle cannot prove those boundaries, and no authenticated UI target/principal/path partition is available in the current case evidence."
+  },
+  "requiredLifecycleInvariants": [
+    "Initial selected membership is exactly the independent authorized set: two mapped plus one unmapped; selection scope digest equals the principal’s allowed-path scope; denied witness IDs and counts are absent from UI and restricted API responses.",
+    "Coverage and native preview match exact authorized membership and route-derived outputs; denied resources do not affect counts, repair choices or preview rows.",
+    "Removing the allowed unmapped member yields exactly the two allowed mapped members, preserves the scope digest, project, generation, saved route, columns and construction, and records only the intended exclusion.",
+    "Reload preserves that exact membership, route, columns and construction; coverage and preview still match the independent allowed-path oracle.",
+    "Clearing to all authorized rows displays exactly the independent authorized source set, never denied-path rows; reattachment and a second reload restore the same repaired two-member selection and saved route.",
+    "Denied witness IDs and denied-only counts do not appear in captured browser text, requests/responses, selection membership, coverage, preview or reload state.",
+    "Keep the existing native interaction/checkpoint budget of at most five seconds and require no unexpected HTTP/workflow errors."
+  ]
+}

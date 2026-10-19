@@ -1,0 +1,346 @@
+{
+  "scenario": "standalone-reshape-related-source-after-pivot",
+  "case": "related-source-after-pivot",
+  "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+  "epoch": 82,
+  "status": "partial",
+  "coverageStatus": "partial",
+  "runnerStatus": "failed_harness_timeout_preview_request_mismatch",
+  "classification": "Partial harness failure at saved-preview response correlation. One native table-open action and the initial two-root source preview completed; the captured POST response returned two rows matching the raw oracle. The workflow then timed out because its waiter required GET /preview with outputId in the query. Pivot and later transitions were not exercised.",
+  "browserProcess": {
+    "session": 9930,
+    "exitCode": 1,
+    "processDurationMs": "unknown"
+  },
+  "durations": {
+    "playwrightTestMs": 18274,
+    "playwrightReporterMs": 20070,
+    "domainBrowserLifecycleMs": 16223
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "explorer": "qa-post-pivot-ed41287c-c366-4a99-9ed0-44edd1f4ef1c"
+  },
+  "requiredChecks": {
+    "total": 25,
+    "passed": 4,
+    "missing": 21,
+    "passedNames": [
+      "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+      "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+      "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "missingNames": [
+      "Native Pivot preview matches the two exact source categories and coalesces one row",
+      "Pivot Cancel preserves exact source workspace and rows after reload",
+      "Confirmed Pivot proposal retains exact typed category and value bindings",
+      "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+      "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+      "Post-Pivot Patient.id ALL proposal retains both source contributors",
+      "Native chooser and candidate bind Patient.id ALL through exact Observation.subject → Patient",
+      "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+      "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+      "Confirmed post-Pivot Patient.id ALL preview",
+      "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+      "Edited related-source label keeps exact contributor values",
+      "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+      "Apply related-source edit preserves the post-Pivot binding",
+      "Applied related-source edit changes only the label and survives reload with exact Patient values",
+      "Related-source removal preview restores exact Pivot values",
+      "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+      "Confirmed related-source removal restores the exact Pivot row",
+      "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+      "No unexpected native network, module, or browser errors occurred",
+      "All native lifecycle actions complete within five seconds"
+    ]
+  },
+  "assertions": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "names": [
+      "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+      "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+      "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+      "▤ Post-Pivot related source completed",
+      "CDA watched source and API build stayed unchanged",
+      "incidental asset failures are explicitly recorded"
+    ]
+  },
+  "nativeActions": {
+    "count": 1,
+    "passed": 1,
+    "items": [
+      {
+        "label": "▤ Post-Pivot related source",
+        "status": "passed",
+        "elapsedMs": 86,
+        "locator": "locator('[data-testid=\"construction-table-out_5dc208f72efbc377b4ecf6fd\"]')"
+      }
+    ],
+    "scopeNote": "One table-open action completed, and the coordinator verified the resulting two-row POST preview against the raw oracle. The test waiter mismatch still stopped the registered Pivot/RELATED_SOURCE lifecycle before Pivot."
+  },
+  "nativeRequests": {
+    "count": 7,
+    "allHttp200": true,
+    "errors": 0,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/builder",
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/capability",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/semantic-inventory",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/configured-column-context",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/construction-capabilities",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/reconcile",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/preview",
+        "status": 200
+      }
+    ]
+  },
+  "incidentalAssetFailures": [
+    {
+      "kind": "asset-failure",
+      "url": "http://127.0.0.1:30008/favicon.ico",
+      "status": 404
+    }
+  ],
+  "oracle": {
+    "boundedObservationScan": 2000,
+    "selectedRoots": 2,
+    "status": "final",
+    "distinctPatientReferences": 2,
+    "exactScopedSubjectPatientEdgesResolved": 2,
+    "freshExplorerSourceBindingCheck": "passed"
+  },
+  "failure": {
+    "kind": "harness_timeout",
+    "message": "Timed out waiting for owned CDA request",
+    "waitPredicate": {
+      "path": "/authoring/v2/preview",
+      "method": "GET",
+      "queryOutputId": "out_5dc208f72efbc377b4ecf6fd"
+    },
+    "observedResponse": {
+      "path": "/authoring/v2/preview",
+      "method": "POST",
+      "status": 200,
+      "bodyKeys": [
+        "receiptId",
+        "outputId",
+        "limit"
+      ],
+      "receiptIdPresent": true,
+      "outputId": "out_5dc208f72efbc377b4ecf6fd",
+      "rowCount": 2,
+      "rowsMatchedExactRawOracle": true,
+      "receiptMatches": true,
+      "outputMatches": true
+    },
+    "sourceReferences": [
+      {
+        "path": "scripts/verify-ui/workflows/verify-cda-related-source-after-pivot-browser.mjs",
+        "lines": "220-234",
+        "fact": "openTable waits for a captured GET /preview with query.outputId before reading the saved preview."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/api.ts",
+        "lines": "1463",
+        "fact": "the client issues /preview using a JSON request body including receiptId and outputId."
+      }
+    ],
+    "interpretation": "This waiter mismatch prevented preview-oracle validation and every later Cancel/Apply/edit/removal/reload check. No service request failed; no product failure or complete user lifecycle is established."
+  },
+  "dimensions": {
+    "usability": "partial",
+    "correctness": "partial",
+    "persistence": "untested",
+    "performance": "partial"
+  },
+  "integrityCapture": {
+    "status": "PASS; source/docs/API/mount/health closure sealed by coordinator",
+    "source": {
+      "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+      "files": 1522,
+      "beforeAfterEqual": true
+    },
+    "docs": {
+      "sha256": "92ba14a1e49dc0f287ef6808b894d5b82889f7a44d5ce99fe7cc1558ebf39c16",
+      "files": 193,
+      "beforeAfterEqual": true
+    },
+    "apiBuildIdentity": {
+      "value": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "beforeAfterEqual": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "sameTarget": true
+    },
+    "health": {
+      "before": "PASS",
+      "beforeSamples": 3,
+      "after": "PASS",
+      "afterSamples": 3
+    }
+  },
+  "originalCaptureCommand": "set -euo pipefail\nsource '/private/tmp/loom-native-parallel-wave82/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "runnableCommand": "set -euo pipefail; cd '/private/tmp/loom-construction-implementation'; source '/private/tmp/loom-native-parallel-wave82/browser-environment.sh'; export LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\" LOOM_ARANGO_DATABASE='loom_dev'; unset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER; mkdir -p '/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1'; PLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "rawArtifacts": {
+    "domainReportPath": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+    "domainReportSha256": "da6883eb173f351ce57b12a9ee85ecbdb61e717dfe02d595000a842987cdae44",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+    "playwrightResultsSha256": "605af9ae9adb0a933a98a73832ae10cd22c356f192aa51b9fae2b5c6663a6624",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+    "runnerLogSha256": "d9afe7e43521d283f422a8e6b94c714b8331f235c3312b478273eb548ac23a82",
+    "errorContextPath": "/private/tmp/loom-native-parallel-wave82/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/error-context.md",
+    "errorContextSha256": "9446e09ada2825fcbf4422c6c8d113179e525c50f9187ca5765af693c7541c47",
+    "runPlanPath": "/private/tmp/loom-native-parallel-wave82/run-plan.json",
+    "runPlanSha256": "97bdb31d486e69af348cb7cfd5c541f9e6785ac0c806c98fe3e4265fd830e983",
+    "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave82/closure.json",
+    "coordinatorClosureSha256": "fac3deb7512dc3d782ed7bf54c5ebba588989f1025258bf93895c5d0daf067a7",
+    "durableClosurePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch82-closure.json",
+    "durableClosureSha256": "fac3deb7512dc3d782ed7bf54c5ebba588989f1025258bf93895c5d0daf067a7"
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+        "files": 1522
+      },
+      "after": {
+        "sha256": "5103d1ba856c29fc249858ed0776f4ca780ac32a40440166671eefef83e9716b",
+        "files": 1522
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/source-before.json",
+        "sha256": "c4bbfb737564f557e50dfcd6bdfcecb64d6293b13bb7a91d87ef55cf60188078"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/source-after.json",
+        "sha256": "70fe5d566fc42f4422d0d980e45e332be79aafa8626f96236175265b1492ac5f"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "92ba14a1e49dc0f287ef6808b894d5b82889f7a44d5ce99fe7cc1558ebf39c16",
+        "files": 193
+      },
+      "after": {
+        "sha256": "92ba14a1e49dc0f287ef6808b894d5b82889f7a44d5ce99fe7cc1558ebf39c16",
+        "files": 193
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/docs-before.json",
+        "sha256": "2cfe8cda565bae27cc2ce2d3191c0325f573da2e446d1831121f31ec9f6ba6db"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/docs-after.json",
+        "sha256": "f83bfa5756625e8ce03fd4f175659cc765ff6cf84e29bf8096db77aaed0f3e4b"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-identity-before.json",
+        "sha256": "ae3f32faa062780fdeaa54c337f9d2e4ec06f0c6df8afa334b5ba8422248c4b8"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-identity-after.json",
+        "sha256": "28d53752ef676d8f88bfc153a5faf3e0e888b735703e390edd0a3c00659a23b2"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/api-build-precheck-confirmed.json",
+        "sha256": "11fa8a4a3e6c699457e8750aa5fc6d849f560c6ef2b76b03aed2a04031649113"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/owned-mounts-before.json",
+        "sha256": "b54614352c803f474f1c9722ab36ba3f5c2ee2fbfe33f91d72db5612f2a9c5da"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/owned-mounts-after.json",
+        "sha256": "d88e9c40441c38002da7afef6d1d9a6cc7472a700adb68a979a04a980390f7d9"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/health-before.json",
+        "sha256": "f46751269700aefe8fbe704519181a9770ff7b83a4fe3d374905729c805b63f2"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave82/health-after.json",
+        "sha256": "f34add6334236d3e5484bdc6eeaf16342ba997328b3e3d574046d72d1c239321"
+      }
+    }
+  },
+  "coordinatorClosure": {
+    "status": "CLOSED_HARNESS_SAVED_PREVIEW_REQUEST_METHOD_MISMATCH",
+    "path": "/private/tmp/loom-native-parallel-wave82/closure.json",
+    "sha256": "fac3deb7512dc3d782ed7bf54c5ebba588989f1025258bf93895c5d0daf067a7",
+    "durablePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch82-closure.json",
+    "durableSha256": "fac3deb7512dc3d782ed7bf54c5ebba588989f1025258bf93895c5d0daf067a7"
+  }
+}

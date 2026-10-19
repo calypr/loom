@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -138,6 +140,26 @@ func TestRecipeControlPreflightDoesNotExposePhysicalDetails(t *testing.T) {
 	}
 	if result.ResolvedSchemaDigest != "schema" || result.SourceGeneration != "g" || result.ScopeDigest != "scope" {
 		t.Fatalf("unexpected preflight result: %#v", result)
+	}
+}
+
+func TestRecipeGraphQLAdaptersUseOperationAuthPolicy(t *testing.T) {
+	controlErr := recipeGraphQLError(authscope.ErrForbidden)
+	controlUserErr, ok := dataframeerrors.AsUserError(controlErr)
+	if !ok || controlUserErr.Code() != "UNAUTHORIZED_PROJECT" {
+		t.Fatalf("recipe control error = %#v, want UNAUTHORIZED_PROJECT", controlErr)
+	}
+
+	lookupErr := recipeExecutionLookupError(authscope.ErrForbidden)
+	lookupUserErr, ok := dataframeerrors.AsUserError(lookupErr)
+	if !ok || lookupUserErr.Code() != "RECIPE_EXECUTION_NOT_FOUND" {
+		t.Fatalf("recipe execution lookup error = %#v, want concealed not-found", lookupErr)
+	}
+
+	outageErr := recipeGraphQLError(authscope.ErrAuthorizationBackendUnavailable)
+	outageUserErr, ok := dataframeerrors.AsUserError(outageErr)
+	if !ok || outageUserErr.Code() != "BACKEND_UNAVAILABLE" || !outageUserErr.Retryable() {
+		t.Fatalf("recipe authorization outage = %#v, want retryable backend unavailable", outageErr)
 	}
 }
 

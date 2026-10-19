@@ -1,0 +1,21 @@
+{
+  "browserRequestId": "playwright-123",
+  "method": "POST",
+  "origin": "http://127.0.0.1:30008",
+  "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-repeated-empty-1791501485973/authoring/v2/construction-capabilities",
+  "startedAt": 1791501518675,
+  "body": {
+    "expectedDraftDigest": "sha256:167756d8a7abc2fb5a34dea2d7da52fd0f5f025deeae2a7458e5dd004715df3d",
+    "expectedDraftVersion": 10,
+    "outputId": "out_94d709823ab80b7f5ed2ff27",
+    "snapshotToken": "sha256:7e9a025ec2555033fd138a3cbf9eaecebb24f870a6b37cf5e86e0355c84b40f7",
+    "stageId": "source_projection"
+  },
+  "nativeEventChronology": [
+    {
+      "event": "request",
+      "browserRequestId": "playwright-123",
+      "observedAt": 1791501518675
+    }
+  ]
+}

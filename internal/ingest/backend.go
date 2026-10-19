@@ -16,7 +16,7 @@ func openBackend(ctx context.Context, opts arangostore.ConnectionOptions) (*aran
 }
 
 func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter EventSink) arangostore.BootstrapSpec {
-	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+3)
+	collections := make([]arangostore.CollectionSpec, 0, len(resourceTypes)+4)
 	for _, name := range resourceTypes {
 		// Every generated FHIR resource is a possible dataframe root. The
 		// compiler applies project and optional authorization scope before a
@@ -95,6 +95,36 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 				{"project", "dataset_generation", "auth_resource_path", "to_type"},
 				{"project", "dataset_generation", "from_type"},
 				{"project", "dataset_generation", "auth_resource_path", "from_type"},
+			},
+		},
+		arangostore.CollectionSpec{
+			Name: catalog.SemanticInventoryCollection,
+			Indexes: [][]string{
+				{"project", "dataset_generation", "build_id"},
+				{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
+				{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_id"},
+			},
+		},
+		arangostore.CollectionSpec{
+			Name: catalog.SemanticInventoryEntryCollection,
+			Indexes: [][]string{
+				{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
+			},
+		},
+		arangostore.CollectionSpec{
+			Name: catalog.SemanticInventoryBuildCollection,
+			Indexes: [][]string{
+				{"project", "dataset_generation"},
+			},
+		},
+		arangostore.CollectionSpec{
+			Name: catalog.ResourceInventoryCollection,
+			Indexes: [][]string{
+				{"project", "dataset_generation", "record_type", "resource_type", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "record_type"},
 			},
 		},
 	)

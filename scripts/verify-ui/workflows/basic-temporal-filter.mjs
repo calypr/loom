@@ -1,0 +1,561 @@
+import assert from 'node:assert/strict';
+import { browserURL } from './builder-url.mjs';
+import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
+import {
+  BASIC_TEMPORAL_FILTER_CASES,
+  matchesBasicTemporalFilterCandidate,
+  readBasicTemporalFilterOracle,
+} from '../helpers/basic-temporal-filter-oracle.mjs';
+
+const ACTION_TIMEOUT_MS = 5_000;
+const previewSelector = '[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]';
+const proposalPreviewSelector = '[data-testid="construction-proposal-preview"] table';
+const normalize = value => String(value ?? '').replace(/\s+/g, ' ').trim();
+const header = value => normalize(value).split('\n', 1)[0].toLowerCase();
+
+const requestBody = request => {
+  try { return request.postDataJSON(); } catch { return undefined; }
+};
+
+const snapshotTable = async (locator, rowSelector = '[role="row"], tbody tr') => locator.evaluate((table, selectedRows) => ({
+  headers: [...table.querySelectorAll('[role="columnheader"], thead th')]
+    .map(cell => (cell.querySelector('span')?.textContent ?? cell.innerText ?? '').trim().split(/\r?\n/, 1)[0]),
+  rows: [...table.querySelectorAll(selectedRows)]
+    .filter(row => row.querySelector('[role="cell"], td'))
+    .map(row => [...row.querySelectorAll('[role="cell"], td')].map(cell => String(cell.innerText ?? '').trim())),
+}), rowSelector);
+
+const columnForPath = (document, fieldPath) => {
+  const matches = (document.columns ?? []).filter(column =>
+    column.source?.kind === 'field' && column.source.field?.path === fieldPath);
+  assert.equal(matches.length, 1, `Saved output must contain one direct ${fieldPath} source column.`);
+  const column = matches[0];
+  assert(column.columnId && column.label, `Saved ${fieldPath} column must retain its identity and label.`);
+  return column;
+};
+
+const documentForOutput = (builder, outputId) => {
+  const documents = builder.workspace?.documents;
+  assert(Array.isArray(documents), 'Builder read must include saved workspace documents.');
+  const matches = documents.filter(document => document.output?.id === outputId);
+  assert.equal(matches.length, 1, `Builder must retain exactly one document for output ${outputId}.`);
+  return matches[0];
+};
+
+export const basicTemporalFilterWorkflow = async ({ page, report, check, action, caseName }, context) => {
+  configureNativePage(page);
+  const contract = BASIC_TEMPORAL_FILTER_CASES[caseName];
+  assert(contract, `Unregistered Basic temporal filter case ${JSON.stringify(caseName)}.`);
+  const { target, seed } = context;
+  assert.equal(context.custom, false, 'The temporal case requires the normal isolated fixture loader.');
+  assert.equal(seed?.fresh, true, 'Each temporal case requires a fresh Basic project and generation.');
+  assert(target.fixtureProject?.startsWith('loom_dev_verify_') && target.fixtureGeneration && target.fixtureDir,
+    'The temporal case must be bound to an owned fresh Basic fixture project/generation.');
+
+  const oracle = readBasicTemporalFilterOracle({ fixtureDir: target.fixtureDir, caseName });
+  const expectedAllIDs = [...oracle.ids];
+  const expectedBefore = expectedAllIDs.map(id => {
+    const row = oracle.rows.find(candidate => candidate.id === id);
+    return [id, row.value];
+  });
+  report.target.fixtureRawOracle = {
+    path: oracle.path, sha256: oracle.sha256, project: target.fixtureProject,
+    generation: target.fixtureGeneration, resourceType: contract.resourceType,
+    fieldPath: contract.fieldPath, rows: oracle.rows,
+  };
+  check('correctness', `fresh ${contract.resourceType} temporal fixture matches the exact literal row oracle`,
+    JSON.stringify(expectedBefore) === JSON.stringify(contract.rows.map(row => [row.id, row.value])),
+    { fixture: oracle.path, sha256: oracle.sha256, rows: oracle.rows });
+
+  const act = (name, locator, perform, options = {}) => {
+    const deadlineAt = performance.now() + ACTION_TIMEOUT_MS;
+    const remainingTimeout = () => {
+      const remaining = Math.floor(deadlineAt - performance.now());
+      assert(remaining > 0, `${name} exhausted its ${ACTION_TIMEOUT_MS} ms action-to-render budget.`);
+      return remaining;
+    };
+    const { after, ...actionOptions } = options;
+    return action(name, locator,
+      (control) => perform(control, { remainingTimeout }),
+      {
+        timeout: ACTION_TIMEOUT_MS, budget: ACTION_TIMEOUT_MS, ...actionOptions,
+        ...(after ? { after: () => after({ remainingTimeout }) } : {}),
+      });
+  };
+  const project = target.fixtureProject;
+  const explorerCollectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+  const uiOrigin = new URL(target.uiUrl).origin;
+  const title = `Verify ${context.runID.slice(-10)} ${contract.resourceType} ${contract.fieldPath} filter`;
+
+  await page.goto(browserURL(target, project, target.bootstrapExplorerId, 'builder'), {
+    waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS,
+  });
+  const newExplorer = page.getByText('New explorer', { exact: true });
+  await act('open a new disposable Explorer', newExplorer, () => newExplorer.click(), {
+    after: () => page.locator('#new-explorer-name').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  });
+  const explorerName = page.locator('#new-explorer-name');
+  await act('name the temporal-filter Explorer', explorerName, () => explorerName.fill(title), {
+    editable: true,
+    after: async () => assert.equal(await explorerName.inputValue(), title),
+  });
+  const createResponsePromise = page.waitForResponse(response => {
+    const request = response.request();
+    const url = new URL(response.url());
+    return request.method() === 'POST' && url.origin === uiOrigin &&
+      url.pathname === explorerCollectionPath && requestBody(request)?.title === title;
+  }, { timeout: ACTION_TIMEOUT_MS });
+  const createBlank = page.getByRole('button', { name: 'Create blank', exact: true });
+  await act('create the fresh temporal-filter Explorer', createBlank, () => createBlank.click(), {
+    after: async () => {
+      const response = await createResponsePromise;
+      assert.equal(response.status(), 201, `Native Explorer creation returned HTTP ${response.status()}.`);
+      await page.waitForFunction(expectedTitle =>
+        document.querySelector('select[aria-label="Explorer"]')?.selectedOptions[0]?.textContent?.trim() === expectedTitle,
+      title, { timeout: ACTION_TIMEOUT_MS });
+      assert.notEqual(await page.getByRole('combobox', { name: 'Explorer' }).inputValue(), target.bootstrapExplorerId,
+        'The native Explorer must differ from the fixture bootstrap Explorer.');
+    },
+  });
+  const explorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
+  report.target.explorer = explorer;
+  report.target.qaIsolation = {
+    project, generation: target.fixtureGeneration, fixtureDir: target.fixtureDir,
+    bootstrapExplorerId: target.bootstrapExplorerId, explorer,
+    fixtureRows: oracle.rows,
+    mutations: [`native blank Explorer creation: ${explorer}`, `native ${contract.resourceType} table creation`,
+      `native ${contract.fieldPath} column addition`, 'native FILTER proposal/apply/edit/remove'],
+    cleanup: 'The harness retains this run-unique Basic fixture project and Explorer; filter removal restores the saved source table.',
+  };
+
+  const tableName = page.locator('#first-table-name');
+  await act(`name the ${contract.resourceType} table`, tableName, () => tableName.fill(`${contract.resourceType} temporal rows`), {
+    editable: true,
+    after: async () => assert.equal(await tableName.inputValue(), `${contract.resourceType} temporal rows`),
+  });
+  const waitSavedRows = async (expectedIDs, expectedOutputId) => {
+    assert(expectedOutputId, 'The native Preview must identify its exact saved output before row comparison.');
+    await page.waitForFunction(({ outputId, count }) => {
+      const preview = document.querySelector('[data-testid="construction-preview"]');
+      const table = document.querySelector('[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]');
+      return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === outputId &&
+        table && Number(table.getAttribute('aria-rowcount')) === count + 1;
+    }, { outputId: expectedOutputId, count: expectedIDs.length }, { timeout: ACTION_TIMEOUT_MS });
+    const snapshot = await snapshotTable(page.locator(previewSelector));
+    const idLabel = contract.resourceType === 'Patient' ? 'patient id' : 'observation id';
+    const idIndex = snapshot.headers.findIndex(value => header(value) === idLabel);
+    assert.notEqual(idIndex, -1, `Rendered source Preview must show the ${contract.resourceType} ID column: ${JSON.stringify(snapshot.headers)}`);
+    const ids = snapshot.rows.map(row => row[idIndex]).sort();
+    assert.deepEqual(ids, [...expectedIDs].sort(), 'Rendered Preview must preserve the exact literal source record IDs.');
+    return { ...snapshot, ids };
+  };
+  const chooseRoot = page.getByRole('button', { name: `Choose ${contract.resourceType} rows`, exact: true });
+  let previewOutputId;
+  await act(`choose native ${contract.resourceType} rows`, chooseRoot, () => chooseRoot.click(), {
+    after: async () => {
+      await page.waitForFunction(({ count, type }) => {
+      const table = document.querySelector('[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]');
+      return table && Number(table.getAttribute('aria-rowcount')) === count + 1 &&
+        document.querySelector('[data-testid="construction-action-add-columns"]') &&
+        document.querySelector('[data-testid="construction-preview"]')?.dataset.previewStatus === 'ready' &&
+        document.body.innerText.includes(`${type} ID`);
+      }, { count: expectedAllIDs.length, type: contract.resourceType }, { timeout: ACTION_TIMEOUT_MS });
+      previewOutputId = await page.getByTestId('construction-preview').getAttribute('data-preview-output-id');
+      await waitSavedRows(expectedAllIDs, previewOutputId);
+    },
+  });
+
+  const apiRoot = `${explorerCollectionPath}/${encodeURIComponent(explorer)}`;
+  const commandPath = `${apiRoot}/authoring/v2/commands`;
+  const builderPath = `${apiRoot}/authoring/v2/builder`;
+  const readBuilder = async () => {
+    const response = await fetch(`${target.apiUrl}${builderPath}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
+    let body;
+    try { body = await response.json(); }
+    catch (error) { throw new Error(`Builder read returned non-JSON HTTP ${response.status}: ${error.message}`); }
+    assert(response.ok, `Builder read returned HTTP ${response.status}: ${JSON.stringify(body).slice(0, 600)}`);
+    assert.equal(body.catalog?.generation, target.fixtureGeneration, 'Builder read must retain the exact isolated generation.');
+    return body;
+  };
+
+  const builderAfterRoot = await readBuilder();
+  const rootDocument = builderAfterRoot.workspace?.documents?.find(document => document.rootResourceType === contract.resourceType);
+  assert(rootDocument?.output?.id, `Fresh Explorer must contain one ${contract.resourceType} table output.`);
+  const outputId = rootDocument.output.id;
+  assert.equal(outputId, previewOutputId, 'The visible root Preview must belong to the saved root output.');
+  const rootIDColumn = columnForPath(rootDocument, 'id');
+  const rootGrid = await waitSavedRows(expectedAllIDs, outputId);
+  assert.equal(rootGrid.rows.length, expectedAllIDs.length, 'Root table must render every literal source row.');
+  check('correctness', `native ${contract.resourceType} root Preview renders every exact source ID`, true,
+    { outputId, rootColumnId: rootIDColumn.columnId, headers: rootGrid.headers, ids: rootGrid.ids });
+
+  const addColumnsButton = page.getByRole('button', { name: 'Add columns: Bring more information into each row.', exact: true });
+  await act('open Add columns for the temporal source field', addColumnsButton, () => addColumnsButton.click(), {
+    after: () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  });
+  const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
+  await act('open Fields and related data', fieldsTab, () => fieldsTab.click(), {
+    after: async () => assert.equal(await fieldsTab.getAttribute('aria-pressed'), 'true'),
+  });
+  const search = page.getByRole('searchbox', { name: 'Search features by field name, concept, or code' });
+  await act(`search ${contract.resourceType}.${contract.fieldPath}`, search, () => search.fill(contract.fieldPath), {
+    editable: true,
+    after: async () => assert.equal(await search.inputValue(), contract.fieldPath),
+  });
+  const searchButton = page.getByRole('button', { name: 'Search', exact: true });
+  await act(`show raw ${contract.fieldPath} field choices`, searchButton, () => searchButton.click(), {
+    after: () => page.getByText('Raw FHIR fields (advanced)', { exact: true }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  });
+  const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
+  const fieldCheckbox = page.getByRole('checkbox', { name: `Select ${contract.resourceType}.${contract.fieldPath}`, exact: true });
+  if (await fieldCheckbox.count() === 0) {
+    await act('open raw FHIR field choices', rawFields, () => rawFields.click(), {
+      after: () => fieldCheckbox.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+    });
+  } else if (!await fieldCheckbox.isVisible()) {
+    await act('open raw FHIR field choices', rawFields, () => rawFields.click(), {
+      after: () => fieldCheckbox.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+    });
+  }
+  await act(`select ${contract.resourceType}.${contract.fieldPath}`, fieldCheckbox,
+    () => fieldCheckbox.check(), { after: async () => assert.equal(await fieldCheckbox.isChecked(), true) });
+  const addSelected = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
+  let fieldProposal;
+  let choiceProposalPromise;
+  const choiceProposalPanel = page.getByTestId('construction-choice-proposal-panel');
+  const applyField = choiceProposalPanel.getByRole('button', { name: 'Apply columns', exact: true });
+  await act(`preview native ${contract.fieldPath} column`, addSelected,
+    async (_control, { remainingTimeout }) => {
+      choiceProposalPromise = page.waitForResponse(response => {
+        const request = response.request();
+        const url = new URL(response.url());
+        return request.method() === 'POST' && url.origin === uiOrigin &&
+          url.pathname === `${apiRoot}/authoring/v2/construction-choice-proposals` &&
+          requestBody(request)?.outputId === outputId;
+      }, { timeout: remainingTimeout() });
+      await addSelected.click({ timeout: remainingTimeout() });
+    }, {
+    after: async ({ remainingTimeout }) => {
+      const response = await choiceProposalPromise;
+      assert.equal(response.status(), 200, `Raw field proposal returned HTTP ${response.status()}.`);
+      fieldProposal = await response.json();
+      assert.equal(fieldProposal.outputId, outputId, 'Field proposal must target the exact native output.');
+      assert.equal(fieldProposal.previewStatus, 'READY', 'Field proposal must be ready before Apply.');
+      assert.equal(fieldProposal.preview.outputId, outputId, 'Field preview must target the exact native output.');
+      assert(fieldProposal.preview.receiptId, 'Field proposal must carry its exact preview receipt.');
+      assert.equal(fieldProposal.preview.rowCount, oracle.rows.length, 'Field proposal must retain the exact source row count.');
+      const proposedColumnIDs = fieldProposal.candidateColumnIds;
+      assert(Array.isArray(proposedColumnIDs) && proposedColumnIDs.length === 1,
+        'The field proposal must add exactly one temporal field column.');
+      const proposalColumn = fieldProposal.preview.columns.find(column => column.column === proposedColumnIDs[0]);
+      assert(proposalColumn?.label, 'Field proposal must identify its visible temporal column label.');
+      await page.waitForFunction(({ receiptId, expectedOutputId }) => {
+        const panel = document.querySelector('[data-testid="construction-choice-proposal-panel"]');
+        const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
+        return Boolean(panel?.dataset.proposalStatus === 'ready' &&
+          preview?.dataset.previewStatus === 'ready' &&
+          preview.dataset.previewReceiptId === receiptId &&
+          preview.dataset.previewOutputId === expectedOutputId);
+      }, { receiptId: fieldProposal.preview.receiptId, expectedOutputId: outputId }, { timeout: remainingTimeout() });
+      const proposalPreview = await snapshotTable(page.locator(proposalPreviewSelector));
+      const idIndex = proposalPreview.headers.findIndex(value => header(value) === `${contract.resourceType.toLowerCase()} id`);
+      const valueIndex = proposalPreview.headers.findIndex(value => header(value) === header(proposalColumn.label));
+      assert(idIndex >= 0 && valueIndex >= 0, `Candidate Preview must visibly render the ID and ${proposalColumn.label} columns.`);
+      const actualRows = proposalPreview.rows.map(row => [row[idIndex], row[valueIndex]])
+        .sort((left, right) => left[0].localeCompare(right[0]));
+      const expectedRows = oracle.rows.map(row => [row.id, row.value]);
+      assert.deepEqual(actualRows, expectedRows, 'Candidate field Preview must preserve exact IDs and literal temporal values.');
+      await choiceProposalPanel.waitFor({ state: 'visible', timeout: remainingTimeout() });
+      await applyField.waitFor({ state: 'visible', timeout: remainingTimeout() });
+    },
+  });
+  const applyFieldCommand = page.waitForResponse(response => {
+    const request = response.request();
+    return new URL(response.url()).pathname === commandPath && request.method() === 'POST' &&
+      requestBody(request)?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId);
+  }, { timeout: ACTION_TIMEOUT_MS });
+  let savedBuilder = builderAfterRoot;
+  let savedDocument = rootDocument;
+  let temporalColumn;
+  await act(`apply ${contract.fieldPath} as a native output column`, applyField, () => applyField.click(), {
+    after: async () => {
+      const response = await applyFieldCommand;
+      assert.equal(response.status(), 200, `Apply columns returned HTTP ${response.status()}.`);
+      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+      savedBuilder = await readBuilder();
+      savedDocument = documentForOutput(savedBuilder, outputId);
+      temporalColumn = columnForPath(savedDocument, contract.fieldPath);
+      const savedGrid = await waitSavedRows(expectedAllIDs, outputId);
+      const valueIndex = savedGrid.headers.findIndex(value => header(value) === header(temporalColumn.label));
+      assert(valueIndex >= 0, `Saved table must visibly render ${temporalColumn.label}.`);
+      const actualRows = savedGrid.rows.map(row => [row[savedGrid.headers.findIndex(value => header(value) === `${contract.resourceType.toLowerCase()} id`)], row[valueIndex]])
+        .sort((left, right) => left[0].localeCompare(right[0]));
+      assert.deepEqual(actualRows, expectedBefore, 'Applied source column must show exact literal values and identities.');
+    },
+  });
+  check('correctness', `native ${contract.fieldPath} column keeps exact source values and identities`, true,
+    { outputId, columnId: temporalColumn.columnId, label: temporalColumn.label, type: temporalColumn.type, rows: expectedBefore });
+
+  const closeAddColumns = page.getByTestId('construction-close-operation-editor');
+  await act(`return to the table after adding ${contract.fieldPath}`, closeAddColumns,
+    () => closeAddColumns.click(), {
+      after: async ({ remainingTimeout }) => {
+        await page.locator('[aria-label="Add columns editor"]').waitFor({
+          state: 'detached', timeout: remainingTimeout(),
+        });
+        await page.getByTestId('construction-action-keep-rows').waitFor({
+          state: 'visible', timeout: remainingTimeout(),
+        });
+      },
+    });
+
+  const readFilter = async expected => {
+    const current = await readBuilder();
+    const document = documentForOutput(current, outputId);
+    const filters = (document.construction?.steps ?? []).filter(step => step.operation?.kind === 'FILTER');
+    assert.equal(filters.length, expected ? 1 : 0, 'Saved output must contain exactly the expected number of row filters.');
+    if (!expected) return { builder: current, document, filter: undefined };
+    const step = filters[0];
+    assert.equal(step.operation.filter.columnId, temporalColumn.columnId, 'Saved FILTER must bind the exact temporal source column.');
+    assert.equal(step.operation.filter.operator, expected.operator, 'Saved FILTER must retain the exact selected temporal comparison.');
+    assert.deepEqual(step.operation.filter.values, [expected.savedValue], 'Saved FILTER must retain the exact typed temporal boundary.');
+    return { builder: current, document, filter: step };
+  };
+  const candidateIDs = async (expectedIDs, proposalId, remainingTimeout) => {
+    await page.waitForFunction(({ expectedProposalId, expectedOutputId }) => {
+      const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+      const ready = document.querySelector('[data-testid="construction-proposal-ready"]');
+      const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
+      return Boolean(panel?.dataset.proposalStatus === 'ready' &&
+        panel.dataset.proposalId === expectedProposalId && ready &&
+        preview?.dataset.previewStatus === 'ready' &&
+        preview.dataset.previewReceiptId === expectedProposalId &&
+        preview.dataset.previewOutputId === expectedOutputId);
+    }, { expectedProposalId: proposalId, expectedOutputId: outputId }, { timeout: remainingTimeout() });
+    const candidate = await snapshotTable(page.locator(proposalPreviewSelector), '[data-testid="construction-proposal-preview-row"]');
+    if (expectedIDs.length === 0) {
+      assert.deepEqual(candidate.rows, [], 'Exact-boundary proposal must visibly report zero matching rows.');
+      assert.match(await page.getByTestId('construction-proposal-preview').innerText(), /No rows matched this proposal\./,
+        'Empty temporal proposal must show the native no-matching-rows explanation.');
+      return [];
+    }
+    const idIndex = candidate.headers.findIndex(value => header(value) === `${contract.resourceType.toLowerCase()} id`);
+    assert(idIndex >= 0, 'Temporal proposal Preview must visibly retain the root identity column.');
+    const actualIDs = candidate.rows.map(row => row[idIndex]).sort();
+    assert.deepEqual(actualIDs, [...expectedIDs].sort(), 'Temporal proposal must match the exact literal record identities.');
+    return actualIDs;
+  };
+  const openFilterEditor = async (label) => {
+    const filterButton = page.getByTestId('construction-action-keep-rows');
+    await act(label, filterButton, () => filterButton.click(), {
+      after: () => page.getByTestId('construction-filter-editor').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+    });
+  };
+  const filterInputValue = async filter => {
+    if (filter.inputValue !== undefined) return filter.inputValue;
+    assert(filter.boundaryInstant, 'A dateTime filter must declare its independent UTC boundary instant.');
+    return page.evaluate(instant => {
+      const utc = new Date(instant);
+      const local = new Date(utc.getTime() - utc.getTimezoneOffset() * 60_000);
+      return local.toISOString().slice(0, 16);
+    }, filter.boundaryInstant);
+  };
+  const setFilter = async ({ operator, inputValue, initial, expectedIDs, requestValue, savedValue }) => {
+    const column = page.getByRole('combobox', { name: 'Column', exact: true });
+    if (initial) {
+      await act(`choose ${contract.fieldPath} for the row filter`, column,
+        () => column.selectOption(temporalColumn.columnId), {
+          after: async () => assert.equal(await column.inputValue(), temporalColumn.columnId),
+        });
+    } else {
+      assert.equal(await column.inputValue(), temporalColumn.columnId,
+        'Editing the saved filter must retain its exact temporal source column.');
+    }
+    const condition = page.getByRole('combobox', { name: 'Condition', exact: true });
+    const supportedOperators = await condition.locator('option').evaluateAll(options => options.map(option => option.value));
+    assert(['GT', 'GTE', 'LT', 'LTE'].every(value => supportedOperators.includes(value)),
+      `Temporal filter must expose the exact four comparison operators: ${JSON.stringify(supportedOperators)}`);
+    const valueInput = page.getByLabel('Value', { exact: true });
+    assert.equal(await valueInput.getAttribute('type'), contract.inputType,
+      `${contract.fieldPath} must use a native ${contract.inputType} input.`);
+    const currentValue = await valueInput.inputValue();
+    let proposal;
+    await act(`set the ${contract.filterValueKind} ${operator} comparison`, condition,
+      async (_control, { remainingTimeout }) => {
+        const currentProposalResponse = page.waitForResponse(response => {
+          const request = response.request();
+          const url = new URL(response.url());
+          return request.method() === 'POST' && url.origin === uiOrigin &&
+            url.pathname === `${apiRoot}/authoring/v2/construction-proposals` &&
+            matchesBasicTemporalFilterCandidate(requestBody(request), {
+              outputId, columnId: temporalColumn.columnId, operator, savedValue: requestValue ?? savedValue,
+            });
+        }, { timeout: remainingTimeout() });
+        if (!initial && currentValue !== inputValue) {
+          await valueInput.fill(inputValue, { timeout: remainingTimeout() });
+        }
+        await condition.selectOption(operator, { timeout: remainingTimeout() });
+        if (initial && currentValue !== inputValue) {
+          await valueInput.fill(inputValue, { timeout: remainingTimeout() });
+        }
+        const response = await currentProposalResponse;
+        assert.equal(response.status(), 200, `Current ${contract.filterValueKind} proposal returned HTTP ${response.status()}.`);
+        proposal = await response.json();
+      }, {
+        after: async ({ remainingTimeout }) => {
+          assert.equal(await condition.inputValue(), operator,
+            'The filter must retain the exact requested comparison operator.');
+          assert.equal(await valueInput.inputValue(), inputValue,
+            'The temporal input must retain the exact literal boundary value.');
+          assert.equal(proposal.outputId, outputId, 'Current temporal proposal must retain the exact output identity.');
+          assert.equal(proposal.previewStatus, 'READY', 'Current temporal proposal must be ready before row assertions.');
+          assert.equal(proposal.preview?.receiptId, proposal.proposalId,
+            'Current temporal proposal must bind its preview to its exact proposal receipt.');
+          assert.equal(proposal.preview?.outputId, outputId,
+            'Current temporal proposal preview must retain the exact output identity.');
+          assert(matchesBasicTemporalFilterCandidate(proposal, {
+            outputId, columnId: temporalColumn.columnId, operator, savedValue,
+          }), 'Current temporal proposal response must echo the exact typed filter predicate.');
+          assert(proposal.proposalId, 'Current temporal proposal must expose its exact preview receipt.');
+          await candidateIDs(expectedIDs, proposal.proposalId, remainingTimeout);
+        },
+      });
+    return { condition, valueInput, supportedOperators };
+  };
+  const applyFilterProposal = async ({ expected, label }) => {
+    const apply = page.getByTestId('construction-apply-proposal');
+    await act(label, apply, () => apply.click(), {
+      after: async () => {
+        await page.getByTestId('construction-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+        const grid = await waitSavedRows(expected.ids, outputId);
+        const persisted = await readFilter(expected);
+        assert.deepEqual(persisted.filter.operation.filter.values, [expected.savedValue]);
+        return grid;
+      },
+    });
+  };
+
+  const beforeFilter = await readBuilder();
+  const initial = contract.initial;
+  const initialInputValue = await filterInputValue(initial);
+  await openFilterEditor(`open Filter rows for ${contract.fieldPath}`);
+  const initialControls = await setFilter({ ...initial, inputValue: initialInputValue, initial: true, expectedIDs: initial.ids });
+  check('correctness', `native ${contract.inputType} filter exposes exact ${contract.filterValueKind} comparison controls`,
+    initialControls.supportedOperators.includes('GT') && initialControls.supportedOperators.includes('GTE') &&
+      initialControls.supportedOperators.includes('LT') && initialControls.supportedOperators.includes('LTE') &&
+      await initialControls.valueInput.getAttribute('type') === contract.inputType,
+    { fieldPath: contract.fieldPath, filterValueKind: contract.filterValueKind,
+      inputType: await initialControls.valueInput.getAttribute('type'), operators: initialControls.supportedOperators });
+  const firstProposalIDs = initial.ids;
+  const cancel = page.getByTestId('construction-cancel-proposal');
+  await act('Cancel the first temporal filter proposal', cancel, () => cancel.click(), {
+    after: async () => {
+      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+      const grid = await waitSavedRows(expectedAllIDs, outputId);
+      const afterCancel = await readFilter(undefined);
+      assert.equal(afterCancel.builder.draftVersion, beforeFilter.draftVersion, 'Cancel must preserve the saved draft version.');
+      assert.equal(afterCancel.builder.draftDigest, beforeFilter.draftDigest, 'Cancel must preserve the saved draft digest.');
+      assert.deepEqual(afterCancel.document, savedDocument, 'Cancel must leave the authored source table unchanged.');
+      return grid;
+    },
+  });
+  check('persistence', `Cancel leaves the exact unfiltered ${contract.resourceType} source rows`, true,
+    { expectedIDs: expectedAllIDs, canceledProposalIDs: firstProposalIDs, draftVersion: beforeFilter.draftVersion,
+      draftDigest: beforeFilter.draftDigest });
+  await act('reload after temporal-filter Cancel', page.locator('body'),
+    () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
+      after: async () => {
+        const grid = await waitSavedRows(expectedAllIDs, outputId);
+        const afterReload = await readFilter(undefined);
+        assert.equal(afterReload.builder.draftDigest, beforeFilter.draftDigest,
+          'Reload after Cancel must retain the exact unchanged draft.');
+        return grid;
+      },
+    });
+
+  await openFilterEditor(`reopen Filter rows for ${contract.fieldPath}`);
+  await setFilter({ ...initial, inputValue: initialInputValue, initial: true, expectedIDs: initial.ids });
+  await applyFilterProposal({ expected: initial,
+    label: `Apply the exact ${contract.filterValueKind} ${initial.operator} filter` });
+  check('correctness', `Apply saves exact ${contract.filterValueKind} values and matching ${contract.resourceType} IDs`, true,
+    { filter: initial, expectedIDs: initial.ids, outputId, columnId: temporalColumn.columnId });
+
+  await act('reload the applied temporal filter', page.locator('body'),
+    () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
+      after: async () => {
+        const grid = await waitSavedRows(initial.ids, outputId);
+        const saved = await readFilter(initial);
+        assert(saved.filter.id, 'Reload must retain a stable filter-step identity.');
+        return grid;
+      },
+    });
+  const savedState = await readFilter(initial);
+  const stepID = savedState.filter.id;
+  const historyStep = page.getByTestId(`construction-history-step-${stepID}`);
+  await act('select the saved temporal filter step', historyStep, () => historyStep.click(), {
+    after: () => page.getByTestId(`construction-edit-step-${stepID}`).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  });
+  const editStep = page.getByTestId(`construction-edit-step-${stepID}`);
+  await act('edit the saved temporal filter', editStep, () => editStep.click(), {
+    after: () => page.getByTestId('construction-filter-editor').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  });
+  const edited = contract.edited;
+  const editedInputValue = await filterInputValue(edited);
+  const editedControls = await setFilter({ ...edited, inputValue: editedInputValue, initial: false, expectedIDs: edited.ids });
+  check('correctness', `editing preserves the saved ${contract.fieldPath} source and exposes typed ${contract.inputType} controls`,
+    await page.getByRole('combobox', { name: 'Column', exact: true }).inputValue() === temporalColumn.columnId &&
+      await editedControls.valueInput.getAttribute('type') === contract.inputType,
+    { stepID, columnId: temporalColumn.columnId, inputType: await editedControls.valueInput.getAttribute('type') });
+  await applyFilterProposal({ expected: edited,
+    label: `Apply the edited ${contract.filterValueKind} ${edited.operator} condition` });
+  await act('reload the edited temporal filter', page.locator('body'),
+    () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
+      after: async () => {
+        const grid = await waitSavedRows(edited.ids, outputId);
+        const saved = await readFilter(edited);
+        assert.equal(saved.filter.id, stepID, 'Editing must preserve the saved filter-step identity.');
+        return grid;
+      },
+    });
+  check('persistence', `edited ${contract.filterValueKind} condition and exact rows survive reload`, true,
+    { stepID, filter: edited, expectedIDs: edited.ids });
+
+  await act('select the edited temporal filter for removal', page.getByTestId(`construction-history-step-${stepID}`),
+    () => page.getByTestId(`construction-history-step-${stepID}`).click(), {
+      after: () => page.getByTestId(`construction-remove-step-${stepID}`).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+    });
+  const removeStep = page.getByTestId(`construction-remove-step-${stepID}`);
+  await act('preview removal of the saved temporal filter', removeStep, () => removeStep.click(), {
+    after: async () => {
+      await page.getByTestId('construction-proposal-ready').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
+      const proposal = await snapshotTable(page.locator(proposalPreviewSelector));
+      const idIndex = proposal.headers.findIndex(value => header(value) === `${contract.resourceType.toLowerCase()} id`);
+      assert(idIndex >= 0);
+      const ids = proposal.rows.map(row => row[idIndex]).sort();
+      assert.deepEqual(ids, expectedAllIDs, 'Removing FILTER must preview all exact source identities.');
+    },
+  });
+  const applyRemoval = page.getByRole('button', { name: 'Apply removal', exact: true });
+  await act('apply removal and restore the unfiltered source rows', applyRemoval, () => applyRemoval.click(), {
+    after: async () => {
+      await page.getByTestId('construction-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
+      const grid = await waitSavedRows(expectedAllIDs, outputId);
+      const restored = await readFilter(undefined);
+      assert.deepEqual(restored.document.columns, savedDocument.columns,
+        'Removing FILTER must preserve the exact source columns and stable temporal-column identity.');
+      return grid;
+    },
+  });
+  await act('reload after temporal-filter removal', page.locator('body'),
+    () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
+      after: async () => {
+        const grid = await waitSavedRows(expectedAllIDs, outputId);
+        const restored = await readFilter(undefined);
+        assert.deepEqual(restored.document.columns, savedDocument.columns,
+          'Final reload must retain the original source projection and temporal column.');
+        return grid;
+      },
+    });
+  check('persistence', `removing ${contract.filterValueKind} filter restores exact source rows after reload`, true,
+    { expectedIDs: expectedAllIDs, sourceColumns: savedDocument.columns, outputId });
+};

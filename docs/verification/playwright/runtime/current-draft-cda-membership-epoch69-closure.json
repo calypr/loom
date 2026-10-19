@@ -1,0 +1,131 @@
+{
+  "epoch": 69,
+  "status": "CLOSED_WITH_HARNESS_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "e17d34ddbaeb841f4862f981faeadc8b7b1a7bf050a9efb9f12ecc433d05e254",
+      "afterSha256": "e17d34ddbaeb841f4862f981faeadc8b7b1a7bf050a9efb9f12ecc433d05e254",
+      "files": 1508,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "3904540a7755c20e1909fbbc2a3589aa94b895604d2cd84036e8089200525ff3",
+      "afterSha256": "3904540a7755c20e1909fbbc2a3589aa94b895604d2cd84036e8089200525ff3",
+      "files": 167,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": null,
+        "exitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave69/api-build-precheck.json",
+        "fresh": true
+      },
+      "beforeCapture": {
+        "session": 32041,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 39258,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 73556,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 94192,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 16013,
+        "exitCode": 0
+      }
+    }
+  },
+  "lifecycleReport": "docs/verification/playwright/runtime/current-draft-cda-membership-epoch69-report.json",
+  "lifecycleReportSha256": "4184212a2d864a683deedff4416d17a0b472175437c631b39a486f4d71742c29",
+  "case": {
+    "classification": "HARNESS_REFERENCE_ERROR_IN_REMOVAL_PREVIEW_EVIDENCE",
+    "firstFailure": {
+      "location": "scripts/verify-ui/workflows/cda-current-draft-membership-workflow.mjs:711",
+      "error": "ReferenceError: rawRootReread is not defined",
+      "cause": "The evidence object references rawRootReread, but the populated array is named rootReread. This throws before the removal-preview assertion is registered.",
+      "classification": "Harness diagnostic/evidence serialization error. The removal response was HTTP 200 READY with empty candidate steps, exact saved step removal, matching request/CAS/output/receipt identities, 25 sampled root rows and zero columns. No product defect established."
+    },
+    "requiredChecks": {
+      "completed": 41,
+      "total": 48,
+      "missing": 7,
+      "missingNames": [
+        "canceled Membership removal proposal renders the rooted target with no visible columns",
+        "Cancel removal preserves exact EXCLUDE Membership, full workspace, and CAS after reload",
+        "applied Membership removal proposal renders the rooted target with no visible columns",
+        "applied removal proposal targets only the exact saved Membership step and draft CAS",
+        "applying Membership removal and reloading restores the exact rooted empty target",
+        "removing Membership preserves both exact immutable GROUP source populations after reload",
+        "CDA Membership lifecycle makes no Publish request or pinned table revision reference"
+      ]
+    },
+    "assertions": {
+      "passed": 146,
+      "failed": 0,
+      "total": 146,
+      "byDimension": {
+        "correctness": 33,
+        "persistence": 11,
+        "usability": 51,
+        "performance": 51
+      }
+    },
+    "nativeActions": {
+      "passed": 51,
+      "failed": 0,
+      "maxElapsedMs": 1416
+    },
+    "expectedCancellations": 2,
+    "unexpectedNetworkErrors": 0,
+    "timing": {
+      "reportElapsedMs": 56081,
+      "runnerProcessSecondsReported": 57,
+      "actionBudgetMs": 5000
+    },
+    "rawReportPath": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/cda-report.json",
+    "rawReportSha256": "a6b7385bc86254ede98dcbb40498fe14b7db12b8035593474c1fab1cf73fbe39",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/results.json",
+    "playwrightResultsSha256": "5d24d06dbf38583361e77f88eee39ca169d6e85a35d3c4da9044632aee33c6d5",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave69/cda-current-draft-membership/attempt1/runner.log",
+    "runnerLogSha256": "08ab1abbf105a21606ff0244100ccac5edf86d2af6e29b091fbb1cf9f1656967"
+  }
+}

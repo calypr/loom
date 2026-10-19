@@ -3,9 +3,15 @@ package compilation
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -14,19 +20,592 @@ func fixtureSnapshot() capability.Snapshot {
 	return fixtureSnapshotForProject("project-a")
 }
 
+func TestQuantityIdentityPathsRequireGeneratedFHIRQuantity(t *testing.T) {
+	system, code, err := quantityIdentityPaths("Observation", "valueQuantity.value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if system != "valueQuantity.system" || code != "valueQuantity.code" {
+		t.Fatalf("quantity paths = %q, %q", system, code)
+	}
+	if _, _, err := quantityIdentityPaths("Patient", "gender.value"); err == nil || !strings.Contains(err.Error(), "FHIR Quantity") {
+		t.Fatalf("non-Quantity path unexpectedly accepted: %v", err)
+	}
+}
+
+func TestCompileIndependentContributorOccurrencesPreservesOptionalPredicateScopes(t *testing.T) {
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+			{OccurrenceID: "observation_a", ResourceType: "Observation", Relationship: "focus_Patient"},
+			{OccurrenceID: "observation_b", ResourceType: "Observation", Relationship: "focus_Patient"},
+		}},
+		Columns: []authoringv2.Column{
+			{Column: "registered_count", Label: "Registered", OccurrenceID: "observation_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "registered")},
+			{Column: "cancelled_count", Label: "Cancelled", OccurrenceID: "observation_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Contributor: contributorEquals("c_observation_status", "cancelled")},
+		},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traversals := compiled.Bundle.Outputs[0].Traversals
+	if len(traversals) != 2 {
+		t.Fatalf("compiled traversals=%#v, want two independent occurrences", traversals)
+	}
+	if traversals[0].Alias == traversals[1].Alias || traversals[0].Name != traversals[1].Name {
+		t.Fatalf("same relationship occurrences lost identity: %#v", traversals)
+	}
+	if traversals[0].MatchMode != recipe.MatchOptional || traversals[1].MatchMode != recipe.MatchOptional {
+		t.Fatalf("contributor traversals became required: %#v", traversals)
+	}
+	if len(traversals[0].Aggregates) != 1 || len(traversals[1].Aggregates) != 1 {
+		t.Fatalf("aggregate contributors=%#v", traversals)
+	}
+	if traversals[0].Aggregates[0].Where == nil || traversals[1].Aggregates[0].Where == nil {
+		t.Fatalf("contributor predicates were dropped: %#v", traversals)
+	}
+	if traversals[0].Aggregates[0].Where.Values[0].String == nil || *traversals[0].Aggregates[0].Where.Values[0].String != "registered" || traversals[1].Aggregates[0].Where.Values[0].String == nil || *traversals[1].Aggregates[0].Where.Values[0].String != "cancelled" {
+		t.Fatalf("contributor predicate literals=%#v/%#v", traversals[0].Aggregates[0].Where.Values, traversals[1].Aggregates[0].Where.Values)
+	}
+
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered.Query, " = UNIQUE((") != 2 {
+		t.Fatalf("same relationship was collapsed into one contributor set:\n%s", rendered.Query)
+	}
+	values := map[string]bool{}
+	for _, value := range rendered.BindVars {
+		if value == "registered" || value == "cancelled" {
+			values[value.(string)] = true
+		}
+	}
+	if !values["registered"] || !values["cancelled"] {
+		t.Fatalf("rendered contributor predicate literals=%#v", rendered.BindVars)
+	}
+}
+
+func contributorEquals(candidateID, value string) *authoringv2.ContributorPredicate {
+	return &authoringv2.ContributorPredicate{
+		CandidateID: candidateID,
+		Operator:    authoringv2.ContributorEquals,
+		Value:       &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: &value},
+	}
+}
+
+func TestCompileContributorUsesCatalogCandidateIdentityAndResolvedSelector(t *testing.T) {
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+			{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"},
+		}},
+		Columns: []authoringv2.Column{{
+			Column: "registered_count", Label: "Registered", OccurrenceID: "observation",
+			Source:      authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+			Contributor: &authoringv2.ContributorPredicate{CandidateID: "c_observation_status", Operator: authoringv2.ContributorEquals, Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: stringPtr("registered")}},
+		}},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Bundle.Outputs) != 1 || len(compiled.Bundle.Outputs[0].Traversals) != 1 || len(compiled.Bundle.Outputs[0].Traversals[0].Aggregates) != 1 {
+		t.Fatalf("compiled contributor shape = %#v", compiled.Bundle.Outputs)
+	}
+	where := compiled.Bundle.Outputs[0].Traversals[0].Aggregates[0].Where
+	if where == nil || where.FieldRef != "c_observation_status" || where.Select != compiled.Bundle.Outputs[0].Traversals[0].Alias+".status" || where.Operator != recipe.FilterEquals || len(where.Values) != 1 || where.Values[0].String == nil || *where.Values[0].String != "registered" {
+		t.Fatalf("compiled contributor filter = %#v", where)
+	}
+}
+
+func TestCompileAuthoredRequiredRouteLowersToPopulationMatch(t *testing.T) {
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", MatchMode: authoringv2.RouteMatchRequired,
+		}}},
+		Columns: []authoringv2.Column{{
+			Column: "observation_count", Label: "Observations", OccurrenceID: "observation",
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+		}},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traversal := compiled.Bundle.Outputs[0].Traversals[0]
+	if traversal.MatchMode != recipe.MatchRequired {
+		t.Fatalf("matchMode=%q, want REQUIRED", traversal.MatchMode)
+	}
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(physical.Outputs) != 1 || physical.Outputs[0].Plan.RequiredMatchReuseCount != 0 {
+		t.Fatalf("physical required route=%#v", physical.Outputs)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "required_0_node_0") || !strings.Contains(rendered.Query, "LENGTH(") {
+		t.Fatalf("required route did not lower to root existence match:\n%s", rendered.Query)
+	}
+}
+
+func TestCompileRejectsRepeatedEdgeWithinOneRouteWhenPolicyDisallows(t *testing.T) {
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient", Children: []authoringv2.RouteNode{{
+				OccurrenceID: "patient", ResourceType: "Patient", Relationship: "focus_Patient", Children: []authoringv2.RouteNode{{
+					OccurrenceID: "repeated_observation", ResourceType: "Observation", Relationship: "focus_Patient",
+				}},
+			}},
+		}}},
+	}
+	_, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "REPEATED_EDGE_NOT_ALLOWED" {
+		t.Fatalf("compile repeated edge error = %v, want REPEATED_EDGE_NOT_ALLOWED", err)
+	}
+}
+
 func fixtureSnapshotForProject(project string) capability.Snapshot {
 	identity := capability.SnapshotIdentity{Project: project, Generation: "generation-a", AuthorizationScopeDigest: "scope-a", SchemaDigest: "schema-a", CompilerVersion: "compiler-a"}
-	policy := capability.Policy{Route: capability.RoutePolicy{Version: "route-a", AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: "projection-a", Modes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}}}
+	policy := capability.Policy{Route: capability.RoutePolicy{Version: "route-a", AllowsRepeatedEdges: true, AllowsSelfLoops: true}, Projection: capability.ProjectionPolicy{Version: "projection-a", Modes: []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}}}
 	nodes := []capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}, {ID: "n_encounter", ResourceType: "Encounter", RowRootEligible: true, RowGrain: "resource"}}
 	edges := []capability.Edge{{ID: "e_encounter", FromNodeID: "n_patient", ToNodeID: "n_encounter", Label: "encounters"}, {ID: "e_self", FromNodeID: "n_encounter", ToNodeID: "n_encounter", Label: "revisits"}}
 	ops := []capability.Operation{capability.OperationSelect, capability.OperationFilter, capability.OperationChart}
-	candidates := []capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: ops}, {ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", Label: "Encounter.code.coding[].code", LogicalType: "string", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops}}
+	candidates := []capability.Candidate{
+		{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: ops},
+		{ID: "c_patient_given", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].given[]", Label: "Patient.name.given", LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "name[]", MaxItems: 2}, {Path: "name[].given[]", MaxItems: 3}}, ProjectionModes: []capability.ProjectionMode{capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray}, SupportedOperations: ops},
+		{ID: "c_patient_family", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", Label: "Patient.name.family", LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "name[]", MaxItems: 2}}, ProjectionModes: []capability.ProjectionMode{capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray}, SupportedOperations: ops},
+		{ID: "c_encounter_code", NodeID: "n_encounter", ResourceType: "Encounter", FieldPath: "code.coding[].code", Label: "Encounter.code.coding[].code", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray, capability.ProjectionDistinctArray}, SupportedOperations: ops},
+	}
 	return capability.NewSnapshot(identity, policy, capability.StatusReady, true, false, nodes, edges, candidates, nil)
+}
+
+func contributorSnapshot() capability.Snapshot {
+	snapshot := fixtureSnapshot()
+	snapshot.Policy.Route.AllowsRepeatedEdges = false
+	snapshot.Nodes = []capability.Node{
+		{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"},
+		{ID: "n_observation", ResourceType: "Observation", RowRootEligible: true, RowGrain: "resource"},
+	}
+	snapshot.Edges = []capability.Edge{
+		{ID: "e_observation", FromNodeID: "n_patient", ToNodeID: "n_observation", Label: "focus_Patient"},
+		{ID: "e_patient", FromNodeID: "n_observation", ToNodeID: "n_patient", Label: "focus_Patient"},
+	}
+	snapshot.Candidates = []capability.Candidate{
+		{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient.id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_patient_anchor", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "meta.lastUpdated", Label: "Patient updated", LogicalType: "date_time", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_observation_status", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "status", Label: "Observation.status", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_observation_time", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "effectiveDateTime", Label: "Observation time", LogicalType: "date_time", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "c_observation_value", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "valueQuantity.value", Label: "Observation value", LogicalType: "decimal", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+	}
+	return capability.NewSnapshot(snapshot.Identity, snapshot.Policy, capability.StatusReady, true, false, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, nil)
+}
+
+func stringPtr(value string) *string { return &value }
+
+func TestProjectionWireModesPreserveDistinctArray(t *testing.T) {
+	if got := wireProjectionMode(capability.ProjectionArray); got != "ALL" {
+		t.Fatalf("array wire mode = %q, want ALL", got)
+	}
+	if got := wireProjectionMode(capability.ProjectionDistinctArray); got != "DISTINCT" {
+		t.Fatalf("distinct array wire mode = %q, want DISTINCT", got)
+	}
+}
+
+func TestCatalogCandidateRepeatedUsesCompilerCardinality(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	snapshot.Candidates = []capability.Candidate{
+		{ID: "required", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", Cardinality: "required_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "optional", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "active", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		{ID: "many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[].family", LogicalType: "string", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+		{ID: "observed-many", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "identifier[].value", LogicalType: "string", Cardinality: "unknown_observed_many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+	}
+	catalog := catalogFromCapability(snapshot, "explorer-a")
+	got := map[string]bool{}
+	for _, candidate := range catalog.Candidates {
+		got[candidate.ID] = candidate.Repeated
+	}
+	want := map[string]bool{
+		"required":      false,
+		"optional":      false,
+		"many":          true,
+		"observed-many": true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("catalog repeated flags = %#v, want %#v", got, want)
+	}
+}
+
+func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	snapshot.Policy.Route.MaxHops = 1
+	catalog := catalogFromCapability(snapshot, "explorer-a")
+	workspace, created, err := authoringv2.ApplyCommands(
+		authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}},
+		catalog,
+		"create",
+		[]authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputID := created[0].OutputID
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "first-hop", []authoringv2.Command{{
+		Type: authoringv2.CommandAddRoute, OutputID: outputID, ParentOccurrenceID: authoringv2.RootOccurrenceID, EdgeID: "e_encounter",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentOccurrenceID := workspace.Documents[0].Route.Children[0].OccurrenceID
+	_, _, err = authoringv2.ApplyCommands(workspace, catalog, "over-depth", []authoringv2.Command{{
+		Type: authoringv2.CommandAddRoute, OutputID: outputID, ParentOccurrenceID: parentOccurrenceID, EdgeID: "e_self",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "ROUTE_TOO_LONG") {
+		t.Fatalf("command over-depth route error = %v, want ROUTE_TOO_LONG", err)
+	}
+
+	_, err = Compile(context.Background(), "project-a", "explorer-a", authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{{
+			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters", Children: []authoringv2.RouteNode{{
+				OccurrenceID: "repeat-encounter", ResourceType: "Encounter", Relationship: "revisits",
+			}},
+		}}},
+	}, snapshot)
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "ROUTE_TOO_LONG" {
+		t.Fatalf("compile over-depth route error = %v, want ROUTE_TOO_LONG", err)
+	}
+}
+
+func TestCompileRejectsCapabilityMismatchedLogicalTypeAndProjection(t *testing.T) {
+	base := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*authoringv2.Document)
+		code   string
+	}{
+		{name: "logical type", mutate: func(document *authoringv2.Document) { document.Columns[0].LogicalType = "integer" }, code: "CAPABILITY_LOGICAL_TYPE_MISMATCH"},
+		{name: "projection mode", mutate: func(document *authoringv2.Document) { document.Columns[0].Source.Field.ProjectionMode = "FIRST" }, code: "UNSUPPORTED_PROJECTION_MODE"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := base
+			test.mutate(&document)
+			_, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+			var compileErr *Error
+			if !errors.As(err, &compileErr) || compileErr.Code != test.code {
+				t.Fatalf("compile error = %v, want %s", err, test.code)
+			}
+		})
+	}
+}
+
+func TestCompileWorkspaceAcceptsCommandGeneratedCandidateSelection(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	catalog := catalogFromCapability(snapshot, "explorer-a")
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"}}
+	var created []authoringv2.CommandResult
+	var err error
+	workspace, created, err = authoringv2.ApplyCommands(workspace, catalog, "create", []authoringv2.Command{{Type: authoringv2.CommandCreateTable, Title: "Patients", RootNodeID: "n_patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _, err = authoringv2.ApplyCommands(workspace, catalog, "column", []authoringv2.Command{{Type: authoringv2.CommandAddColumn, OutputID: created[0].OutputID, OccurrenceID: authoringv2.RootOccurrenceID, CandidateID: "c_patient_id"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{}); err != nil {
+		t.Fatalf("command-generated workspace rejected: %v", err)
+	}
+}
+
+func TestCompileWorkspaceSetsCanonicalResolvedInputsIdentity(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
+		Documents: []authoringv2.Document{{
+			Rows: authoringv2.RecordsRowDefinition(),
+			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Columns: []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ResolvedInputsDigest == "" || first.ResolvedInputsDigest != second.ResolvedInputsDigest || !strings.HasPrefix(first.ResolvedInputsDigest, "sha256:") {
+		t.Fatalf("resolved input identity first=%q second=%q", first.ResolvedInputsDigest, second.ResolvedInputsDigest)
+	}
+	snapshot.Identity.ShapeDigest = "different-shape"
+	third, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, ResolvedInputs{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ResolvedInputsDigest == third.ResolvedInputsDigest {
+		t.Fatal("capability shape change did not change resolved input identity")
+	}
+}
+
+func TestCompileWorkspaceCarriesPopulationIntoRecipeAndReceiptIdentity(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{
+			Rows: authoringv2.RecordsRowDefinition(),
+			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:      authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{}},
+			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
+		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+		ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{},
+	}}}
+	first, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	population := first.Bundle.Outputs[0].Population
+	if population == nil || population.SelectionRevisionID != "selection-1" || population.MembershipDigest != "sha256:members" || population.MemberCount != 3 || population.ResourceType != "Patient" {
+		t.Fatalf("compiled population = %#v", population)
+	}
+	if first.ResolvedInputsDigest == "" || !strings.HasPrefix(first.ResolvedInputsDigest, "sha256:") {
+		t.Fatalf("resolved input digest = %q", first.ResolvedInputsDigest)
+	}
+	resolved.Populations[0].SelectionRevisionID = "selection-2"
+	workspace.Documents[0].Population.SelectionRevisionID = "selection-2"
+	second, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ResolvedInputsDigest == second.ResolvedInputsDigest || first.RecipeDigest == second.RecipeDigest {
+		t.Fatalf("population identity did not change compilation identity: first=%q/%q second=%q/%q", first.ResolvedInputsDigest, first.RecipeDigest, second.ResolvedInputsDigest, second.RecipeDigest)
+	}
+}
+
+func TestCompileWorkspaceAcceptsOnlyCapabilityProvenLegacyRouteDirection(t *testing.T) {
+	base := fixtureSnapshot()
+	snapshot := capability.NewSnapshot(base.Identity, base.Policy, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
+		[]capability.Edge{{ID: "e_patient_parent", FromNodeID: "n_patient", ToNodeID: "n_patient", Label: "parent", StorageDirection: "INBOUND", SourceResourceType: "Patient", TargetResourceType: "Patient"}},
+		[]capability.Candidate{{ID: "c_patient_id", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}}}, nil)
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
+		Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{
+			Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+			Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route:      authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Population: &authoringv2.Population{SelectionRevisionID: "selection-1", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent"}}},
+			Columns:    []authoringv2.Column{{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	resolved := ResolvedInputs{Populations: []ResolvedPopulation{{
+		OutputID: "patients", SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+		ResourceType: "Patient", Route: []authoringv2.PopulationRouteStep{{ResourceType: "Patient", Relationship: "parent", CatalogEdgeID: "e_patient_parent", StorageDirection: "INBOUND"}},
+	}}}
+	result, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatalf("compile capability-proven legacy route: %v", err)
+	}
+	if got := result.Bundle.Outputs[0].Population.Route[0].StorageDirection; got != "INBOUND" {
+		t.Fatalf("compiled legacy route direction = %q, want INBOUND", got)
+	}
+	if got := result.Workspace.Documents[0].Population.Route[0].StorageDirection; got != "" {
+		t.Fatalf("compilation rewrote authored legacy route direction to %q", got)
+	}
+
+	withoutDirection := resolved
+	withoutDirection.Populations = append([]ResolvedPopulation(nil), resolved.Populations...)
+	withoutDirection.Populations[0].Route = append([]authoringv2.PopulationRouteStep(nil), resolved.Populations[0].Route...)
+	withoutDirection.Populations[0].Route[0].StorageDirection = ""
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, withoutDirection); err == nil || !strings.Contains(err.Error(), "current capability") {
+		t.Fatalf("unresolved legacy direction compiled: %v", err)
+	}
+
+	wrongDirection := resolved
+	wrongDirection.Populations = append([]ResolvedPopulation(nil), resolved.Populations...)
+	wrongDirection.Populations[0].Route = append([]authoringv2.PopulationRouteStep(nil), resolved.Populations[0].Route...)
+	wrongDirection.Populations[0].Route[0].StorageDirection = "OUTBOUND"
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, wrongDirection); err == nil || !strings.Contains(err.Error(), "current capability") {
+		t.Fatalf("forged legacy direction compiled: %v", err)
+	}
+
+	changed := capability.NewSnapshot(snapshot.Identity, snapshot.Policy, capability.StatusReady, true, false, snapshot.Nodes,
+		[]capability.Edge{{ID: "e_patient_parent", FromNodeID: "n_patient", ToNodeID: "n_patient", Label: "parent", StorageDirection: "OUTBOUND", SourceResourceType: "Patient", TargetResourceType: "Patient"}}, snapshot.Candidates, nil)
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, snapshot, resolved); err != nil {
+		t.Fatalf("control compile with matching capability failed: %v", err)
+	}
+	if _, err := CompileWorkspace(context.Background(), "project-a", "explorer-a", workspace, changed, resolved); err == nil || !strings.Contains(err.Error(), "current capability") {
+		t.Fatalf("resolved direction from a stale capability was accepted: %v", err)
+	}
+
+	legacyDigest, err := ResolvedInputsDigest(workspace, snapshot, withoutDirection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedDigest, err := ResolvedInputsDigest(workspace, snapshot, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyDigest == resolvedDigest {
+		t.Fatal("capability-proven direction enrichment did not change resolved input identity")
+	}
+}
+
+func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasReason := func(want string) bool {
+		for _, reason := range result.OutputContract.LossReasons {
+			if reason == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !result.OutputContract.Lossless || result.OutputContract.MLReady || result.OutputContract.RowMultiplication != "none" || hasReason("INDEXED_PROJECTION_TRUNCATION") || len(result.OutputContract.LossReasons) != 0 {
+		t.Fatalf("output contract = %#v", result.OutputContract)
+	}
+	for _, emission := range result.EmittedColumns {
+		if emission.Shape == "repeated_count" && (!emission.Lossless || len(emission.LossReasons) != 0) {
+			t.Fatalf("complete root indexed count emission = %#v", emission)
+		}
+	}
+	wantFields := []string{"given__0__0", "given__0__1", "given__0__2", "given__1__0", "given__1__1", "given__1__2"}
+	fields := result.Bundle.Outputs[0].Fields
+	if len(fields) != len(wantFields)+3 {
+		t.Fatalf("fields = %d, want %d values plus three counts: %#v", len(fields), len(wantFields), fields)
+	}
+	for index, want := range wantFields {
+		if fields[index].Name != want {
+			t.Fatalf("field[%d] = %q, want %q", index, fields[index].Name, want)
+		}
+	}
+	if len(result.Bundle.Outputs[0].Fields) != 9 {
+		t.Fatalf("fields including counts = %#v, want six values plus three counts", result.Bundle.Outputs[0].Fields)
+	}
+	if got := result.EmittedColumns[0].Coordinates; len(got) != 2 || got[0].Index != 0 || got[1].Index != 0 {
+		t.Fatalf("first coordinates = %#v", got)
+	}
+	if len(result.IdentityMappings) != 1 || len(result.IdentityMappings[0].EmissionIDs) != 9 {
+		t.Fatalf("identity mappings = %#v", result.IdentityMappings)
+	}
+	for index, column := range result.Presentation.Columns {
+		if column.Order != 0 || column.PhysicalOrder != index {
+			t.Fatalf("presentation column %d = %#v, want authored order 0 and physical order %d", index, column, index)
+		}
+	}
+}
+
+func TestCompileRootRepeatedFirstClaimsLoss(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	column := result.OutputContract.Columns[0]
+	if result.OutputContract.Lossless || column.Lossless || column.StructuralSuitability != "requires-review" || len(column.LossReasons) != 1 || column.LossReasons[0] != "FIELD_FIRST_REDUCTION" {
+		t.Fatalf("root repeated FIRST contract=%#v", result.OutputContract)
+	}
+}
+
+func TestCompileIndexedProjectionTracksEveryOwnerOfSharedBoundaryCount(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{
+			{Column: "given", Label: "Given", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "family", Label: "Family", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].family", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, column := range result.EmittedColumns {
+		if column.PublicColumn != "name__count" {
+			continue
+		}
+		if len(column.AuthoredColumns) != 2 || column.AuthoredColumns[0] != "given" || column.AuthoredColumns[1] != "family" {
+			t.Fatalf("shared count owners = %#v", column.AuthoredColumns)
+		}
+		if got := result.OutputContract.Columns[index].AuthoredColumns; len(got) != 2 || got[0] != "given" || got[1] != "family" {
+			t.Fatalf("shared contract owners = %#v", got)
+		}
+		return
+	}
+	t.Fatal("shared name__count emission was not produced")
 }
 
 func TestCompileAcceptsEquivalentProjectIdentities(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind:             authoringv2.Kind,
 		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
 		RootResourceType: "Patient",
@@ -60,14 +639,14 @@ func TestCompileAcceptsEquivalentProjectIdentities(t *testing.T) {
 
 func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *testing.T) {
 	visible, order := true, 0
-	document := authoringv2.Document{
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind:             authoringv2.Kind,
 		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients", RowLabel: "People"},
 		RootResourceType: "Patient",
 		Route:            authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
 		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}},
-			{Column: "encounter__code", Label: "Encounter code", LogicalType: "string", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "code.coding[].code", ProjectionMode: "FIRST"}},
+			{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}},
+			{Column: "encounter__code", Label: "Encounter code", LogicalType: "string", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}},
 			{Column: "project_id", Label: "Project", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
 		},
 	}
@@ -77,14 +656,14 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 	}
 	want := []string{"patient_id", "encounter__code", "project_id"}
 	for index, column := range result.OutputContract.Columns {
-		if column.Column != want[index] || result.EmittedColumns[index].PublicColumn != want[index] {
+		if column.Column != want[index] || !reflect.DeepEqual(column.AuthoredColumns, []string{want[index]}) || result.EmittedColumns[index].PublicColumn != want[index] || !reflect.DeepEqual(result.EmittedColumns[index].AuthoredColumns, []string{want[index]}) {
 			t.Fatalf("column %d = %#v emission=%#v", index, column, result.EmittedColumns[index])
 		}
 	}
 	if got := result.Bundle.Outputs[0].Traversals[0].Alias; got != "encounter" {
 		t.Fatalf("traversal alias = %q", got)
 	}
-	if got := result.Bundle.Outputs[0].TraversalColumnNaming; got != recipe.TraversalColumnNamingAlias {
+	if got := result.Bundle.Outputs[0].TraversalColumnNaming; got != recipe.TraversalColumnNamingExact {
 		t.Fatalf("traversal column naming = %q", got)
 	}
 	if got := result.Bundle.Outputs[0].RootColumnNaming; got != recipe.RootColumnNamingExact {
@@ -97,7 +676,7 @@ func TestCompileSemanticWorkspacePreservesAuthoredColumnsAndTypedSources(t *test
 
 func TestCompileSemanticWorkspacePreservesSiblingBranchesDeterministically(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind:             authoringv2.Kind,
 		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
 		RootResourceType: "Patient",
@@ -109,9 +688,9 @@ func TestCompileSemanticWorkspacePreservesSiblingBranchesDeterministically(t *te
 			},
 		},
 		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "code.coding[].code", ProjectionMode: "FIRST"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "code.coding[].code", ProjectionMode: "FIRST"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
 		},
 	}
 
@@ -123,7 +702,7 @@ func TestCompileSemanticWorkspacePreservesSiblingBranchesDeterministically(t *te
 	if len(traversals) != 2 || traversals[0].Alias != "encounter_a" || traversals[1].Alias != "encounter_b" {
 		t.Fatalf("sibling traversals = %#v", traversals)
 	}
-	if traversals[0].Fields[0].Name != "code" || traversals[1].Fields[0].Name != "code" {
+	if traversals[0].Fields[0].Name != "encounter_a__code" || traversals[1].Fields[0].Name != "encounter_b__code" {
 		t.Fatalf("sibling fields = %#v", traversals)
 	}
 
@@ -137,42 +716,59 @@ func TestCompileSemanticWorkspacePreservesSiblingBranchesDeterministically(t *te
 	}
 }
 
-func TestSemanticObservationPivotFreezesOnlyAuthoredComponentColumns(t *testing.T) {
-	column := authoringv2.Column{
-		Column:       "observation__observation_component_values__GENE_SYMBOL",
-		OccurrenceID: "observation",
-		Source: authoringv2.ColumnSource{
-			Kind:      authoringv2.SourceObservationComponentByCode,
-			FieldPath: "component[]",
-			Match:     "GENE_SYMBOL",
-		},
-	}
-	pivot, err := semanticObservationPivot(column, "observation", "observation_component_values__GENE_SYMBOL")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pivot.Name != "observation_component_values" || len(pivot.Columns) != 1 || pivot.Columns[0] != "GENE_SYMBOL" || pivot.ItemResourceType != "ObservationComponent" {
-		t.Fatalf("pivot = %#v", pivot)
-	}
-	merged := appendSemanticPivot([]recipe.Pivot{pivot}, recipe.Pivot{Name: pivot.Name, Columns: []string{"TIMEPOINT_LABEL"}})
-	if len(merged) != 1 || len(merged[0].Columns) != 2 {
-		t.Fatalf("merged pivots = %#v", merged)
-	}
-}
-
 func TestSemanticNestedOccurrenceUsesGloballyScopedAlias(t *testing.T) {
 	if got := semanticAlias("patient__condition"); got != "patient__condition" {
 		t.Fatalf("nested alias = %q", got)
 	}
-	leaf, err := semanticColumnLeaf("patient__condition__code_coding_code", "patient__condition")
-	if err != nil || leaf != "code_coding_code" {
-		t.Fatalf("nested physical leaf = %q, %v", leaf, err)
+}
+
+func TestCompileParallelSemanticRoutesUsesPinnedCatalogEdges(t *testing.T) {
+	base := fixtureSnapshot()
+	parallel := base.Edges[0]
+	parallel.ID = "e_encounter_parallel"
+	snapshot := capability.NewSnapshot(
+		base.Identity, base.Policy, capability.StatusReady, true, false,
+		base.Nodes, append(append([]capability.Edge(nil), base.Edges...), parallel), base.Candidates, nil,
+	)
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind:             authoringv2.Kind,
+		Output:           authoringv2.Output{ID: "patients", Title: "Patients"},
+		RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{
+			OccurrenceID: authoringv2.RootOccurrenceID,
+			ResourceType: "Patient",
+			Children: []authoringv2.RouteNode{
+				{OccurrenceID: "encounter_a", ResourceType: "Encounter", CatalogEdgeID: "e_encounter", Relationship: "encounters"},
+				{OccurrenceID: "encounter_b", ResourceType: "Encounter", CatalogEdgeID: "e_encounter_parallel", Relationship: "encounters"},
+			},
+		},
+		Columns: []authoringv2.Column{
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "encounter_a__code", Label: "Encounter A", OccurrenceID: "encounter_a", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "encounter_b__code", Label: "Encounter B", OccurrenceID: "encounter_b", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	occurrences, _, err := resolveSemanticRoute(document, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if occurrences["encounter_a"].edge.ID != "e_encounter" || occurrences["encounter_b"].edge.ID != "e_encounter_parallel" {
+		t.Fatalf("parallel route identities = %q, %q", occurrences["encounter_a"].edge.ID, occurrences["encounter_b"].edge.ID)
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	traversals := compiled.Bundle.Outputs[0].Traversals
+	if len(traversals) != 2 || traversals[0].Alias != "encounter_a" || traversals[1].Alias != "encounter_b" {
+		t.Fatalf("parallel pinned route traversals = %#v", traversals)
 	}
 }
 
-func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
+func TestCompileSemanticAggregateDistinguishesResourceAndValueCounts(t *testing.T) {
 	visible := true
-	document := authoringv2.Document{
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind:             authoringv2.Kind,
 		Output:           authoringv2.Output{ID: "patient_output", Title: "Patients"},
 		RootResourceType: "Patient",
@@ -180,8 +776,9 @@ func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
 			OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters",
 		}}},
 		Columns: []authoringv2.Column{
-			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, FieldPath: "id", ProjectionMode: "VALUE"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
-			{Column: "encounter_count", Label: "Encounter count", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Operation: "COUNT"}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "patient_id", Label: "Patient ID", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "encounter_count", Label: "Encounter count", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "family_count", Label: "Family value count", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT", Path: "name[].family"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
 		},
 	}
 
@@ -192,5 +789,258 @@ func TestCompileSemanticAggregateUsesExactPublicName(t *testing.T) {
 	aggregate := result.Bundle.Outputs[0].Traversals[0].Aggregates[0]
 	if aggregate.OutputName != "encounter_count" || aggregate.Operation != recipe.AggregateCount {
 		t.Fatalf("aggregate = %#v", aggregate)
+	}
+	emission := result.EmittedColumns[1]
+	if emission.SourcePath != "$resource" || emission.ProjectionMode != "COUNT" || emission.SourceResourceType != "Encounter" {
+		t.Fatalf("aggregate emission does not expose exact resource reduction: %#v", emission)
+	}
+	valueAggregate := result.Bundle.Outputs[0].Aggregates[0]
+	if valueAggregate.OutputName != "family_count" || valueAggregate.Operation != recipe.AggregateCount || valueAggregate.Expr == nil || valueAggregate.Expr.Select != "root.name[].family" {
+		t.Fatalf("value aggregate = %#v", valueAggregate)
+	}
+	valueEmission := result.EmittedColumns[2]
+	if valueEmission.SourcePath != "name[].family" || valueEmission.ProjectionMode != "COUNT" || valueEmission.SourceResourceType != "Patient" {
+		t.Fatalf("aggregate emission does not expose exact value reduction: %#v", valueEmission)
+	}
+}
+
+func TestCompileRelatedFirstClaimsLossAndRequiresReview(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []authoringv2.Column{
+			{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST", RelatedSelection: &authoringv2.RelatedSelection{Kind: "first-by-resource-key"}}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	column := result.OutputContract.Columns[0]
+	if column.Lossless || column.StructuralSuitability != "requires-review" || column.Shape != "scalar" || len(column.LossReasons) != 1 || column.LossReasons[0] != "RELATED_RESOURCE_FIRST_LOSSY" {
+		t.Fatalf("related FIRST contract=%#v", column)
+	}
+}
+
+func TestCompileRelatedIndexedCountClaimsAssociationLoss(t *testing.T) {
+	visible := true
+	snapshot := fixtureSnapshot()
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "c_encounter_code" {
+			snapshot.Candidates[index].ProjectionModes = append(snapshot.Candidates[index].ProjectionModes, capability.ProjectionIndexed)
+			snapshot.Candidates[index].RepeatedBoundaries = []capability.RepeatedBoundary{{Path: "code.coding[]", MaxItems: 2}}
+		}
+	}
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []authoringv2.Column{{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "INDEXED"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OutputContract.Lossless || len(result.OutputContract.LossReasons) != 1 || result.OutputContract.LossReasons[0] != "RELATED_RESOURCE_FIRST_LOSSY" {
+		t.Fatalf("related INDEXED contract=%#v", result.OutputContract)
+	}
+	for _, emission := range result.EmittedColumns {
+		if emission.Shape == "repeated_count" && (emission.Lossless || len(emission.LossReasons) != 1 || emission.LossReasons[0] != "RELATED_RESOURCE_FIRST_LOSSY") {
+			t.Fatalf("related indexed count emission=%#v", emission)
+		}
+	}
+}
+
+func TestCompileRelatedAllUsesAssociationLossReasonNotFirstSelection(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters"}}},
+		Columns: []authoringv2.Column{{Column: "encounter__code", Label: "Encounter code", OccurrenceID: "encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "ALL"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	column := result.OutputContract.Columns[0]
+	if column.Shape != "array" || column.Lossless || column.StructuralSuitability != "requires-review" || len(column.LossReasons) != 1 || column.LossReasons[0] != "RELATED_RESOURCE_ALL_LOSSY" {
+		t.Fatalf("related ALL contract=%#v", column)
+	}
+}
+
+func TestCompileDistinctValuesAggregateIsArrayAndLossy(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route:   authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient"},
+		Columns: []authoringv2.Column{{Column: "distinct_names", Label: "Distinct names", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "DISTINCT_VALUES", Path: "name[].family"}}, Table: &authoringv2.TablePresentation{Visible: &visible}}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	column := result.OutputContract.Columns[0]
+	if column.Shape != "array" || column.StructuralSuitability != "array" || column.Lossless || len(column.LossReasons) != 2 || column.LossReasons[0] != "AGGREGATE_REDUCTION" || column.LossReasons[1] != "DISTINCT_VALUES_REDUCTION" {
+		t.Fatalf("distinct values contract=%#v", column)
+	}
+}
+
+func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []authoringv2.Column{
+			{Column: "value_sum", Label: "Value sum", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "value_mean", Label: "Value mean", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "MEAN", Path: "valueQuantity.value"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Bundle.Outputs) != 1 || len(compiled.Bundle.Outputs[0].Aggregates) != 2 {
+		t.Fatalf("compiled aggregate bundle = %#v", compiled.Bundle.Outputs)
+	}
+	expandedSnapshot := contributorSnapshot()
+	expandedSnapshot.Candidates = append(expandedSnapshot.Candidates, capability.Candidate{
+		ID: "c_observation_components", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "component[]", Label: "Observation components",
+		LogicalType: "object", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "component[]", MaxItems: 1}},
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, SupportedOperations: []capability.Operation{capability.OperationSelect},
+	})
+	expandedSnapshot = capability.NewSnapshot(expandedSnapshot.Identity, expandedSnapshot.Policy, expandedSnapshot.Status, expandedSnapshot.Complete, expandedSnapshot.Truncated, expandedSnapshot.Nodes, expandedSnapshot.Edges, expandedSnapshot.Candidates, expandedSnapshot.Diagnostics)
+	expandedDocument := authoringv2.Document{
+		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
+			OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+		}},
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "expanded_observations", Title: "Expanded observations"}, RootResourceType: "Observation",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []authoringv2.Column{{Column: "value_sum", Label: "Value sum", OccurrenceID: authoringv2.RootOccurrenceID,
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}},
+		}},
+	}
+	_, expandedErr := Compile(context.Background(), "project-a", "explorer-a", expandedDocument, expandedSnapshot)
+	var compileErr *Error
+	if !errors.As(expandedErr, &compileErr) || compileErr.Code != "AGGREGATE_OPERATION_UNAVAILABLE" || compileErr.Details["reasonCode"] != "EXPANDED_AGGREGATE_SCOPE_UNDEFINED" {
+		t.Fatalf("expanded-row SUM compile error=%v, want an explicit unresolved aggregate scope", expandedErr)
+	}
+	for index, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		aggregate := compiled.Bundle.Outputs[0].Aggregates[index]
+		if aggregate.Operation != operation || aggregate.Expr == nil || aggregate.Expr.Select != "root.valueQuantity.value" {
+			t.Errorf("V2 %s aggregate = %#v", operation, aggregate)
+		}
+		if column := compiled.OutputContract.Columns[index]; column.LogicalType != "decimal" || column.Shape != "scalar" || !column.Nullable {
+			t.Errorf("V2 %s output contract = %#v, want nullable decimal scalar", operation, column)
+		}
+	}
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered.Query, "NUMERIC_AGGREGATE_NON_NUMERIC") != 2 || strings.Count(rendered.Query, "== 0 ? null") < 2 || !strings.Contains(rendered.Query, " / LENGTH(") {
+		t.Fatalf("compiled numeric aggregate query omitted explicit numeric/missingness semantics:\n%s", rendered.Query)
+	}
+}
+
+func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []authoringv2.Column{
+			{Column: "one_status", Label: "One status", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "REQUIRE_ONE", Path: "status"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "all_statuses", Label: "All statuses", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COLLECT", Path: "status"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, all := result.OutputContract.Columns[0], result.OutputContract.Columns[1]
+	if one.Shape != "scalar" || !one.Lossless || len(one.LossReasons) != 0 {
+		t.Fatalf("require-one contract=%#v", one)
+	}
+	if all.Shape != "array" || all.Lossless || all.StructuralSuitability != "array" || !reflect.DeepEqual(all.LossReasons, []string{"AGGREGATE_REDUCTION", "COLLECT_ASSOCIATION_LOSS"}) {
+		t.Fatalf("collect contract=%#v", all)
+	}
+}
+
+func TestCompileOrderedContributorWindowPreservesWindowAndOrdering(t *testing.T) {
+	visible := true
+	snapshot := contributorSnapshot()
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "c_observation_value" {
+			snapshot.Candidates[index].ConceptCandidates = []capability.ConceptCandidate{{
+				SourceResourceType: "Observation", ValueSelector: "valueQuantity.value", ObservedUnits: []string{"cm"},
+			}}
+		}
+	}
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []authoringv2.Column{{
+			Column: "latest_value", Label: "Latest value", OccurrenceID: "observation",
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
+				Operation: "FIRST_ORDERED", Path: "valueQuantity.value",
+				ContributorWindow: &authoringv2.ContributorWindowSource{
+					TimestampPath: "effectiveDateTime", AnchorPath: "root.meta.lastUpdated", LowerOffset: -86400, UpperOffset: 0,
+					LowerInclusive: true, UpperInclusive: true, Precision: "INSTANT",
+				},
+				Ordering:          &authoringv2.TemporalOrderingSource{TimestampPath: "effectiveDateTime", Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
+				UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
+			}}, Table: &authoringv2.TablePresentation{Visible: &visible},
+		}},
+	}
+	result, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := result.Bundle.Outputs[0].Traversals[0].Aggregates[0]
+	if aggregate.ContributorWindow == nil || aggregate.ContributorWindow.Timestamp.Select != "observation.effectiveDateTime" || aggregate.ContributorWindow.Anchor.Select != "root.meta.lastUpdated" || !aggregate.ContributorWindow.UpperInclusive || aggregate.Ordering == nil || aggregate.Ordering.Timestamp.Select != "observation.effectiveDateTime" || aggregate.Ordering.Direction != recipe.TemporalDescending || aggregate.Ordering.TiePolicy != recipe.TemporalTieRequireUnique {
+		t.Fatalf("contributor-window aggregate = %#v", aggregate)
+	}
+	if aggregate.UnitNormalization == nil || aggregate.UnitNormalization.Target.Code != "cm" || len(aggregate.UnitNormalization.Rules) == 0 {
+		t.Fatalf("unit-normalized aggregate = %#v", aggregate.UnitNormalization)
+	}
+	emission := result.EmittedColumns[0]
+	if emission.ProjectionMode != "FIRST_ORDERED" || emission.SourcePath != "valueQuantity.value" || emission.SourceResourceType != "Observation" {
+		t.Fatalf("temporal emission = %#v", emission)
+	}
+	if !reflect.DeepEqual(emission.LossReasons, []string{"AGGREGATE_REDUCTION", "TEMPORAL_SELECTION"}) {
+		t.Fatalf("temporal loss reasons = %#v", emission.LossReasons)
+	}
+}
+
+func TestCompileRejectsUnadvertisedUnitNormalization(t *testing.T) {
+	snapshot := contributorSnapshot()
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "c_observation_value" {
+			snapshot.Candidates[index].ConceptCandidates = []capability.ConceptCandidate{{
+				SourceResourceType: "Observation", ValueSelector: "valueQuantity.value", ObservedUnits: []string{"kg"},
+			}}
+		}
+	}
+	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patient_output", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Patient", Children: []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "focus_Patient"}}},
+		Columns: []authoringv2.Column{{Column: "value", Label: "Value", OccurrenceID: "observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
+			Operation: "SUM", Path: "valueQuantity.value", UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
+		}}}},
+	}
+	if _, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot); err == nil || !strings.Contains(err.Error(), "UNIT_NORMALIZATION_UNAVAILABLE") {
+		t.Fatalf("incompatible unit policy compile error = %v", err)
 	}
 }

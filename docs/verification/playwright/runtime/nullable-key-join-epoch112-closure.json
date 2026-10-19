@@ -1,0 +1,298 @@
+{
+  "epoch": 112,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rootReviewStatus": "PENDING_ROOT_REVIEW",
+  "case": {
+    "scenarioID": "builder-combine-nullable",
+    "caseName": "lifecycle",
+    "title": "nullable KEY_JOIN duplicate-key multiplicity and NULL non-equality lifecycle",
+    "spec": "scripts/verify-ui/specs/nullable-combine.spec.mjs",
+    "grep": "nullable KEY_JOIN duplicate-key multiplicity and NULL non-equality lifecycle$",
+    "browserOwner": "coding_join_workflow"
+  },
+  "execution": {
+    "browserHandle": 92756,
+    "browserExitCode": 0,
+    "testStatus": "passed",
+    "testDurationMs": 15398,
+    "suiteDurationMs": 22136.822,
+    "runnerResultsPath": "/private/tmp/loom-native-combine-nullable-wave112/attempt1/results.json",
+    "runnerResultsSha256": "9a4d3df66c6a1d6f5f1a2cf8133ac34aaae313f73b945a454873d4308719ce5d",
+    "runnerLogPath": "/private/tmp/loom-native-combine-nullable-wave112/attempt1/runner.log",
+    "runnerLogSha256": "93b1111e4759e470d1d7813e2b6ca18657ed8047aac614422f0d0480eb378fc6"
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-combine-nullable-wave112/attempt1/artifacts/nullable-combine-nullable--69d1b-NULL-non-equality-lifecycle/attachments/loom-verification-report-json-1adec064685b794e26df0518128171e40e818b77.json",
+    "sha256": "3f61fca8df658fcce1aaad621435e1f8d6cf11433efef438579aac17d33d1575",
+    "sizeBytes": 600945,
+    "status": "passed",
+    "requiredChecksTotal": 63,
+    "requiredChecksPassed": 63,
+    "missingRequiredChecks": [],
+    "assertionsTotal": 96,
+    "assertionsPassed": 96,
+    "assertionsFailed": 0,
+    "actionsTotal": 26,
+    "actionsPassed": 26,
+    "maximumActionElapsedMs": 896,
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "errors": [],
+    "network": [
+      {
+        "kind": "network",
+        "method": "POST",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mux1y5g9-64a683e/explorers/verify-g9-64a683e-combine/authoring/v2/construction-capabilities",
+        "resourceType": "fetch",
+        "errorText": "net::ERR_ABORTED",
+        "playwrightRequestId": "request-132",
+        "requestDetails": {
+          "requestId": null,
+          "draftVersion": 3,
+          "draftDigest": "sha256:1eafe9722a87a044fd8cf22958dd42a65448fdf9aff5da62e3a7207f1e7c4e2c",
+          "outputId": "out_543d086f0a552cb4e14ea7b0",
+          "stageId": "source_projection"
+        },
+        "requestTimeline": {
+          "requestStartedMs": 3163,
+          "failedAtMs": 3487,
+          "durationMs": 324,
+          "action": null,
+          "mainFrameNavigations": []
+        },
+        "binding": {
+          "route": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mux1y5g9-64a683e/explorers/verify-g9-64a683e-combine/authoring/v2/construction-capabilities",
+          "snapshotToken": "sha256:4bb51da6a2f10b17fa7b1f27e8df8846f45402511aa0e09f618808b14321beec",
+          "draftVersion": 3,
+          "draftDigest": "sha256:1eafe9722a87a044fd8cf22958dd42a65448fdf9aff5da62e3a7207f1e7c4e2c",
+          "outputId": "out_543d086f0a552cb4e14ea7b0",
+          "stageId": "source_projection"
+        },
+        "sequence": 2,
+        "status": null,
+        "requestAction": null,
+        "failed": true,
+        "triggerAction": null,
+        "canceled": true,
+        "cancellationReason": "superseded capability binding has a later successful replacement",
+        "replacement": {
+          "sequence": 3,
+          "status": 200,
+          "finished": true,
+          "responseMatches": true,
+          "binding": {
+            "route": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mux1y5g9-64a683e/explorers/verify-g9-64a683e-combine/authoring/v2/construction-capabilities",
+            "snapshotToken": "sha256:4bb51da6a2f10b17fa7b1f27e8df8846f45402511aa0e09f618808b14321beec",
+            "draftVersion": 5,
+            "draftDigest": "sha256:a8725a5c9ebe7dbbc7abd795c61f122777d6c22de47d9e7fedf95a0036ba2602",
+            "outputId": "out_524cdecbdd509f3ce83e7cd8",
+            "stageId": "source_projection"
+          }
+        }
+      },
+      {
+        "kind": "network",
+        "method": "POST",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mux1y5g9-64a683e/explorers/verify-g9-64a683e-combine/authoring/v2/construction-capabilities",
+        "resourceType": "fetch",
+        "errorText": "net::ERR_ABORTED",
+        "playwrightRequestId": "request-156",
+        "requestDetails": {
+          "requestId": null,
+          "draftVersion": 6,
+          "draftDigest": "sha256:5dba6514763e70e0edecfbccfd9451bc08be96c72f664c511290a49367585044",
+          "outputId": "out_543d086f0a552cb4e14ea7b0",
+          "stageId": "source_projection"
+        },
+        "requestTimeline": {
+          "requestStartedMs": 6016,
+          "failedAtMs": 6155,
+          "durationMs": 139,
+          "action": null,
+          "mainFrameNavigations": []
+        },
+        "binding": {
+          "route": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mux1y5g9-64a683e/explorers/verify-g9-64a683e-combine/authoring/v2/construction-capabilities",
+          "snapshotToken": "sha256:4bb51da6a2f10b17fa7b1f27e8df8846f45402511aa0e09f618808b14321beec",
+          "draftVersion": 6,
+          "draftDigest": "sha256:5dba6514763e70e0edecfbccfd9451bc08be96c72f664c511290a49367585044",
+          "outputId": "out_543d086f0a552cb4e14ea7b0",
+          "stageId": "source_projection"
+        },
+        "sequence": 5,
+        "status": null,
+        "requestAction": null,
+        "failed": true,
+        "triggerAction": null,
+        "canceled": true,
+        "cancellationReason": "superseded capability binding has a later successful replacement",
+        "replacement": {
+          "sequence": 6,
+          "status": 200,
+          "finished": true,
+          "responseMatches": true,
+          "binding": {
+            "route": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_mux1y5g9-64a683e/explorers/verify-g9-64a683e-combine/authoring/v2/construction-capabilities",
+            "snapshotToken": "sha256:4bb51da6a2f10b17fa7b1f27e8df8846f45402511aa0e09f618808b14321beec",
+            "draftVersion": 7,
+            "draftDigest": "sha256:55e58c50c7bbc648427c446b46788154fe9e1a0d7f632a1d9eaf27a8c2ca9662",
+            "outputId": "out_88fdc494d6bdcca90eee4184",
+            "stageId": "source_projection"
+          }
+        }
+      }
+    ],
+    "expectedSupersededCancellations": 2,
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "freshFixtureProject": "loom_dev_verify_mux1y5g9-64a683e",
+    "explorer": "verify-g9-64a683e-combine",
+    "generation": "fixture-v1"
+  },
+  "integrity": {
+    "path": "/private/tmp/loom-native-combine-nullable-wave112/integrity-closure.json",
+    "sha256": "57b40d14c7e311671de0a81b4b32c17e5d81fc81cb7a9d776b8e571128ab9c92",
+    "status": "INTEGRITY_CLOSED_PASS",
+    "source": {
+      "before": {
+        "sha256": "9f4d6ee05a37f00bed82f177b8a367353a1259386e0a407b1cbb3027c865e83f",
+        "files": 1537
+      },
+      "after": {
+        "sha256": "9f4d6ee05a37f00bed82f177b8a367353a1259386e0a407b1cbb3027c865e83f",
+        "files": 1537
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/source-before.json",
+        "sha256": "a59414a3ca354b52382948eba882f332e5cc8ba8c85547d6c933435bf2aaca6b"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/source-after.json",
+        "sha256": "22b4053ff2a474af0ad90c5d9ab85cdcf119eae46080af647c12b8e2f5ae0319"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "aef1257609b5e88df6df420212218a986edb52849eecbe843d72ae02da2b1f0a",
+        "files": 256
+      },
+      "after": {
+        "sha256": "aef1257609b5e88df6df420212218a986edb52849eecbe843d72ae02da2b1f0a",
+        "files": 256
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/docs-before.json",
+        "sha256": "51c87a94fe871a963c7429fbf904751319182d77443f6984cfb22e5989bb4b1a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/docs-after.json",
+        "sha256": "df0b0f9a23cb9b09930e626d0854039101944211a4287f5fb9548f15bac653d5"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/api-identity-before.json",
+        "sha256": "e689930d7f2cde974499577f04f19830bc51ab0048ffc65d14ed2d26f1200aaa"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/api-identity-after.json",
+        "sha256": "652b68ecd8dbd0ac6d12cd234e0a8a073a93c0c11870b23dec58656a71e7d461"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/api-build-precheck.json",
+        "sha256": "6c1bb88fe50b3f196c3013fc0186bdd987222f6e12e6ece3956f4f20c77d08a1"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/owned-mounts-before.json",
+        "sha256": "bf40b5c1da43c76593269699eb9cb6d832b0e24b3fdd65ef4d54d58b331288a3"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/owned-mounts-after.json",
+        "sha256": "99583ec48871a3a90c63a8a6534d9ae2b393bfd303bdc34ea8335dd1ae3cc7be"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/health-before.json",
+        "sha256": "a23407c02d351fa3eaa238da909223391d7e46696371677224b341f90b2d9bdf"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-nullable-wave112/health-after.json",
+        "sha256": "ce23909906b3dbf862e00e976592ea98637e27fff44bb21ff7db40f0648d602c"
+      }
+    }
+  },
+  "coordinatorHandles": {
+    "precheck": {
+      "handle": 57492,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "handle": 37064,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "handle": 99762,
+      "exitCode": 0
+    },
+    "browser": {
+      "handle": 92756,
+      "exitCode": 0
+    },
+    "afterCapture": {
+      "handle": 52595,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "handle": 84273,
+      "exitCode": 0
+    }
+  },
+  "notes": [
+    "Fresh precheck was successful and matched before/after API identity; no rebuild/deploy or CDA reseed occurred.",
+    "The bounded synthetic fixture proved 2x2 duplicate shared-key multiplicity (INNER four pairs), LEFT preservation (six rows including both unmatched rows), and ordinary NULL non-equality through preview, Apply, Cancel, edit, removal, and reload.",
+    "Two superseded construction-capabilities requests had later exact matching 200 replacements; favicon 404 was incidental."
+  ]
+}

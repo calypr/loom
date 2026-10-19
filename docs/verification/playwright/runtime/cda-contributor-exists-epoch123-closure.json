@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "epoch": 123,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL_PRODUCT",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave123/failure-closure.json",
+  "rawCoordinatorClosureSha256": "62b84b2f381d97082b81f2c6d9a69052967ac08be10a5b860ab5f78355a6fe5e",
+  "rootReviewStatus": "ROOT_CLASSIFIED_PRODUCT_FAILURE",
+  "case": {
+    "scenarioId": "cda-contributor-exists",
+    "caseName": "contributor-exists",
+    "title": "CDA contributor exists",
+    "status": "failed_product",
+    "classification": "frontend Cancel pagination teardown race",
+    "firstFailure": {
+      "kind": "network",
+      "message": "Unexpected browser errors were reported",
+      "location": "scripts/verify-ui/workflows/contributor-exists-workflow.mjs:1061",
+      "networkError": {
+        "browserRequestId": "playwright-21",
+        "playwrightRequestId": "cda-request-132",
+        "requestId": "related-expand-choices-e822c180-4002-44f4-9cc8-25ea9589f86a",
+        "method": "POST",
+        "errorText": "net::ERR_ABORTED",
+        "path": "authoring/v2/related-expand-choices",
+        "triggerAction": "Cancel",
+        "requestAction": {
+          "id": "cda-action-7",
+          "label": "Cancel"
+        },
+        "failureAction": {
+          "id": "cda-action-7",
+          "label": "Cancel"
+        },
+        "requestTimeline": {
+          "requestStartedMs": 10373,
+          "failedAtMs": 10502,
+          "durationMs": 129,
+          "action": {
+            "id": "cda-action-7",
+            "label": "Cancel"
+          },
+          "mainFrameNavigations": []
+        },
+        "expected": false
+      },
+      "classification": "frontend Cancel pagination teardown race",
+      "rawCoordinatorClassificationAtCapture": "PENDING_OWNER_SOURCE_DIAGNOSIS",
+      "rootAcceptedAttribution": "Request playwright-21 cursor offset400 starts during Cancel and is aborted on editor unmount; proposal-panel Cancel lacks existing query owner pauseAndDrain before closing. Independent source and request-timeline investigations agree."
+    },
+    "requiredChecks": {
+      "passed": 14,
+      "failed": 1,
+      "unrun": 1,
+      "total": 16
+    },
+    "productLifecycleAccepted": false
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "8ac98a36d327d4e69b14fec8d220b46b2dd02a1b6044eda4c3877b81babcf34b",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "8ac98a36d327d4e69b14fec8d220b46b2dd02a1b6044eda4c3877b81babcf34b",
+        "files": 1553
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/source-before.json",
+        "sha256": "f60c13b17fc08a6f3cc6f99d008a898adde07359a4f058692b6674dfcfbdbcdd"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/source-after.json",
+        "sha256": "64b66b15978d4ddd766786ce9e9b6ac79c1d37e513a21becb029de46a6b59718"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "eb8953f683d1c6451c0c8586b335965623dec520e0736e6571ae3b3bce00d2db",
+        "files": 266
+      },
+      "after": {
+        "sha256": "eb8953f683d1c6451c0c8586b335965623dec520e0736e6571ae3b3bce00d2db",
+        "files": 266
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/docs-before.json",
+        "sha256": "4e5303bd453876823e8a50fe5d79095ac95cc593bc845508840144d9c0715b80"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/docs-after.json",
+        "sha256": "afa756adf37b933c391dbd9bf4bf987b5799d15423c5b07d942fcd0a7e75c6fe"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/api-identity-before.json",
+        "sha256": "5704184c37ae6de656753d3a6d5a3127441ee72b4b8e687fb072d5bfbc8f7a85"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/api-identity-after.json",
+        "sha256": "5523f597dfa1798e97cd06b60ecb95a098da49b73016a0c3ca72f368250bdc72"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/api-build-precheck.json",
+        "sha256": "1544d9b4ed2210a697ba4fb17e669b60cedf1fccab407f880c7b0c22d709a248"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/owned-mounts-before.json",
+        "sha256": "3c667e0a06fb86b239822c1bee3ade3e421407175734279b37696be665aab0f2"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/owned-mounts-after.json",
+        "sha256": "a58e4a5670e851b6d9e3f3d4496d7b10a0288cf42c18a4baa7c79b03061f9e09"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/health-before.json",
+        "sha256": "e213628a57d2002b4257d658da9ec520117b3c2e760189fdb19aa33e96b30c03"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/health-after.json",
+        "sha256": "8aa4b90228f1d0cc3d30c46502bd5b14c244bc389ac8399266905b92f1544eec"
+      }
+    }
+  },
+  "runner": {
+    "status": "failed",
+    "exitCode": 1,
+    "durationMs": 31017,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/results.json",
+      "sha256": "3a9eb9dab9c9fa8943a6cea069e62836948de7bb37e4d4c26d0a5777faa5719c",
+      "sizeBytes": 19017
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/runner.log",
+      "sha256": "8a4ce214087f6f09e1cc35ca9432d5cc2e5ccf2a8024e62147d19076309d3b82",
+      "sizeBytes": 3985
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/terminal.json",
+      "sha256": "ca4b50a6aabd8c09a9998c501233e663a1a779dee115f77beed1cc4e481ab5c3",
+      "sizeBytes": 15
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+      "sha256": "e16f97ec4abe59f57119f520d164d1bad3c9f6a93185e0add67af614ce299b81",
+      "sizeBytes": 362031
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave123/root-acceptance.json",
+    "sha256": "99ef9bccdbba5ae0b6b1dae4fef5582f11589d1a3719d2a4720af2e7943acc00",
+    "status": "INTEGRITY_ACCEPTED_BROWSER_FAILED_PRODUCT",
+    "classification": "frontend Cancel pagination teardown race",
+    "sourceFreezeReleased": true,
+    "lifecycleAccepted": false
+  },
+  "checks": {
+    "required": 16,
+    "passed": 14,
+    "failed": 1,
+    "unrun": 1,
+    "assertions": {
+      "passed": 47,
+      "failed": 1,
+      "total": 48
+    },
+    "actions": {
+      "passed": 32,
+      "total": 32,
+      "maxElapsedMs": 201
+    }
+  },
+  "diagnosticAbort": {
+    "requestIndexOneBased": 21,
+    "requestId": "related-expand-choices-e822c180-4002-44f4-9cc8-25ea9589f86a",
+    "browserRequestId": "playwright-21",
+    "playwrightRequestId": "cda-request-132",
+    "method": "POST",
+    "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/contributor-exists-browser-1791330179593/authoring/v2/related-expand-choices",
+    "cursorOffset": 400,
+    "expected": false,
+    "error": "net::ERR_ABORTED",
+    "action": {
+      "id": "cda-action-7",
+      "label": "Cancel"
+    },
+    "startedAtRelativeMs": 10373,
+    "failedAtRelativeMs": 10502,
+    "durationMs": 129,
+    "mainFrameNavigations": []
+  },
+  "rootDiagnosis": {
+    "attribution": "Request playwright-21 cursor offset400 starts during Cancel and is aborted on editor unmount; proposal-panel Cancel lacks existing query owner pauseAndDrain before closing. Independent source and request-timeline investigations agree.",
+    "evidence": [
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "lines": "256-328",
+        "finding": "The editor owns cursor pagination; the loop can launch another related-choice page after a prior page advances the cursor."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "lines": "330-352",
+        "finding": "The query owner pauseAndDrain sets the pause flag and waits for the active page to settle."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "line": 1795,
+        "finding": "The RelatedExpand query owner is passed through the editor boundary."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "739-742",
+        "finding": "Existing mutation flow calls queryOwner.pauseAndDrain before changing related state."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "3481-3486",
+        "finding": "Proposal-panel Cancel clears proposal/editor state without pausing and draining the related-choice query owner."
+      }
+    ],
+    "corroboration": "Root acceptance records independent source and request-timeline investigations agreeing on this ownership race."
+  },
+  "nextAction": "Focused product regression and reviewed owner pause/drain correction; rerun same complete native case without suppressing abort",
+  "noProductPassClaim": true,
+  "noRawPayloadsEmbedded": true,
+  "rawCoordinatorStatusAtCapture": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL_CLASSIFICATION_PENDING",
+  "finalRootAcceptanceStatus": "INTEGRITY_ACCEPTED_BROWSER_FAILED_PRODUCT"
+}

@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func (w Workspace) CanonicalJSON() ([]byte, error) {
+	w = migrateMissingRowsBeforeCurrent(w)
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
@@ -20,6 +24,21 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 		n.Documents[i].APIVersion = ""
 		if n.Documents[i].Columns == nil {
 			n.Documents[i].Columns = []Column{}
+		}
+		for j := range n.Documents[i].Columns {
+			n.Documents[i].Columns[j].Source = n.Documents[i].Columns[j].Source.Normalized()
+			if n.Documents[i].Columns[j].Contributor != nil {
+				contributor := n.Documents[i].Columns[j].Contributor.Normalized()
+				n.Documents[i].Columns[j].Contributor = &contributor
+			}
+			if n.Documents[i].Columns[j].Interpretation != nil {
+				interpretation := *n.Documents[i].Columns[j].Interpretation
+				if interpretation.Pinned != nil {
+					pinned := *interpretation.Pinned
+					interpretation.Pinned = &pinned
+				}
+				n.Documents[i].Columns[j].Interpretation = &interpretation
+			}
 		}
 	}
 	n.Tabs = append([]Tab(nil), w.Tabs...)
@@ -43,9 +62,18 @@ func (w Workspace) CanonicalJSON() ([]byte, error) {
 // return to the Builder.
 func (w Workspace) NormalizePresentationOrders() Workspace {
 	n := w
-	n.Documents = append([]Document(nil), w.Documents...)
+	n.Documents = make([]Document, len(w.Documents))
+	copy(n.Documents, w.Documents)
 	for documentIndex := range n.Documents {
 		document := &n.Documents[documentIndex]
+		if document.Rows.Groups != nil {
+			groups := *document.Rows.Groups
+			groups.RowValues = append([]ExplicitGroupRowValue(nil), groups.RowValues...)
+			sort.Slice(groups.RowValues, func(i, j int) bool {
+				return groups.RowValues[i].ColumnID < groups.RowValues[j].ColumnID
+			})
+			document.Rows.Groups = &groups
+		}
 		columns := append([]Column(nil), document.Columns...)
 		if columns == nil {
 			columns = []Column{}
@@ -77,18 +105,30 @@ func (w Workspace) NormalizePresentationOrders() Workspace {
 			}
 			return left.Column < right.Column
 		})
-		tableOrder := 0
+		cohortMembers := map[string]bool{}
+		if document.Rows.Kind == RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Kind == GroupSourceExplicit {
+			for _, value := range document.Rows.Groups.RowValues {
+				cohortMembers[value.ColumnID] = true
+			}
+		}
+		tableOrder, cohortOrder := 0, 3
 		for columnIndex := range columns {
 			if columns[columnIndex].Table == nil {
 				continue
 			}
 			value := tableOrder
+			if cohortMembers[columns[columnIndex].ColumnID] {
+				value = cohortOrder
+				cohortOrder++
+			} else {
+				tableOrder++
+			}
 			columns[columnIndex].Table.Order = &value
-			tableOrder++
 		}
 		normalizeFilterOrders(columns)
 		normalizeChartOrders(columns)
 		document.Columns = columns
+		normalizeConstructionOutputOrder(document)
 	}
 	return n
 }
@@ -156,6 +196,41 @@ func (w Workspace) Digest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// LegacyNilConstructionStepsDigest returns the digest produced by the prior
+// canonical writer when an empty construction's nil Steps slice was encoded
+// as null. It is used only to recognize and migrate persisted drafts created
+// before empty construction sequences were normalized to arrays.
+func (w Workspace) LegacyNilConstructionStepsDigest() (string, error) {
+	legacyStepLists := 0
+	for _, document := range w.Documents {
+		if document.Construction != nil && document.Construction.Steps == nil {
+			legacyStepLists++
+		}
+	}
+	if legacyStepLists == 0 {
+		return "", nil
+	}
+	raw, err := w.CanonicalJSON()
+	if err != nil {
+		return "", err
+	}
+	for range legacyStepLists {
+		const current = `"steps":[]`
+		const previous = `"steps":null`
+		index := bytes.Index(raw, []byte(current))
+		if index < 0 {
+			return "", fmt.Errorf("canonical workspace omitted an empty construction step list")
+		}
+		replacement := make([]byte, 0, len(raw)+len(previous)-len(current))
+		replacement = append(replacement, raw[:index]...)
+		replacement = append(replacement, previous...)
+		replacement = append(replacement, raw[index+len(current):]...)
+		raw = replacement
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
 func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -169,6 +244,8 @@ func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 		n.Candidates[i].ProjectionModes = append([]string(nil), n.Candidates[i].ProjectionModes...)
 		n.Candidates[i].FilterOperators = append([]string(nil), n.Candidates[i].FilterOperators...)
 		n.Candidates[i].ChartOperations = append([]string(nil), n.Candidates[i].ChartOperations...)
+		n.Candidates[i].ConceptCandidates = cloneConceptCandidates(n.Candidates[i].ConceptCandidates)
+		n.Candidates[i].ConstructionChoice = cloneConstructionChoice(n.Candidates[i].ConstructionChoice)
 		sort.Strings(n.Candidates[i].ProjectionModes)
 		sort.Strings(n.Candidates[i].FilterOperators)
 		sort.Strings(n.Candidates[i].ChartOperations)
@@ -183,6 +260,40 @@ func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 		return n.Diagnostics[i].Message < n.Diagnostics[j].Message
 	})
 	return json.Marshal(n)
+}
+
+func cloneConstructionChoice(in *capability.ConstructionChoice) *capability.ConstructionChoice {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Options = append([]capability.ConstructionChoiceOption(nil), in.Options...)
+	switch source := in.Source.(type) {
+	case capability.FieldChoiceSource:
+		source.RepeatedBoundaries = append([]capability.RepeatedBoundary(nil), source.RepeatedBoundaries...)
+		out.Source = source
+	case capability.SemanticBindingChoiceSource:
+		source.ExtensionURLPath = append([]string(nil), source.ExtensionURLPath...)
+		source.RepeatedBoundaries = append([]capability.RepeatedBoundary(nil), source.RepeatedBoundaries...)
+		out.Source = source
+	}
+	return &out
+}
+
+func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := strings.Join([]string{out[i].SourceResourceType, out[i].SourceCanonical, out[i].SourceProfile, out[i].SourcePath, out[i].OwningScope, strings.Join(out[i].ExtensionURLPath, "\x1f"), out[i].KeySelector, out[i].System, out[i].Code, out[i].ValueSelector, out[i].ChoiceArm}, "\x00")
+		right := strings.Join([]string{out[j].SourceResourceType, out[j].SourceCanonical, out[j].SourceProfile, out[j].SourcePath, out[j].OwningScope, strings.Join(out[j].ExtensionURLPath, "\x1f"), out[j].KeySelector, out[j].System, out[j].Code, out[j].ValueSelector, out[j].ChoiceArm}, "\x00")
+		return left < right
+	})
+	return out
 }
 
 func (c CatalogSnapshot) Digest() (string, error) {
@@ -231,9 +342,31 @@ func (s BuilderState) Digest() (string, error) {
 
 func DecodeWorkspace(raw []byte) (Workspace, error) {
 	var out Workspace
-	if err := strictDecode(raw, &out); err != nil {
-		return out, err
+	if err := strictDecode(raw, &out); err == nil {
+		out = MigrateAggregateTemporalPolicy(out)
+		out = migrateMissingRowsBeforeCurrent(out)
+		if err := out.Validate(); err != nil {
+			return out, err
+		}
+		for i := range out.Documents {
+			if out.Documents[i].Columns == nil {
+				out.Documents[i].Columns = []Column{}
+			}
+		}
+		return out, nil
+	} else {
+		// Legacy source wires are accepted only by persisted-draft decoding.
+		// New mutation requests use the current ColumnSource decoder and never
+		// enter this compatibility path. Workspace.Validate below still rejects
+		// future semantics versions after a successful legacy decode.
+		migrated, migrationErr := decodePersistedLegacyWorkspace(raw)
+		if migrationErr != nil {
+			return out, err
+		}
+		out = migrated
 	}
+	out = MigrateAggregateTemporalPolicy(out)
+	out = migrateMissingRowsBeforeCurrent(out)
 	if err := out.Validate(); err != nil {
 		return out, err
 	}
@@ -243,6 +376,176 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 	}
 	return out, nil
+}
+
+type persistedWorkspaceWire struct {
+	APIVersion         string                           `json:"apiVersion"`
+	Kind               string                           `json:"kind"`
+	SemanticsVersion   int                              `json:"semanticsVersion,omitempty"`
+	MigrationDecisions []string                         `json:"migrationDecisions,omitempty"`
+	Explorer           ExplorerMetadata                 `json:"explorer"`
+	Documents          []persistedDocumentWire          `json:"documents"`
+	Tabs               []Tab                            `json:"tabs"`
+	SharedFilters      map[string][]SharedFilterBinding `json:"sharedFilters,omitempty"`
+	FileActions        *FileActions                     `json:"fileActions,omitempty"`
+}
+
+type persistedDocumentWire struct {
+	Kind             string                `json:"kind"`
+	Output           Output                `json:"output"`
+	RootResourceType string                `json:"rootResourceType,omitempty"`
+	Route            RouteNode             `json:"route,omitempty"`
+	Rows             RowDefinition         `json:"rows"`
+	Columns          []persistedColumnWire `json:"columns"`
+	FixedFilters     []FixedFilter         `json:"fixedFilters,omitempty"`
+	Actions          []Action              `json:"actions,omitempty"`
+}
+
+type persistedColumnWire struct {
+	Column         string                 `json:"column"`
+	Label          string                 `json:"label"`
+	LogicalType    string                 `json:"logicalType,omitempty"`
+	OccurrenceID   string                 `json:"occurrenceId"`
+	Source         json.RawMessage        `json:"source"`
+	Contributor    *ContributorPredicate  `json:"contributor,omitempty"`
+	Interpretation *FeatureInterpretation `json:"interpretation,omitempty"`
+	Table          *TablePresentation     `json:"table,omitempty"`
+	Filter         *FilterPresentation    `json:"filter,omitempty"`
+	Chart          *ChartPresentation     `json:"chart,omitempty"`
+}
+
+type legacyColumnSource struct {
+	Kind           string   `json:"kind"`
+	FieldPath      string   `json:"fieldPath,omitempty"`
+	Match          string   `json:"match,omitempty"`
+	ProjectionMode string   `json:"projectionMode,omitempty"`
+	Operation      string   `json:"operation,omitempty"`
+	WherePath      string   `json:"wherePath,omitempty"`
+	WhereEquals    string   `json:"whereEquals,omitempty"`
+	RequiredValues []string `json:"requiredValues,omitempty"`
+}
+
+func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
+	var wire persistedWorkspaceWire
+	if err := strictDecode(raw, &wire); err != nil {
+		return Workspace{}, err
+	}
+	out := Workspace{
+		APIVersion: wire.APIVersion, Kind: wire.Kind, SemanticsVersion: wire.SemanticsVersion,
+		MigrationDecisions: append([]string(nil), wire.MigrationDecisions...), Explorer: wire.Explorer,
+		Tabs: append([]Tab(nil), wire.Tabs...), SharedFilters: wire.SharedFilters, FileActions: wire.FileActions,
+		Documents: make([]Document, 0, len(wire.Documents)),
+	}
+	for documentIndex, document := range wire.Documents {
+		converted := Document{Kind: document.Kind, Output: document.Output, RootResourceType: document.RootResourceType, Route: document.Route, Rows: document.Rows, FixedFilters: document.FixedFilters, Actions: document.Actions, Columns: make([]Column, 0, len(document.Columns))}
+		for columnIndex, column := range document.Columns {
+			source, err := decodePersistedSource(column.Source, wire.SemanticsVersion)
+			if err != nil {
+				return Workspace{}, fmt.Errorf("documents[%d].columns[%d].source: %w", documentIndex, columnIndex, err)
+			}
+			converted.Columns = append(converted.Columns, Column{Column: column.Column, Label: column.Label, LogicalType: column.LogicalType, OccurrenceID: column.OccurrenceID, Source: source, Contributor: column.Contributor, Interpretation: column.Interpretation, Table: column.Table, Filter: column.Filter, Chart: column.Chart})
+		}
+		out.Documents = append(out.Documents, converted)
+	}
+	return out, nil
+}
+
+func decodePersistedSource(raw json.RawMessage, semanticsVersion int) (ColumnSource, error) {
+	var current ColumnSource
+	if err := strictDecode(raw, &current); err == nil {
+		return current, nil
+	}
+	var typedLegacy struct {
+		Kind   string        `json:"kind"`
+		Lookup *LookupSource `json:"lookup,omitempty"`
+	}
+	if err := strictDecode(raw, &typedLegacy); err == nil && typedLegacy.Lookup != nil && typedLegacy.Lookup.Binding != nil && typedLegacy.Lookup.Key != nil {
+		switch typedLegacy.Kind {
+		case "codingBySystem", "observationComponentByCode":
+			return ColumnSource{Kind: SourceCodedValue, Lookup: typedLegacy.Lookup}, nil
+		}
+	}
+	var legacy legacyColumnSource
+	if err := strictDecode(raw, &legacy); err == nil {
+		return decodeLegacyFlatSource(legacy)
+	}
+	// The first v3 draft wire used nested source payloads and a nested where.
+	// Keep that wire private to persisted-draft migration; AggregateSource's
+	// current decoder deliberately rejects where on writable requests.
+	var nested struct {
+		Kind      string       `json:"kind"`
+		Field     *FieldSource `json:"field,omitempty"`
+		Aggregate *struct {
+			Operation         string                            `json:"operation"`
+			Path              string                            `json:"path,omitempty"`
+			Where             *SourceWhere                      `json:"where,omitempty"`
+			RequiredValues    []string                          `json:"requiredValues,omitempty"`
+			UnitNormalization *UnitNormalizationPolicy          `json:"unitNormalization,omitempty"`
+			Temporal          *persistedTemporalReductionSource `json:"temporal,omitempty"`
+		} `json:"aggregate,omitempty"`
+		Lookup *LookupSource `json:"lookup,omitempty"`
+	}
+	if nestedErr := strictDecode(raw, &nested); nestedErr != nil {
+		return ColumnSource{}, nestedErr
+	}
+	if nested.Aggregate != nil && nested.Aggregate.Temporal != nil && semanticsVersion != aggregateTemporalPolicySemanticsVersion-1 {
+		return ColumnSource{}, fmt.Errorf("persisted aggregate temporal policy is only supported at semantics version %d", aggregateTemporalPolicySemanticsVersion-1)
+	}
+	if nested.Aggregate == nil || (nested.Aggregate.Where == nil && nested.Aggregate.Temporal == nil) {
+		return ColumnSource{}, fmt.Errorf("source is not a supported legacy wire")
+	}
+	aggregate := &AggregateSource{
+		Operation: strings.ToUpper(strings.TrimSpace(nested.Aggregate.Operation)), Path: nested.Aggregate.Path,
+		Where: nested.Aggregate.Where, RequiredValues: append([]string(nil), nested.Aggregate.RequiredValues...),
+		UnitNormalization: cloneUnitNormalization(nested.Aggregate.UnitNormalization),
+	}
+	if temporal := nested.Aggregate.Temporal; temporal != nil {
+		aggregate.ContributorWindow = &ContributorWindowSource{
+			TimestampPath: temporal.TimestampPath, AnchorPath: temporal.AnchorPath,
+			LowerOffset: temporal.LowerOffset, UpperOffset: temporal.UpperOffset,
+			LowerInclusive: temporal.LowerInclusive, UpperInclusive: temporal.UpperInclusive,
+			Precision: temporal.Precision,
+		}
+		aggregate.Ordering = &TemporalOrderingSource{
+			TimestampPath: temporal.TimestampPath, Direction: temporal.Direction, TiePolicy: temporal.TiePolicy,
+		}
+	}
+	return ColumnSource{Kind: SourceAggregate, Aggregate: aggregate}, nil
+}
+
+type persistedTemporalReductionSource struct {
+	TimestampPath  string `json:"timestampPath"`
+	AnchorPath     string `json:"anchorPath"`
+	LowerOffset    int64  `json:"lowerOffsetSeconds"`
+	UpperOffset    int64  `json:"upperOffsetSeconds"`
+	LowerInclusive bool   `json:"lowerInclusive"`
+	UpperInclusive bool   `json:"upperInclusive"`
+	Direction      string `json:"direction"`
+	Precision      string `json:"precision"`
+	TiePolicy      string `json:"tiePolicy"`
+}
+
+func decodeLegacyFlatSource(legacy legacyColumnSource) (ColumnSource, error) {
+	mode := strings.ToUpper(strings.TrimSpace(legacy.ProjectionMode))
+	if mode == "" {
+		mode = "FIRST"
+	}
+	switch legacy.Kind {
+	case SourceField:
+		return ColumnSource{Kind: SourceField, Field: &FieldSource{Path: legacy.FieldPath, ProjectionMode: mode}}, nil
+	case SourceIdentifierBySystem, SourceExtensionByURL:
+		return ColumnSource{Kind: legacy.Kind, Lookup: &LookupSource{Match: legacy.Match, Path: legacy.FieldPath, ProjectionMode: mode}}, nil
+	case SourceAggregate:
+		aggregate := &AggregateSource{Operation: strings.ToUpper(strings.TrimSpace(legacy.Operation)), Path: legacy.FieldPath, RequiredValues: append([]string(nil), legacy.RequiredValues...)}
+		if strings.TrimSpace(legacy.WherePath) != "" || strings.TrimSpace(legacy.WhereEquals) != "" {
+			aggregate.Where = &SourceWhere{Path: legacy.WherePath, Equals: legacy.WhereEquals}
+		}
+		return ColumnSource{Kind: SourceAggregate, Aggregate: aggregate}, nil
+	case SourceProjectID:
+		return ColumnSource{Kind: SourceProjectID}, nil
+	default:
+		return ColumnSource{}, fmt.Errorf("unsupported source kind %q", legacy.Kind)
+	}
 }
 
 func strictDecode(raw []byte, target any) error {

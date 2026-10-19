@@ -56,6 +56,7 @@ export const GuidedGraphWorkspace = ({
   onChangeBase,
   onAppendEdge,
   onChangeEdge,
+  onChangeMatchMode,
   onTruncate,
   onTableToolbarHostChange,
 }: {
@@ -72,6 +73,10 @@ export const GuidedGraphWorkspace = ({
     nodeId: string,
   ) => void;
   readonly onChangeEdge: (occurrenceId: string, edgeId: string) => void;
+  readonly onChangeMatchMode: (
+    occurrenceId: string,
+    matchMode: 'OPTIONAL' | 'REQUIRED',
+  ) => void;
   readonly onTruncate: (occurrenceId: string) => void;
   readonly onTableToolbarHostChange?: (host: HTMLDivElement | null) => void;
 }) => {
@@ -148,21 +153,24 @@ export const GuidedGraphWorkspace = ({
       edgeId,
       activeAllowExistingExtension,
     );
+  const catalogNodeById = useMemo(
+    () => new Map(catalog.nodes.map((node) => [node.nodeId, node] as const)),
+    [catalog.nodes],
+  );
   const occurrences = useMemo(
     () =>
       derivedOccurrences(table, catalog).map((occurrence) => ({
         occurrenceId: occurrence.id,
         index: occurrence.index,
         nodeId: occurrence.nodeId,
-        resourceType:
-          catalog.nodes.find((node) => node.nodeId === occurrence.nodeId)
-            ?.resourceType ?? occurrence.nodeId,
+        resourceType: catalogNodeById.get(occurrence.nodeId)?.resourceType ?? occurrence.nodeId,
         incomingEdgeId: occurrence.incomingEdgeId,
         relationship: occurrence.relationship,
+        matchMode: occurrence.matchMode,
         parentId: occurrence.parentId,
         depth: occurrence.depth,
       })),
-    [catalog, table],
+    [catalog, catalogNodeById, table],
   );
   const traversalIdentity = `${isExpanded}:${occurrences.map((occurrence) => occurrence.occurrenceId).join(',')}`;
   const isTraversalOverflowing = useTraversalOverflow(
@@ -171,15 +179,29 @@ export const GuidedGraphWorkspace = ({
     traversalIdentity,
   );
   const occurrencesByNode = useMemo(() => {
-    const result = new Map<string, typeof occurrences>();
-    occurrences.forEach((occurrence) => {
-      result.set(occurrence.nodeId, [
-        ...(result.get(occurrence.nodeId) ?? []),
-        occurrence,
-      ]);
-    });
+    const result = new Map<string, Array<(typeof occurrences)[number]>>();
+    for (const occurrence of occurrences) {
+      const existing = result.get(occurrence.nodeId);
+      if (existing) existing.push(occurrence);
+      else result.set(occurrence.nodeId, [occurrence]);
+    }
     return result;
   }, [occurrences]);
+  const resourceTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of catalog.nodes) {
+      counts.set(node.resourceType, (counts.get(node.resourceType) ?? 0) + 1);
+    }
+    return counts;
+  }, [catalog.nodes]);
+  const edgeById = useMemo(
+    () => new Map(catalog.edges.map((edge) => [edge.edgeId, edge] as const)),
+    [catalog.edges],
+  );
+  const routeEdgeIds = useMemo(
+    () => new Set(occurrences.flatMap((occurrence) => occurrence.incomingEdgeId ? [occurrence.incomingEdgeId] : [])),
+    [occurrences],
+  );
   const editableEdgesByOccurrence = useMemo(
     () =>
       new Map(
@@ -198,9 +220,22 @@ export const GuidedGraphWorkspace = ({
     () => legalOutgoingEdges(catalog, table, selectedOccurrenceId),
     [catalog, selectedOccurrenceId, table],
   );
-  const legalNextNodeIds = useMemo(
-    () => new Set(legalNextEdges.map((edge) => edge.toNodeId)),
+  const legalNextEdgeIds = useMemo(
+    () => new Set(legalNextEdges.map((edge) => edge.edgeId)),
     [legalNextEdges],
+  );
+  const legalNextEdgesByTarget = useMemo(() => {
+    const result = new Map<string, typeof legalNextEdges>();
+    for (const edge of legalNextEdges) {
+      const existing = result.get(edge.toNodeId);
+      if (existing) existing.push(edge);
+      else result.set(edge.toNodeId, [edge]);
+    }
+    return result;
+  }, [legalNextEdges]);
+  const legalNextNodeIds = useMemo(
+    () => new Set(legalNextEdgesByTarget.keys()),
+    [legalNextEdgesByTarget],
   );
   const nodes: Node[] = catalog.nodes.map((node, index) => {
     const nodeOccurrences = occurrencesByNode.get(node.nodeId) ?? [];
@@ -218,10 +253,7 @@ export const GuidedGraphWorkspace = ({
       !isPendingRowStart && activeInspectedNodeId === node.nodeId;
     const isReachable = legalNextNodeIds.has(node.nodeId);
     const canStart = occurrences.length === 0 && node.rowRootEligible;
-    const duplicate =
-      catalog.nodes.filter(
-        (candidate) => candidate.resourceType === node.resourceType,
-      ).length > 1;
+    const duplicate = (resourceTypeCounts.get(node.resourceType) ?? 0) > 1;
     return {
       id: node.nodeId,
       position: layout.positions.get(node.nodeId) ?? {
@@ -306,12 +338,8 @@ export const GuidedGraphWorkspace = ({
     [catalog.edges],
   );
   const edges: Edge[] = catalog.edges.map((edge) => {
-    const isRouteEdge = occurrences.some(
-      (occurrence) => occurrence.incomingEdgeId === edge.edgeId,
-    );
-    const isLegalNextEdge = legalNextEdges.some(
-      (candidate) => candidate.edgeId === edge.edgeId,
-    );
+    const isRouteEdge = routeEdgeIds.has(edge.edgeId);
+    const isLegalNextEdge = legalNextEdgeIds.has(edge.edgeId);
     const edgeColor = isRouteEdge
       ? '#2563eb'
       : isLegalNextEdge
@@ -378,18 +406,12 @@ export const GuidedGraphWorkspace = ({
     if (disabled) return;
     if (occurrences.length === 0) {
       updateInspection(nodeId);
-      const node = catalog.nodes.find(
-        (candidate) => candidate.nodeId === nodeId,
-      );
+      const node = catalogNodeById.get(nodeId);
       if (node?.rowRootEligible) onSetBase(nodeId);
       return;
     }
-    const routeOccurrences = occurrences.filter(
-      (occurrence) => occurrence.nodeId === nodeId,
-    );
-    const matchingEdges = legalNextEdges.filter(
-      (edge) => edge.toNodeId === nodeId,
-    );
+    const routeOccurrences = occurrencesByNode.get(nodeId) ?? [];
+    const matchingEdges = legalNextEdgesByTarget.get(nodeId) ?? [];
     if (routeOccurrences.length > 0 && matchingEdges.length > 0) {
       updateInspection(nodeId, undefined, true);
       return;
@@ -417,12 +439,10 @@ export const GuidedGraphWorkspace = ({
   };
   const inspectEdge = (edgeId: string) => {
     if (disabled) return;
-    const edge = catalog.edges.find((candidate) => candidate.edgeId === edgeId);
+    const edge = edgeById.get(edgeId);
     if (!edge) return;
     updateInspection(edge.toNodeId, edgeId);
-    const routeOccurrence = occurrences
-      .filter((occurrence) => occurrence.nodeId === edge.toNodeId)
-      .at(-1);
+    const routeOccurrence = occurrencesByNode.get(edge.toNodeId)?.at(-1);
     if (routeOccurrence) onSelectOccurrence(routeOccurrence.occurrenceId);
   };
   const useAsRowStart = (nodeId: string) => {
@@ -431,8 +451,7 @@ export const GuidedGraphWorkspace = ({
     selectEdge(undefined);
   };
   const addRelationship = (edgeId: string, nodeId: string) => {
-    if (disabled || !legalNextEdges.some((edge) => edge.edgeId === edgeId))
-      return;
+    if (disabled || !legalNextEdgeIds.has(edgeId)) return;
     onAppendEdge(selectedOccurrenceId, edgeId, nodeId);
     updateInspection();
   };
@@ -455,7 +474,20 @@ export const GuidedGraphWorkspace = ({
               </span>
             </h2>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div
+            data-testid="graph-header-controls"
+            className="flex flex-wrap items-center gap-1.5"
+          >
+            <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-slate-300 bg-white/95 px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
+                checked={showOrphans}
+                onChange={(event) => setShowOrphans(event.target.checked)}
+                aria-label="Show orphans"
+              />
+              Show orphans
+            </label>
             <div
               ref={onTableToolbarHostChange}
               id="explorer-builder-table-toolbar-host"
@@ -474,6 +506,7 @@ export const GuidedGraphWorkspace = ({
         </div>
         <div
           ref={graphHostRef}
+          data-testid="graph-viewport"
           className={`relative mt-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-slate-100/70 ${isExpanded ? '' : 'min-h-[32rem]'}`}
         >
           <ReactFlow
@@ -572,6 +605,7 @@ export const GuidedGraphWorkspace = ({
                         type="button"
                         title={occurrence.resourceType}
                         data-traversal-label
+                        data-occurrence-id={occurrence.occurrenceId}
                         className={`${isTraversalOverflowing ? 'max-w-24 truncate transition-[max-width] group-hover:max-w-40' : ''} block w-full px-2 py-1 text-left font-semibold`}
                         onClick={() =>
                           onSelectOccurrence(occurrence.occurrenceId)
@@ -584,34 +618,69 @@ export const GuidedGraphWorkspace = ({
                           Row start
                         </span>
                       ) : (
-                        <select
-                          aria-label={`Relationship for ${occurrence.resourceType} occurrence`}
-                          title="Relationship used to reach this query occurrence"
-                          className={`block max-w-40 border-x-0 border-b-0 border-t border-current/20 bg-transparent px-1.5 pb-1 pt-0.5 font-mono text-[9px] outline-none ${occurrence.occurrenceId === selectedOccurrenceId ? 'text-white' : 'text-blue-700'}`}
-                          value={occurrence.incomingEdgeId ?? ''}
-                          disabled={
-                            disabled ||
-                            (editableEdgesByOccurrence.get(
-                              occurrence.occurrenceId,
-                            )?.length ?? 0) < 2
-                          }
-                          onChange={(event) =>
-                            onChangeEdge(
-                              occurrence.occurrenceId,
-                              event.currentTarget.value,
-                            )
-                          }
-                        >
-                          {(
-                            editableEdgesByOccurrence.get(
-                              occurrence.occurrenceId,
-                            ) ?? []
-                          ).map((edge) => (
-                            <option key={edge.edgeId} value={edge.edgeId}>
-                              {edge.label}
-                            </option>
-                          ))}
-                        </select>
+                        <>
+                          <select
+                            aria-label={`Relationship for ${occurrence.resourceType} occurrence`}
+                            title="Relationship used to reach this query occurrence"
+                            className={`block max-w-40 border-x-0 border-b-0 border-t border-current/20 bg-transparent px-1.5 pb-1 pt-0.5 font-mono text-[9px] outline-none ${occurrence.occurrenceId === selectedOccurrenceId ? 'text-white' : 'text-blue-700'}`}
+                            value={occurrence.incomingEdgeId ?? ''}
+                            disabled={
+                              disabled ||
+                              (editableEdgesByOccurrence.get(
+                                occurrence.occurrenceId,
+                              )?.length ?? 0) < 2
+                            }
+                            onChange={(event) =>
+                              onChangeEdge(
+                                occurrence.occurrenceId,
+                                event.currentTarget.value,
+                              )
+                            }
+                          >
+                            {(
+                              editableEdgesByOccurrence.get(
+                                occurrence.occurrenceId,
+                              ) ?? []
+                            ).map((edge) => (
+                              <option key={edge.edgeId} value={edge.edgeId}>
+                                {edge.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            aria-label={`${occurrence.matchMode === 'REQUIRED' ? 'Keep' : 'Require'} ${occurrence.resourceType} match`}
+                            title={occurrence.matchMode === 'REQUIRED' ? 'Keep rows even when this relationship has no match' : 'Keep only rows with a match for this relationship'}
+                            className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
+                            disabled={disabled}
+                            onClick={() =>
+                              onChangeMatchMode(
+                                occurrence.occurrenceId,
+                                occurrence.matchMode === 'REQUIRED'
+                                  ? 'OPTIONAL'
+                                  : 'REQUIRED',
+                              )
+                            }
+                          >
+                            {occurrence.matchMode === 'REQUIRED'
+                              ? 'Required match'
+                              : 'Optional feature'}
+                          </button>
+                          {occurrence.depth === 1 &&
+                            catalogNodeById.get(occurrence.nodeId)
+                              ?.rowRootEligible ? (
+                              <button
+                                type="button"
+                                aria-label={`Make each ${occurrence.resourceType} one row`}
+                                title={`Use ${occurrence.resourceType} as the row start`}
+                                className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
+                                disabled={disabled}
+                                onClick={() => onChangeBase(occurrence.nodeId)}
+                              >
+                                Make rows
+                              </button>
+                            ) : null}
+                        </>
                       )}
                     </div>
                     {occurrence.occurrenceId !== 'base' && (
@@ -630,16 +699,6 @@ export const GuidedGraphWorkspace = ({
               </div>
             )}
           </nav>
-          <label className="absolute right-3 top-3 z-10 flex cursor-pointer items-center gap-1.5 rounded border border-slate-300 bg-white/95 px-2 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
-              checked={showOrphans}
-              onChange={(event) => setShowOrphans(event.target.checked)}
-              aria-label="Show orphans"
-            />
-            Show orphans
-          </label>
         </div>
       </section>
     </>

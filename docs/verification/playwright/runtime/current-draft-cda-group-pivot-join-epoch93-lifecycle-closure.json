@@ -1,0 +1,335 @@
+{
+  "epoch": 93,
+  "status": "CLOSED_PASS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/source-before.json",
+        "sha256": "96fb3e78de541862e4b41636be704f83519f19489b156b949414f4104b6279cd"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/source-after.json",
+        "sha256": "ee79f16c263f8359ab4d0dbb435bdd8c64df8f9d331c5096186f6356af0b275b"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "6e489f7221966d902b999743e7aeee770ace2b469ec08aac7f0240c7a53aec4b",
+        "files": 223
+      },
+      "after": {
+        "sha256": "6e489f7221966d902b999743e7aeee770ace2b469ec08aac7f0240c7a53aec4b",
+        "files": 223
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/docs-before.json",
+        "sha256": "8f6bbfa8a5f02c9d31e4ec8c1ba5f57e7d681279ee0d85ffa485db7511042c0e"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/docs-after.json",
+        "sha256": "5948b7ef2e97a3b93765353329c9db68fc468f1304674133e9b5015a1f1b6ba0"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/api-identity-before.json",
+        "sha256": "834d53a9a05b97525b2f3013bf508a70e92e67b41d958d6f4914814869e87d20"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/api-identity-after.json",
+        "sha256": "1ccd537f55d2a977a3f64ce5ec7592347b7d577f58bc63eb982416b9e966a543"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/api-build-precheck-confirmed.json",
+        "sha256": "f553ba3a9ddbcca147b04a089caf7e60f385f4f74b2794affc4fc5decd042afb"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/owned-mounts-before.json",
+        "sha256": "893c8efa68bd5b0fd5155ff6c21870cca0809e26e7a14889dfe32910f5c152cc"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/owned-mounts-after.json",
+        "sha256": "0d609f9d67507e2003d0b4092b8621d5b013ce2543fafb33364a2da4abf0c4b3"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/health-before.json",
+        "sha256": "a0d6bc27e11c6b3d4d0dca4884fd0f8bf97e79da0c399e2c7ea49c41ab4997c6"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/health-after.json",
+        "sha256": "2eae16b00a3ccfbc017b3738dec3430d6c765e7ba6ce36894c4f4f0e92daa446"
+      }
+    }
+  },
+  "case": {
+    "scenarioId": "cda-workspace-combine",
+    "caseName": "group-pivot-join",
+    "title": "CDA current-draft Group\u2192Pivot\u2192Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+    "status": "passed",
+    "requiredChecks": {
+      "total": 30,
+      "passed": 30,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+          "status": "passed"
+        },
+        {
+          "name": "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "left Group native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "left Group saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Left native Group produces the exact shared count 3 and left-only count 1",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot native GROUP proposal matches raw group counts",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+          "status": "passed"
+        },
+        {
+          "name": "right Group Pivot saved Group survives reload",
+          "status": "passed"
+        },
+        {
+          "name": "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+          "status": "passed"
+        },
+        {
+          "name": "Right native Pivot proposal preserves exact code category multiplicity 2 and 1",
+          "status": "passed"
+        },
+        {
+          "name": "Right Group\u2192Pivot rows survive reload with exact code category multiplicity",
+          "status": "passed"
+        },
+        {
+          "name": "Exact source outputs persist as one GROUP and one ordered GROUP\u2192PIVOT",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT Join preview matches exact Group/Pivot oracle",
+          "status": "passed"
+        },
+        {
+          "name": "LEFT native Join binds exact Group/Pivot inputs, keys, mappings, and current CAS",
+          "status": "passed"
+        },
+        {
+          "name": "Join proposal Cancel preserves the exact full workspace and draft CAS after reload",
+          "status": "passed"
+        },
+        {
+          "name": "Apply native Group/Pivot LEFT Join persists exact visible values",
+          "status": "passed"
+        },
+        {
+          "name": "Edited INNER proposal matches exact shared-key rows",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+          "status": "passed"
+        },
+        {
+          "name": "Canceled INNER edit retains LEFT values",
+          "status": "passed"
+        },
+        {
+          "name": "INNER Join proposal matches exact shared-key rows",
+          "status": "passed"
+        },
+        {
+          "name": "Apply saved LEFT Join edit as INNER persists exact visible values",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel INNER Join removal preserves existing target rows",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel removal preserves saved INNER values",
+          "status": "passed"
+        },
+        {
+          "name": "Join removal Apply restores exact empty target and preserves scoped Group/Pivot sources",
+          "status": "passed"
+        },
+        {
+          "name": "CDA Group/Pivot/Join lifecycle never publishes or pins TABLE_REVISION inputs",
+          "status": "passed"
+        },
+        {
+          "name": "All native Group/Pivot/Join browser actions remain within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "all native lifecycle actions complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 204,
+      "failed": 0,
+      "total": 204
+    },
+    "actions": {
+      "passed": 113,
+      "failed": 0,
+      "total": 113,
+      "maxElapsedMs": 1412,
+      "budgetMs": 5000,
+      "customTransitions": [
+        {
+          "name": "right Group\u2192Pivot category discovery and exact preview",
+          "elapsedMs": 1428
+        },
+        {
+          "name": "LEFT Group/Pivot Join proposal and exact visible preview",
+          "elapsedMs": 749
+        },
+        {
+          "name": "LEFT Group/Pivot Join proposal and exact visible preview",
+          "elapsedMs": 769
+        },
+        {
+          "name": "saved LEFT-to-INNER edit preview before Cancel",
+          "elapsedMs": 777
+        }
+      ],
+      "customTransitionMaxElapsedMs": 1428
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "expectedSelectionCancellation": {
+      "count": 1,
+      "method": "GET",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-2eac7206-0ef9-4e78-870b-34a24de9ac8d/selections/selection_a8cf0f91717333a7df27a03608cdcc1667528b1819bec4b4ba9fd249b07cab30",
+      "requestId": "cda-request-376",
+      "expected": true,
+      "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+      "proof": {
+        "project": "loom_dev_cda_fhir",
+        "explorer": "cda-group-pivot-join-2eac7206-0ef9-4e78-870b-34a24de9ac8d",
+        "generation": "cda-fhir-v1",
+        "previousOutputId": "out_2abfd2c51200007e963db3d4",
+        "previousSelectionRevisionId": "selection_a8cf0f91717333a7df27a03608cdcc1667528b1819bec4b4ba9fd249b07cab30",
+        "nextOutputId": "out_8cbb2f38a3d44c087217e417",
+        "nextSelectionRevisionId": "selection_67e3ccbb4451b94c113fa439951a000a5d7f19f03885ca2e1bcfa605f332d7dd",
+        "query": {
+          "method": "GET",
+          "limit": 1
+        },
+        "retirement": "BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.",
+        "scopeAction": "Select right Group Pivot exact source population",
+        "scopeRequest": {
+          "requestId": null,
+          "draftVersion": null,
+          "draftDigest": null,
+          "outputId": null,
+          "stageId": null
+        }
+      },
+      "replacementRead": null
+    },
+    "nativeRequests": {
+      "recordedEntries": 168,
+      "http200": 164,
+      "otherStatus": 0,
+      "noStatus": 4,
+      "unexpectedNetworkErrors": 0,
+      "noStatusDetail": "4 entries have no recorded HTTP status; they remain incomplete diagnostics.",
+      "expectedCancellationCount": 1
+    },
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "coordinatorClosure": {
+    "status": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+    "sha256": "e2814bace08b69b04622ee8e4e34efb490af31977e10a1c467afa22a64599637",
+    "rootAcceptance": {
+      "baselineAccepted": true,
+      "browserReleased": true,
+      "closureAccepted": false
+    }
+  }
+}

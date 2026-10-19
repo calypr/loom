@@ -1,0 +1,1843 @@
+{
+  "epoch": 142,
+  "oracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "keyPath": "Observation.valueQuantity.code",
+    "witnessArtifactSha256": "ae9a395ed38e6ae601bb9ad36d3668574a89e4fdb2aa9c93139aadccb178380b",
+    "catalogArtifactSha256": "3c0bda1cb9b4473d7da6b915bbad4e176cddeaf9f12593e29c6d3dd67125c1ba",
+    "leftIDs": [
+      "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+      "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+      "52f5e622-0181-5feb-936c-e9992ab26616"
+    ],
+    "rightIDs": [
+      "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+      "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+      "485e2567-b566-56f3-b5bd-5f025f37cd95"
+    ],
+    "leftMissingIDs": [
+      "52f5e622-0181-5feb-936c-e9992ab26616"
+    ],
+    "rightMissingIDs": [
+      "485e2567-b566-56f3-b5bd-5f025f37cd95"
+    ],
+    "innerRows": [
+      [
+        "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+        "d",
+        "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+        "d"
+      ],
+      [
+        "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+        "d",
+        "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+        "d"
+      ],
+      [
+        "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+        "d",
+        "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+        "d"
+      ],
+      [
+        "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+        "d",
+        "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+        "d"
+      ]
+    ],
+    "leftRows": [
+      [
+        "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+        "d",
+        "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+        "d"
+      ],
+      [
+        "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+        "d",
+        "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+        "d"
+      ],
+      [
+        "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+        "d",
+        "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+        "d"
+      ],
+      [
+        "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+        "d",
+        "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+        "d"
+      ],
+      [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        null,
+        null,
+        null
+      ]
+    ],
+    "claim": "The bounded witness contains absent valueQuantity.code members; this run proves MISSING-key INNER and LEFT behavior, not explicit JSON-null join semantics or a global dataset claim."
+  },
+  "lifecycleResults": {
+    "checkPassCount": 37,
+    "checkTotal": 37,
+    "actionCount": 83,
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "rowComparisons": {
+      "innerPreview": {
+        "status": "passed",
+        "headers": [
+          "Left Observation ID",
+          "Left valueQuantity.code",
+          "Right Observation ID",
+          "Right valueQuantity.code"
+        ],
+        "actualRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ]
+        ]
+      },
+      "innerApplied": {
+        "status": "passed",
+        "headers": [
+          "Left Observation ID",
+          "Left valueQuantity.code",
+          "Right Observation ID",
+          "Right valueQuantity.code"
+        ],
+        "actualRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ]
+        ]
+      },
+      "innerReloaded": {
+        "status": "passed",
+        "headers": [
+          "Left Observation ID",
+          "Left valueQuantity.code",
+          "Right Observation ID",
+          "Right valueQuantity.code"
+        ],
+        "actualRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ]
+        ]
+      },
+      "leftEditPreview": {
+        "status": "passed",
+        "headers": [
+          "Left Observation ID",
+          "Left valueQuantity.code",
+          "Right Observation ID",
+          "Right valueQuantity.code"
+        ],
+        "actualRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "52f5e622-0181-5feb-936c-e9992ab26616",
+            "—",
+            "—",
+            "—"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "52f5e622-0181-5feb-936c-e9992ab26616",
+            "—",
+            "—",
+            "—"
+          ]
+        ]
+      },
+      "leftApplied": {
+        "status": "passed",
+        "headers": [
+          "Left Observation ID",
+          "Left valueQuantity.code",
+          "Right Observation ID",
+          "Right valueQuantity.code"
+        ],
+        "actualRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "52f5e622-0181-5feb-936c-e9992ab26616",
+            "—",
+            "—",
+            "—"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "52f5e622-0181-5feb-936c-e9992ab26616",
+            "—",
+            "—",
+            "—"
+          ]
+        ]
+      },
+      "leftReloaded": {
+        "status": "passed",
+        "headers": [
+          "Left Observation ID",
+          "Left valueQuantity.code",
+          "Right Observation ID",
+          "Right valueQuantity.code"
+        ],
+        "actualRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "52f5e622-0181-5feb-936c-e9992ab26616",
+            "—",
+            "—",
+            "—"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "d9143e11-8d1e-5b43-8957-d433ba2ef6c2",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "2103771b-4af2-5eb3-b1b9-6f74d766da86",
+            "d"
+          ],
+          [
+            "7928b626-b6ad-54d2-8f61-0fd201d2a48d",
+            "d",
+            "bfe79f40-5134-53d0-bcc7-9ec6d0843646",
+            "d"
+          ],
+          [
+            "52f5e622-0181-5feb-936c-e9992ab26616",
+            "—",
+            "—",
+            "—"
+          ]
+        ]
+      }
+    },
+    "emptyTargetRestoration": "The removal and reload checks passed with zero visible columns and the exact bounded hidden row-ID sample; the original two source tables remained unchanged."
+  },
+  "performance": {
+    "status": "passed",
+    "actionCount": 83,
+    "maximumMeasuredActionLatencyMs": 1408,
+    "budgetMs": 5000,
+    "separateRenderCheckpointCount": 0,
+    "note": "The registered lifecycle budget check passed. No separate render-checkpoint records were emitted by this report."
+  },
+  "diagnostics": {
+    "unexpectedNetworkErrors": 0,
+    "unexpectedReportErrors": 0,
+    "expectedOwnerSwitchCancellations": [
+      {
+        "requestId": "playwright-22",
+        "browserRequestId": "playwright-22",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-nullable-code-join-46d7aa93-ae28-454d-9738-c7e72de8df38/authoring/v2/construction-capabilities",
+        "error": "net::ERR_ABORTED",
+        "action": "Select raw right Observation population retires the outgoing current-draft construction-capabilities request when Builder changes owners.",
+        "outgoingOutputId": "out_da598f3b7176e86e08f8baba",
+        "outgoingSelectionRevisionId": "selection_ac24bdedd437cf9d2daec80ef5d4ae311486c16382ca12a9db63f078f7d8c080",
+        "outgoingDraftVersion": 7
+      },
+      {
+        "requestId": "playwright-41",
+        "browserRequestId": "playwright-41",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-nullable-code-join-46d7aa93-ae28-454d-9738-c7e72de8df38/authoring/v2/construction-capabilities",
+        "error": "net::ERR_ABORTED",
+        "action": "Open native Combine to create the empty nullable Join target retires the outgoing current-draft construction-capabilities request when Builder changes owners.",
+        "outgoingOutputId": "out_d75129c9003d5814f00a83c5",
+        "outgoingSelectionRevisionId": "selection_1e1b265a4e7bf38cb56ed1c2fdb8a700d3fde36e45bee14902274df5bd1d74ff",
+        "outgoingDraftVersion": 8
+      },
+      {
+        "requestId": "cda-request-378",
+        "method": "GET",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/cda-nullable-code-join-46d7aa93-ae28-454d-9738-c7e72de8df38/selections/selection_1e1b265a4e7bf38cb56ed1c2fdb8a700d3fde36e45bee14902274df5bd1d74ff",
+        "error": "net::ERR_ABORTED",
+        "action": "Open native Combine to create the empty nullable Join target retires the outgoing current-draft attached-selection read when Builder changes owners.",
+        "outgoingOutputId": "out_d75129c9003d5814f00a83c5",
+        "outgoingSelectionRevisionId": "selection_1e1b265a4e7bf38cb56ed1c2fdb8a700d3fde36e45bee14902274df5bd1d74ff",
+        "outgoingDraftVersion": 8
+      }
+    ],
+    "incidentalAssetFailures": [
+      {
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404,
+        "evidenceChannels": [
+          "asset-failure",
+          "console"
+        ]
+      }
+    ],
+    "note": "Three owner-switch ERR_ABORTED records were retained and matched to exact action/owner/successor evidence. One favicon 404 appeared in asset and console channels; it was recorded as incidental, not counted as an unexpected application error."
+  },
+  "priorAttempts": [
+    {
+      "attempt": 1,
+      "startedAt": "2026-10-07T06:13:02.069Z",
+      "status": "failed",
+      "bracketDurationMs": 34478,
+      "registeredChecks": {
+        "passed": 2,
+        "total": 37,
+        "failed": [
+          "valueQuantity.code candidate is scalar optional string in the exact project and catalog scope"
+        ],
+        "missing": 34
+      },
+      "browserFailure": "Error: valueQuantity.code candidate is scalar optional string in the exact project and catalog scope",
+      "correction": "Before the first Builder command the V2 workspace is null in lifecycle NEW; the driver incorrectly required the Explorer workspace title at that point.",
+      "integrity": "PASS",
+      "artifacts": {
+        "summary": {
+          "path": "/private/tmp/loom-nullable-code-join-bracket.08Tedq/run-cda-workspace-combine-nullable-code-join-DIaFie/summary.json",
+          "sha256": "27acb88a3b57c7da23e0d71062964dcfcfff9371019e2295695a5e674f508256",
+          "sizeBytes": 34153
+        },
+        "domainReport": {
+          "path": "/private/tmp/loom-nullable-code-join-bracket.08Tedq/run-cda-workspace-combine-nullable-code-join-DIaFie/playwright-results/cda-current-draft-nullable-647a7-missing-code-Join-semantics/attachments/cda-domain-report-json-0967b23cd8743371e3bd9785c80e080edb98b229.json",
+          "sha256": "d8c87fa217a01dfc2fa370750049e72309bad26d7d0ea1ba33d96e8bda97889c",
+          "sizeBytes": 33990
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "startedAt": "2026-10-07T06:22:17.346Z",
+      "status": "failed",
+      "bracketDurationMs": 41244,
+      "registeredChecks": {
+        "passed": 5,
+        "total": 37,
+        "failed": [],
+        "missing": 32
+      },
+      "browserFailure": "AssertionError: The expression evaluated to a falsy value:",
+      "correction": "The saved V2 source column exposes stable columnId and public column fields; the driver incorrectly asserted id.",
+      "integrity": "PASS",
+      "artifacts": {
+        "summary": {
+          "path": "/private/tmp/loom-nullable-code-join-retry.TRjHEn/run-cda-workspace-combine-nullable-code-join-roh2ek/summary.json",
+          "sha256": "df15f4f8298daf065f8c8624bf8e3c3d59b7c98dd7a0a208d6a8223472971127",
+          "sizeBytes": 43792
+        },
+        "domainReport": {
+          "path": "/private/tmp/loom-nullable-code-join-retry.TRjHEn/run-cda-workspace-combine-nullable-code-join-roh2ek/playwright-results/cda-current-draft-nullable-647a7-missing-code-Join-semantics/attachments/cda-domain-report-json-b958e382fdf0ac21a733d2b675d8edcfefb14156.json",
+          "sha256": "847e861bc2623f214c95dea0d59b3c6a0eb3374e44231a9fe2cc36454c38e581",
+          "sizeBytes": 92364
+        }
+      }
+    },
+    {
+      "attempt": 3,
+      "startedAt": "2026-10-07T06:36:12.893Z",
+      "status": "failed",
+      "bracketDurationMs": 32979,
+      "registeredChecks": {
+        "passed": 5,
+        "total": 37,
+        "failed": [],
+        "missing": 32
+      },
+      "browserFailure": "TypeError: capture.startIndex is not a function",
+      "correction": "The real captureRequests adapter has no startIndex method; the driver now uses report offsets and the actual adapter contract.",
+      "integrity": "PASS",
+      "artifacts": {
+        "summary": {
+          "path": "/private/tmp/loom-nullable-code-join-rerun.sRN5vE/run-cda-workspace-combine-nullable-code-join-7hL0T2/summary.json",
+          "sha256": "bcdd3dd27b89c9e2debc506610fdfe740b49ccb5afd7cb872f620ab73497395f",
+          "sizeBytes": 39533
+        },
+        "domainReport": {
+          "path": "/private/tmp/loom-nullable-code-join-rerun.sRN5vE/run-cda-workspace-combine-nullable-code-join-7hL0T2/playwright-results/cda-current-draft-nullable-647a7-missing-code-Join-semantics/attachments/cda-domain-report-json-9c074c56a9a48fcb9e2f7431bbc3631b25fb3b75.json",
+          "sha256": "9acf87b805206283bca660c604059ec95d4d6ba6091a1d3b3a9ed317e20b0b6f",
+          "sizeBytes": 72125
+        }
+      }
+    },
+    {
+      "attempt": 4,
+      "startedAt": "2026-10-07T06:46:12.394Z",
+      "status": "failed",
+      "bracketDurationMs": 68443,
+      "registeredChecks": {
+        "passed": 29,
+        "total": 37,
+        "failed": [
+          "Removing nullable Join previews the exact empty target"
+        ],
+        "missing": 7
+      },
+      "browserFailure": "Error: Removing nullable Join previews the exact empty target",
+      "correction": "The empty target has zero visible columns but a bounded 25-row hidden row-ID sample; the diagnostics gate also needed exact owner-switch cancellation and successor proof.",
+      "integrity": "PASS",
+      "artifacts": {
+        "summary": {
+          "path": "/private/tmp/loom-nullable-code-join-rerun.6H4CnC/run-cda-workspace-combine-nullable-code-join-7Y0FPf/summary.json",
+          "sha256": "078ab9d3e3f1f97f157f5fbdd7716f89e7508c61799c9e5583e1ce9e9a1ba79a",
+          "sizeBytes": 235780
+        },
+        "domainReport": {
+          "path": "/private/tmp/loom-nullable-code-join-rerun.6H4CnC/run-cda-workspace-combine-nullable-code-join-7Y0FPf/playwright-results/cda-current-draft-nullable-647a7-missing-code-Join-semantics/attachments/cda-domain-report-json-8fc04d28e12e28785bcc0a3fcfd38b11af3cdfbb.json",
+          "sha256": "14ac510ccdf7c933196415f20fd0f13393035c0ca96c74e0366e6c0f8906b0f8",
+          "sizeBytes": 722353
+        }
+      }
+    }
+  ],
+  "noRawPayloadsEmbedded": true,
+  "schemaVersion": 2,
+  "scenario": "cda-workspace-combine",
+  "case": "nullable-code-join",
+  "title": "raw Observation selections preserve duplicate-key and missing-code Join semantics",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "startedAt": "2026-10-07T07:46:02.615Z",
+  "finishedAt": "2026-10-07T07:47:18.718Z",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+      "files": 1581
+    },
+    "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9"
+  },
+  "requiredChecks": {
+    "passed": 37,
+    "failed": 0,
+    "unrun": 0,
+    "total": 37
+  },
+  "assertions": [
+    {
+      "name": "Frozen exact-scope raw witness proves disjoint 2x2 code=d keys and one missing code per side",
+      "status": "passed"
+    },
+    {
+      "name": "valueQuantity.code candidate is scalar optional string in the exact project and catalog scope",
+      "status": "passed"
+    },
+    {
+      "name": "left raw selection binds exact scoped IDs to a direct Observation source table",
+      "status": "passed"
+    },
+    {
+      "name": "left raw selected Observation rows expose exact IDs and code/missing cells",
+      "status": "passed"
+    },
+    {
+      "name": "right raw selection binds exact scoped IDs to a direct Observation source table",
+      "status": "passed"
+    },
+    {
+      "name": "right raw selected Observation rows expose exact IDs and code/missing cells",
+      "status": "passed"
+    },
+    {
+      "name": "Both Join sources are distinct direct raw Observation selections with exact valueQuantity.code columns",
+      "status": "passed"
+    },
+    {
+      "name": "Native Combine creates a scoped empty Observation target for the current-draft Join",
+      "status": "passed"
+    },
+    {
+      "name": "INNER raw nullable code Join preview matches the literal raw-row Oracle",
+      "status": "passed"
+    },
+    {
+      "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+      "status": "passed"
+    },
+    {
+      "name": "INNER Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel initial INNER raw nullable Join proposal preserves full workspace and draft CAS after reload",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel initial Join restores exact empty target and leaves source selections intact",
+      "status": "passed"
+    },
+    {
+      "name": "Saved INNER Join retains exact current-draft source and code-column bindings",
+      "status": "passed"
+    },
+    {
+      "name": "INNER Apply advances draft CAS",
+      "status": "passed"
+    },
+    {
+      "name": "Applied INNER Join visible rows match the raw Oracle",
+      "status": "passed"
+    },
+    {
+      "name": "Reloaded INNER Join preserves exact raw rows",
+      "status": "passed"
+    },
+    {
+      "name": "LEFT saved edit preview matches the literal raw-row Oracle",
+      "status": "passed"
+    },
+    {
+      "name": "LEFT Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel saved INNER to LEFT Join edit preserves full workspace and draft CAS after reload",
+      "status": "passed"
+    },
+    {
+      "name": "Canceled LEFT edit keeps exact INNER rows after reload",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel LEFT edit preserves original INNER Join after reload",
+      "status": "passed"
+    },
+    {
+      "name": "Saved LEFT Join retains exact current-draft source and code-column bindings",
+      "status": "passed"
+    },
+    {
+      "name": "LEFT Apply advances draft CAS",
+      "status": "passed"
+    },
+    {
+      "name": "Applied LEFT Join visible rows match the raw Oracle",
+      "status": "passed"
+    },
+    {
+      "name": "Reloaded LEFT Join preserves exact raw rows",
+      "status": "passed"
+    },
+    {
+      "name": "Removal proposal binds exact CAS and only removes the saved current-draft KEY_JOIN",
+      "status": "passed"
+    },
+    {
+      "name": "Removing nullable Join previews the exact empty target",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel LEFT nullable Join removal preserves full workspace and draft CAS after reload",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel LEFT removal preserves exact five-row output",
+      "status": "passed"
+    },
+    {
+      "name": "Join removal reload restores the exact pre-Combine empty target",
+      "status": "passed"
+    },
+    {
+      "name": "Applying Join removal advances draft version and digest",
+      "status": "passed"
+    },
+    {
+      "name": "Both direct raw Observation source tables remain unchanged through Join removal",
+      "status": "passed"
+    },
+    {
+      "name": "Nullable Join remains current-draft only and never publishes source tables",
+      "status": "passed"
+    },
+    {
+      "name": "Project, generation, catalog snapshot, and authorization digest stay fixed",
+      "status": "passed"
+    },
+    {
+      "name": "All native nullable Join lifecycle actions complete within five seconds",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "watched source stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": {
+          "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+          "files": 1581
+        },
+        "after": {
+          "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+          "files": 1581
+        }
+      }
+    }
+  ],
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+        "files": 1581
+      },
+      "after": {
+        "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+        "files": 1581
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "durableClosurePath": "docs/verification/playwright/runtime/nullable-code-join-epoch142-closure.json",
+  "provenance": {
+    "acceptedNestedReport": {
+      "schemaVersion": 1,
+      "recordType": "native-runtime-report",
+      "case": {
+        "scenarioId": "cda-workspace-combine",
+        "caseName": "nullable-code-join",
+        "title": "raw Observation selections preserve duplicate-key and missing-code Join semantics",
+        "nativeSpec": "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs"
+      },
+      "status": "PASSED",
+      "registryAcceptance": {
+        "registryPath": "scripts/verify-ui/registry.mjs",
+        "registrySha256": "458f47c85e0b25c547e6ef63041d0bdd87c784119d9caf405511baffcd3b3302",
+        "nativeSpecSha256": "df791a72322299f6c4623510d508aea89ca1c2ca9f680d8233041eda8de6f078",
+        "workflowSha256": "f7b39680297824f87292dc05afb75593ffd241bab096177cfea2e75a5d9b4c53",
+        "selectedExactlyOneRegisteredTest": true,
+        "requiredChecksPassed": 37,
+        "requiredChecksTotal": 37,
+        "requiredCheckNamesSha256": "c003aa748e4e9d624e9e303a2a55ad0d1f807a7121f159ef5bb8d897481c3d3b",
+        "requiredCheckNames": [
+          "Frozen exact-scope raw witness proves disjoint 2x2 code=d keys and one missing code per side",
+          "valueQuantity.code candidate is scalar optional string in the exact project and catalog scope",
+          "left raw selection binds exact scoped IDs to a direct Observation source table",
+          "left raw selected Observation rows expose exact IDs and code/missing cells",
+          "right raw selection binds exact scoped IDs to a direct Observation source table",
+          "right raw selected Observation rows expose exact IDs and code/missing cells",
+          "Both Join sources are distinct direct raw Observation selections with exact valueQuantity.code columns",
+          "Native Combine creates a scoped empty Observation target for the current-draft Join",
+          "INNER raw nullable code Join preview matches the literal raw-row Oracle",
+          "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+          "INNER Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+          "Cancel initial INNER raw nullable Join proposal preserves full workspace and draft CAS after reload",
+          "Cancel initial Join restores exact empty target and leaves source selections intact",
+          "Saved INNER Join retains exact current-draft source and code-column bindings",
+          "INNER Apply advances draft CAS",
+          "Applied INNER Join visible rows match the raw Oracle",
+          "Reloaded INNER Join preserves exact raw rows",
+          "LEFT saved edit preview matches the literal raw-row Oracle",
+          "LEFT Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+          "Cancel saved INNER to LEFT Join edit preserves full workspace and draft CAS after reload",
+          "Canceled LEFT edit keeps exact INNER rows after reload",
+          "Cancel LEFT edit preserves original INNER Join after reload",
+          "Saved LEFT Join retains exact current-draft source and code-column bindings",
+          "LEFT Apply advances draft CAS",
+          "Applied LEFT Join visible rows match the raw Oracle",
+          "Reloaded LEFT Join preserves exact raw rows",
+          "Removal proposal binds exact CAS and only removes the saved current-draft KEY_JOIN",
+          "Removing nullable Join previews the exact empty target",
+          "Cancel LEFT nullable Join removal preserves full workspace and draft CAS after reload",
+          "Cancel LEFT removal preserves exact five-row output",
+          "Join removal reload restores the exact pre-Combine empty target",
+          "Applying Join removal advances draft version and digest",
+          "Both direct raw Observation source tables remain unchanged through Join removal",
+          "Nullable Join remains current-draft only and never publishes source tables",
+          "Project, generation, catalog snapshot, and authorization digest stay fixed",
+          "All native nullable Join lifecycle actions complete within five seconds",
+          "CDA watched source and API build stayed unchanged"
+        ],
+        "missingOrFailedNames": []
+      },
+      "sourceIdentity": {
+        "commit": "5609149a6c36d4d5ab9d2d33d00a2db15a6823af",
+        "sourceFingerprint": {
+          "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+          "files": 1581
+        },
+        "sourceUnchanged": true,
+        "documentationFingerprint": {
+          "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+          "files": 290
+        },
+        "documentationUnchanged": true,
+        "relevantFileHashes": {
+          "scripts/verify-ui/registry.mjs": "458f47c85e0b25c547e6ef63041d0bdd87c784119d9caf405511baffcd3b3302",
+          "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs": "df791a72322299f6c4623510d508aea89ca1c2ca9f680d8233041eda8de6f078",
+          "scripts/verify-ui/workflows/cda-current-draft-nullable-code-join-workflow.mjs": "f7b39680297824f87292dc05afb75593ffd241bab096177cfea2e75a5d9b4c53"
+        }
+      },
+      "execution": {
+        "command": "node scripts/run-native-verification-bracket.mjs --scenario cda-workspace-combine --case nullable-code-join --grep 'raw Observation selections preserve duplicate-key and missing-code Join semantics$' --evidence-parent /private/tmp/loom-nullable-cda-join-final.YskiUg",
+        "startedAt": "2026-10-07T07:46:02.615Z",
+        "finishedAt": "2026-10-07T07:47:18.718Z",
+        "bracketDurationMs": 76102,
+        "browserDurationMs": 55117,
+        "browserExitCode": 0,
+        "workers": 1,
+        "retries": 0,
+        "exactSelection": {
+          "file": "cda-current-draft-nullable-code-join.spec.mjs",
+          "line": 11,
+          "column": 3,
+          "titlePath": "CDA current-draft nullable valueQuantity.code Join › raw Observation selections preserve duplicate-key and missing-code Join semantics",
+          "title": "raw Observation selections preserve duplicate-key and missing-code Join semantics"
+        },
+        "stageExitCodes": {
+          "selectionList": 0,
+          "precheck": 0,
+          "captureBefore": 0,
+          "healthBefore": 0,
+          "playwright": 0,
+          "captureAfter": 0,
+          "healthAfter": 0
+        },
+        "environment": {
+          "browserLoader": {
+            "path": "/private/tmp/loom-native-root-quantity-pivot-wave111/browser-environment.sh",
+            "sha256": "19ef5337e2979d83c68675827822855182344d42aba0a319a29a25167c5c9900"
+          },
+          "captureLoader": {
+            "path": "/private/tmp/loom-native-root-quantity-pivot-wave111/capture-environment.sh",
+            "sha256": "c6984f88d17a18c87cfb3dd238db609c63d7585f14f3a9ca9faad00766d64f48"
+          },
+          "loaderOrder": [
+            "browserLoader",
+            "captureLoader"
+          ],
+          "artifactsRoot": "/private/tmp/loom-nullable-cda-join-final.YskiUg/dev-artifacts",
+          "sensitiveEnvironmentValuesRecorded": false
+        }
+      },
+      "integrity": {
+        "status": "PASS",
+        "source": {
+          "status": "PASS",
+          "before": {
+            "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+            "files": 1581
+          },
+          "after": {
+            "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+            "files": 1581
+          },
+          "changedPaths": []
+        },
+        "documentation": {
+          "status": "PASS",
+          "before": {
+            "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+            "files": 290
+          },
+          "after": {
+            "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+            "files": 290
+          },
+          "changedPaths": []
+        },
+        "apiBuildIdentity": {
+          "status": "PASS",
+          "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+          "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+          "precheckMatches": true,
+          "targetUnchanged": true
+        },
+        "ownedMounts": {
+          "status": "PASS",
+          "targetUnchanged": true,
+          "target": {
+            "project": "loom_dev_cda_fhir",
+            "composeProject": "loom-dev-6d7df93d6a37",
+            "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+            "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+            "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+            "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+            "apiPort": "8188",
+            "uiPort": "30008",
+            "sourceRoot": "/private/tmp/loom-construction-implementation",
+            "generation": "cda-fhir-v1"
+          }
+        },
+        "healthBefore": {
+          "status": "PASS",
+          "sampleCount": 3,
+          "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9"
+        },
+        "healthAfter": {
+          "status": "PASS",
+          "sampleCount": 3,
+          "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9"
+        }
+      },
+      "artifacts": {
+        "wrapperSummary": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/summary.json",
+          "sha256": "b378def6b76ad7edc3b49f9e5a5bb69d0c9cd242f8e7b26c3f4f446b2ee5b90a",
+          "sizeBytes": 299049
+        },
+        "domainReport": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/playwright-results/cda-current-draft-nullable-647a7-missing-code-Join-semantics/attachments/cda-domain-report-json-c85fd40147337337e78a2584d93dc1cf74be4e36.json",
+          "sha256": "5dc9ac71c412421c011c58c9aeb7121f9be2cace3bce207358c6419054d2dd37",
+          "sizeBytes": 1281901
+        },
+        "playwrightJsonReport": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/playwright-report.json",
+          "sha256": "276f406dbc1e73f5d23628b40fad5885f25e648b14802e75978d1733d1e8d418",
+          "sizeBytes": 20015
+        },
+        "precheck": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/api-build-precheck.json",
+          "sha256": "68a71a7f30c13340339a1cebba8ee4178435a47d9cb7a708791f0b2a40c4b657",
+          "sizeBytes": 686
+        },
+        "sourceBefore": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/source-before.json",
+          "sha256": "795e6abf99bdd0a6b34fd1d69c0528192421e6268c2314aa7c7166134b046de3",
+          "sizeBytes": 203704
+        },
+        "sourceAfter": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/source-after.json",
+          "sha256": "2f8d1ff4809ca2ac339e906acc434e2c320aa1e1914cb65526e351aeda8bf5ae",
+          "sizeBytes": 203703
+        },
+        "docsBefore": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/docs-before.json",
+          "sha256": "29d57014c73e72a87e853e862df4696c3368990c2c657728b5acce4106af104c",
+          "sizeBytes": 43453
+        },
+        "docsAfter": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/docs-after.json",
+          "sha256": "6813331d9e990b282297a84bffc929b8d9a23cf5b59e5c3c2c63185d7a3d69fe",
+          "sizeBytes": 43452
+        },
+        "apiBefore": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/api-identity-before.json",
+          "sha256": "b37798ee08df840d0f5d620b0bb631f9a10bdff919549b51c20331700cec8ff0",
+          "sizeBytes": 2825
+        },
+        "apiAfter": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/api-identity-after.json",
+          "sha256": "239d2e74244d351e36b744866471688c81e301cfd87f96d76e4e9bd6202911cd",
+          "sizeBytes": 1857
+        },
+        "mountsBefore": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/owned-mounts-before.json",
+          "sha256": "99977578721cf6b18e2c35a3612669371f0d0b0f2e7a1b280a6b7ed52d2f0510",
+          "sizeBytes": 734
+        },
+        "mountsAfter": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/owned-mounts-after.json",
+          "sha256": "91bce1d913d1d8a2f927c992bc497474fa16ff05000a8904ded23cbf2fd98308",
+          "sizeBytes": 733
+        },
+        "healthBefore": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/health-before.json",
+          "sha256": "92e9f3e73359557934d51dd04c6b68dbe20f73edc36c674764ebccec8c9952ce",
+          "sizeBytes": 2057
+        },
+        "healthAfter": {
+          "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/health-after.json",
+          "sha256": "60667e92b563ddf49356c422c784a2611edc4f622f94ea4bed9343a96a0f6208",
+          "sizeBytes": 2057
+        }
+      },
+      "rootReviewStatus": "ACCEPTED",
+      "rootReview": {
+        "acceptedBy": "/root",
+        "reviewedArtifacts": {
+          "wrapperSummarySha256": "b378def6b76ad7edc3b49f9e5a5bb69d0c9cd242f8e7b26c3f4f446b2ee5b90a",
+          "domainReportSha256": "5dc9ac71c412421c011c58c9aeb7121f9be2cace3bce207358c6419054d2dd37"
+        },
+        "limitations": [
+          "The report contains no separate render-checkpoint timing records; only the 83 registered action timings are summarized, with a 1408 ms maximum against the 5000 ms action budget.",
+          "The bounded witness proves MISSING-key semantics for absent valueQuantity.code members, not explicit JSON-null CDA join behavior or a global dataset claim."
+        ]
+      }
+    },
+    "normalization": {
+      "acceptedReportSha256": "90ea3fce1de785e3487e642f89d05fd13118b659c12af45b2087822aa2e992fd",
+      "acceptedClosureSha256": "b8f3579d5be39c2752d58f4edb87172e0479edf259fa165de11059ecada62919",
+      "domainReportSha256": "5dc9ac71c412421c011c58c9aeb7121f9be2cace3bce207358c6419054d2dd37",
+      "exactRegisteredCheckCount": 37,
+      "perCheckStatusesFromDomainAssertions": true,
+      "requiredCheckNamesSha256": "c003aa748e4e9d624e9e303a2a55ad0d1f807a7121f159ef5bb8d897481c3d3b",
+      "rawRequiredCheckOutcomeCount": 99,
+      "projectedRequiredCheckCount": 37,
+      "rawRequiredCheckOutcomesSha256": "87eb8e379a0dbc745d2cb6495aa536e70090031e0c6aa171f1a8960308b82219"
+    },
+    "rawDomainRequiredAssertions": [
+      {
+        "name": "Frozen exact-scope raw witness proves disjoint 2x2 code=d keys and one missing code per side",
+        "status": "passed"
+      },
+      {
+        "name": "valueQuantity.code candidate is scalar optional string in the exact project and catalog scope",
+        "status": "passed"
+      },
+      {
+        "name": "left raw selection binds exact scoped IDs to a direct Observation source table",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "left raw selected Observation rows expose exact IDs and code/missing cells",
+        "status": "passed"
+      },
+      {
+        "name": "right raw selection binds exact scoped IDs to a direct Observation source table",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "right raw selected Observation rows expose exact IDs and code/missing cells",
+        "status": "passed"
+      },
+      {
+        "name": "Both Join sources are distinct direct raw Observation selections with exact valueQuantity.code columns",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Native Combine creates a scoped empty Observation target for the current-draft Join",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "INNER raw nullable code Join preview matches the literal raw-row Oracle",
+        "status": "passed"
+      },
+      {
+        "name": "INNER Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel initial INNER raw nullable Join proposal preserves full workspace and draft CAS after reload",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel initial Join restores exact empty target and leaves source selections intact",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "INNER raw nullable code Join preview matches the literal raw-row Oracle",
+        "status": "passed"
+      },
+      {
+        "name": "INNER Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Saved INNER Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Applied INNER Join visible rows match the raw Oracle",
+        "status": "passed"
+      },
+      {
+        "name": "INNER Apply advances draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Saved INNER Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Reloaded INNER Join preserves exact raw rows",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "LEFT saved edit preview matches the literal raw-row Oracle",
+        "status": "passed"
+      },
+      {
+        "name": "LEFT Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel saved INNER to LEFT Join edit preserves full workspace and draft CAS after reload",
+        "status": "passed"
+      },
+      {
+        "name": "Saved INNER Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Saved INNER Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Canceled LEFT edit keeps exact INNER rows after reload",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel LEFT edit preserves original INNER Join after reload",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "LEFT saved edit preview matches the literal raw-row Oracle",
+        "status": "passed"
+      },
+      {
+        "name": "LEFT Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Saved LEFT Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Applied LEFT Join visible rows match the raw Oracle",
+        "status": "passed"
+      },
+      {
+        "name": "LEFT Apply advances draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Saved LEFT Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Reloaded LEFT Join preserves exact raw rows",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "Removal proposal binds exact CAS and only removes the saved current-draft KEY_JOIN",
+        "status": "passed"
+      },
+      {
+        "name": "Removing nullable Join previews the exact empty target",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel LEFT nullable Join removal preserves full workspace and draft CAS after reload",
+        "status": "passed"
+      },
+      {
+        "name": "Saved LEFT Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Saved LEFT Join retains exact current-draft source and code-column bindings",
+        "status": "passed"
+      },
+      {
+        "name": "Cancel LEFT removal preserves exact five-row output",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "status": "passed"
+      },
+      {
+        "name": "Removal proposal binds exact CAS and only removes the saved current-draft KEY_JOIN",
+        "status": "passed"
+      },
+      {
+        "name": "Removing nullable Join previews the exact empty target",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "Join removal reload restores the exact pre-Combine empty target",
+        "status": "passed"
+      },
+      {
+        "name": "Applying Join removal advances draft version and digest",
+        "status": "passed"
+      },
+      {
+        "name": "Both direct raw Observation source tables remain unchanged through Join removal",
+        "status": "passed"
+      },
+      {
+        "name": "Nullable Join remains current-draft only and never publishes source tables",
+        "status": "passed"
+      },
+      {
+        "name": "Project, generation, catalog snapshot, and authorization digest stay fixed",
+        "status": "passed"
+      },
+      {
+        "name": "All native nullable Join lifecycle actions complete within five seconds",
+        "status": "passed"
+      },
+      {
+        "name": "CDA watched source and API build stayed unchanged",
+        "status": "passed"
+      }
+    ]
+  },
+  "acceptedNestedEnvelope": {
+    "schemaVersion": 1,
+    "recordType": "native-runtime-report",
+    "case": {
+      "scenarioId": "cda-workspace-combine",
+      "caseName": "nullable-code-join",
+      "title": "raw Observation selections preserve duplicate-key and missing-code Join semantics",
+      "nativeSpec": "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs"
+    },
+    "status": "PASSED",
+    "registryAcceptance": {
+      "registryPath": "scripts/verify-ui/registry.mjs",
+      "registrySha256": "458f47c85e0b25c547e6ef63041d0bdd87c784119d9caf405511baffcd3b3302",
+      "nativeSpecSha256": "df791a72322299f6c4623510d508aea89ca1c2ca9f680d8233041eda8de6f078",
+      "workflowSha256": "f7b39680297824f87292dc05afb75593ffd241bab096177cfea2e75a5d9b4c53",
+      "selectedExactlyOneRegisteredTest": true,
+      "requiredChecksPassed": 37,
+      "requiredChecksTotal": 37,
+      "requiredCheckNamesSha256": "c003aa748e4e9d624e9e303a2a55ad0d1f807a7121f159ef5bb8d897481c3d3b",
+      "requiredCheckNames": [
+        "Frozen exact-scope raw witness proves disjoint 2x2 code=d keys and one missing code per side",
+        "valueQuantity.code candidate is scalar optional string in the exact project and catalog scope",
+        "left raw selection binds exact scoped IDs to a direct Observation source table",
+        "left raw selected Observation rows expose exact IDs and code/missing cells",
+        "right raw selection binds exact scoped IDs to a direct Observation source table",
+        "right raw selected Observation rows expose exact IDs and code/missing cells",
+        "Both Join sources are distinct direct raw Observation selections with exact valueQuantity.code columns",
+        "Native Combine creates a scoped empty Observation target for the current-draft Join",
+        "INNER raw nullable code Join preview matches the literal raw-row Oracle",
+        "Join proposal preview response binds the exact UI route, receipt, output, and draft CAS",
+        "INNER Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+        "Cancel initial INNER raw nullable Join proposal preserves full workspace and draft CAS after reload",
+        "Cancel initial Join restores exact empty target and leaves source selections intact",
+        "Saved INNER Join retains exact current-draft source and code-column bindings",
+        "INNER Apply advances draft CAS",
+        "Applied INNER Join visible rows match the raw Oracle",
+        "Reloaded INNER Join preserves exact raw rows",
+        "LEFT saved edit preview matches the literal raw-row Oracle",
+        "LEFT Join proposal binds exact raw sources, code keys, outputs, and draft CAS",
+        "Cancel saved INNER to LEFT Join edit preserves full workspace and draft CAS after reload",
+        "Canceled LEFT edit keeps exact INNER rows after reload",
+        "Cancel LEFT edit preserves original INNER Join after reload",
+        "Saved LEFT Join retains exact current-draft source and code-column bindings",
+        "LEFT Apply advances draft CAS",
+        "Applied LEFT Join visible rows match the raw Oracle",
+        "Reloaded LEFT Join preserves exact raw rows",
+        "Removal proposal binds exact CAS and only removes the saved current-draft KEY_JOIN",
+        "Removing nullable Join previews the exact empty target",
+        "Cancel LEFT nullable Join removal preserves full workspace and draft CAS after reload",
+        "Cancel LEFT removal preserves exact five-row output",
+        "Join removal reload restores the exact pre-Combine empty target",
+        "Applying Join removal advances draft version and digest",
+        "Both direct raw Observation source tables remain unchanged through Join removal",
+        "Nullable Join remains current-draft only and never publishes source tables",
+        "Project, generation, catalog snapshot, and authorization digest stay fixed",
+        "All native nullable Join lifecycle actions complete within five seconds",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "missingOrFailedNames": []
+    },
+    "sourceIdentity": {
+      "commit": "5609149a6c36d4d5ab9d2d33d00a2db15a6823af",
+      "sourceFingerprint": {
+        "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+        "files": 1581
+      },
+      "sourceUnchanged": true,
+      "documentationFingerprint": {
+        "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+        "files": 290
+      },
+      "documentationUnchanged": true,
+      "relevantFileHashes": {
+        "scripts/verify-ui/registry.mjs": "458f47c85e0b25c547e6ef63041d0bdd87c784119d9caf405511baffcd3b3302",
+        "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs": "df791a72322299f6c4623510d508aea89ca1c2ca9f680d8233041eda8de6f078",
+        "scripts/verify-ui/workflows/cda-current-draft-nullable-code-join-workflow.mjs": "f7b39680297824f87292dc05afb75593ffd241bab096177cfea2e75a5d9b4c53"
+      }
+    },
+    "execution": {
+      "command": "node scripts/run-native-verification-bracket.mjs --scenario cda-workspace-combine --case nullable-code-join --grep 'raw Observation selections preserve duplicate-key and missing-code Join semantics$' --evidence-parent /private/tmp/loom-nullable-cda-join-final.YskiUg",
+      "startedAt": "2026-10-07T07:46:02.615Z",
+      "finishedAt": "2026-10-07T07:47:18.718Z",
+      "bracketDurationMs": 76102,
+      "browserDurationMs": 55117,
+      "browserExitCode": 0,
+      "workers": 1,
+      "retries": 0,
+      "exactSelection": {
+        "file": "cda-current-draft-nullable-code-join.spec.mjs",
+        "line": 11,
+        "column": 3,
+        "titlePath": "CDA current-draft nullable valueQuantity.code Join › raw Observation selections preserve duplicate-key and missing-code Join semantics",
+        "title": "raw Observation selections preserve duplicate-key and missing-code Join semantics"
+      },
+      "stageExitCodes": {
+        "selectionList": 0,
+        "precheck": 0,
+        "captureBefore": 0,
+        "healthBefore": 0,
+        "playwright": 0,
+        "captureAfter": 0,
+        "healthAfter": 0
+      },
+      "environment": {
+        "browserLoader": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave111/browser-environment.sh",
+          "sha256": "19ef5337e2979d83c68675827822855182344d42aba0a319a29a25167c5c9900"
+        },
+        "captureLoader": {
+          "path": "/private/tmp/loom-native-root-quantity-pivot-wave111/capture-environment.sh",
+          "sha256": "c6984f88d17a18c87cfb3dd238db609c63d7585f14f3a9ca9faad00766d64f48"
+        },
+        "loaderOrder": [
+          "browserLoader",
+          "captureLoader"
+        ],
+        "artifactsRoot": "/private/tmp/loom-nullable-cda-join-final.YskiUg/dev-artifacts",
+        "sensitiveEnvironmentValuesRecorded": false
+      }
+    },
+    "integrity": {
+      "status": "PASS",
+      "source": {
+        "status": "PASS",
+        "before": {
+          "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+          "files": 1581
+        },
+        "after": {
+          "sha256": "811a1c37be01e896aa94beb20829dd687a6441d60d14f916547895987c406591",
+          "files": 1581
+        },
+        "changedPaths": []
+      },
+      "documentation": {
+        "status": "PASS",
+        "before": {
+          "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+          "files": 290
+        },
+        "after": {
+          "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+          "files": 290
+        },
+        "changedPaths": []
+      },
+      "apiBuildIdentity": {
+        "status": "PASS",
+        "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+        "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+        "precheckMatches": true,
+        "targetUnchanged": true
+      },
+      "ownedMounts": {
+        "status": "PASS",
+        "targetUnchanged": true,
+        "target": {
+          "project": "loom_dev_cda_fhir",
+          "composeProject": "loom-dev-6d7df93d6a37",
+          "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+          "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+          "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+          "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+          "apiPort": "8188",
+          "uiPort": "30008",
+          "sourceRoot": "/private/tmp/loom-construction-implementation",
+          "generation": "cda-fhir-v1"
+        }
+      },
+      "healthBefore": {
+        "status": "PASS",
+        "sampleCount": 3,
+        "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9"
+      },
+      "healthAfter": {
+        "status": "PASS",
+        "sampleCount": 3,
+        "apiBuildIdentity": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9"
+      }
+    },
+    "artifacts": {
+      "wrapperSummary": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/summary.json",
+        "sha256": "b378def6b76ad7edc3b49f9e5a5bb69d0c9cd242f8e7b26c3f4f446b2ee5b90a",
+        "sizeBytes": 299049
+      },
+      "domainReport": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/playwright-results/cda-current-draft-nullable-647a7-missing-code-Join-semantics/attachments/cda-domain-report-json-c85fd40147337337e78a2584d93dc1cf74be4e36.json",
+        "sha256": "5dc9ac71c412421c011c58c9aeb7121f9be2cace3bce207358c6419054d2dd37",
+        "sizeBytes": 1281901
+      },
+      "playwrightJsonReport": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/playwright-report.json",
+        "sha256": "276f406dbc1e73f5d23628b40fad5885f25e648b14802e75978d1733d1e8d418",
+        "sizeBytes": 20015
+      },
+      "precheck": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/api-build-precheck.json",
+        "sha256": "68a71a7f30c13340339a1cebba8ee4178435a47d9cb7a708791f0b2a40c4b657",
+        "sizeBytes": 686
+      },
+      "sourceBefore": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/source-before.json",
+        "sha256": "795e6abf99bdd0a6b34fd1d69c0528192421e6268c2314aa7c7166134b046de3",
+        "sizeBytes": 203704
+      },
+      "sourceAfter": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/source-after.json",
+        "sha256": "2f8d1ff4809ca2ac339e906acc434e2c320aa1e1914cb65526e351aeda8bf5ae",
+        "sizeBytes": 203703
+      },
+      "docsBefore": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/docs-before.json",
+        "sha256": "29d57014c73e72a87e853e862df4696c3368990c2c657728b5acce4106af104c",
+        "sizeBytes": 43453
+      },
+      "docsAfter": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/docs-after.json",
+        "sha256": "6813331d9e990b282297a84bffc929b8d9a23cf5b59e5c3c2c63185d7a3d69fe",
+        "sizeBytes": 43452
+      },
+      "apiBefore": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/api-identity-before.json",
+        "sha256": "b37798ee08df840d0f5d620b0bb631f9a10bdff919549b51c20331700cec8ff0",
+        "sizeBytes": 2825
+      },
+      "apiAfter": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/api-identity-after.json",
+        "sha256": "239d2e74244d351e36b744866471688c81e301cfd87f96d76e4e9bd6202911cd",
+        "sizeBytes": 1857
+      },
+      "mountsBefore": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/owned-mounts-before.json",
+        "sha256": "99977578721cf6b18e2c35a3612669371f0d0b0f2e7a1b280a6b7ed52d2f0510",
+        "sizeBytes": 734
+      },
+      "mountsAfter": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/owned-mounts-after.json",
+        "sha256": "91bce1d913d1d8a2f927c992bc497474fa16ff05000a8904ded23cbf2fd98308",
+        "sizeBytes": 733
+      },
+      "healthBefore": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/health-before.json",
+        "sha256": "92e9f3e73359557934d51dd04c6b68dbe20f73edc36c674764ebccec8c9952ce",
+        "sizeBytes": 2057
+      },
+      "healthAfter": {
+        "path": "/private/tmp/loom-nullable-cda-join-final.YskiUg/run-cda-workspace-combine-nullable-code-join-7AdTJw/health-after.json",
+        "sha256": "60667e92b563ddf49356c422c784a2611edc4f622f94ea4bed9343a96a0f6208",
+        "sizeBytes": 2057
+      }
+    },
+    "rootReviewStatus": "ACCEPTED",
+    "rootReview": {
+      "acceptedBy": "/root",
+      "reviewedArtifacts": {
+        "wrapperSummarySha256": "b378def6b76ad7edc3b49f9e5a5bb69d0c9cd242f8e7b26c3f4f446b2ee5b90a",
+        "domainReportSha256": "5dc9ac71c412421c011c58c9aeb7121f9be2cace3bce207358c6419054d2dd37"
+      },
+      "limitations": [
+        "The report contains no separate render-checkpoint timing records; only the 83 registered action timings are summarized, with a 1408 ms maximum against the 5000 ms action budget.",
+        "The bounded witness proves MISSING-key semantics for absent valueQuantity.code members, not explicit JSON-null CDA join behavior or a global dataset claim."
+      ]
+    }
+  }
+}

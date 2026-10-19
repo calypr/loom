@@ -1,0 +1,177 @@
+{
+  "epoch": 103,
+  "status": "CLOSED_FAILED_HARNESS",
+  "case": {
+    "scenarioId": "cda-five-hop-related-expansion",
+    "caseName": "medication-preserve-parent",
+    "status": "failed_harness",
+    "failureAttribution": "HARNESS_COLLAPSED_ROUTE_DISCLOSURE_ASSUMPTION",
+    "requiredChecks": {
+      "total": 11,
+      "passed": 3,
+      "missingOrUnrun": 8,
+      "missingOrFailed": 0,
+      "evidence": [
+        {
+          "name": "bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability",
+          "status": "passed"
+        },
+        {
+          "name": "fresh Specimen table has zero public columns and exact scoped selected membership",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 8,
+      "failed": 0,
+      "total": 8
+    },
+    "actions": {
+      "passed": 4,
+      "failed": 0,
+      "total": 4,
+      "maxElapsedMs": 95
+    },
+    "dimensions": {
+      "usability": "partial",
+      "correctness": "partial",
+      "persistence": "partial",
+      "performance": "untested"
+    },
+    "featureLifecycleCompleted": 0,
+    "firstFailure": {
+      "location": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:318",
+      "message": "page.waitForFunction: Timeout 5000ms exceeded.",
+      "classification": "HARNESS_COLLAPSED_ROUTE_DISCLOSURE_ASSUMPTION",
+      "productFailureEstablished": false,
+      "sourceDom": {
+        "workflow": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs:314-321 selects Medication and immediately waits for the exact route radio; it does not open the Other relationship paths disclosure before waiting.",
+        "retainedDom": "The timeout snapshot shows “Showing 29 paths found before the search limit; additional paths may exist.” The expected five-hop radio is not in the initial rendered route group; a collapsed “Other relationship paths (28)” disclosure is present.",
+        "classification": "The first stop is a harness disclosure assumption. It does not establish a missing product route or a product regression.",
+        "routeSearchCompleteness": "unverified: the related-expand-choices response returned 200 for limit 50, but only truncated metadata was retained; the captured response payload does not show whether the exact route is inside the collapsed 28 or beyond the bounded result.",
+        "responseBodyRetained": false,
+        "responseMetadata": {
+          "truncated": true,
+          "length": 114324
+        }
+      },
+      "routeSearchBody": {
+        "truncated": true,
+        "length": 114324
+      }
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "393c83bc9aee052e504930dc3e51f780845633ffd6dd63ba99d1b1385c035c62",
+        "files": 1533
+      },
+      "after": {
+        "sha256": "393c83bc9aee052e504930dc3e51f780845633ffd6dd63ba99d1b1385c035c62",
+        "files": 1533
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/source-before.json",
+        "sha256": "0fa2365dab5b1c17de3a6f8435e8b03161ad08e45571699e88db7bf0bb803fbc"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/source-after.json",
+        "sha256": "6074ae07f977a352fb8f6eabd7c25f46133545ead6b2f6ad4863353ef207bd12"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "912200e75adeae515720a85a6b133dafb8f942667b235e30e0f4a9dbc2a7c088",
+        "files": 238
+      },
+      "after": {
+        "sha256": "912200e75adeae515720a85a6b133dafb8f942667b235e30e0f4a9dbc2a7c088",
+        "files": 238
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/docs-before.json",
+        "sha256": "3cf56886b79652ef16e89f22bda959c6e89b9dcb930cc3bf72b35746a498af48"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/docs-after.json",
+        "sha256": "c78397501c0ee6320709c61d65140090437ee1ff0e83ffa0d35a4699b9bca3c2"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "after": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "precheck": "822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:822057db180c8c0546d89df455064981df2277beb70b55b85aafcb2539d4aae8:cf3f98094a02760d5a6acf62e274ca2acaf5993096d3c3af665d8595093aedc1",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/api-identity-before.json",
+        "sha256": "c12327df54f73c369fa753270055238e5cdcd4db982fb133063b5c32aa1c2e5a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/api-identity-after.json",
+        "sha256": "752fa3724628998076b3aa567477c159cf3ff8761249378620453b9d710e0df8"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/api-build-precheck-confirmed.json",
+        "sha256": "2622f09f2dfa69fce90e91fe09f8da6be37bb7fbdc890c65114180f6232748a9"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/owned-mounts-before.json",
+        "sha256": "a857bd5d315d319b02294cdaec5b5841b00ec692be2066569580267d00002d4a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/owned-mounts-after.json",
+        "sha256": "92eb59d76e8cd7356117b273953422aadc18b2d1f4c7d5ee6a148b6afabbf485"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/health-before.json",
+        "sha256": "d687352c7a13b060d6d7c3f7ec74f8b206ecd4cd732ef7aad7ed47c499178997"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-related-expansion-wave103/health-after.json",
+        "sha256": "0f19388bde8c7966babb8b603edd4789fc4e8fd5aae3a1bae6f2b1e0e9c5dc79"
+      }
+    }
+  },
+  "rawIntegrityArtifact": {
+    "path": "/private/tmp/loom-native-related-expansion-wave103/integrity-closure.json",
+    "sha256": "90c49bbb54da65bf5ae2395d5284b4ceaddf7eed6c3e52edd0fd13ca02b65c59"
+  }
+}

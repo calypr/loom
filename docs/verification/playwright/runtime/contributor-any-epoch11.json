@@ -1,0 +1,607 @@
+{
+  "schemaVersion": 1,
+  "case": "CDA repeated contributor ANY",
+  "epoch": 11,
+  "run": {
+    "status": "passed",
+    "sessionId": 73231,
+    "processExitCode": 0,
+    "playwright": [
+      {
+        "title": "CDA repeated contributor ANY",
+        "status": "passed",
+        "durationMs": 40500
+      }
+    ],
+    "workers": 1,
+    "retries": 0,
+    "serialEpoch11": true,
+    "serialEvidence": {
+      "releaseAuthorizedCases": [
+        "any"
+      ],
+      "closureTerminalCaseCount": 1,
+      "closureStatus": "SOURCE_DOCS_API_CLOSED_UNCHANGED"
+    },
+    "testDurationMs": 40500,
+    "browserLifecycle": {
+      "kind": "official-playwright-page",
+      "status": "passed",
+      "durationMs": 38772,
+      "diagnosticLimit": 100,
+      "droppedDiagnostics": 0
+    },
+    "reportStatus": "unverified",
+    "reportStatusNote": "Report status is unverified because requiredChecks is empty; native Playwright test and browser lifecycle passed."
+  },
+  "workflow": {
+    "caseCount": 26,
+    "cases": [
+      {
+        "name": "source-selection-bounded-witness-buckets",
+        "durationMs": 1561,
+        "rowCount": 12
+      },
+      {
+        "name": "open-related-expand-editor",
+        "durationMs": 558
+      },
+      {
+        "name": "configure-repeated-nested-code-exists",
+        "durationMs": 1540
+      },
+      {
+        "name": "repeated-nested-code-exists-preview",
+        "durationMs": 972,
+        "rowCount": 22
+      },
+      {
+        "name": "cancel-repeated-nested-code-exists-preview",
+        "durationMs": 294,
+        "rowCount": 12
+      },
+      {
+        "name": "repeated-exists-cancel-preserves-source"
+      },
+      {
+        "name": "open-related-expand-editor",
+        "durationMs": 595
+      },
+      {
+        "name": "configure-nested-code-contributor-controls",
+        "durationMs": 2066
+      },
+      {
+        "name": "contributor-nested-code-equals-preview",
+        "durationMs": 1008,
+        "rowCount": 12
+      },
+      {
+        "name": "cancel-contributor-preview",
+        "durationMs": 200,
+        "rowCount": 12
+      },
+      {
+        "name": "contributor-rule-cancel-preserves-source"
+      },
+      {
+        "name": "open-related-expand-editor",
+        "durationMs": 548
+      },
+      {
+        "name": "reconfigure-nested-code-after-cancel",
+        "durationMs": 2204
+      },
+      {
+        "name": "confirmed-contributor-nested-code-equals-preview",
+        "durationMs": 886,
+        "rowCount": 12
+      },
+      {
+        "name": "apply-contributor-nested-code-rule-to-render",
+        "durationMs": 778,
+        "rowCount": 12
+      },
+      {
+        "name": "reload-contributor-nested-code-equals",
+        "durationMs": 1450,
+        "rowCount": 12
+      },
+      {
+        "name": "edit-saved-step-to-policy-control",
+        "durationMs": 1167
+      },
+      {
+        "name": "edit-policy-exclude-preview",
+        "durationMs": 1030,
+        "rowCount": 10
+      },
+      {
+        "name": "apply-exclude-policy-to-render",
+        "durationMs": 797,
+        "rowCount": 10
+      },
+      {
+        "name": "reload-edited-exclude-policy",
+        "durationMs": 1440,
+        "rowCount": 10
+      },
+      {
+        "name": "remove-contributor-rule-preview",
+        "durationMs": 960,
+        "rowCount": 12
+      },
+      {
+        "name": "cancel-remove-to-render",
+        "durationMs": 236,
+        "rowCount": 10
+      },
+      {
+        "name": "remove-cancel-preserves-contributor-rule"
+      },
+      {
+        "name": "remove-contributor-rule-preview",
+        "durationMs": 935,
+        "rowCount": 12
+      },
+      {
+        "name": "apply-remove-to-render",
+        "durationMs": 398,
+        "rowCount": 12
+      },
+      {
+        "name": "reload-restored-source-table",
+        "durationMs": 1462,
+        "rowCount": 12
+      }
+    ],
+    "assertions": {
+      "passed": 53,
+      "failed": 0,
+      "total": 53
+    },
+    "actions": {
+      "passed": 51,
+      "total": 51,
+      "maxElapsedMs": 336,
+      "elapsedMsByAction": [
+        {
+          "label": "\u25a4 Contributor code QA",
+          "status": "passed",
+          "elapsedMs": 89
+        },
+        {
+          "label": "Configure rows",
+          "status": "passed",
+          "elapsedMs": 75
+        },
+        {
+          "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations \u2192 2 rows, each describing Patient A and one Observation",
+          "status": "passed",
+          "elapsedMs": 90
+        },
+        {
+          "label": "Select Observation",
+          "status": "passed",
+          "elapsedMs": 41
+        },
+        {
+          "label": "Patient <-[subject]- Observation",
+          "status": "passed",
+          "elapsedMs": 92
+        },
+        {
+          "label": "Select PRESERVE_PARENT",
+          "status": "passed",
+          "elapsedMs": 56
+        },
+        {
+          "label": "Which related records count? \u00b7 All matching records",
+          "status": "passed",
+          "elapsedMs": 48
+        },
+        {
+          "label": "Only records meeting a condition",
+          "status": "passed",
+          "elapsedMs": 130
+        },
+        {
+          "label": "",
+          "status": "passed",
+          "elapsedMs": 79
+        },
+        {
+          "label": "",
+          "status": "passed",
+          "elapsedMs": 40
+        },
+        {
+          "label": "category[].coding[].code \u00b7 string",
+          "status": "passed",
+          "elapsedMs": 139
+        },
+        {
+          "label": "Cancel",
+          "status": "passed",
+          "elapsedMs": 227
+        },
+        {
+          "label": "Configure rows",
+          "status": "passed",
+          "elapsedMs": 52
+        },
+        {
+          "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations \u2192 2 rows, each describing Patient A and one Observation",
+          "status": "passed",
+          "elapsedMs": 108
+        },
+        {
+          "label": "Select Observation",
+          "status": "passed",
+          "elapsedMs": 39
+        },
+        {
+          "label": "Patient <-[subject]- Observation",
+          "status": "passed",
+          "elapsedMs": 107
+        },
+        {
+          "label": "Select PRESERVE_PARENT",
+          "status": "passed",
+          "elapsedMs": 126
+        },
+        {
+          "label": "Which related records count? \u00b7 All matching records",
+          "status": "passed",
+          "elapsedMs": 91
+        },
+        {
+          "label": "Only records meeting a condition",
+          "status": "passed",
+          "elapsedMs": 123
+        },
+        {
+          "label": "",
+          "status": "passed",
+          "elapsedMs": 51
+        },
+        {
+          "label": "",
+          "status": "passed",
+          "elapsedMs": 47
+        },
+        {
+          "label": "category[].coding[].code \u00b7 string",
+          "status": "passed",
+          "elapsedMs": 138
+        },
+        {
+          "label": "Select EQUALS",
+          "status": "passed",
+          "elapsedMs": 150
+        },
+        {
+          "label": "laboratory",
+          "status": "passed",
+          "elapsedMs": 184
+        },
+        {
+          "label": "Cancel",
+          "status": "passed",
+          "elapsedMs": 110
+        },
+        {
+          "label": "Configure rows",
+          "status": "passed",
+          "elapsedMs": 61
+        },
+        {
+          "label": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations \u2192 2 rows, each describing Patient A and one Observation",
+          "status": "passed",
+          "elapsedMs": 108
+        },
+        {
+          "label": "Select Observation",
+          "status": "passed",
+          "elapsedMs": 32
+        },
+        {
+          "label": "Patient <-[subject]- Observation",
+          "status": "passed",
+          "elapsedMs": 106
+        },
+        {
+          "label": "Select PRESERVE_PARENT",
+          "status": "passed",
+          "elapsedMs": 44
+        },
+        {
+          "label": "Which related records count? \u00b7 All matching records",
+          "status": "passed",
+          "elapsedMs": 52
+        },
+        {
+          "label": "Only records meeting a condition",
+          "status": "passed",
+          "elapsedMs": 121
+        },
+        {
+          "label": "",
+          "status": "passed",
+          "elapsedMs": 51
+        },
+        {
+          "label": "",
+          "status": "passed",
+          "elapsedMs": 45
+        },
+        {
+          "label": "category[].coding[].code \u00b7 string",
+          "status": "passed",
+          "elapsedMs": 161
+        },
+        {
+          "label": "Select EQUALS",
+          "status": "passed",
+          "elapsedMs": 165
+        },
+        {
+          "label": "laboratory",
+          "status": "passed",
+          "elapsedMs": 306
+        },
+        {
+          "label": "Apply change",
+          "status": "passed",
+          "elapsedMs": 336
+        },
+        {
+          "label": "\u25a4 Contributor code QA",
+          "status": "passed",
+          "elapsedMs": 70
+        },
+        {
+          "label": "1. Expand related records",
+          "status": "passed",
+          "elapsedMs": 110
+        },
+        {
+          "label": "Edit",
+          "status": "passed",
+          "elapsedMs": 102
+        },
+        {
+          "label": "Select EXCLUDE",
+          "status": "passed",
+          "elapsedMs": 87
+        },
+        {
+          "label": "Apply change",
+          "status": "passed",
+          "elapsedMs": 203
+        },
+        {
+          "label": "\u25a4 Contributor code QA",
+          "status": "passed",
+          "elapsedMs": 59
+        },
+        {
+          "label": "1. Expand related records",
+          "status": "passed",
+          "elapsedMs": 108
+        },
+        {
+          "label": "Remove",
+          "status": "passed",
+          "elapsedMs": 81
+        },
+        {
+          "label": "Cancel",
+          "status": "passed",
+          "elapsedMs": 201
+        },
+        {
+          "label": "1. Expand related records One row per distinct Observation via Subject; only records where category[].coding[].code equals \u201claboratory\u201d; omit parents without a match.",
+          "status": "passed",
+          "elapsedMs": 83
+        },
+        {
+          "label": "Remove",
+          "status": "passed",
+          "elapsedMs": 57
+        },
+        {
+          "label": "Apply removal",
+          "status": "passed",
+          "elapsedMs": 97
+        },
+        {
+          "label": "\u25a4 Contributor code QA",
+          "status": "passed",
+          "elapsedMs": 69
+        }
+      ]
+    }
+  },
+  "oracle": {
+    "sourceCandidateId": "c_6a811ec5a66579ccb0fbff09",
+    "boundedObservationCount": 21,
+    "patientCountByBucket": {
+      "zero": 1,
+      "one": 1,
+      "many": 10
+    },
+    "observationCountByBucket": {
+      "zero": 0,
+      "one": 1,
+      "many": 20
+    },
+    "nestedCodeCounts": {
+      "survey": 11,
+      "laboratory": 10
+    },
+    "selectedCatalogValue": "laboratory",
+    "occurrenceCount": 10,
+    "matchingObservationCount": 10,
+    "deduplicatedTerminalObservationCount": 10,
+    "duplicateOccurrenceCoverage": {
+      "rawOccurrenceCount": 10,
+      "matchingObservationCount": 10,
+      "observationsWithDuplicateValue": 0,
+      "duplicateFixtureExercised": false,
+      "expectedTerminalRows": 10
+    },
+    "equalityPreservedNoMatchRows": 2,
+    "coveredControls": [
+      "Related-record field search and selection: Observation.category[].coding[].code",
+      "Repeated Contributor predicates: automatic ANY with EXISTS and exact nested code equality",
+      "Raw nested-code oracle bounded to 8 categories and 8 codings per category",
+      "Preview rows match the bounded raw resource-membership oracle with one row per matching terminal Observation",
+      "Zero/one/many Patient witness availability is reported from a bounded first-2000 Patient scan",
+      "No-match policies: PRESERVE_PARENT and EXCLUDE",
+      "Preview, Cancel, Apply, reload, policy edit, remove Cancel, remove Apply, exact source restoration"
+    ],
+    "uncoveredControls": [
+      "Other Contributor fields and suggestion families",
+      "Other repeated code paths such as Observation.code.coding[].code",
+      "Alternative related paths and starting anchors",
+      "ERROR empty-policy recovery (covered by sibling verifier)",
+      "The selected code has no duplicate occurrences within one Observation in this bounded fixture, so the duplicate-occurrence case is not exercised."
+    ]
+  },
+  "errors": {
+    "reportErrorsExpected": 6,
+    "reportErrorsUnexpected": 0,
+    "nativeRequestFailures": 6,
+    "expectedCancellationCount": 6,
+    "expectedCancellations": [
+      {
+        "browserRequestId": "playwright-16",
+        "requestId": "construction-proposal-21928e66-06f1-4ca3-9387-b67e819315f3",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/repeated-contributor-any-browser-1791222618484/authoring/v2/construction-proposals",
+        "scopeAction": "configure-repeated-nested-code-exists: select condition mode and search category[].coding[].code"
+      },
+      {
+        "browserRequestId": "playwright-17",
+        "requestId": "cda-request-128",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/repeated-contributor-any-browser-1791222618484/authoring/v2/related-expand-contributors",
+        "scopeAction": "configure-repeated-nested-code-exists: select condition mode and search category[].coding[].code"
+      },
+      {
+        "browserRequestId": "playwright-41",
+        "requestId": "construction-proposal-cc3480e3-7e01-47c4-a11f-4c0fa3680b4c",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/repeated-contributor-any-browser-1791222618484/authoring/v2/construction-proposals",
+        "scopeAction": "configure-nested-code-contributor-controls: select condition mode and search category[].coding[].code"
+      },
+      {
+        "browserRequestId": "playwright-42",
+        "requestId": "cda-request-153",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/repeated-contributor-any-browser-1791222618484/authoring/v2/related-expand-contributors",
+        "scopeAction": "configure-nested-code-contributor-controls: select condition mode and search category[].coding[].code"
+      },
+      {
+        "browserRequestId": "playwright-66",
+        "requestId": "construction-proposal-8ac0577e-2678-4cc3-8bc4-fac2a7b772c5",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/repeated-contributor-any-browser-1791222618484/authoring/v2/construction-proposals",
+        "scopeAction": "reconfigure-nested-code-after-cancel: select condition mode and search category[].coding[].code"
+      },
+      {
+        "browserRequestId": "playwright-67",
+        "requestId": "cda-request-178",
+        "method": "POST",
+        "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/repeated-contributor-any-browser-1791222618484/authoring/v2/related-expand-contributors",
+        "scopeAction": "reconfigure-nested-code-after-cancel: select condition mode and search category[].coding[].code"
+      }
+    ],
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "status": 404,
+        "url": "http://127.0.0.1:30008/favicon.ico"
+      },
+      {
+        "kind": "console",
+        "status": 404,
+        "url": "http://127.0.0.1:30008/favicon.ico"
+      }
+    ],
+    "incidentalErrorCount": 1
+  },
+  "frozenIdentity": {
+    "source": {
+      "path": "/private/tmp/loom-native-parallel-wave11/source-before.json",
+      "fingerprint": {
+        "sha256": "a7815f5f67ce9e3be6c8045f76f95d83e5049262501cc27a82bf96b3ac6fa681",
+        "files": 1487
+      },
+      "files": 1487,
+      "unchangedAfter": true
+    },
+    "docs": {
+      "path": "/private/tmp/loom-native-parallel-wave11/docs-before.json",
+      "fingerprint": {
+        "sha256": "4a9dad8d214acb12ece2df553fa60135309b9593e1e46e8cd3b7e49bf9932a1b",
+        "files": 104
+      },
+      "files": 104,
+      "unchangedAfter": true
+    },
+    "api": {
+      "path": "/private/tmp/loom-native-parallel-wave11/api-identity.json",
+      "buildIdentity": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "unchangedAfter": true
+    },
+    "closurePath": "/private/tmp/loom-native-parallel-wave11/closure.json"
+  },
+  "artifacts": {
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave11/any/results.json",
+      "sha256": "aba2ff1f8cb710cae689a509181ad59fb2a88aa8a833d8b9f212dd4bf98a690d"
+    },
+    "cdaReport": {
+      "path": "/private/tmp/loom-native-parallel-wave11/any/results/standalone-cda-fields-CDA--e6f0d-DA-repeated-contributor-ANY/cda-report.json",
+      "sha256": "fb93bdb82ab5a70704dfb55c26590dffc5d8702dc10582b0962422d618e4fc59"
+    },
+    "rawWorkflowReport": {
+      "path": "/private/tmp/loom-native-parallel-wave11/any/results/standalone-cda-fields-CDA--e6f0d-DA-repeated-contributor-ANY/attachments/standalone-repeated-contributor-any-domain.json",
+      "sha256": "13a16b7aa0f9bfd7fe24b45c38262f813274df9ca71282b916ae53c015af329c"
+    },
+    "sourceBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave11/source-before.json",
+      "sha256": "d52b8c7cdb122abbcd092bcd8ecb3491cdee60eb8de01c5521f40fdd8ea649fb"
+    },
+    "docsBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave11/docs-before.json",
+      "sha256": "a50f3fc643affce07efd4cb7d572ab61a66e015932dcc79a196b4d00e1b3d47b"
+    },
+    "apiIdentityBaseline": {
+      "path": "/private/tmp/loom-native-parallel-wave11/api-identity.json",
+      "sha256": "ad888031f0547402ad513e3313f3855432476a9c7799863d2af7beaca299d134"
+    },
+    "release": {
+      "path": "/private/tmp/loom-native-parallel-wave11/release.json",
+      "sha256": "f5f6cd11e187fa003a90f257f076e4a276f41f4f0a3b4021d28b187ce1372225"
+    },
+    "health": {
+      "path": "/private/tmp/loom-native-parallel-wave11/health.json",
+      "sha256": "47572d5c8494f0f99a3fac2ffcdaca588759d269eb5d5764f68df9930f35696a"
+    },
+    "ownedTarget": {
+      "path": "/private/tmp/loom-native-parallel-wave11/owned-target.json",
+      "sha256": "90e944327ed5f99dd13dea2931d0334d453399251c3bd95285528964ca40496e"
+    },
+    "closure": {
+      "path": "/private/tmp/loom-native-parallel-wave11/closure.json",
+      "sha256": "a7dbe6086f393e71712678dc1e0f555e092a1a262384356c83556c051143ed1a"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave11/any/runner.log",
+      "sha256": "4bc44f76c64fb9d09880cc5a03caaa1249c5d44c108108dae3a920e377c402a8"
+    }
+  }
+}

@@ -2,10 +2,13 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -44,18 +47,23 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 			return PublishResult{}, conflict("publish", "RECEIPT_RECOMPILE_REQUIRED", "the compilation receipt contains invalid authoring intent", nil, decodeErr)
 		}
 		if err := workspace.ValidateForPublication(); err != nil {
-			return PublishResult{}, unprocessable("publish", "NO_SELECTED_COLUMNS", "select at least one visible output column for every visible table before publishing", err)
+			code := workspaceValidationCode(err)
+			message := "select at least one visible output column for every visible table before publishing"
+			if code == "UNACKNOWLEDGED_RELATED_FIRST" {
+				message = "acknowledge the related-resource FIRST selection before publishing"
+			}
+			return PublishResult{}, unprocessable("publish", code, message, err)
 		}
 	}
 	if err := s.config.ValidateReleaseGeneration(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration); err != nil {
 		return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt generation is no longer active", map[string]any{"generation": receipt.SourceGeneration}, err)
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), DatasetGeneration: receipt.SourceGeneration}
+	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection}
 	applyAuthorizedScope(&bindings, authorized, true)
 	execution, err := s.config.MaterializeReceipt(ctx, receipt, bindings)
 	if err != nil {
-		if resourceErr := materializationResourceError("materialize", err); resourceErr != nil {
-			return PublishResult{}, resourceErr
+		if classifiedErr := classifyMaterializationError("materialize", err); classifiedErr != nil {
+			return PublishResult{}, classifiedErr
 		}
 		if userErr, ok := dataframeerrors.AsUserError(err); ok {
 			switch userErr.Code() {
@@ -73,15 +81,21 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err := verifyQueryableOutputs(receipt.Bundle, execution); err != nil {
 		return PublishResult{}, unavailable("materialize", "MATERIALIZATION_FAILED", "materialization did not produce queryable outputs", err)
 	}
+	if err := verifyActivationQuality(receipt, execution); err != nil {
+		return PublishResult{}, unavailable("quality", "QUALITY_EVIDENCE_INVALID", "publication quality evidence is incomplete or does not match the materialized output; the prior Explorer revision was retained", err)
+	}
 	release, expectedReleaseRevision, err := s.config.PrepareRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle))
 	if err != nil {
 		return PublishResult{}, unavailable("activation", "MATERIALIZATION_ACTIVATION_FAILED", "dataset release preparation failed; the prior Explorer revision was retained", err)
 	}
 	now := s.now()
 	revisionID := "authoring_" + strings.TrimPrefix(receipt.ID, "receipt_")
-	revisionValue := explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now}
+	revisionValue := explorer.Revision{ID: revisionID, Project: receipt.Project, ExplorerID: receipt.ExplorerID, Config: receipt.CompiledConfig, AuthoringBundle: receipt.NormalizedBundle, IntentDigest: receipt.IntentDigest, CompilationReceiptID: receipt.ID, PublicOutputContract: receipt.PublicOutputContract, Recipe: receipt.Bundle, RecipeDigest: receipt.RecipeDigest, ResolvedSchemaDigest: receipt.ResolvedSchemaDigest, SourceGeneration: receipt.SourceGeneration, Materializations: materializations(receipt.Bundle, execution), EmittedColumns: receipt.EmittedColumns, Dataset: datasetMetadataFromExecution(receipt.Bundle, receipt.SourceGeneration, receipt.ResolvedSchemaDigest, execution), QualityReports: publication.CloneQualityReports(execution.QualityReports), Publication: explorer.PublicationMetadata{State: string(explorer.RevisionReady), Generation: receipt.SourceGeneration, ExecutionID: execution.ID, UpdatedAt: now}, Status: explorer.RevisionReady, CreatedBy: request.Actor, CreatedAt: now, ReadyAt: &now}
 	revision, err := s.store.PublishAuthoring(ctx, *receipt, revisionValue, release, expectedReleaseRevision)
 	if err != nil {
+		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
+			return PublishResult{}, conflict("activation", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
+		}
 		return PublishResult{}, err
 	}
 	if s.config.PersistPublishedWorkspace != nil {
@@ -92,10 +106,20 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	return PublishResult{Receipt: receipt, Revision: revision, Execution: execution}, nil
 }
 
-func materializationResourceError(stage string, err error) error {
+func classifyMaterializationError(stage string, err error) error {
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
 		return nil
+	}
+	if dataframeerrors.IsFeatureResolutionCode(userErr.Code()) {
+		instruction := "Update the feature policy, then publish again."
+		if userErr.Code() == string(dataframeerrors.CodeRelationshipCardinalityViolation) {
+			instruction = "Choose how multiple related values should be reduced, then publish again."
+		} else if userErr.Code() == string(dataframeerrors.CodeConstructionExpansionEmpty) {
+			instruction = "Choose the empty-list or no-match policy, then publish again."
+		}
+		message := dataframeerrors.PublicMessage(err) + ". " + instruction + " The active revision was retained."
+		return failureDetails(ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)
 	}
 	var message string
 	switch userErr.Code() {

@@ -45,17 +45,21 @@ export const requestedFacetsFor = (
 ): ReadonlyArray<LoomFacetSpec> => {
   const specs = new Map<string, LoomFacetSpec>();
   for (const binding of output.filters) {
-    specs.set(facetName(output.outputId, binding.column), {
-      name: facetName(output.outputId, binding.column),
+    const name = facetName(output.outputId, binding.column);
+    const selected = activeOutputState(state, output.outputId).filterValues[binding.column];
+    if (!state.expandedFacets.includes(`${output.outputId}:filter:${binding.column}`) && !selected?.length) continue;
+    specs.set(name, {
+      name,
       kind: 'TERMS',
       column: binding.column,
       size: 50,
       excludeSelfFilter: true,
     });
   }
-  for (const bindings of Object.values(runtime.sharedFilters)) {
+  for (const [sharedName, bindings] of Object.entries(runtime.sharedFilters)) {
     for (const binding of bindings) {
       if (binding.outputId && binding.outputId !== output.outputId) continue;
+      if (!state.expandedFacets.includes(`${output.outputId}:shared:${sharedName}`) && !(state.sharedFilters[sharedName]?.length)) continue;
       specs.set(facetName(output.outputId, binding.column), {
         name: facetName(output.outputId, binding.column),
         kind: 'TERMS',
@@ -65,7 +69,7 @@ export const requestedFacetsFor = (
       });
     }
   }
-  if (state.chartsVisible[output.outputId] ?? true) {
+  if (state.chartsVisible[output.outputId] === true) {
     for (const binding of output.charts) {
       if (!supportedChart(binding)) continue;
       specs.set(chartFacetName(output.outputId, binding.column), {

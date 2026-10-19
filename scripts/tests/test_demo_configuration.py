@@ -85,6 +85,42 @@ class DemoConfigurationTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(log.read_text().strip(), "compose --project-name alternate-demo down --volumes")
 
+    def test_demo_up_can_redeploy_without_seeding(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = pathlib.Path(temporary)
+            log = temporary_path / "docker.log"
+            self._write_executable(
+                temporary_path / "docker",
+                """
+                #!/usr/bin/env bash
+                printf '%s\n' "$*" >> "$DEMO_TEST_DOCKER_LOG"
+                """,
+            )
+            self._write_executable(temporary_path / "curl", "#!/usr/bin/env bash\nexit 0\n")
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "PATH": f"{temporary_path}:{environment['PATH']}",
+                    "DEMO_TEST_DOCKER_LOG": str(log),
+                    "LOOM_DEMO_SEED": "false",
+                }
+            )
+
+            result = subprocess.run(
+                [str(ROOT / "scripts/demo-up.sh")],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            commands = log.read_text()
+            self.assertIn("up --build -d arangodb clickhouse loom-api", commands)
+            self.assertIn("up --build -d loom-ui", commands)
+            self.assertNotIn("demo-seed", commands)
+
     def test_demo_up_brackets_ipv6_urls(self):
         with tempfile.TemporaryDirectory() as temporary:
             temporary_path = pathlib.Path(temporary)

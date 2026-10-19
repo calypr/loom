@@ -1,0 +1,1 @@
+{"resourceType":"Patient","id":"scope-foreign-patient-001","name":[{"use":"official","family":"Scope","given":["Foreign"]}],"gender":"female","birthDate":"1991-02-02"}

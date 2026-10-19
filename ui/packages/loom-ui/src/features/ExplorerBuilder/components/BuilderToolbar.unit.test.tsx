@@ -14,6 +14,7 @@ const draftTable = (outputId: string, title: string): DraftTable => ({
     output: { id: outputId, title },
     rootResourceType: 'Patient',
     route: { occurrenceId: 'base', resourceType: 'Patient' },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 });
@@ -45,9 +46,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
-        onPreview={vi.fn()}
+        onReview={vi.fn()}
+        reviewExpanded={false}
         onPublish={vi.fn()}
-        previewDisabled={false}
         publishDisabled={false}
         publishing={false}
       />,
@@ -72,6 +73,61 @@ describe('BuilderToolbar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete explorer' }));
     expect(onDeleteExplorer).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides deletion when unsupported and preserves the sole-survivor guard', () => {
+    const onDeleteExplorer = vi.fn();
+    const toolbarProps = {
+      explorers: [
+        {
+          project: 'HTAN_INT/BForePC',
+          explorerId: 'default',
+          title: 'Default',
+          management: 'repository',
+          updatedAt: '2026-08-27T00:00:00Z',
+        },
+      ],
+      selectedExplorerId: 'default',
+      onExplorerChange: vi.fn(),
+      onCreateExplorer: vi.fn(),
+      onDeleteExplorer,
+      tables: [draftTable('Patient', 'Patient')],
+      selectedOutputId: 'Patient',
+      onSelectTable: vi.fn(),
+      onRenameTable: vi.fn(),
+      onNewTable: vi.fn(),
+      onDuplicateTable: vi.fn(),
+      onDeleteTable: vi.fn(),
+      onReorderTable: vi.fn(),
+      onReview: vi.fn(),
+      reviewExpanded: false,
+      onPublish: vi.fn(),
+      publishDisabled: false,
+      publishing: false,
+    } satisfies Omit<Parameters<typeof BuilderToolbar>[0], 'deleteSupported'>;
+    const { rerender } = render(
+      <BuilderToolbar {...toolbarProps} deleteSupported={false} />,
+    );
+
+    expect(
+      screen.queryByRole('button', { name: 'Delete explorer' }),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <BuilderToolbar
+        {...toolbarProps}
+        deleteSupported
+        deleteDisabled
+      />,
+    );
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete explorer' });
+    expect(deleteButton).toBeDisabled();
+    expect(deleteButton).toHaveAttribute(
+      'title',
+      'Create or select another Explorer before deleting this one',
+    );
+    expect(onDeleteExplorer).not.toHaveBeenCalled();
   });
 
   it('uses one draggable table menu for selection, naming, and ordering', () => {
@@ -105,9 +161,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={onReorderTable}
-        onPreview={vi.fn()}
+        onReview={vi.fn()}
+        reviewExpanded={false}
         onPublish={vi.fn()}
-        previewDisabled={false}
         publishDisabled={false}
         publishing={false}
         columnCreationSupported={false}
@@ -152,9 +208,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
-        onPreview={vi.fn()}
+        onReview={vi.fn()}
+        reviewExpanded={false}
         onPublish={vi.fn()}
-        previewDisabled={false}
         publishDisabled={false}
         publishing
       />,
@@ -164,5 +220,42 @@ describe('BuilderToolbar', () => {
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('aria-busy', 'true');
     expect(button.querySelector('.animate-spin')).not.toBeNull();
+  });
+
+  it('offers dataset review before the existing Publish action', () => {
+    const onReview = vi.fn();
+    const onPublish = vi.fn();
+    render(
+      <BuilderToolbar
+        explorers={[]}
+        selectedExplorerId="default"
+        onExplorerChange={vi.fn()}
+        onCreateExplorer={vi.fn()}
+        deleteSupported={false}
+        onDeleteExplorer={vi.fn()}
+        tables={[draftTable('Patient', 'Patient')]}
+        selectedOutputId="Patient"
+        onSelectTable={vi.fn()}
+        onRenameTable={vi.fn()}
+        onNewTable={vi.fn()}
+        onDuplicateTable={vi.fn()}
+        onDeleteTable={vi.fn()}
+        onReorderTable={vi.fn()}
+        onReview={onReview}
+        reviewExpanded
+        onPublish={onPublish}
+        publishDisabled={false}
+        publishing={false}
+      />,
+    );
+
+    const review = screen.getByRole('button', { name: 'Review dataset' });
+    const publish = screen.getByRole('button', { name: 'Publish' });
+    expect(review).toHaveAttribute('aria-expanded', 'true');
+    expect(review).toHaveAttribute('aria-controls', 'dataset-review-panel');
+    expect(review.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(publish).toBeEnabled();
+    fireEvent.click(review);
+    expect(onReview).toHaveBeenCalledTimes(1);
   });
 });

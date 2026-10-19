@@ -1,0 +1,3 @@
+{"resourceType":"MedicationAdministration","id":"administration-primary","status":"completed","subject":{"reference":"Patient/patient-primary"},"medication":{"reference":{"reference":"Medication/medication-primary"}}}
+{"resourceType":"MedicationAdministration","id":"administration-fallback","status":"completed","subject":{"reference":"Patient/patient-fallback"},"medication":{"reference":{"reference":"Medication/medication-fallback"}}}
+{"resourceType":"MedicationAdministration","id":"administration-no-observation","status":"completed","subject":{"reference":"Patient/patient-no-observation"},"medication":{"reference":{"reference":"Medication/medication-no-observation"}}}

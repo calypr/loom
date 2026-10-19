@@ -1,0 +1,1 @@
+{"resourceType":"Observation","id":"scope-active-observation-001","status":"final","effectiveDateTime":"2026-01-02T00:00:00Z","subject":{"reference":"Patient/scope-active-patient-001"},"code":{"coding":[{"system":"https://example.test/scope","code":"active-generation","display":"Active generation witness"}]},"valueString":"active generation witness"}

@@ -1,0 +1,116 @@
+{
+  "epoch": 47,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "7c56d58f1cf91360b6c7fd6eac64585425c8d827d79c9bb5f1fed33eee1846f5",
+      "afterSha256": "7c56d58f1cf91360b6c7fd6eac64585425c8d827d79c9bb5f1fed33eee1846f5",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "0f0aef7d64e0b0a8697070e1e107bd035090edcf7921c5f9a001a4257a3e70ca",
+      "afterSha256": "0f0aef7d64e0b0a8697070e1e107bd035090edcf7921c5f9a001a4257a3e70ca",
+      "files": 125,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true,
+      "freshBuildPrecheck": "/private/tmp/loom-native-parallel-wave47/api-build-precheck.json"
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "beforeCapture": {
+        "session": 22979,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 53702,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 49446,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 87533,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 16499,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_HARNESS_LABEL_EXPECTATION",
+    "durationMs": 17833,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave47/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "rawOracle": "PASS: 2,000 scoped rows scanned, four exact reread members, selected 3/1 and shared-key count 2.",
+    "firstFailure": "After Apply, the saved-table display label was `Subject Reference`; the harness expected raw field identifier `subject.reference`. Root review of the preserved raw ANSI inline diff corrects the prior summary, which misread the colored actual text as `Ssubject R.reference`.",
+    "actions": 7,
+    "nativeRequests": 0,
+    "missingRequiredChecks": 11,
+    "browserLifecycleStarted": true,
+    "groupJoinLifecycleReached": false,
+    "processDurationMs": 19617.736999999997,
+    "causeClassification": "HARNESS_LABEL_EXPECTATION",
+    "observedMismatch": {
+      "actual": "Subject Reference",
+      "expected": "subject.reference",
+      "failure": "Harness compared the saved-table display label with the raw field identifier."
+    },
+    "productBehaviorEstablished": false,
+    "scopeNote": "Classification is HARNESS_LABEL_EXPECTATION. The intended Group/Join lifecycle was not reached and remains unverified.",
+    "reportSha256": "2dcaeadd634bb2fefd6f37aa436076c01adad2a4ce576afe4fe41bade64ba0d7",
+    "errorContextSha256": "469896ecd8c86bde558a229eb7a2a04c312ff4f3841d020f20758b3cc7fa517f",
+    "playwrightResultsSha256": "bb61f99c276a197c4f221e0a92206f32a5871c154fe087a8c0f2466f87fc8341",
+    "actionsPassed": 7,
+    "recordedAssertionsPassed": 16,
+    "recordedAssertionsFailed": 0,
+    "requiredChecksPassed": 5,
+    "requiredChecksTotal": 16,
+    "interpretationCorrection": "The prior compact summary misread the raw ANSI inline diff; the preserved raw report and error context are unchanged."
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "apiBuildPrecheck": "/private/tmp/loom-native-parallel-wave47/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave47/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave47/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave47/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave47/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave47/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave47/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave47/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave47/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave47/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave47/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave47/cda-workspace-combine/results.json",
+    "runPlan": "/private/tmp/loom-native-parallel-wave47/run-plan.json"
+  }
+}

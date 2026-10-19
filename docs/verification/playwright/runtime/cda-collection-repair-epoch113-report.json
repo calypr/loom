@@ -1,0 +1,1196 @@
+{
+  "schemaVersion": 1,
+  "epoch": 113,
+  "scenario": "cda-collection-repair-partial",
+  "case": "partial-long-route-repair-and-reload",
+  "title": "remove an unmapped selected resource, verify the saved route, and reload",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "PASS_COMPLETE_NATIVE_LIFECYCLE_BOUNDED_CASE",
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-collection-repair-epoch113-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": null,
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "308f67abbf50bc168d3632273664b057a6e868cac09b0309633a4cb63f6f35ff",
+      "files": 1538
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "requiredChecks": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+      "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+      "saved population preserves the exact two-hop Observation → Specimen → parent route",
+      "native preview and coverage match exact mapped/unmapped raw membership",
+      "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+      "repaired route, immutable selection, and preview survive Builder reload",
+      "clearing the collection displays rows from the scoped current-generation Observation source",
+      "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+      "all measured native actions and workflow checkpoints complete within five seconds",
+      "no unexpected HTTP or workflow errors occur",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": []
+  },
+  "assertions": [
+    {
+      "dimension": "correctness",
+      "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+      "status": "passed",
+      "evidence": {
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1",
+        "mappedSpecimenIDs": [
+          "00001c68-2c20-5003-a144-b2442469d8de",
+          "0000ae4e-5498-51e8-a091-32b0552093ac"
+        ],
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "unmappedSpecimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+        "seedLimit": 4000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+      "status": "passed",
+      "evidence": {
+        "selectionId": "selection_2710631d262b23ea99e3b582a0ec52bf10e067b7a2d45585df6ff9514c743a88",
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1",
+        "scopeDigest": "ec9d970710fa72b2edaa12c9080c3861e1c191935535582b23f0a29b50f042d6",
+        "memberCount": 3,
+        "memberIDs": [
+          "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+          "0000ae4e-5498-51e8-a091-32b0552093ac",
+          "00001c68-2c20-5003-a144-b2442469d8de"
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+      "status": "passed",
+      "evidence": {
+        "route": [
+          {
+            "resourceType": "Specimen",
+            "relationship": "specimen_Specimen",
+            "catalogEdgeId": "e_4f79cbfdf06f50d30f273de4",
+            "storageDirection": "OUTBOUND"
+          },
+          {
+            "resourceType": "Specimen",
+            "relationship": "parent",
+            "catalogEdgeId": "e_637cc22e0d33b9c1c9177cc8",
+            "storageDirection": "INBOUND"
+          }
+        ],
+        "columns": [
+          {
+            "columnId": "source_b0f8460a5102ca4982daaaae",
+            "column": "col_f3e1d7ecd6735f42d12765ab",
+            "label": "Observation ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click [data-testid=\"construction-table-out_47cd700f018ffb4f42e80621\"] completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 195,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 6
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 95
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 94
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Configure rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 142,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 11
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 52
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 79
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Check selected-resource coverage completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 82,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 9
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 24
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 50
+          }
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "native preview and coverage match exact mapped/unmapped raw membership",
+      "status": "passed",
+      "evidence": {
+        "coverageText": "3 selected · 2 produce rows · 1 needs attention\n\nSpecimen/0000f0c1-b945-5f22-900d-1c25c88cdc30",
+        "unmappedSpecimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+        "expectedObservationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "previewCases": [
+          {
+            "name": "partial-long-route-preview",
+            "durationMs": 44,
+            "rowCount": 2,
+            "observationIDs": [
+              "5a45e52f-8360-5a41-a507-aaf206380adc",
+              "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Remove from collection completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 148,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 30
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 112
+          }
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+      "status": "passed",
+      "evidence": {
+        "selectionRevisionId": "selection_f929561933ef247779364e304a71072da1efdd891e083b77081bcdc0ac5001a3",
+        "membershipDigest": "506202fd0d29572fcfd182b40b8b3d1099c6d1006125c1a30b0758966b6dba0c",
+        "retainedSpecimenIDs": [
+          "00001c68-2c20-5003-a144-b2442469d8de",
+          "0000ae4e-5498-51e8-a091-32b0552093ac"
+        ],
+        "rawMembership": [
+          {
+            "id": "00001c68-2c20-5003-a144-b2442469d8de",
+            "project": "loom_dev_cda_fhir",
+            "generation": "cda-fhir-v1",
+            "resourceType": "Specimen"
+          },
+          {
+            "id": "0000ae4e-5498-51e8-a091-32b0552093ac",
+            "project": "loom_dev_cda_fhir",
+            "generation": "cda-fhir-v1",
+            "resourceType": "Specimen"
+          }
+        ],
+        "excludedSpecimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+        "route": [
+          {
+            "resourceType": "Specimen",
+            "relationship": "specimen_Specimen",
+            "catalogEdgeId": "e_4f79cbfdf06f50d30f273de4",
+            "storageDirection": "OUTBOUND"
+          },
+          {
+            "resourceType": "Specimen",
+            "relationship": "parent",
+            "catalogEdgeId": "e_637cc22e0d33b9c1c9177cc8",
+            "storageDirection": "INBOUND"
+          }
+        ],
+        "columnsPreserved": true,
+        "constructionPreserved": true
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click [data-testid=\"construction-table-out_47cd700f018ffb4f42e80621\"] completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 160,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 9
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 77
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 74
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Configure rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 151,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 57
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 87
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Check selected-resource coverage completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 72,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 13
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 23
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 37
+          }
+        }
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "repaired route, immutable selection, and preview survive Builder reload",
+      "status": "passed",
+      "evidence": {
+        "route": [
+          {
+            "resourceType": "Specimen",
+            "relationship": "specimen_Specimen",
+            "catalogEdgeId": "e_4f79cbfdf06f50d30f273de4",
+            "storageDirection": "OUTBOUND"
+          },
+          {
+            "resourceType": "Specimen",
+            "relationship": "parent",
+            "catalogEdgeId": "e_637cc22e0d33b9c1c9177cc8",
+            "storageDirection": "INBOUND"
+          }
+        ],
+        "selectionRevisionId": "selection_f929561933ef247779364e304a71072da1efdd891e083b77081bcdc0ac5001a3",
+        "memberIDs": [
+          "0000ae4e-5498-51e8-a091-32b0552093ac",
+          "00001c68-2c20-5003-a144-b2442469d8de"
+        ],
+        "generation": "cda-fhir-v1",
+        "previewIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ],
+        "columns": [
+          {
+            "columnId": "source_b0f8460a5102ca4982daaaae",
+            "column": "col_f3e1d7ecd6735f42d12765ab",
+            "label": "Observation ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Use all authorized rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 234,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 22
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 204
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Back to table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 164,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 8
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 23
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 134
+          }
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "clearing the collection displays rows from the scoped current-generation Observation source",
+      "status": "passed",
+      "evidence": {
+        "visibleObservationIDs": [
+          "03d0499b-d516-58e4-a134-aaf61a10b415",
+          "202756f9-3d68-5bb4-8aa7-c40353e6714b",
+          "212acce3-1b4f-5eb5-8edd-e2bb93afc56b",
+          "29141156-8d4c-5ef9-af43-8ebd6ed8d514",
+          "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+          "3ea21633-23e1-599b-91fc-b7666953ea26",
+          "485e2567-b566-56f3-b5bd-5f025f37cd95",
+          "51918d25-30b0-517e-ad06-088f1d889b24",
+          "52f5e622-0181-5feb-936c-e9992ab26616",
+          "5577788c-1255-5439-85bb-8651f6f597a4",
+          "5a6d5e4d-b78c-522d-95da-533452ba53e6",
+          "5b01aaf9-cbb7-5641-aca0-4506af29e996",
+          "671ad22b-87be-586b-9e35-e1a7082dfb76",
+          "86f418a4-4b32-500c-86ab-c79f1751ab9d",
+          "bbe89242-e9d2-5927-bbb2-2f3157d76f9f",
+          "c8782672-b8d1-5c05-9060-905b6a4498bc",
+          "e1b4dc5a-de6e-5888-a5d9-3428c771681a",
+          "f56be6b4-a036-548c-afa5-4aef487f3ad2",
+          "f5f60d35-443a-59a7-8957-59c4b630e5bb",
+          "faca12ec-b153-5301-9879-ceb028690bc9"
+        ],
+        "rawScopedObservationIDs": [
+          "03d0499b-d516-58e4-a134-aaf61a10b415",
+          "202756f9-3d68-5bb4-8aa7-c40353e6714b",
+          "212acce3-1b4f-5eb5-8edd-e2bb93afc56b",
+          "29141156-8d4c-5ef9-af43-8ebd6ed8d514",
+          "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+          "3ea21633-23e1-599b-91fc-b7666953ea26",
+          "485e2567-b566-56f3-b5bd-5f025f37cd95",
+          "51918d25-30b0-517e-ad06-088f1d889b24",
+          "52f5e622-0181-5feb-936c-e9992ab26616",
+          "5577788c-1255-5439-85bb-8651f6f597a4",
+          "5a6d5e4d-b78c-522d-95da-533452ba53e6",
+          "5b01aaf9-cbb7-5641-aca0-4506af29e996",
+          "671ad22b-87be-586b-9e35-e1a7082dfb76",
+          "86f418a4-4b32-500c-86ab-c79f1751ab9d",
+          "bbe89242-e9d2-5927-bbb2-2f3157d76f9f",
+          "c8782672-b8d1-5c05-9060-905b6a4498bc",
+          "e1b4dc5a-de6e-5888-a5d9-3428c771681a",
+          "f56be6b4-a036-548c-afa5-4aef487f3ad2",
+          "f5f60d35-443a-59a7-8957-59c4b630e5bb",
+          "faca12ec-b153-5301-9879-ceb028690bc9"
+        ],
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Configure rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 63,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 18
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 38
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Select 4 in [role=\"dialog\"][aria-label=\"Row definition settings\"] select[aria-label=\"Population connection\"] completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 47,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 3
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 36
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 8
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Use selected resources completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 212,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 25
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 180
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Back to table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 104,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 59
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 38
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click [data-testid=\"construction-table-out_47cd700f018ffb4f42e80621\"] completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 174,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 3
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 73
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 98
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Configure rows completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 88,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 36
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 45
+          }
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Click Check selected-resource coverage completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 73,
+        "afterMs": null,
+        "failurePhase": null,
+        "phases": {
+          "count": {
+            "completed": true,
+            "durationMs": 7
+          },
+          "trial": {
+            "completed": true,
+            "durationMs": 26
+          },
+          "perform": {
+            "completed": true,
+            "durationMs": 40
+          }
+        }
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+      "status": "passed",
+      "evidence": {
+        "route": [
+          {
+            "resourceType": "Specimen",
+            "relationship": "specimen_Specimen",
+            "catalogEdgeId": "e_4f79cbfdf06f50d30f273de4",
+            "storageDirection": "OUTBOUND"
+          },
+          {
+            "resourceType": "Specimen",
+            "relationship": "parent",
+            "catalogEdgeId": "e_637cc22e0d33b9c1c9177cc8",
+            "storageDirection": "INBOUND"
+          }
+        ],
+        "selectionRevisionId": "selection_f929561933ef247779364e304a71072da1efdd891e083b77081bcdc0ac5001a3",
+        "memberIDs": [
+          "0000ae4e-5498-51e8-a091-32b0552093ac",
+          "00001c68-2c20-5003-a144-b2442469d8de"
+        ],
+        "columns": [
+          {
+            "columnId": "source_b0f8460a5102ca4982daaaae",
+            "column": "col_f3e1d7ecd6735f42d12765ab",
+            "label": "Observation ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        ],
+        "previewObservationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ]
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "all measured native actions and workflow checkpoints complete within five seconds",
+      "status": "passed",
+      "evidence": {
+        "actionCount": 16,
+        "caseCount": 15,
+        "maxDurationMs": 3510,
+        "budgetMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "no unexpected HTTP or workflow errors occur",
+      "status": "passed",
+      "evidence": {
+        "httpFailures": [],
+        "workflowExceptions": []
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed",
+      "evidence": {
+        "sourceFingerprint": {
+          "before": {
+            "sha256": "308f67abbf50bc168d3632273664b057a6e868cac09b0309633a4cb63f6f35ff",
+            "files": 1538
+          },
+          "after": {
+            "sha256": "308f67abbf50bc168d3632273664b057a6e868cac09b0309633a4cb63f6f35ff",
+            "files": 1538
+          }
+        },
+        "apiBuildIdentity": {
+          "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+          "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+        },
+        "sourceFreeze": {
+          "unchanged": true,
+          "watchedFileCount": 1118,
+          "changedPaths": [],
+          "invalidatesRun": false,
+          "productFailure": false
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed",
+      "evidence": {
+        "failures": [
+          {
+            "kind": "asset-failure",
+            "url": "http://127.0.0.1:30008/favicon.ico",
+            "status": 404
+          }
+        ]
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "cda-action-1",
+      "label": "Click [data-testid=\"construction-table-out_47cd700f018ffb4f42e80621\"]",
+      "status": "passed",
+      "elapsedMs": 195
+    },
+    {
+      "id": "cda-action-2",
+      "label": "Click Configure rows",
+      "status": "passed",
+      "elapsedMs": 142
+    },
+    {
+      "id": "cda-action-3",
+      "label": "Click Check selected-resource coverage",
+      "status": "passed",
+      "elapsedMs": 82
+    },
+    {
+      "id": "cda-action-4",
+      "label": "Click Remove from collection",
+      "status": "passed",
+      "elapsedMs": 148
+    },
+    {
+      "id": "cda-action-5",
+      "label": "Click [data-testid=\"construction-table-out_47cd700f018ffb4f42e80621\"]",
+      "status": "passed",
+      "elapsedMs": 160
+    },
+    {
+      "id": "cda-action-6",
+      "label": "Click Configure rows",
+      "status": "passed",
+      "elapsedMs": 151
+    },
+    {
+      "id": "cda-action-7",
+      "label": "Click Check selected-resource coverage",
+      "status": "passed",
+      "elapsedMs": 72
+    },
+    {
+      "id": "cda-action-8",
+      "label": "Click Use all authorized rows",
+      "status": "passed",
+      "elapsedMs": 234
+    },
+    {
+      "id": "cda-action-9",
+      "label": "Click Back to table",
+      "status": "passed",
+      "elapsedMs": 164
+    },
+    {
+      "id": "cda-action-10",
+      "label": "Click Configure rows",
+      "status": "passed",
+      "elapsedMs": 63
+    },
+    {
+      "id": "cda-action-11",
+      "label": "Select 4 in [role=\"dialog\"][aria-label=\"Row definition settings\"] select[aria-label=\"Population connection\"]",
+      "status": "passed",
+      "elapsedMs": 47
+    },
+    {
+      "id": "cda-action-12",
+      "label": "Click Use selected resources",
+      "status": "passed",
+      "elapsedMs": 212
+    },
+    {
+      "id": "cda-action-13",
+      "label": "Click Back to table",
+      "status": "passed",
+      "elapsedMs": 104
+    },
+    {
+      "id": "cda-action-14",
+      "label": "Click [data-testid=\"construction-table-out_47cd700f018ffb4f42e80621\"]",
+      "status": "passed",
+      "elapsedMs": 174
+    },
+    {
+      "id": "cda-action-15",
+      "label": "Click Configure rows",
+      "status": "passed",
+      "elapsedMs": 88
+    },
+    {
+      "id": "cda-action-16",
+      "label": "Click Check selected-resource coverage",
+      "status": "passed",
+      "elapsedMs": 73
+    }
+  ],
+  "dimensions": {
+    "usability": {
+      "status": "passed"
+    },
+    "correctness": {
+      "status": "passed"
+    },
+    "persistence": {
+      "status": "passed"
+    },
+    "performance": {
+      "status": "passed"
+    }
+  },
+  "lifecycle": {
+    "verified": "The browser removed the unmapped selected Specimen, confirmed exact mapped membership and the two-hop route, reloaded, cleared the collection, natively reattached the saved selection, and reloaded again.",
+    "nonemptyConstructionVerified": false,
+    "limitations": [
+      "The broad no-auth local run verifies project, generation, selection membership, and route integrity; restricted-authorization exclusion remains unproven.",
+      "The starting construction was empty, so nonempty-construction preservation is not covered."
+    ]
+  },
+  "performanceEvidence": {
+    "actionBudgetMs": 5000,
+    "checkpointBudgetMs": 5000,
+    "maximumIndividualActionMs": 234,
+    "maximumMeasuredCheckpointMs": 3510,
+    "reloadCheckpoints": [
+      {
+        "name": "partial-long-route-reload-exact-rows-and-state",
+        "durationMs": 3510,
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ]
+      },
+      {
+        "name": "reattached-partial-long-route-reload-exact-rows-and-state",
+        "durationMs": 3085,
+        "observationIDs": [
+          "5a45e52f-8360-5a41-a507-aaf206380adc",
+          "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+        ]
+      }
+    ],
+    "timedCheckpoints": [
+      {
+        "name": "partial-long-route-preview",
+        "durationMs": 44
+      },
+      {
+        "name": "partial-long-route-table-load-to-settings",
+        "durationMs": 1860
+      },
+      {
+        "name": "partial-mapped-unmapped-coverage",
+        "durationMs": 557
+      },
+      {
+        "name": "remove-unmapped-record",
+        "durationMs": 3050
+      },
+      {
+        "name": "partial-long-route-reload-raw-oracle",
+        "durationMs": 21
+      },
+      {
+        "name": "partial-long-route-table-load-to-settings",
+        "durationMs": 1627
+      },
+      {
+        "name": "partial-collection-reload",
+        "durationMs": 147
+      },
+      {
+        "name": "partial-long-route-reload-exact-rows-and-state",
+        "durationMs": 3510
+      },
+      {
+        "name": "clear-long-collection-to-authorized-rows",
+        "durationMs": 703
+      },
+      {
+        "name": "reattached-partial-long-route-visible-preview",
+        "durationMs": 130
+      },
+      {
+        "name": "reattach-repaired-multi-member-long-collection",
+        "durationMs": 528
+      },
+      {
+        "name": "reattached-partial-long-route-reload-raw-oracle",
+        "durationMs": 37
+      },
+      {
+        "name": "partial-long-route-table-load-to-settings",
+        "durationMs": 1489
+      },
+      {
+        "name": "reattached-partial-long-collection-reload",
+        "durationMs": 128
+      },
+      {
+        "name": "reattached-partial-long-route-reload-exact-rows-and-state",
+        "durationMs": 3085
+      }
+    ]
+  },
+  "network": {
+    "unexpectedWorkflowErrors": 0,
+    "unexpectedNetworkErrors": 0,
+    "unexpectedHttpErrors": 0,
+    "responseCaptureErrors": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "308f67abbf50bc168d3632273664b057a6e868cac09b0309633a4cb63f6f35ff",
+        "files": 1538
+      },
+      "after": {
+        "sha256": "308f67abbf50bc168d3632273664b057a6e868cac09b0309633a4cb63f6f35ff",
+        "files": 1538
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "unchanged": true
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave113/health-before.json",
+        "sha256": "9230811c3ef656357cfdde203b8e81d7a7475aa61897d9d050999b0fe7901e0c"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave113/health-after.json",
+        "sha256": "cbb9a117391b11c7b541f205d2864dc1497748fac800c54ecd6927d24aa6b7be"
+      }
+    }
+  },
+  "rawArtifacts": {
+    "nativeLifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave113/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "sha256": "eb0940b9e54c3563e4482cf65896ca6d99e57744130c16173f0cd7038f320e8e",
+      "sizeBytes": 10361388
+    },
+    "browserResults": {
+      "path": "/private/tmp/loom-native-parallel-wave113/cda-collection-repair-partial-long-route/attempt1/results.json",
+      "sha256": "011ea34ebdd6f0e3b5b768c8f19270f017f249bc9daadb4dcf9b92d9c5f456d3",
+      "sizeBytes": 8130
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave113/cda-collection-repair-partial-long-route/attempt1/runner.log",
+      "sha256": "12bb73794d032dd30e0e2d046608a4117f3dea7f570c9922ae5b026d9aed5e93",
+      "sizeBytes": 692
+    },
+    "outerCoordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave113/closure.json",
+      "sha256": "9c4f9319f1bdc061ffb7d088258e65e0892467b992b57b533b8154227b5a1553",
+      "sizeBytes": 11296
+    },
+    "strictIntegrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave113/integrity-closure.json",
+      "sha256": "704b9bff044c54a61672c9bf4e5a21977897794b6cf023ab6d4acb582fb02eed",
+      "sizeBytes": 4500
+    },
+    "rootAcceptanceReceipt": {
+      "path": "/private/tmp/loom-native-parallel-wave113/root-acceptance.json",
+      "sha256": "484ed841ac2145518628eacaa5fa9f654823e61f2f201bd3b71af47d3a173c7a",
+      "sizeBytes": 1118
+    },
+    "fullReportCommitted": false
+  },
+  "nativeRun": {
+    "spec": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+    "grep": "remove an unmapped selected resource, verify the saved route, and reload$",
+    "command": "bash /private/tmp/loom-native-parallel-wave113/browser-command.sh",
+    "browserHandle": 53279,
+    "status": "passed",
+    "requiredCheckCount": 11,
+    "assertionCount": 28,
+    "actionCount": 16,
+    "maximumIndividualActionMs": 234,
+    "maximumMeasuredCheckpointMs": 3510
+  },
+  "fixture": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "authorizationMode": "broad no-auth local mode",
+    "restrictedAuthorizationExclusionProven": false,
+    "rawOracle": {
+      "kind": "independent scoped Arango query",
+      "seedLimit": 4000,
+      "query": "LET seeds=(FOR s IN Specimen FILTER s.resourceType==\"Specimen\" AND s.project==\"loom_dev_cda_fhir\" AND s.dataset_generation==\"cda-fhir-v1\" SORT s.id LIMIT 4000 RETURN s) FOR s IN seeds LET parents=(FOR e IN fhir_edge FILTER e._from==s._id AND e.label==\"parent\" AND e.from_type==\"Specimen\" AND e.to_type==\"Specimen\" AND e.project==\"loom_dev_cda_fhir\" AND e.dataset_generation==\"cda-fhir-v1\" LET parent=DOCUMENT(e._to) FILTER parent!=null AND parent.resourceType==\"Specimen\" AND parent.project==\"loom_dev_cda_fhir\" AND parent.dataset_generation==\"cda-fhir-v1\" RETURN parent._id) LET children=(FOR e IN fhir_edge FILTER e._to==s._id AND e.label==\"parent\" AND e.from_type==\"Specimen\" AND e.to_type==\"Specimen\" AND e.project==\"loom_dev_cda_fhir\" AND e.dataset_generation==\"cda-fhir-v1\" LET child=DOCUMENT(e._from) FILTER child!=null AND child.resourceType==\"Specimen\" AND child.project==\"loom_dev_cda_fhir\" AND child.dataset_generation==\"cda-fhir-v1\" RETURN child.id) LET routeRows=(FOR parentEdge IN fhir_edge FILTER parentEdge._from==s._id AND parentEdge.label==\"parent\" AND parentEdge.from_type==\"Specimen\" AND parentEdge.to_type==\"Specimen\" AND parentEdge.project==\"loom_dev_cda_fhir\" AND parentEdge.dataset_generation==\"cda-fhir-v1\" LET parent=DOCUMENT(parentEdge._to) FILTER parent!=null AND parent.resourceType==\"Specimen\" AND parent.project==\"loom_dev_cda_fhir\" AND parent.dataset_generation==\"cda-fhir-v1\" FOR specimenEdge IN fhir_edge FILTER specimenEdge._to==parent._id AND specimenEdge.label==\"specimen_Specimen\" AND specimenEdge.from_type==\"Observation\" AND specimenEdge.to_type==\"Specimen\" AND specimenEdge.project==\"loom_dev_cda_fhir\" AND specimenEdge.dataset_generation==\"cda-fhir-v1\" LET observation=DOCUMENT(specimenEdge._from) FILTER observation!=null AND observation.resourceType==\"Observation\" AND observation.project==\"loom_dev_cda_fhir\" AND observation.dataset_generation==\"cda-fhir-v1\" RETURN observation.id) RETURN {id:s.id,parents,children,routeRows}",
+      "mapped": [
+        {
+          "specimenID": "00001c68-2c20-5003-a144-b2442469d8de",
+          "observationIDs": [
+            "5a45e52f-8360-5a41-a507-aaf206380adc"
+          ]
+        },
+        {
+          "specimenID": "0000ae4e-5498-51e8-a091-32b0552093ac",
+          "observationIDs": [
+            "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+          ]
+        }
+      ],
+      "unmapped": {
+        "specimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+        "parentIDs": []
+      },
+      "expectedObservationIDs": [
+        "5a45e52f-8360-5a41-a507-aaf206380adc",
+        "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+      ]
+    },
+    "expectedObservationIDs": [
+      "5a45e52f-8360-5a41-a507-aaf206380adc",
+      "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+    ],
+    "retainedSpecimenIDs": [
+      "00001c68-2c20-5003-a144-b2442469d8de",
+      "0000ae4e-5498-51e8-a091-32b0552093ac"
+    ],
+    "excludedSpecimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+    "initialSelectionRevisionId": "selection_f929561933ef247779364e304a71072da1efdd891e083b77081bcdc0ac5001a3",
+    "membershipDigest": "506202fd0d29572fcfd182b40b8b3d1099c6d1006125c1a30b0758966b6dba0c",
+    "savedRoute": [
+      {
+        "resourceType": "Specimen",
+        "relationship": "specimen_Specimen",
+        "catalogEdgeId": "e_4f79cbfdf06f50d30f273de4",
+        "storageDirection": "OUTBOUND"
+      },
+      {
+        "resourceType": "Specimen",
+        "relationship": "parent",
+        "catalogEdgeId": "e_637cc22e0d33b9c1c9177cc8",
+        "storageDirection": "INBOUND"
+      }
+    ]
+  },
+  "actualExplorer": {
+    "id": "collection-repair-1791314631243",
+    "browserRequestPathCount": 59,
+    "responsePathCount": 59,
+    "setupApiRequestCount": 19,
+    "customNativeRequestMonitorCount": 0,
+    "rawReportExplorer": null,
+    "rawTargetExplorer": null,
+    "derivation": "Exactly one fresh owned-project Explorer ID occurs in all captured browser request and response paths; raw report Explorer metadata is null."
+  },
+  "verificationScope": {
+    "authorizationMode": "broad no-auth local mode",
+    "restrictedAuthorizationExclusionProven": false,
+    "capturedSourceFingerprint": {
+      "sha256": "308f67abbf50bc168d3632273664b057a6e868cac09b0309633a4cb63f6f35ff",
+      "files": 1538
+    },
+    "historicalRelativeToCurrentSource": true
+  }
+}

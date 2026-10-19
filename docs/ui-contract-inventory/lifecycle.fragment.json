@@ -1,0 +1,3016 @@
+{
+  "version": 1,
+  "owner": "ui_contract_inventory_lifecycle",
+  "base_commit": "63e330d12cc62c30563e3735d6e33ab6f88afdb0",
+  "scope": "Mounted Builder workspace and preview lifecycle affordances, routes, and actions; publication excluded.",
+  "entries": [
+    {
+      "id": "builder.demo_entry_route",
+      "domain": {
+        "id": "builder.demo_entry_route",
+        "area": "workspace.entry_route",
+        "type": "route",
+        "kind": "demo_query_entry",
+        "finite_enum_values": {
+          "mode": [
+            "builder",
+            "viewer"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "project",
+            "type": "string",
+            "provider": "URL query project, then VITE_LOOM_PROJECT, then NCPI_ACCEPTANCE"
+          },
+          {
+            "name": "organization",
+            "type": "optional string",
+            "provider": "URL query organization"
+          },
+          {
+            "name": "explorerId",
+            "type": "string",
+            "provider": "URL query explorer, then VITE_LOOM_EXPLORER, then default"
+          },
+          {
+            "name": "selectionRevisionId",
+            "type": "optional string",
+            "provider": "URL query selection"
+          },
+          {
+            "name": "featureFocus",
+            "type": "{outputId:string,column:string,label?:string}",
+            "provider": "URL query focusOutput plus focusColumn"
+          }
+        ],
+        "dependencies": [],
+        "cardinality": {
+          "minimum": 1,
+          "maximum": 1,
+          "unit": "active demo route"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/apps/demo/src/main.tsx:8",
+          "ui/apps/demo/src/main.tsx:37",
+          "ui/apps/demo/src/main.tsx:74",
+          "ui/apps/demo/src/demo-route.mjs:11",
+          "ui/packages/loom-ui/src/Builder.tsx:34",
+          "ui/packages/loom-ui/src/Builder.tsx:54",
+          "ui/apps/demo/src/main.tsx:69",
+          "ui/apps/demo/src/main.tsx:75",
+          "ui/packages/loom-ui/src/Builder.tsx:85",
+          "ui/packages/loom-ui/src/api.ts:1813"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "A saved selection is loaded only when selectionRevisionId exists; loading and failure are passed into BuilderWorkspace, while only a ready result becomes populationSelection.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Feature repair focus is created only when both focusOutput and focusColumn query parameters are present.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Explorer and mode navigation use history.replaceState, not a page navigation.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "The component receives project/explorer identity from the wrapper; selecting a new Explorer is propagated through onExplorerChange.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "The demo query contract is not a universal routing contract for other LoomExplorerBuilder hosts.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Selection GET request path and query construction are verified in the API client.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/apps/demo/src/main.tsx:8",
+          "ui/apps/demo/src/main.tsx:69",
+          "ui/apps/demo/src/main.tsx:75"
+        ]
+      },
+      "prose": {
+        "route_action": "The demo has query-string navigation rather than a path router. It reads project, optional organization, explorer, selection, mode, and optional focusOutput plus focusColumn. It mounts Builder unless mode is exactly viewer. Builder and Viewer controls and viewer repair replace the URL query while preserving unrelated parameters. LoomExplorerBuilder itself is an embeddable component whose project, explorerId, selectionRevisionId, and featureFocus are supplied by its caller.",
+        "request_constructor": "Demo URLSearchParams initializes the wrapper. When selectionRevisionId is passed, LoomExplorerBuilder calls ownedClient.getSelection with project, explorerId defaulted to default, selectionRevision and limit 1.",
+        "gates": [
+          "A saved selection is loaded only when selectionRevisionId exists; loading and failure are passed into BuilderWorkspace, while only a ready result becomes populationSelection.",
+          "Feature repair focus is created only when both focusOutput and focusColumn query parameters are present."
+        ],
+        "finite_state_input_bounds": "mode is projected to builder or viewer (only the exact viewer value selects Viewer); explorer defaults to default; selection and focus values are optional strings. The URL wrapper exposes no deeper internal Builder pathname routes.",
+        "transition_preview_invariants": [
+          "Explorer and mode navigation use history.replaceState, not a page navigation.",
+          "The component receives project/explorer identity from the wrapper; selecting a new Explorer is propagated through onExplorerChange."
+        ],
+        "known_assumptions": [
+          "The demo query contract is not a universal routing contract for other LoomExplorerBuilder hosts.",
+          "Selection GET request path and query construction are verified in the API client."
+        ]
+      },
+      "seed": {
+        "id": "builder.demo_entry_route.seed",
+        "kind": "demo_query_entry_initial_state",
+        "requirements": [
+          "demo shell has URL query available"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "load-selection-revision",
+          "kind": "read",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/selections/{selectionRevision}?limit=1[&auth_resource_path=...]",
+          "actionId": "selectionRevisionId.present",
+          "payloadShape": "no body; query {limit:1,auth_resource_path?}",
+          "constructor": "ui/packages/loom-ui/src/Builder.tsx:85 ownedClient.getSelection; ui/packages/loom-ui/src/api.ts:1813",
+          "condition": "selectionRevisionId is present"
+        }
+      ]
+    },
+    {
+      "id": "builder.workspace_hydration_and_explorer_selection",
+      "domain": {
+        "id": "builder.workspace_hydration_and_explorer_selection",
+        "area": "workspace.load_and_select",
+        "type": "state_transition",
+        "kind": "workspace_hydration_and_selection",
+        "finite_enum_values": {
+          "reconciliation": [
+            "idle",
+            "pending",
+            "resolved",
+            "stale",
+            "repair"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "effectiveExplorerId",
+            "type": "ExplorerSummary.explorerId",
+            "provider": "caller explorerId or server Explorer list (default preferred, otherwise first)"
+          },
+          {
+            "name": "tables",
+            "type": "array<DraftTable>",
+            "provider": "server ExplorerBuilderWorkspace.documents"
+          }
+        ],
+        "dependencies": [
+          "builder.demo_entry_route"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "active Explorer per mounted workspace"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:398",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:422",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:426",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:447",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:453",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:722",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:739",
+          "ui/packages/loom-ui/src/api.ts:1367",
+          "ui/packages/loom-ui/src/api.ts:1390",
+          "ui/packages/loom-ui/src/api.ts:1410",
+          "ui/packages/loom-ui/src/api.ts:1418",
+          "ui/packages/loom-ui/src/Builder.tsx:119",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:427",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:455"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "The authoring-state and capability queries are enabled only when effectiveExplorerId is non-empty.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "The selected external explorerId wins unless empty or default; otherwise the default Explorer is preferred, then the first listed Explorer.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "No listed Explorer renders the first-Explorer creation state. Explorer-list error or absent Builder data renders a Try again action.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Local state is keyed by owner plus server draft identity; a response for another Explorer/draft is not reused as current state.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "selectExplorer invalidates generations and aborts in-flight compile and preview requests before navigation.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Try again refetches Explorer list and, when enabled, Builder state.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Read endpoints are built with authoringPath/projectPath, which do not append auth_resource_path; durable mutation helpers do append it. This records the client behavior without inferring server authorization semantics.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/Builder.tsx:119",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:398"
+        ]
+      },
+      "prose": {
+        "route_action": "Resolve the effective Explorer, load its authoring state and capability, hydrate a canonical workspace, or switch Explorer. The selected table is remembered in sessionStorage under a project/auth-resource/Explorer owner key. Switching Explorer aborts preview and compile work before changing the selected ID.",
+        "request_constructor": "useGetExplorerAuthoringExplorersQuery -> listExplorers; useGetExplorerBuilderStateV2Query -> getBuilder; useGetExplorerAuthoringCapabilityV2Query -> getCapability. syncBuilderData(mode=hydrate) runs stateFromBuilder; explorer selection only changes the selected Explorer and triggers those keyed reads.",
+        "gates": [
+          "The authoring-state and capability queries are enabled only when effectiveExplorerId is non-empty.",
+          "The selected external explorerId wins unless empty or default; otherwise the default Explorer is preferred, then the first listed Explorer.",
+          "No listed Explorer renders the first-Explorer creation state. Explorer-list error or absent Builder data renders a Try again action."
+        ],
+        "finite_state_input_bounds": "Workspace reconciliation is idle|pending|resolved|stale|repair. Hydration resets selected occurrence to base, chooses the remembered output only if present in the loaded workspace, and otherwise chooses the first table.",
+        "transition_preview_invariants": [
+          "Local state is keyed by owner plus server draft identity; a response for another Explorer/draft is not reused as current state.",
+          "selectExplorer invalidates generations and aborts in-flight compile and preview requests before navigation.",
+          "Try again refetches Explorer list and, when enabled, Builder state."
+        ],
+        "known_assumptions": [
+          "Read endpoints are built with authoringPath/projectPath, which do not append auth_resource_path; durable mutation helpers do append it. This records the client behavior without inferring server authorization semantics."
+        ]
+      },
+      "seed": {
+        "id": "builder.workspace_hydration_and_explorer_selection.seed",
+        "kind": "workspace_hydration_and_selection_initial_state",
+        "requirements": [
+          "LoomExplorerBuilder mounted with project and optional explorerId"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "list-explorers",
+          "kind": "read",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers",
+          "actionId": "workspace.mount",
+          "payloadShape": "no body",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:427 explorers query; ui/packages/loom-ui/src/api.ts:1390 listExplorers",
+          "condition": "runs with initial workspace queries",
+          "variant": "initial-hydration"
+        },
+        {
+          "order": 1,
+          "stepId": "load-builder-state",
+          "kind": "read",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/builder",
+          "actionId": "workspace.mount_or_explorer_change",
+          "payloadShape": "no body",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:447 useGetExplorerBuilderStateV2Query; ui/packages/loom-ui/src/api.ts:1410 getBuilder",
+          "condition": "effectiveExplorerId is non-empty",
+          "variant": "initial-hydration"
+        },
+        {
+          "order": 1,
+          "stepId": "load-authoring-capability",
+          "kind": "read",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/capability",
+          "actionId": "workspace.mount_or_explorer_change",
+          "payloadShape": "no body",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:455 useGetExplorerAuthoringCapabilityV2Query; ui/packages/loom-ui/src/api.ts:1418 getCapability",
+          "condition": "effectiveExplorerId is non-empty",
+          "variant": "initial-hydration"
+        }
+      ]
+    },
+    {
+      "id": "builder.explorer_create_delete",
+      "domain": {
+        "id": "builder.explorer_create_delete",
+        "area": "workspace.explorer_lifecycle",
+        "type": "action",
+        "kind": "create_or_delete_explorer",
+        "finite_enum_values": {
+          "createMode": [
+            "blank-only",
+            "blank-or-copy",
+            "copy-only"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "name",
+            "type": "non-empty trimmed string",
+            "provider": "NewExplorerControl text input"
+          },
+          {
+            "name": "sourceExplorerId",
+            "type": "optional ExplorerSummary.explorerId",
+            "provider": "selected Explorer when copy is chosen"
+          },
+          {
+            "name": "fallbackExplorerId",
+            "type": "ExplorerSummary.explorerId",
+            "provider": "default Explorer else first other Explorer"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "create or delete request at a time"
+        },
+        "availability": "capability_conditional",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2443",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2461",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2475",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2482",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3128",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3136",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:37",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:349",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:354",
+          "ui/packages/loom-ui/src/api.ts:1801",
+          "ui/packages/loom-ui/src/api.ts:1842",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3099"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Create is disabled until name.trim() is non-empty or while create is busy.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Delete is hidden when deleteExplorer capability is false; it is visibly disabled when no alternative Explorer exists or the workspace is busy.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Delete requires window.confirm and returns without mutation if declined or if the selected Explorer/fallback cannot be resolved.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Successful create switches to the returned explorerId and refreshes the list when the wrapper does not own navigation.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Successful delete aborts compile, switches to the chosen fallback, and refreshes the list when needed.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Deletion is an irreversible user-visible action; this entry records the explicit confirmation and fallback behavior.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "No publication action is included in this inventory.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3099",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3128",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:349"
+        ]
+      },
+      "prose": {
+        "route_action": "New Explorer requires a trimmed non-empty name and can create blank or copy-current Explorer. Delete is shown only when capability.features.deleteExplorer is true and deletes the selected custom Explorer after confirmation, then selects the default Explorer if available or the first other Explorer.",
+        "request_constructor": "createCustomExplorer -> createExplorer({project, authResourcePath, name, title, optional sourceExplorerId}); deleteCurrentExplorer -> deleteExplorer({project, explorerId, authResourcePath, requestId}).",
+        "gates": [
+          "Create is disabled until name.trim() is non-empty or while create is busy.",
+          "Delete is hidden when deleteExplorer capability is false; it is visibly disabled when no alternative Explorer exists or the workspace is busy.",
+          "Delete requires window.confirm and returns without mutation if declined or if the selected Explorer/fallback cannot be resolved."
+        ],
+        "finite_state_input_bounds": "Create mode is blank-only on an empty project and blank-or-copy in the normal toolbar. sourceExplorerId is sent only for copy-current. Delete fallback prefers default, then the first other Explorer.",
+        "transition_preview_invariants": [
+          "Successful create switches to the returned explorerId and refreshes the list when the wrapper does not own navigation.",
+          "Successful delete aborts compile, switches to the chosen fallback, and refreshes the list when needed."
+        ],
+        "known_assumptions": [
+          "Deletion is an irreversible user-visible action; this entry records the explicit confirmation and fallback behavior.",
+          "No publication action is included in this inventory.",
+          "The create request uses durableProjectPath and may append auth_resource_path; the delete request uses projectPath directly and does not append that query parameter."
+        ]
+      },
+      "seed": {
+        "id": "builder.explorer_create_delete.seed",
+        "kind": "create_or_delete_explorer_initial_state",
+        "requirements": [
+          "project Explorer list loaded; create or delete control active"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "create-explorer",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers[?auth_resource_path=...]",
+          "actionId": "create_explorer",
+          "payloadShape": "{name:string,title?:string,sourceExplorerId?:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2443 createCustomExplorer; ui/packages/loom-ui/src/api.ts:1801 createExplorer",
+          "condition": "trimmed name non-empty; busy=false",
+          "variant": "create"
+        },
+        {
+          "order": 1,
+          "stepId": "delete-explorer",
+          "kind": "command",
+          "method": "DELETE",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}",
+          "actionId": "delete_explorer",
+          "payloadShape": "no body; optional X-Request-ID header",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2461 deleteCurrentExplorer; ui/packages/loom-ui/src/api.ts:1842 deleteExplorer",
+          "condition": "delete capability true; fallback exists; user confirms",
+          "variant": "delete"
+        }
+      ]
+    },
+    {
+      "id": "builder.first_table_from_root",
+      "domain": {
+        "id": "builder.first_table_from_root",
+        "area": "workspace.table_creation",
+        "type": "action",
+        "kind": "first_table_creation",
+        "finite_enum_values": {
+          "progress": [
+            "idle",
+            "checking",
+            "creating",
+            "adding-id"
+          ],
+          "planKind": [
+            "root-only",
+            "with-identity"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "rootNodeId",
+            "type": "ExplorerBuilderCatalog.nodes[].nodeId",
+            "provider": "RowRootPicker choices where rowRootEligible=true"
+          },
+          {
+            "name": "tableName",
+            "type": "optional string",
+            "provider": "Builder first-table-name input; defaults to resource type"
+          },
+          {
+            "name": "identityCandidate",
+            "type": "ExplorerBuilderCandidate",
+            "provider": "suggestions filtered by planInitialTable to one safe direct scalar string ID"
+          },
+          {
+            "name": "initialTablePlan",
+            "type": "InitialTablePlan",
+            "provider": "planInitialTable(root,requestedTitle,evidence); with-identity requires exactly one executable direct id field"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection"
+        ],
+        "cardinality": {
+          "minimum": 1,
+          "maximum": 2,
+          "unit": "commands per successful root choice: CREATE_TABLE, optionally ADD_COLUMN"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2729",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2745",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2773",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2808",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4077",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4084",
+          "ui/packages/loom-ui/src/api.ts:1450",
+          "ui/packages/loom-ui/src/api.ts:1486",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:14",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:17",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:51",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:15",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:32",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:66",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4046",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:4",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4079",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:43",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:59",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:84",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts:93",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:369",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2737",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2827",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4087",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911",
+          "ui/packages/loom-ui/src/api.ts:1479",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2621"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Only one first-table action may run at a time; root node and catalog snapshot must exist.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Root picker is disabled while commands/reconciliation/creation are pending.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "CREATE_TABLE must return both outputId and occurrenceId before the optional ID-column command is formed.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "The command response supplies the authoritative workspace and next draft version/digest.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "A rooted table with a visible output column becomes eligible for automatic preview under its new draft identity.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Project and Explorer path encoding is delegated to the API client.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "The assigned artifact is for the mounted BuilderWorkspace, not the legacy ConstructionOperationsPanel.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-root-picker",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "RowRootPicker shows only rowRootEligible catalog nodes and disables unpopulated nodes; first-table creation is disabled during pending commands/reconciliation/creation.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "identity-plan-shape",
+            "kind": "transition_invariant",
+            "classification": "observed-ui",
+            "claim": "with-identity is chosen only when exactly one candidate passes executable-direct-ID checks: same root node, field path id, string scalar, optional_one|required_one, not repeated, VALUE projection, empty route, and one supported DEFAULT preserving VALUE option with row-grain preservation. Unavailable, zero, or ambiguous identity candidates produce root-only.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "declared-previewing-phase-not-entered",
+            "kind": "state_reachability",
+            "classification": "inferred",
+            "claim": "FirstTableProgress type/render recognizes previewing, but current first-table flow does not set that phase; previewing is handled by the separate automatic preview lifecycle.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4046",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4077",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx:4"
+        ]
+      },
+      "prose": {
+        "route_action": "In the zero-table state, choose a populated catalog root from RowRootPicker (which filters rowRootEligible); optionally enter a table name. The flow first checks for a safe direct ID candidate, creates the table, then adds the ID column only when planInitialTable proves one.",
+        "request_constructor": "createFirstTableFromRoot(nodeId) calls getSuggestions({snapshotToken,nodeId}), then applyCommandsWithResult(CREATE_TABLE). When plan.kind is not root-only it applies ADD_COLUMN using the TABLE_CREATED outputId and occurrenceId and candidateId. Suggestion failure or mismatched snapshot/node evidence falls back to a root-only table.",
+        "gates": [
+          "Only one first-table action may run at a time; root node and catalog snapshot must exist.",
+          "Root picker is disabled while commands/reconciliation/creation are pending.",
+          "Root eligibility is checked by the mounted RowRootPicker; no backend operation allowlist is used as evidence here."
+        ],
+        "finite_state_input_bounds": "firstTableProgress is idle or running(checking|creating|adding-id|previewing). Table name is optional and defaults to the root resource type. An ID column is added only for a single safe direct scalar string ID; unavailable or ambiguous evidence leaves root-only state.",
+        "transition_preview_invariants": [
+          "CREATE_TABLE must return both outputId and occurrenceId before the optional ID-column command is formed.",
+          "The command response supplies the authoritative workspace and next draft version/digest.",
+          "A rooted table with a visible output column becomes eligible for automatic preview under its new draft identity."
+        ],
+        "known_assumptions": [
+          "Project and Explorer path encoding is delegated to the API client.",
+          "The assigned artifact is for the mounted BuilderWorkspace, not the legacy ConstructionOperationsPanel."
+        ]
+      },
+      "aliases": [
+        "root_selection.initial_table"
+      ],
+      "seed": {
+        "id": "builder.first_table_from_root.seed",
+        "kind": "first_table_creation_initial_state",
+        "requirements": [
+          "selected Explorer hydrated",
+          "workspace has zero tables",
+          "catalog snapshot available",
+          "one populated rowRootEligible catalog node selected"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "find-initial-id-candidates",
+          "kind": "read",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/suggestions",
+          "actionId": "choose_first_table_root",
+          "payloadShape": "{snapshotToken:string,nodeId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2745 getSuggestions; ui/packages/loom-ui/src/api.ts:1486 suggestions",
+          "condition": "root and catalog snapshot exist; failure falls back to root-only",
+          "variant": "first-table"
+        },
+        {
+          "order": 2,
+          "stepId": "create-first-table",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "create_first_table",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:CREATE_TABLE,title:string,rootNodeId:string}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2773 applyCommandsWithResult; ui/packages/loom-ui/src/api.ts:1450 applyCommands",
+          "condition": "planInitialTable returns root-only or with-identity",
+          "variant": "first-table"
+        },
+        {
+          "order": 3,
+          "stepId": "add-verified-id-column",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "add_first_table_identity_column",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:ADD_COLUMN,outputId:string,occurrenceId:string,candidateId:string,projectionMode:VALUE,initialPresentation:TABLE,title:string}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2808 applyCommandsWithResult; ui/packages/loom-ui/src/api.ts:1450 applyCommands",
+          "condition": "plan kind is with-identity and CREATE_TABLE returned outputId and occurrenceId",
+          "variant": "first-table"
+        },
+        {
+          "order": 4,
+          "stepId": "reconcile-first-preview",
+          "kind": "reconcile",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
+          "actionId": "automatic_preview_reconcile",
+          "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911 reconcileCurrent; ui/packages/loom-ui/src/api.ts:1479 reconcile",
+          "condition": "rooted table has a visible output and no valid reusable receipt",
+          "variant": "automatic-preview"
+        },
+        {
+          "order": 5,
+          "stepId": "load-first-preview",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "automatic_preview_load",
+          "payloadShape": "{receiptId:string,outputId:string,limit:25|50|100|500|1000}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2621 executePreview; ui/packages/loom-ui/src/api.ts:1697 preview",
+          "condition": "reconcile returns a matching receipt",
+          "variant": "automatic-preview"
+        }
+      ]
+    },
+    {
+      "id": "builder.table_route_and_occurrence_selection",
+      "domain": {
+        "id": "builder.table_route_and_occurrence_selection",
+        "area": "workspace.source_and_route_selection",
+        "type": "action",
+        "kind": "table_route_selection_and_edit",
+        "finite_enum_values": {
+          "matchMode": [
+            "OPTIONAL",
+            "REQUIRED"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "outputId",
+            "type": "DraftTable.outputId",
+            "provider": "currently hydrated workspace tables"
+          },
+          {
+            "name": "occurrenceId",
+            "type": "DerivedOccurrence.id",
+            "provider": "derived occurrences for selected table and current catalog"
+          },
+          {
+            "name": "edgeId",
+            "type": "ExplorerBuilderCatalog.edges[].edgeId",
+            "provider": "legalOutgoingEdges from selected occurrence"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection",
+          "builder.first_table_from_root"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": null,
+          "unit": "route branches; bounded by catalog routePolicy.maxSteps when supplied"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:660",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4601",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4615",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4630",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4641",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4652",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts:9",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts:206",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts:217",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:220",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2274",
+          "ui/packages/loom-ui/src/api.ts:1486",
+          "ui/packages/loom-ui/src/api.ts:1450"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Route edges must leave the selected authored occurrence and be present in the current catalog.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Repeated edge IDs are excluded; self-loops require routePolicy.allowSelfLoops or routePolicy.selfLoops; additions beyond routePolicy.maxSteps are excluded.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Graph editing is disabled while row-change assessment, add-column preview, or rooted-draft reconciliation is pending.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Selecting an occurrence is accepted only if it is in derivedOccurrences for the selected table/catalog.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Changing selected table resets selected occurrence to base and clears table preview.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Route commands invalidate receipt/preview; successful command response rehydrates the server workspace before new preview identity is used.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Catalog graph inspection can expose nodes that cannot be authored from the current occurrence; legalOutgoingEdges defines authoring eligibility.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "No inference is made from command enum presence alone.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx:220",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591"
+        ]
+      },
+      "prose": {
+        "route_action": "Selecting a table is local and selects its base occurrence; selecting a route occurrence is local. In mounted graph mode, adding/removing a traversal, changing its edge, or changing match mode submits a command. A candidate graph node can be used as a row start or submitted as a proposed root change.",
+        "request_constructor": "selectTableFromUser persists outputId in owner-scoped sessionStorage and dispatches selectTable. GuidedGraphWorkspace uses legalOutgoingEdges; callbacks submit ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, or REMOVE_ROUTE through applyCommands. Candidate suggestions are keyed to the selected occurrence and current catalog snapshot.",
+        "gates": [
+          "Route edges must leave the selected authored occurrence and be present in the current catalog.",
+          "Repeated edge IDs are excluded; self-loops require routePolicy.allowSelfLoops or routePolicy.selfLoops; additions beyond routePolicy.maxSteps are excluded.",
+          "Graph editing is disabled while row-change assessment, add-column preview, or rooted-draft reconciliation is pending."
+        ],
+        "finite_state_input_bounds": "The graph and route are finite catalog nodes/edges with occurrence IDs; each occurrence has OPTIONAL|REQUIRED match mode. Depth is bounded by catalog routePolicy.maxSteps when supplied. The route may be a tree with multiple branches, not only a linear path.",
+        "transition_preview_invariants": [
+          "Selecting an occurrence is accepted only if it is in derivedOccurrences for the selected table/catalog.",
+          "Changing selected table resets selected occurrence to base and clears table preview.",
+          "Route commands invalidate receipt/preview; successful command response rehydrates the server workspace before new preview identity is used."
+        ],
+        "known_assumptions": [
+          "Catalog graph inspection can expose nodes that cannot be authored from the current occurrence; legalOutgoingEdges defines authoring eligibility.",
+          "No inference is made from command enum presence alone."
+        ]
+      },
+      "seed": {
+        "id": "builder.table_route_and_occurrence_selection.seed",
+        "kind": "table_route_selection_and_edit_initial_state",
+        "requirements": [
+          "selected table exists",
+          "catalog snapshot available",
+          "selected occurrence belongs to derived route"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "load-occurrence-candidates",
+          "kind": "read",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/suggestions",
+          "actionId": "select_route_occurrence",
+          "payloadShape": "{snapshotToken:string,nodeId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2274 ensureSuggestions; ui/packages/loom-ui/src/api.ts:1486 suggestions",
+          "condition": "current occurrence has no cached candidates",
+          "variant": "candidate-load"
+        },
+        {
+          "order": 1,
+          "stepId": "persist-route-edit",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "edit_table_route",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[ADD_ROUTE|UPDATE_ROUTE_EDGE|SET_ROUTE_MATCH_MODE|REMOVE_ROUTE]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4615 GuidedGraphWorkspace callbacks; ui/packages/loom-ui/src/api.ts:1450 applyCommands",
+          "condition": "edge is legal from selected occurrence; local table/occurrence selection itself sends no request",
+          "variant": "each-route-edit"
+        }
+      ]
+    },
+    {
+      "id": "builder.add_columns_source_selection",
+      "domain": {
+        "id": "builder.add_columns_source_selection",
+        "area": "workspace.column_source_selection",
+        "type": "action",
+        "kind": "column_source_selection",
+        "finite_enum_values": {
+          "view": [
+            "coded",
+            "fields"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "sourceOption",
+            "type": "CatalogSourceOption",
+            "provider": "catalogSourceOptions(rootResourceType, selected occurrence node) plus capability-proven exact-related option"
+          },
+          {
+            "name": "catalogChoice",
+            "type": "CatalogChoiceIntent",
+            "provider": "semantic inventory/source-choice response scoped to selected snapshot and source"
+          }
+        ],
+        "dependencies": [
+          "builder.table_route_and_occurrence_selection",
+          "builder.construction_step_editor_routing"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": null,
+          "unit": "selected catalog choices; submitted choices must share exact route when related"
+        },
+        "availability": "capability_conditional",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1409",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1427",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1446",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1509",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3637",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3715",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1838",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876",
+          "ui/packages/loom-ui/src/api.ts:1495",
+          "ui/packages/loom-ui/src/api.ts:1540",
+          "ui/packages/loom-ui/src/api.ts:1555",
+          "ui/packages/loom-ui/src/api.ts:1691",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1049",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:92",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:270",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3667",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3751",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3756",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1544",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233",
+          "ui/packages/loom-ui/src/api.ts:1685",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906",
+          "ui/packages/loom-ui/src/api.ts:1450",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Other fields expose related source scopes only when append-stage capabilities prove RELATED_SOURCE and a retained row identity; while editing a saved step, related-source addition is unavailable.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Existing frame replacement/removal requires an existing frame; this mounted panel does not expose creation of a new frame source.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Feature submission is disabled while commands/reconciliation/add-column preview are pending or when selected catalog items cannot be added.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Ordinary choices are not saved until their proposal response preview has rows and still matches selected Explorer, output, snapshot, draft version/digest, and preview limit.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Related selections in one submit must all share the same exact construction route.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "The accepted choice preview may be handed off to the next automatic preview only when output, draft, snapshot, limit, receipt, and candidate digest still match.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "The cited mounted source-selection UI is the current default catalog feature mode; graph-mode ColumnSelector is also mounted and submits typed ADD_COLUMN/ADD_COLUMN_SOURCE commands.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Legacy ConstructionOperationsPanel is unmounted and excluded from current UI coverage.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "frame-source-no-create",
+            "kind": "affordance_gate",
+            "classification": "observed-ui",
+            "claim": "The mounted Manage saved coded-value sources panel supplies allowNewSource=false; it exposes set/replace/remove on existing frames and semantic category browsing for a selected frame.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3637",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3667",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3746"
+        ]
+      },
+      "prose": {
+        "route_action": "Add Columns lets the user choose Coded values or Other fields and a source scope derived from root/selected route context. Scope selection is local to Explorer, catalog snapshot, output, and selected occurrence. Existing coded-value frames can be managed in a details panel; mounted FrameSourcePanel has allowNewSource=false. Selected features either use a construction-choice proposal or a related-source construction proposal before applying.",
+        "request_constructor": "ConceptCatalog calls browseSemanticInventory for source-scoped coded values/fields. FrameSourcePanel queries existing frame choices. addSelectedFeatures calls proposeConstructionChoices for ordinary choices, or useConstructionLifecycle.proposeCandidateAndWait for related fields; successful choice preview is submitted as APPLY_CONSTRUCTION_CHOICE or APPLY_CONSTRUCTION_PROPOSAL through applyCommands.",
+        "gates": [
+          "Other fields expose related source scopes only when append-stage capabilities prove RELATED_SOURCE and a retained row identity; while editing a saved step, related-source addition is unavailable.",
+          "Existing frame replacement/removal requires an existing frame; this mounted panel does not expose creation of a new frame source.",
+          "Feature submission is disabled while commands/reconciliation/add-column preview are pending or when selected catalog items cannot be added."
+        ],
+        "finite_state_input_bounds": "Source options come from catalogSourceOptions plus an exact-related option only when capability response enables it. View is coded|fields. Selected source identity is reset by context key; construction choices and forms are server-returned finite catalog options.",
+        "transition_preview_invariants": [
+          "Ordinary choices are not saved until their proposal response preview has rows and still matches selected Explorer, output, snapshot, draft version/digest, and preview limit.",
+          "Related selections in one submit must all share the same exact construction route.",
+          "The accepted choice preview may be handed off to the next automatic preview only when output, draft, snapshot, limit, receipt, and candidate digest still match."
+        ],
+        "known_assumptions": [
+          "The cited mounted source-selection UI is the current default catalog feature mode; graph-mode ColumnSelector is also mounted and submits typed ADD_COLUMN/ADD_COLUMN_SOURCE commands.",
+          "Legacy ConstructionOperationsPanel is unmounted and excluded from current UI coverage."
+        ]
+      },
+      "seed": {
+        "id": "builder.add_columns_source_selection.seed",
+        "kind": "column_source_selection_initial_state",
+        "requirements": [
+          "rooted selected table",
+          "current catalog snapshot",
+          "selected operation family ADD_COLUMNS"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "browse-source-fields-or-codes",
+          "kind": "read",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+          "actionId": "browse_add_columns_catalog",
+          "payloadShape": "{snapshotToken:string,rowRoot:string,selectionMode?,frameId?,sourceChoiceId?,outputId?,resourceType?,query?,cursor?,limit?,fieldPresentation?}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045 calls browseSemanticInventory; ui/packages/loom-ui/src/api.ts:1495",
+          "condition": "catalog view is active",
+          "variant": "catalog-browse"
+        },
+        {
+          "order": 1,
+          "stepId": "browse-existing-frame-sources",
+          "kind": "read",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/frame-source-options",
+          "actionId": "manage_saved_frame_source",
+          "payloadShape": "{snapshotToken:string,outputId:string,resourceType?,query?,cursor?,limit?}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:270; ui/packages/loom-ui/src/api.ts:1540",
+          "condition": "saved coded-value frame panel is open; allowNewSource=false",
+          "variant": "saved-frame"
+        },
+        {
+          "order": 2,
+          "stepId": "browse-frame-categories",
+          "kind": "read",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+          "actionId": "choose_coded_values_for_frame",
+          "payloadShape": "{snapshotToken:string,outputId:string,rowRoot:string,frameId:string,query:string,cursor?,limit:50}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx:92; ui/packages/loom-ui/src/api.ts:1495",
+          "condition": "an existing frame is selected",
+          "variant": "saved-frame"
+        },
+        {
+          "order": 2,
+          "stepId": "propose-selected-construction-choices",
+          "kind": "proposal",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-choice-proposals[?auth_resource_path=...]",
+          "actionId": "add_selected_catalog_features",
+          "payloadShape": "{commandId:string,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,constructionChoices:array,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876; ui/packages/loom-ui/src/api.ts:1691",
+          "condition": "ordinary selected choices are current and match selected output/draft/limit",
+          "variant": "ordinary-choice"
+        },
+        {
+          "order": 2,
+          "stepId": "propose-related-source-step",
+          "kind": "proposal",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-proposals[?auth_resource_path=...]",
+          "actionId": "add_related_source_fields",
+          "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId:string,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1544 and :1861; ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233; ui/packages/loom-ui/src/api.ts:1685",
+          "condition": "all selected related fields share the same exact route; append-stage capability supports RELATED_SOURCE",
+          "variant": "related-source"
+        },
+        {
+          "order": 3,
+          "stepId": "apply-choice-command",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "save_selected_catalog_features",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_CHOICE,...}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "ordinary proposal preview matches current owner, snapshot, draft, output, and limit",
+          "variant": "ordinary-choice"
+        },
+        {
+          "order": 3,
+          "stepId": "apply-related-source-proposal",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "save_related_source_fields",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "proposal is ready and its preview matches current identity",
+          "variant": "related-source"
+        }
+      ]
+    },
+    {
+      "id": "builder.construction_step_editor_routing",
+      "domain": {
+        "id": "builder.construction_step_editor_routing",
+        "area": "workspace.step_editor_routing",
+        "type": "state_transition",
+        "kind": "construction_step_editor_routing",
+        "finite_enum_values": {
+          "operationFamily": [
+            "ADD_COLUMNS",
+            "KEEP_ROWS",
+            "CALCULATE",
+            "RESHAPE",
+            "COMBINE"
+          ],
+          "capabilitiesState": [
+            "idle",
+            "loading",
+            "ready",
+            "error"
+          ],
+          "proposalState": [
+            "idle",
+            "previewing",
+            "ready",
+            "needs-repair",
+            "error",
+            "applying"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "stepId",
+            "type": "Construction.steps[].id",
+            "provider": "current selected table construction history"
+          },
+          {
+            "name": "stageId",
+            "type": "ConstructionCapabilitiesResponse stage ID",
+            "provider": "selected saved step input stage or append stage"
+          },
+          {
+            "name": "supportedOperation",
+            "type": "capability literal plus supported boolean",
+            "provider": "matching current-stage capabilities response"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection",
+          "builder.server_saved_draft_and_reconcile"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "selected operation family or saved step editor at a time"
+        },
+        "availability": "capability_conditional",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/operationFamilies.ts:1",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1017",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1036",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3312",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3320",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3584",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4262",
+          "ui/packages/loom-ui/src/api.ts:1652",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:118",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:173"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Capability response must match snapshot, draft version/digest, output, and stage before editor controls become ready.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Operation family affordances are gated by the current selected stage capability response and reason; the five-family UI list is not evidence that every operation is enabled.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "A missing capability is represented as idle/loading/error/ready; operation-specific unsupported choices can remain visible with disabled state and explanatory reason.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Changing history or editing step cancels the previous proposal owner and related catalog request.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Capabilities are bound to an exact selected stage, so an editor response for another stage/draft is rejected.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "inferred",
+            "claim": "Current UI mounted in BuilderWorkspace and ConstructionWorkspace defines coverage; unmounted legacy panel intentions are excluded.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "The repository's capability response is the UI gate; backend operation enums alone do not establish a current affordance.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3312",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3584",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4262"
+        ]
+      },
+      "prose": {
+        "route_action": "Mounted ConstructionWorkspace routes source/history selection into a current operation editor or a saved-step editor. Selecting history cancels any proposal; editing a step determines its editor family from the saved operation. Related source/field steps route to their dedicated editors. New operation families are ADD_COLUMNS, KEEP_ROWS, CALCULATE, RESHAPE, and COMBINE.",
+        "request_constructor": "BuilderWorkspace creates capabilitiesRequest only for a rooted table with snapshot token and positive draft version plus digest, no first-table action, and no unsupported saved source columns. Request stage is the selected saved step's input stage, or the append stage. useConstructionLifecycle calls getConstructionCapabilities with expected identity and stage.",
+        "gates": [
+          "Capability response must match snapshot, draft version/digest, output, and stage before editor controls become ready.",
+          "Operation family affordances are gated by the current selected stage capability response and reason; the five-family UI list is not evidence that every operation is enabled.",
+          "A missing capability is represented as idle/loading/error/ready; operation-specific unsupported choices can remain visible with disabled state and explanatory reason."
+        ],
+        "finite_state_input_bounds": "Capability state is idle|loading|ready|error. Proposal state is idle|previewing|ready|needs-repair|error|applying. Construction history selects source or one saved step ID. The selected operation family is one of the five explicit family literals.",
+        "transition_preview_invariants": [
+          "Changing history or editing step cancels the previous proposal owner and related catalog request.",
+          "Capabilities are bound to an exact selected stage, so an editor response for another stage/draft is rejected.",
+          "Current UI mounted in BuilderWorkspace and ConstructionWorkspace defines coverage; unmounted legacy panel intentions are excluded."
+        ],
+        "known_assumptions": [
+          "The repository's capability response is the UI gate; backend operation enums alone do not establish a current affordance."
+        ]
+      },
+      "seed": {
+        "id": "builder.construction_step_editor_routing.seed",
+        "kind": "construction_step_editor_routing_initial_state",
+        "requirements": [
+          "rooted selected table",
+          "current draft identity",
+          "source history or saved step selected"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "load-stage-capabilities",
+          "kind": "capability",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-capabilities[?auth_resource_path=...]",
+          "actionId": "select_operation_or_saved_step",
+          "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,stageId:string,groupStepId?:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1017 builds request; ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:173; ui/packages/loom-ui/src/api.ts:1652",
+          "condition": "rooted table, snapshot and draft identity ready; no unsupported saved source columns; response matches request",
+          "variant": "capability-load"
+        }
+      ]
+    },
+    {
+      "id": "builder.root.change_or_replace",
+      "domain": {
+        "id": "builder.root.change_or_replace",
+        "area": "workspace.root_change_or_replace",
+        "type": "action",
+        "kind": "row_root_change_review",
+        "finite_enum_values": {
+          "selectionKind": [
+            "authored-occurrence",
+            "catalog-node",
+            "compiler-route",
+            "compiler-occurrence"
+          ],
+          "pickerState": [
+            "idle",
+            "assessing",
+            "blocked",
+            "previewing",
+            "failed"
+          ],
+          "failureReason": [
+            "stale",
+            "unavailable",
+            "request"
+          ],
+          "explicitAssessmentMode": [
+            "REPLACE"
+          ],
+          "replacementState": [
+            "idle",
+            "assessing",
+            "loading-preview",
+            "ready",
+            "blocked",
+            "stale",
+            "failed",
+            "applying"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "rootNodeId",
+            "type": "ExplorerBuilderCatalog.nodes[].nodeId",
+            "provider": "selected row-root choice"
+          },
+          {
+            "name": "routeRebase",
+            "type": "array<{occurrenceId,edgeId}>",
+            "provider": "compiler repair choices when row-change assessment is blocked"
+          },
+          {
+            "name": "requestIdentity",
+            "type": "{epoch,project,authResourcePath?,explorerId,outputId,snapshotToken,draftVersion,draftDigest}",
+            "provider": "current table and Builder draft"
+          },
+          {
+            "name": "replacementRootNodeId",
+            "type": "ExplorerBuilderCatalog.nodes[].nodeId",
+            "provider": "RowDefinitionPanel replacement-only choices: rowRootEligible nodes whose resource type is not already represented"
+          }
+        ],
+        "dependencies": [
+          "builder.table_route_and_occurrence_selection",
+          "builder.server_saved_draft_and_reconcile"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "candidate row-source change in review"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2032",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2050",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2102",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2145",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2248",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2258",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4247",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx:5",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts:9",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts:81",
+          "ui/packages/loom-ui/src/api.ts:1468",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4298",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4396",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4406",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:630",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:655",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:691",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1143",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1225",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:260",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:267",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:289",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx:383",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:635",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:644",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:660",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:664",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:670",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1227",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1231",
+          "ui/packages/loom-ui/src/api.ts:1450",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:649"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Request identity includes epoch, project, auth path, Explorer, output, snapshot, draft version, and digest; stale callbacks are discarded.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Apply is disabled until a ready preview exists and the table still matches the assessed identity.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "NO_CHANGE returns to idle; BLOCKED provides compiler route/occurrence repair choices; stale failures reload Builder state.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "The assessment must echo the current snapshot and draft identity and its proposal must match output and selected root before preview is requested.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "The preview must match candidate receipt and output and have non-null rows before it can be shown as ready.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Changing table/draft identity aborts and discards the pending preview; only Apply writes the row-change command.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Keep current rows is the current discard path; there is no separate reject affordance.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Preview limit is the current Builder row limit.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "replacement-request-identity",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Replacement assessment is accepted only when its snapshot/draft identity and candidate root match the current table; its preview must match receipt and output and contain exactly one id column sourced from path id on the candidate root resource.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "replacement-confirmation",
+            "kind": "transition_invariant",
+            "classification": "observed-ui",
+            "claim": "The replacement dialog offers Cancel and Change starting record type only when ready; apply is disabled if workspace actions are disabled or the assessment is no longer current.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4396",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4591",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616"
+        ]
+      },
+      "prose": {
+        "route_action": "Changing a connected/authored starting-record route uses row-change assessment and the row-change review panel. Replacing the table setup with a different root follows the starting-record chip -> RowDefinitionSettingsPanel -> RowDefinitionPanel path: assess mode REPLACE, show consequences and receipt-bound preview, then offer Change starting record type or Cancel. Replacement preserves the table/output/tab identity and proves exactly one matching base id column. Neither path has a separate Reject action.",
+        "request_constructor": "Connected/rebase path: BuilderWorkspace.changeTableRoot calls assessRowChange with current identity and optional root/route resolution, then loomClient.preview with receipt, output, and current limit; Apply rechecks identity and sends APPLY_TABLE_ROOT_REBASE. Replacement path: RowDefinitionSettingsPanel.assessReplacement calls client.assessRowChange with mode REPLACE and current identity, calls client.preview with candidate receipt/output (no explicit limit), then applyReplacement rechecks current assessment and calls the same Builder callback APPLY_TABLE_ROOT_REBASE.",
+        "gates": [
+          "Request identity includes epoch, project, auth path, Explorer, output, snapshot, draft version, and digest; stale callbacks are discarded.",
+          "Apply is disabled until a ready preview exists and the table still matches the assessed identity.",
+          "NO_CHANGE returns to idle; BLOCKED provides compiler route/occurrence repair choices; stale failures reload Builder state."
+        ],
+        "finite_state_input_bounds": "Connected path uses RootChangePickerState idle|assessing|blocked|previewing|failed(stale|unavailable|request). Replacement path uses idle|assessing|loading-preview|ready|blocked|stale|failed|applying. Root selection kinds are authored-occurrence|catalog-node|compiler-route|compiler-occurrence; REPLACE is the explicit replacement assessment mode. Each flow reviews at most one candidate root at a time.",
+        "transition_preview_invariants": [
+          "The assessment must echo the current snapshot and draft identity and its proposal must match output and selected root before preview is requested.",
+          "The preview must match candidate receipt and output and have non-null rows before it can be shown as ready.",
+          "Changing table/draft identity aborts and discards the pending preview; only Apply writes the row-change command."
+        ],
+        "known_assumptions": [
+          "Keep current rows is the current discard path; there is no separate reject affordance.",
+          "Preview limit is the current Builder row limit.",
+          "Existing-root UI includes both connected row rebase and replacement-only root change; they share the same row-change and preview APIs but have different request mode and ready-state proof."
+        ]
+      },
+      "aliases": [
+        "lifecycle.row_root_change_review"
+      ],
+      "seed": {
+        "id": "builder.root.change_or_replace.seed",
+        "kind": "row_root_change_review_initial_state",
+        "requirements": [
+          "existing rooted table",
+          "current catalog and draft identity",
+          "starting-record settings opened"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "assess-connected-root-change",
+          "kind": "assessment",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-change",
+          "actionId": "change_connected_row_root",
+          "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string,rootNodeId:string,rootOccurrenceId?,routeRebase?}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2032; ui/packages/loom-ui/src/api.ts:1468",
+          "condition": "connected/authored/catalog/compiler route choice; current identity matches",
+          "variant": "connected-rebase"
+        },
+        {
+          "order": 2,
+          "stepId": "preview-connected-root-change",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "review_connected_row_root",
+          "payloadShape": "{receiptId:string,outputId:string,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2102; ui/packages/loom-ui/src/api.ts:1697",
+          "condition": "assessment returns matching candidate receipt and proposal",
+          "variant": "connected-rebase"
+        },
+        {
+          "order": 3,
+          "stepId": "apply-connected-root-change",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "apply_connected_row_root",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_TABLE_ROOT_REBASE,outputId,rowChange}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2258; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "ready preview and unchanged root-change identity",
+          "variant": "connected-rebase"
+        },
+        {
+          "order": 1,
+          "stepId": "assess-root-replacement",
+          "kind": "assessment",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-change",
+          "actionId": "replace_table_root",
+          "payloadShape": "{mode:REPLACE,snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string,rootNodeId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:616; ui/packages/loom-ui/src/api.ts:1468",
+          "condition": "replacement-only root choice; client supports assessRowChange and preview",
+          "variant": "replace"
+        },
+        {
+          "order": 2,
+          "stepId": "preview-root-replacement",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "review_root_replacement",
+          "payloadShape": "{receiptId:string,outputId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:649; ui/packages/loom-ui/src/api.ts:1697",
+          "condition": "assessment is READY, current and contains candidate receipt",
+          "variant": "replace"
+        },
+        {
+          "order": 3,
+          "stepId": "apply-root-replacement",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "apply_root_replacement",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_TABLE_ROOT_REBASE,outputId,rowChange}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:691; ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4406; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "replacement state ready and assessment still current",
+          "variant": "replace"
+        }
+      ]
+    },
+    {
+      "id": "builder.construction_proposal_apply_cancel_retry",
+      "domain": {
+        "id": "builder.construction_proposal_apply_cancel_retry",
+        "area": "workspace.operation_proposal",
+        "type": "state_transition",
+        "kind": "construction_proposal_lifecycle",
+        "finite_enum_values": {
+          "proposalState": [
+            "idle",
+            "previewing",
+            "ready",
+            "needs-repair",
+            "error",
+            "applying"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "candidateConstruction",
+            "type": "Construction",
+            "provider": "active mounted operation editor intent"
+          },
+          {
+            "name": "proposalId",
+            "type": "optional string",
+            "provider": "matching ready construction-proposal response"
+          },
+          {
+            "name": "previewLimit",
+            "type": "PreviewLimit",
+            "provider": "Builder row-limit selector"
+          }
+        ],
+        "dependencies": [
+          "builder.construction_step_editor_routing",
+          "builder.server_saved_draft_and_reconcile"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "active proposal owner per current capability identity"
+        },
+        "availability": "capability_conditional",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:258",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:325",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:340",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:444",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1818",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3962",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:11",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:317",
+          "ui/packages/loom-ui/src/api.ts:1685",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:266",
+          "ui/packages/loom-ui/src/api.ts:1450"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Apply requires proposal status ready, READY preview status, proposalId, matching output/snapshot/draft identity and preview receipt, zero pending commands, no publish in progress, and reconciliation not pending.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "A retry button is visible only for error state with retryable=true.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Related-field additions require current append-stage capability and no saved-step editor; ordinary add-column choices require a valid matching proposal preview.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Proposal response must echo output, snapshot, draft version, and digest before its preview is accepted.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "A ready preview must match proposal receipt and output and have non-null rows.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Successful apply sends the new server draft identity into local state; an accepted preview can be reused only if its receipt, workspace digest, output, limit, and identity still match.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-4",
+            "kind": "invariant",
+            "classification": "inferred",
+            "claim": "Cancel invalidates proposal generation and aborts the active request; it does not issue an inverse command.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "User-visible Apply is the acceptance action for construction proposals; no Reject button is present.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Draft mutation endpoint is the command endpoint, not the proposal endpoint.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3962",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:317"
+        ]
+      },
+      "prose": {
+        "route_action": "A changed construction candidate is debounced for 300 ms, proposed and previewed. A ready proposal can be applied; Cancel aborts/discards the pending proposal without mutating the draft; a retryable error exposes Retry preview. Needs-repair proposals cannot be applied. There is no separate Reject action.",
+        "request_constructor": "useConstructionLifecycle.startCandidateProposal builds ProposeConstructionArgs from current capability identity, candidate intent, previewLimit, and requestId; proposal response may contain a matching preview or causes a preview request. beginApply revalidates proposal, output, snapshot, version/digest and preview receipt. applyConstructionProposal submits APPLY_CONSTRUCTION_PROPOSAL via applyCommandsWithResult.",
+        "gates": [
+          "Apply requires proposal status ready, READY preview status, proposalId, matching output/snapshot/draft identity and preview receipt, zero pending commands, no publish in progress, and reconciliation not pending.",
+          "A retry button is visible only for error state with retryable=true.",
+          "Related-field additions require current append-stage capability and no saved-step editor; ordinary add-column choices require a valid matching proposal preview."
+        ],
+        "finite_state_input_bounds": "Proposal view state is idle|previewing|ready|needs-repair|error|applying. Request generation and AbortController ensure only the latest proposal owner for the current capability key can settle. The preview limit is one of 25, 50, 100, 500, 1000 in the parent Builder state.",
+        "transition_preview_invariants": [
+          "Proposal response must echo output, snapshot, draft version, and digest before its preview is accepted.",
+          "A ready preview must match proposal receipt and output and have non-null rows.",
+          "Successful apply sends the new server draft identity into local state; an accepted preview can be reused only if its receipt, workspace digest, output, limit, and identity still match.",
+          "Cancel invalidates proposal generation and aborts the active request; it does not issue an inverse command."
+        ],
+        "known_assumptions": [
+          "User-visible Apply is the acceptance action for construction proposals; no Reject button is present.",
+          "Draft mutation endpoint is the command endpoint, not the proposal endpoint."
+        ]
+      },
+      "seed": {
+        "id": "builder.construction_proposal_apply_cancel_retry.seed",
+        "kind": "construction_proposal_lifecycle_initial_state",
+        "requirements": [
+          "capabilities request matches current table/stage/draft",
+          "candidate intent from mounted operation editor"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "propose-construction-change",
+          "kind": "proposal",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-proposals[?auth_resource_path=...]",
+          "actionId": "edit_or_remove_construction_step",
+          "payloadShape": "{snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest:string,outputId:string,candidateConstruction:Construction,changedStepId?,removeStepIds?,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233; ui/packages/loom-ui/src/api.ts:1685",
+          "condition": "candidate changes and capability request is current; request waits 300 ms",
+          "variant": "initial-or-retry"
+        },
+        {
+          "order": 2,
+          "stepId": "load-construction-proposal-preview",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "review_construction_change",
+          "payloadShape": "{receiptId:proposalId,outputId,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:266 and :271; ui/packages/loom-ui/src/api.ts:1697",
+          "condition": "proposal response lacks a matching rows preview",
+          "variant": "initial-or-retry"
+        },
+        {
+          "order": 3,
+          "stepId": "apply-construction-proposal",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "accept_construction_proposal",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:APPLY_CONSTRUCTION_PROPOSAL,outputId,proposalId}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "ready proposal, matching preview identity, no pending commands, no active publication, reconciliation not pending",
+          "variant": "apply"
+        },
+        {
+          "order": 1,
+          "stepId": "retry-construction-proposal",
+          "kind": "proposal",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/construction-proposals[?auth_resource_path=...]",
+          "actionId": "retry_construction_preview",
+          "payloadShape": {
+            "snapshotToken": "string",
+            "expectedDraftVersion": "number",
+            "expectedDraftDigest": "string",
+            "outputId": "string",
+            "candidateConstruction": "Construction",
+            "changedStepId?": "string",
+            "removeStepIds?": "string[]",
+            "limit": "PreviewLimit"
+          },
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:340 and :233",
+          "condition": "proposal error.retryable is true and candidate intent remains current",
+          "variant": "retry"
+        }
+      ]
+    },
+    {
+      "id": "builder.server_saved_draft_and_reconcile",
+      "domain": {
+        "id": "builder.server_saved_draft_and_reconcile",
+        "area": "workspace.draft_save_and_reconcile",
+        "type": "state_transition",
+        "kind": "server_draft_and_reconciliation",
+        "finite_enum_values": {
+          "reconciliation": [
+            "idle",
+            "pending",
+            "resolved",
+            "stale",
+            "repair"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "commands",
+            "type": "array<ExplorerBuilderCommand>",
+            "provider": "mounted Builder table/source/editor actions"
+          },
+          {
+            "name": "draftIdentity",
+            "type": "{draftVersion:number,draftDigest:string,snapshotToken:string}",
+            "provider": "Builder server state or latest successful command response"
+          },
+          {
+            "name": "receipt",
+            "type": "optional ExplorerBuilderCompileResult",
+            "provider": "current workspace reconciliation response"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "in-flight queued command request; reconciliation can target one output or all outputs"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:778",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:793",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:800",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:812",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:845",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:862",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2500",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2522",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2561",
+          "ui/packages/loom-ui/src/api.ts:1450",
+          "ui/packages/loom-ui/src/api.ts:1479",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts:247",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts:319",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3155",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3157",
+          "ui/packages/loom-ui/src/api.ts:1410"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Commands use current serverDraft identity, not an older component render's draft identity.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Reconcile requires a catalog snapshot, at least one table, and every table rooted.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "A compiled receipt is current only for the submitted fingerprint and same Explorer; any error-severity diagnostic leaves reconciliation in repair.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Successful commands advance server draft version/digest and clear local dirty state through stateFromCommands.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "A command/reconcile failure for stale snapshot or desynchronized draft reloads authoritative Builder state; stale callbacks cannot overwrite newer generation or fingerprint.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Receipt and preview are invalidated by authored changes unless an explicitly verified accepted-construction receipt matches the new draft digest.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "The component's dirty flag describes local authoring reducer state; successful command response is the persistence boundary.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Retryable reconciliation uses a fixed maximum of three attempts in the mounted UI path.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "review-reconciles",
+            "kind": "transition_invariant",
+            "classification": "observed-ui",
+            "claim": "Opening Review dataset reconciles when the current receipt lacks any table output or reconciliation is not resolved.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:778",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3151"
+        ]
+      },
+      "prose": {
+        "route_action": "Every authored table/workspace mutation is immediately saved as a server command. There is no separate Save draft button. Commands are serialized through one queue; the server-returned workspace and draft version/digest replace local authoring state. Reconcile compiles a matching workspace receipt for preview/review.",
+        "request_constructor": "applyCommandsWithResult adds commandId, semanticsVersion, snapshotToken, expectedDraftVersion/digest and typed commands; it pauses/drains related expansion work first. reconcileCurrent sends snapshot and current draft identity plus optional outputId. Review opens and reconciles if its receipt is missing outputs or state is not resolved; automatic preview reconciles when no valid receipt is reusable.",
+        "gates": [
+          "Commands use current serverDraft identity, not an older component render's draft identity.",
+          "Reconcile requires a catalog snapshot, at least one table, and every table rooted.",
+          "A compiled receipt is current only for the submitted fingerprint and same Explorer; any error-severity diagnostic leaves reconciliation in repair."
+        ],
+        "finite_state_input_bounds": "Commands are a typed array and queue serializes requests. Reconcile retries retryable failures at most twice after the first attempt (three total) with 250 ms delay; stale snapshot reloads Builder and retries, draft desynchronization hydrates the refreshed Builder state.",
+        "transition_preview_invariants": [
+          "Successful commands advance server draft version/digest and clear local dirty state through stateFromCommands.",
+          "A command/reconcile failure for stale snapshot or desynchronized draft reloads authoritative Builder state; stale callbacks cannot overwrite newer generation or fingerprint.",
+          "Receipt and preview are invalidated by authored changes unless an explicitly verified accepted-construction receipt matches the new draft digest."
+        ],
+        "known_assumptions": [
+          "The component's dirty flag describes local authoring reducer state; successful command response is the persistence boundary.",
+          "Retryable reconciliation uses a fixed maximum of three attempts in the mounted UI path."
+        ]
+      },
+      "seed": {
+        "id": "builder.server_saved_draft_and_reconcile.seed",
+        "kind": "server_draft_and_reconciliation_initial_state",
+        "requirements": [
+          "Builder state hydrated with current server draft identity"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "save-authored-command",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "save_builder_draft_change",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:ExplorerBuilderCommand[]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:778; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "current server draft identity; serialized command queue",
+          "variant": "save"
+        },
+        {
+          "order": 1,
+          "stepId": "reconcile-current-draft",
+          "kind": "reconcile",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
+          "actionId": "compile_current_builder_draft",
+          "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId?:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2500; ui/packages/loom-ui/src/api.ts:1479",
+          "condition": "catalog snapshot exists; all tables rooted; Review/preview needs receipt or unresolved state",
+          "variant": "reconcile"
+        },
+        {
+          "order": 2,
+          "stepId": "reload-desynchronized-builder",
+          "kind": "refresh",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/builder",
+          "actionId": "refresh_after_stale_or_desynchronized_draft",
+          "payloadShape": "no body",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2561 and :866; ui/packages/loom-ui/src/api.ts:1410",
+          "condition": "command or reconcile reports stale snapshot or draft desynchronization",
+          "variant": "refresh"
+        }
+      ]
+    },
+    {
+      "id": "builder.automatic_preview_refresh_and_recovery",
+      "domain": {
+        "id": "builder.automatic_preview_refresh_and_recovery",
+        "area": "preview.lifecycle",
+        "type": "state_transition",
+        "kind": "automatic_preview_lifecycle",
+        "finite_enum_values": {
+          "previewLimit": [
+            25,
+            50,
+            100,
+            500,
+            1000
+          ],
+          "previewStatus": [
+            "empty",
+            "ready",
+            "stale"
+          ],
+          "recoveryAction": [
+            "recompile",
+            "refresh-catalog",
+            "retry",
+            "fail"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "previewIdentity",
+            "type": "{ownerKey,snapshotToken,draftVersion,draftDigest,previewRequestVersion,outputId,limit}",
+            "provider": "selected table, current server draft, and PreviewTable row limit"
+          },
+          {
+            "name": "receiptId",
+            "type": "string",
+            "provider": "current matching reconciliation receipt"
+          }
+        ],
+        "dependencies": [
+          "builder.server_saved_draft_and_reconcile",
+          "builder.table_route_and_occurrence_selection"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "active automatic preview for the current identity"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:565",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2347",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2500",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2608",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2853",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2888",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4218",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4222",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4456",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:794",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts:23",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:3",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:32",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/api.ts:1479",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2645",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2662",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:10",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2668",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2675",
+          "ui/packages/loom-ui/src/api.ts:1410",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2684",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2689"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Preview requires selected rooted table, visible output column, no blocking diagnostic, and no active construction proposal; automatic query also waits for zero pending commands and idle first-table flow.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "The Preview row limit is the finite union 25|50|100|500|1000.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Recompile is rendered only for stale or repair reconciliation with tables and no incomplete root.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "A successful preview is accepted only if current identity is unchanged, receipt snapshot matches, receipt includes the output, and preview receipt/output match.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Changing table/draft/catalog/limit aborts prior generation; the last successful preview may be shown as stale while a new one loads.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-3",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Manual Recompile increments previewRequestVersion and clears receipt/preview before keyed preview runs.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-4",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Response-size failures show a row-count/column-width message; expensive-plan failures show route/column guidance.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "There is no user-facing arbitrary retry for a failed table Preview; only supported recovery, changing the draft/limit, or the Recompile action initiates a new identity.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "This entry excludes proposal previews and row-change candidate previews, which have separate identities and approval steps.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2831",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4456",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:760"
+        ]
+      },
+      "prose": {
+        "route_action": "Preview runs automatically when the active output/draft/snapshot/previewRequestVersion/row limit identity changes. Selecting another table changes output identity. Changing Show rows chooses 25, 50, 100, 500, or 1000 and refreshes through the keyed query. There is no standalone Preview retry button; a stale/repair diagnostic exposes Recompile, while PreviewTable says to correct the Builder issue so preview runs again after the draft changes.",
+        "request_constructor": "automaticPreviewIdentity.key is JSON(ownerKey,snapshotToken,draftVersion,draftDigest,previewRequestVersion,outputId,limit). The query reuses a matching resolved receipt unless reload requested, then calls reconcileCurrent and executePreview. executePreview calls previewBuilder({receiptId,outputId,limit}); query identity and generation own cancellation and acceptance.",
+        "gates": [
+          "Preview requires selected rooted table, visible output column, no blocking diagnostic, and no active construction proposal; automatic query also waits for zero pending commands and idle first-table flow.",
+          "The Preview row limit is the finite union 25|50|100|500|1000.",
+          "Recompile is rendered only for stale or repair reconciliation with tables and no incomplete root."
+        ],
+        "finite_state_input_bounds": "Automatic identity has finite owner/snapshot/draft/preview-version/output/limit components. Preview error recovery allows one retryable transient retry, one receipt recompile for receipt-recompile errors, or one catalog refresh for stale-snapshot/receipt errors; otherwise it fails. Reconcile itself has at most three attempts.",
+        "transition_preview_invariants": [
+          "A successful preview is accepted only if current identity is unchanged, receipt snapshot matches, receipt includes the output, and preview receipt/output match.",
+          "Changing table/draft/catalog/limit aborts prior generation; the last successful preview may be shown as stale while a new one loads.",
+          "Manual Recompile increments previewRequestVersion and clears receipt/preview before keyed preview runs.",
+          "Response-size failures show a row-count/column-width message; expensive-plan failures show route/column guidance."
+        ],
+        "known_assumptions": [
+          "There is no user-facing arbitrary retry for a failed table Preview; only supported recovery, changing the draft/limit, or the Recompile action initiates a new identity.",
+          "This entry excludes proposal previews and row-change candidate previews, which have separate identities and approval steps."
+        ]
+      },
+      "seed": {
+        "id": "builder.automatic_preview_refresh_and_recovery.seed",
+        "kind": "automatic_preview_lifecycle_initial_state",
+        "requirements": [
+          "selected rooted table",
+          "visible output column",
+          "snapshot and draft identity available"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "reconcile-if-receipt-missing",
+          "kind": "reconcile",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
+          "actionId": "preview_selected_output",
+          "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2911 and :2500; ui/packages/loom-ui/src/api.ts:1479",
+          "condition": "no reusable receipt matches output/snapshot; or explicit reload",
+          "variant": "normal-or-recompile"
+        },
+        {
+          "order": 2,
+          "stepId": "fetch-selected-output-preview",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "preview_selected_output",
+          "payloadShape": "{receiptId:string,outputId:string,limit:25|50|100|500|1000}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2608 and :2831; ui/packages/loom-ui/src/api.ts:1697",
+          "condition": "selected rooted table has visible output, valid draft identity, no blocking diagnostic/proposal/command",
+          "variant": "normal"
+        },
+        {
+          "order": 3,
+          "stepId": "retry-transient-preview",
+          "kind": "preview_retry",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "retry_preview_once",
+          "payloadShape": {
+            "receiptId": "string",
+            "outputId": "string",
+            "limit": [
+              25,
+              50,
+              100,
+              500,
+              1000
+            ]
+          },
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2645; ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:32",
+          "condition": "error.retryable and transientRetries is zero",
+          "variant": "retryable-error"
+        },
+        {
+          "order": 3,
+          "stepId": "recompile-stale-receipt",
+          "kind": "reconcile",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
+          "actionId": "rebuild_stale_preview_receipt",
+          "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2662 and :2500; ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts:10",
+          "condition": "receipt-recompile error and receiptRefreshes is zero",
+          "variant": "stale-receipt"
+        },
+        {
+          "order": 4,
+          "stepId": "retry-after-recompile",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "refresh_preview_after_recompile",
+          "payloadShape": "{receiptId:string,outputId:string,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2668 and :2621",
+          "condition": "recompile returned current receipt",
+          "variant": "stale-receipt"
+        },
+        {
+          "order": 3,
+          "stepId": "refresh-catalog-after-stale-snapshot",
+          "kind": "refresh",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/builder",
+          "actionId": "refresh_preview_catalog",
+          "payloadShape": "no body",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2675; ui/packages/loom-ui/src/api.ts:1410",
+          "condition": "catalog/receipt stale code and receiptRefreshes is zero",
+          "variant": "stale-catalog"
+        },
+        {
+          "order": 4,
+          "stepId": "reconcile-after-catalog-refresh",
+          "kind": "reconcile",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/reconcile[?auth_resource_path=...]",
+          "actionId": "rebuild_preview_after_catalog_refresh",
+          "payloadShape": "{snapshotToken:string,draftVersion:number,draftDigest:string,outputId:string}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2684 and :2500; ui/packages/loom-ui/src/api.ts:1479",
+          "condition": "Builder refresh returned data and current identity still matches",
+          "variant": "stale-catalog"
+        },
+        {
+          "order": 5,
+          "stepId": "preview-after-catalog-refresh",
+          "kind": "preview",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/preview",
+          "actionId": "fetch_preview_after_catalog_refresh",
+          "payloadShape": "{receiptId:string,outputId:string,limit:PreviewLimit}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2689 and :2621",
+          "condition": "reconciliation returned current receipt",
+          "variant": "stale-catalog"
+        }
+      ]
+    },
+    {
+      "id": "builder.restore_previous_draft_undo",
+      "domain": {
+        "id": "builder.restore_previous_draft_undo",
+        "area": "workspace.draft_history",
+        "type": "action",
+        "kind": "one_step_draft_restore",
+        "finite_enum_values": {
+          "commandType": [
+            "RESTORE_DRAFT_REVISION"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "draftRevisionId",
+            "type": "optional string",
+            "provider": "previousDraftRevisionId from hydrated Builder/command response"
+          }
+        ],
+        "dependencies": [
+          "builder.server_saved_draft_and_reconcile"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "previous draft revision exposed to the empty-table workspace"
+        },
+        "availability": "reachable",
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:483",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3384",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4051",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4053",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:73",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:79",
+          "ui/packages/loom-ui/src/api.ts:1450",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3385",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3386",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3392",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3395",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4055",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:81"
+        ],
+        "constraints": [
+          {
+            "id": "gate-1",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Undo control is rendered only when state.tables.length===0 and previousDraftRevisionId exists.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-2",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "It is disabled while commands, publishing, or reconciliation are pending.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "gate-3",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "The command is not sent when previousDraftRevisionId is absent.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-1",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Restore uses the normal authoritative command response and draft identity transition.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "invariant-2",
+            "kind": "invariant",
+            "classification": "observed-ui",
+            "claim": "Restored server workspace is subsequently previewed under the newly returned draft identity when preview gates pass.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-1",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Undo here means restoring the previous server draft revision, not a local undo stack.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "assumption-2",
+            "kind": "assumption",
+            "classification": "inferred",
+            "claim": "Redo and a separate reject affordance are absent from mounted Builder UI.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4051",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4053"
+        ]
+      },
+      "prose": {
+        "route_action": "Undo is a single Restore previous draft command, displayed only when the current workspace has zero tables and a previousDraftRevisionId. It cancels active construction editing/proposals and restores that server revision. No redo affordance or redo callback is present in mounted BuilderWorkspace/ConstructionWorkspace.",
+        "request_constructor": "restorePreviousDraft sends typed RESTORE_DRAFT_REVISION with previousDraftRevisionId through applyCommands; the ordinary command constructor supplies current snapshot and expected server draft identity. The button is rendered only in the empty-table state with an available previous revision and is disabled while commands, publishing, or reconciliation are pending.",
+        "gates": [
+          "Undo control is rendered only when state.tables.length===0 and previousDraftRevisionId exists.",
+          "It is disabled while commands, publishing, or reconciliation are pending.",
+          "The command is not sent when previousDraftRevisionId is absent."
+        ],
+        "finite_state_input_bounds": "One previous revision identifier is exposed by Builder state/command response; this UI path provides one-step restore. The action is reachable when the table list is empty and the identifier exists; it is temporarily disabled while commands, publishing, or reconciliation are pending. No redo state or forward revision identifier is kept by the UI.",
+        "transition_preview_invariants": [
+          "Restore uses the normal authoritative command response and draft identity transition.",
+          "Restored server workspace is subsequently previewed under the newly returned draft identity when preview gates pass."
+        ],
+        "known_assumptions": [
+          "Undo here means restoring the previous server draft revision, not a local undo stack.",
+          "Redo and a separate reject affordance are absent from mounted Builder UI."
+        ]
+      },
+      "seed": {
+        "id": "builder.restore_previous_draft_undo.seed",
+        "kind": "one_step_draft_restore_initial_state",
+        "requirements": [
+          "empty current workspace",
+          "previousDraftRevisionId available"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "restore-previous-draft",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "undo_last_saved_draft_change",
+          "payloadShape": "{commandId:string,semanticsVersion:constant,snapshotToken:string,expectedDraftVersion:number,expectedDraftDigest?:string,commands:[{type:RESTORE_DRAFT_REVISION,draftRevisionId:string}]}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3384; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "tables empty and previousDraftRevisionId exists",
+          "variant": "undo"
+        }
+      ]
+    },
+    {
+      "id": "builder.delete_explorer_no_fallback",
+      "domain": {
+        "id": "builder.delete_explorer_no_fallback",
+        "area": "workspace.explorer_lifecycle",
+        "type": "affordance",
+        "kind": "visible_disabled_action",
+        "availability": "visible_disabled_intention",
+        "finite_enum_values": {},
+        "dynamic_providers": [
+          {
+            "name": "deleteSupported",
+            "type": "boolean",
+            "provider": "capabilities.features.deleteExplorer"
+          },
+          {
+            "name": "hasAlternativeExplorer",
+            "type": "boolean",
+            "provider": "Explorer list contains an id other than selectedExplorerId"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "visible Delete explorer control"
+        },
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3136",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3137",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:354",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:358",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:361"
+        ],
+        "constraints": [
+          {
+            "id": "gate-delete-capability",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Delete is hidden when deleteSupported is false.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "disabled-no-fallback",
+            "kind": "disabled_intention",
+            "classification": "observed-ui",
+            "claim": "When deleteSupported is true but no alternative Explorer exists, Delete remains rendered disabled and its title directs the user to create or select another Explorer.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx:354"
+        ]
+      },
+      "prose": {
+        "route_action": "The current Explorer delete icon stays visible but disabled while no fallback Explorer exists, so the user cannot delete the last Explorer through this control.",
+        "request_constructor": "No delete request is constructed from this disabled control state.",
+        "gates": [
+          "Capability must expose deleteExplorer before the control renders; an alternative Explorer must exist before the delete button is enabled."
+        ],
+        "finite_state_input_bounds": "Boolean capability plus boolean fallback availability; the condition covers one selected Explorer.",
+        "known_assumptions": [
+          "This is a disabled-state affordance, not evidence that the delete operation is unsupported."
+        ],
+        "transition_preview_invariants": [
+          "While no alternative Explorer exists, the visible disabled control cannot initiate deletion; selecting or creating an alternative is the required prerequisite before an enabled delete action can be reached."
+        ]
+      },
+      "seed": {
+        "id": "builder.delete_explorer_no_fallback.seed",
+        "kind": "visible_disabled_action_initial_state",
+        "requirements": [
+          "delete capability is true",
+          "only one Explorer is available"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": []
+    },
+    {
+      "id": "builder.row_definition_proposal_apply_cancel",
+      "domain": {
+        "id": "builder.row_definition_proposal_apply_cancel",
+        "area": "workspace.row_definition_change",
+        "type": "state_transition",
+        "kind": "row_definition_proposal_lifecycle",
+        "availability": "reachable",
+        "finite_enum_values": {
+          "settingsState": [
+            "closed",
+            "loading",
+            "editing",
+            "error"
+          ],
+          "proposalState": [
+            "none",
+            "proposing",
+            "fresh",
+            "stale",
+            "failed",
+            "applying"
+          ],
+          "selectionKind": [
+            "RECORDS",
+            "FIELD_GROUP",
+            "EXPLICIT_GROUP",
+            "EXPANDED"
+          ],
+          "missingKeyPolicy": [
+            "ERROR",
+            "EXCLUDE",
+            "GROUP_AS_MISSING"
+          ],
+          "emptyCollectionPolicy": [
+            "ERROR",
+            "EXCLUDE",
+            "PRESERVE_PARENT"
+          ],
+          "unassignedMemberPolicy": [
+            "ERROR",
+            "EXCLUDE",
+            "GROUP_AS_UNASSIGNED"
+          ],
+          "comparisonStatus": [
+            "AVAILABLE",
+            "UNAVAILABLE"
+          ]
+        },
+        "dynamic_providers": [
+          {
+            "name": "rowDefinitionChoice",
+            "type": "RowDefinitionChoice",
+            "provider": "current output/snapshot-scoped GET row-definition-choices response"
+          },
+          {
+            "name": "selection",
+            "type": "RowDefinitionSelection",
+            "provider": "selected shape and policy options presented by RowDefinitionSettingsPanel"
+          },
+          {
+            "name": "proposalId",
+            "type": "optional string",
+            "provider": "current fresh matching row-definition proposal response"
+          }
+        ],
+        "dependencies": [
+          "builder.workspace_hydration_and_explorer_selection",
+          "builder.server_saved_draft_and_reconcile"
+        ],
+        "cardinality": {
+          "minimum": 0,
+          "maximum": 1,
+          "unit": "active row-definition proposal for selected table"
+        },
+        "source": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4403",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:520",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:527",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:581",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:591",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:709",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:718",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:737",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:916",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1120",
+          "ui/packages/loom-ui/src/api.ts:1607",
+          "ui/packages/loom-ui/src/api.ts:1612",
+          "ui/packages/loom-ui/src/types.ts:721"
+        ],
+        "entryPath": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4284",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:916"
+        ],
+        "constraints": [
+          {
+            "id": "gate-current-choice-response",
+            "kind": "gate",
+            "classification": "observed-ui",
+            "claim": "Row choices are accepted only when response outputId and snapshotToken match the selected table and catalog snapshot.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "proposal-current-draft",
+            "kind": "transition_invariant",
+            "classification": "observed-ui",
+            "claim": "A proposal is applied only when its output, snapshot, draft version and digest still match the current table; comparison must be AVAILABLE and proposalId present.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "apply-or-cancel",
+            "kind": "transition_invariant",
+            "classification": "observed-ui",
+            "claim": "Fresh row-definition proposal exposes Cancel and Apply row definition. Cancel aborts pending preview and clears local proposal; apply sends APPLY_ROW_DEFINITION_PROPOSAL through the normal server command path. No reject control is present.",
+            "evidence": [
+              "$domain.source"
+            ]
+          },
+          {
+            "id": "preview-debounce",
+            "kind": "transition_invariant",
+            "classification": "observed-ui",
+            "claim": "Changing row shape or policy debounces proposal submission by 300 ms; the proposal response carries the row-membership comparison used for review, so this flow does not issue a separate /preview request.",
+            "evidence": [
+              "$domain.source"
+            ]
+          }
+        ]
+      },
+      "seed": {
+        "id": "builder.row_definition_proposal_apply_cancel.seed",
+        "kind": "row_definition_settings_open",
+        "requirements": [
+          "rooted selected table",
+          "current snapshot and draft identity",
+          "row-definition settings opened"
+        ],
+        "provenance": [
+          "$domain.source"
+        ]
+      },
+      "requests": [
+        {
+          "order": 1,
+          "stepId": "load-row-definition-choices",
+          "kind": "read",
+          "method": "GET",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-definition-choices?outputId={outputId}&snapshotToken={snapshotToken}",
+          "actionId": "open_row_definition_settings",
+          "payloadShape": "no body; query {outputId,snapshotToken}",
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:520; ui/packages/loom-ui/src/api.ts:1607",
+          "condition": "settings opened for selected table"
+        },
+        {
+          "order": 2,
+          "stepId": "propose-row-definition",
+          "kind": "proposal",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
+          "actionId": "select_row_shape_or_policy",
+          "payloadShape": {
+            "snapshotToken": "string",
+            "expectedDraftVersion": "number",
+            "expectedDraftDigest": "string",
+            "outputId": "string",
+            "selection": "RowDefinitionSelection",
+            "limit?": "number"
+          },
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:581; ui/packages/loom-ui/src/api.ts:1612",
+          "condition": "selection change waits 300 ms; current settings are loaded",
+          "variant": "row-shape-change"
+        },
+        {
+          "order": 3,
+          "stepId": "apply-row-definition-proposal",
+          "kind": "command",
+          "method": "POST",
+          "endpoint": "/api/v1/projects/{encodedProject}/explorers/{explorerId}/authoring/v2/commands[?auth_resource_path=...]",
+          "actionId": "apply_row_definition",
+          "payloadShape": {
+            "commandId": "string",
+            "semanticsVersion": "constant",
+            "snapshotToken": "string",
+            "expectedDraftVersion": "number",
+            "expectedDraftDigest?": "string",
+            "commands": [
+              {
+                "type": "APPLY_ROW_DEFINITION_PROPOSAL",
+                "outputId": "string",
+                "proposalId": "string"
+              }
+            ]
+          },
+          "constructor": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:718; ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4403; ui/packages/loom-ui/src/api.ts:1450",
+          "condition": "proposal fresh/current, comparison AVAILABLE, proposalId present, actions enabled",
+          "variant": "apply"
+        }
+      ],
+      "prose": {
+        "route_action": "From the mounted starting-record settings, load row-definition choices for the selected output and snapshot. Selecting a row shape or policy schedules a proposal; review its membership comparison and then Apply row definition or Cancel.",
+        "request_constructor": "RowDefinitionSettingsPanel.openSettings calls client.listRowDefinitionChoices. Shape and policy changes call schedulePreview, which waits 300 ms before propose; propose calls client.proposeRowDefinition with current output/snapshot/draft identity and the selection. The proposal comparison is the review preview. Apply rechecks current identity and calls onApply(proposalId), which BuilderWorkspace sends as APPLY_ROW_DEFINITION_PROPOSAL through applyCommandsWithResult.",
+        "gates": [
+          "Choices are accepted only for the current output and snapshot; stale settings responses are ignored.",
+          "Apply requires a fresh proposal whose output, snapshot, draft version and digest match current state, comparison status AVAILABLE, proposalId present, and actions enabled.",
+          "Changing selection cancels the prior proposal timer/request; Cancel closes settings and clears the local proposal without changing the saved draft."
+        ],
+        "finite_state_input_bounds": "Settings state is closed|loading|editing|error. Proposal state is none|proposing|fresh|stale|failed|applying. Selection kind is RECORDS|FIELD_GROUP|EXPLICIT_GROUP|EXPANDED; missing-key, empty-collection and unassigned-member policies each use their finite enum in domain.finite_enum_values. At most one active proposal is reviewed for the selected output.",
+        "transition_preview_invariants": [
+          "Selection changes wait 300 ms and then issue a row-definition proposal; no standalone /preview request is made by this flow.",
+          "The proposal response supplies the membership comparison; it does not change the server-saved draft until APPLY_ROW_DEFINITION_PROPOSAL succeeds.",
+          "Stale or unavailable comparison state cannot be applied; the result is reported as stale/failed and leaves the draft unchanged."
+        ],
+        "known_assumptions": [
+          "The proposal comparison is the UI review preview for row-definition changes; the source has no separate row-definition preview endpoint call.",
+          "The choice and proposal routes are supported by mounted RowDefinitionSettingsPanel, and are not inferred from backend enum declarations."
+        ]
+      }
+    }
+  ],
+  "evidence_reference_semantics": "Constraint evidence and seed provenance use $domain.source, the exact file:line list for that domain."
+}

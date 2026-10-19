@@ -378,6 +378,7 @@ type DataframeRowConnection {
   materialization: DataframeMaterialization!
   columns: [String!]!
   rows: JSON!
+  rowIds: [String!]!
   totalCount: Int
   pageInfo: DataframePageInfo!
 }

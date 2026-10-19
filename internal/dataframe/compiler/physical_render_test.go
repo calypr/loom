@@ -294,7 +294,7 @@ func TestRenderPhysicalPlanRejectsUnsupportedOrAmbiguousOperations(t *testing.T)
 				unsupported := ir.PhysicalOperation{
 					Kind: ir.PhysicalFilterOp,
 					Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
-						Operator: "NOT_EQUALS",
+						Operator: "UNKNOWN_FILTER_OPERATOR",
 						Left:     ir.PhysicalValue{Variable: "root", Path: []string{"_key"}},
 						Right:    &ir.PhysicalValue{BindKey: "project"},
 					}},

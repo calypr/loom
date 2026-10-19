@@ -1,0 +1,2 @@
+{"resourceType":"Medication","id":"medication-a","status":"active","code":{"text":"Medication A"}}
+{"resourceType":"Medication","id":"medication-b","status":"active","code":{"text":"Medication B"}}

@@ -1,0 +1,156 @@
+{
+  "epoch": 56,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "91318898174d0518b985ba4f53ae7ed0785f2fd1485f64c4855bac91ea8f1d50",
+      "afterSha256": "91318898174d0518b985ba4f53ae7ed0785f2fd1485f64c4855bac91ea8f1d50",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "249e52058bb338470eadc29b446c3e1a156403cb828ed1b8865e83204cdfb59f",
+      "afterSha256": "249e52058bb338470eadc29b446c3e1a156403cb828ed1b8865e83204cdfb59f",
+      "files": 139,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "session": 40551,
+        "exitCode": 0
+      },
+      "beforeCapture": {
+        "session": 81059,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 29352,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 82320,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 62060,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 49008,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "legacy_workspace_browser_case",
+    "scenario": "cda-workspace-combine/group-join",
+    "title": "two independent native Observation Groups join through the current draft lifecycle",
+    "result": "FAILED_UNEXPECTED_FRAME_SOURCE_OPTIONS_ABORT",
+    "causeClassification": "PENDING_OWNER_TRACE",
+    "durationMs": 66060,
+    "runnerProcessDurationMs": null,
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "reportStatus": "failed",
+    "reportPath": "/private/tmp/loom-native-parallel-wave56/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "targetProject": "loom_dev_cda_fhir",
+    "targetGeneration": "cda-fhir-v1",
+    "firstFailure": "Error: CDA verification evidence is incomplete: {\"missingRequiredChecks\":[],\"failedAssertions\":[{\"dimension\":\"correctness\",\"name\":\"no unexpected network, module, or browser errors\",\"evidence\":{\"count\":1}}],\"unexpectedNetwork\":[{\"kind\":\"network\",\"method\":\"POST\",\"url\":\"http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-cdj-f291470d-4119-4802-900a-1db6b269b0a5/authoring/v2/frame-source-options\",\"errorText\":\"net::ERR_ABORTED\"}],\"unexpectedErrors\":[{\"kind\":\"network\"},{\"kind\":\"network\",\"method\":\"POST\",\"url\":\"http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-cdj-f291470d-4119-4802-900a-1db6b269b0a5/authoring/v2/frame-source-options\"}]}",
+    "networkFailureCount": 2,
+    "unexpectedNetworkCount": 1,
+    "unexpectedNetwork": [
+      {
+        "playwrightRequestId": "cda-request-132",
+        "requestId": null,
+        "kind": "network",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-cdj-f291470d-4119-4802-900a-1db6b269b0a5/authoring/v2/frame-source-options",
+        "failure": "net::ERR_ABORTED",
+        "method": "POST",
+        "expected": false
+      }
+    ],
+    "expectedCancellationCount": 1,
+    "expectedCancellation": [
+      {
+        "playwrightRequestId": "cda-request-376",
+        "requestId": null,
+        "kind": "network",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-cdj-f291470d-4119-4802-900a-1db6b269b0a5/selections/selection_35838472b1d863f99ae6efd2af856796d5a9032386c5889edad92add5840e9d4",
+        "failure": "net::ERR_ABORTED",
+        "expected": true,
+        "canceled": true,
+        "triggerAction": "Open right exact population table",
+        "reason": "Selecting the right source output retires the previous left attached-selection query."
+      }
+    ],
+    "requiredChecksPassed": 16,
+    "requiredChecksTotal": 16,
+    "missingRequiredChecks": [],
+    "recordedAssertionsPassed": 195,
+    "recordedAssertionsFailed": 2,
+    "nativeActionsPassed": 107,
+    "nativeActionsFailed": 0,
+    "fullGroupJoinLifecycleReached": true,
+    "reportSha256": "f37932f504204bde7cceaf16cf78206eb2e8982664ced1dde89578bf0848e86a",
+    "errorContextSha256": "59b7f857fe2aef245d46cefdf91304913fdedde36b768cfae77cba08411b8bda",
+    "playwrightResultsSha256": "d37158acda173b69c972145fd9780e2995833254c498497ce84c761b54405aa3",
+    "diagnosis": "All required lifecycle checks completed, but the strict diagnostic gate failed on an unexpected net::ERR_ABORTED POST to the owned frame-source-options endpoint during Apply left current-draft COUNT_ROWS GROUP. The old left-selection GET is separately marked expected/canceled. The POST trigger/replacement relationship remains pending owner trace.",
+    "maxActionMs": 1427,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "networkErrorEntryCount": 3
+  },
+  "retryPerformed": false,
+  "artifacts": {
+    "apiBuildPrecheck": "/private/tmp/loom-native-parallel-wave56/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave56/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave56/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave56/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave56/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave56/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave56/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave56/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave56/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave56/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave56/health-after.json",
+    "playwrightResults": "/private/tmp/loom-native-parallel-wave56/cda-workspace-combine/results.json",
+    "caseReport": "/private/tmp/loom-native-parallel-wave56/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "errorContext": "/private/tmp/loom-native-parallel-wave56/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/error-context.md",
+    "runPlan": "/private/tmp/loom-native-parallel-wave56/run-plan.json"
+  }
+}

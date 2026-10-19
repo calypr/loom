@@ -1,0 +1,4 @@
+{"resourceType":"Patient","id":"patient-observation-anchor","active":true}
+{"resourceType":"Patient","id":"patient-focus-anchor","active":true}
+{"resourceType":"Patient","id":"patient-subject-anchor","active":true}
+{"resourceType":"Patient","id":"patient-unmatched","active":true}

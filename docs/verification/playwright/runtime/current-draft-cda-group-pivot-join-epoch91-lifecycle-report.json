@@ -1,0 +1,250 @@
+{
+  "epoch": 91,
+  "status": "partial_unclassified_oracle_mismatch",
+  "runnerStatus": "failed",
+  "coverageStatus": "partial",
+  "rawReportedStatus": "failed",
+  "scenario": "cda-workspace-combine",
+  "case": "group-pivot-join",
+  "title": "CDA current-draft Group→Pivot→Join exact Observation Groups feed a native Pivot and editable current-draft Join",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch91-lifecycle-closure.json",
+  "coordinatorClosurePath": "docs/verification/playwright/runtime/current-draft-cda-group-pivot-join-epoch91-closure.json",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-group-pivot-join-75fa9a04-4937-4873-8199-5564b7ced4cf",
+    "rawCapturedExplorer": null,
+    "explorerIdentitySource": "Derived from the correlated expected-cancellation and successful replacement-selection GET paths; raw report target.explorer was null.",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "7a463f157a52d85485fe31f375e7bf3f8fd55b7a20ce166cd191e8389ccd381a",
+      "files": 1526
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+  },
+  "dimensions": {
+    "usability": "partial",
+    "correctness": "partial",
+    "persistence": "partial",
+    "performance": "partial"
+  },
+  "rawReportedDimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "requiredChecks": {
+    "passed": 25,
+    "failed": 0,
+    "unrun": 5,
+    "total": 30,
+    "reached": 25,
+    "passedNames": [
+      "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
+      "left Group immutable selection and direct population bind exact scoped FHIR IDs",
+      "left Group native GROUP proposal matches raw group counts",
+      "left Group proposal carries exact direct Group keys and COUNT_ROWS",
+      "left Group saved Group survives reload",
+      "Left native Group produces the exact shared count 3 and left-only count 1",
+      "right Group Pivot immutable selection and direct population bind exact scoped FHIR IDs",
+      "right Group Pivot native GROUP proposal matches raw group counts",
+      "right Group Pivot proposal carries exact direct Group keys and COUNT_ROWS",
+      "right Group Pivot saved Group survives reload",
+      "Right native Group preserves subject/code-category multiplicity as two COUNT_ROWS groups",
+      "Right native Pivot proposal preserves exact code category multiplicity 2 and 1",
+      "Right Group→Pivot rows survive reload with exact code category multiplicity",
+      "Exact source outputs persist as one GROUP and one ordered GROUP→PIVOT",
+      "LEFT Join preview matches exact Group/Pivot oracle",
+      "LEFT native Join binds exact Group/Pivot inputs, keys, mappings, and current CAS",
+      "Join proposal Cancel preserves the exact full workspace and draft CAS after reload",
+      "Apply native Group/Pivot LEFT Join persists exact visible values",
+      "Edited INNER proposal matches exact shared-key rows",
+      "Cancel saved LEFT Join edit to INNER preserves existing target rows",
+      "Canceled INNER edit retains LEFT values",
+      "INNER Join proposal matches exact shared-key rows",
+      "Apply saved LEFT Join edit as INNER persists exact visible values",
+      "all native lifecycle actions complete within five seconds",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [
+      "Cancel INNER Join removal preserves existing target rows",
+      "Cancel removal preserves saved INNER values",
+      "Join removal Apply restores exact empty target and preserves scoped Group/Pivot sources",
+      "CDA Group/Pivot/Join lifecycle never publishes or pins TABLE_REVISION inputs",
+      "All native Group/Pivot/Join browser actions remain within five seconds"
+    ]
+  },
+  "assertions": {
+    "passed": 187,
+    "failed": 0,
+    "total": 187
+  },
+  "actions": {
+    "passed": 107,
+    "failed": 0,
+    "total": 107,
+    "maxElapsedMs": 1394,
+    "budgetMs": 5000
+  },
+  "nativeRequests": {
+    "recordedEntries": 149,
+    "http200": 147,
+    "non200OrNoStatus": 2,
+    "unexpectedNetworkErrors": 0,
+    "expectedCancellationEvents": 1,
+    "note": "Two native request entries have no completion status; the raw report separately proves one expected stale-selection cancellation. Do not infer that both incomplete entries were cancellations."
+  },
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "failed",
+    "durationMs": 62401,
+    "droppedDiagnostics": 0,
+    "droppedNavigationTimings": 0
+  },
+  "failure": {
+    "classification": "unverified-empty-target-representation-mismatch",
+    "description": "Deep equality failed because the candidate is rooted empty construction while the target baseline document omits construction.",
+    "workflow": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+    "workflowLine": 1002,
+    "action": "final Join removal",
+    "actualCandidateConstruction": {
+      "version": 1,
+      "steps": []
+    },
+    "expectedTargetBaselineConstruction": null,
+    "attribution": "Unresolved: the workflow observed a rooted empty candidate while the target baseline omitted construction. This capture does not establish whether that difference is a valid empty representation or a product defect.",
+    "interpretation": "Group, Pivot, LEFT Join, and INNER edit/apply/reload checks passed. The run stopped at the final removal oracle before removal cancellation/apply; do not call the full lifecycle passed."
+  },
+  "expectedSelectionCancellation": {
+    "count": 1,
+    "method": "GET",
+    "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-75fa9a04-4937-4873-8199-5564b7ced4cf/selections/selection_eb8483455d25e4b27949604607dd241141b57eb9689d4b3b7a869d81903db55a",
+    "requestId": "cda-request-376",
+    "expected": true,
+    "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+    "proof": {
+      "project": "loom_dev_cda_fhir",
+      "explorer": "cda-group-pivot-join-75fa9a04-4937-4873-8199-5564b7ced4cf",
+      "generation": "cda-fhir-v1",
+      "previousOutputId": "out_380da8d3018549b002b99afd",
+      "previousSelectionRevisionId": "selection_eb8483455d25e4b27949604607dd241141b57eb9689d4b3b7a869d81903db55a",
+      "nextOutputId": "out_66ac4485cfedfd8925cbd851",
+      "nextSelectionRevisionId": "selection_83e7a9ca49d5f4199045805ae5bf53bca8092867dfd7a8f3a3c8762dd3745930",
+      "query": {
+        "method": "GET",
+        "limit": 1
+      },
+      "retirement": "BuilderWorkspace replaces the keyed active-table population selection query; resourceFor aborts its stale getSelection AbortSignal when the selected table changes.",
+      "scopeAction": "Select right Group Pivot exact source population",
+      "scopeRequest": {
+        "requestId": null,
+        "draftVersion": null,
+        "draftDigest": null,
+        "outputId": null,
+        "stageId": null
+      }
+    },
+    "replacementRead": {
+      "selectionId": "selection_83e7a9ca49d5f4199045805ae5bf53bca8092867dfd7a8f3a3c8762dd3745930",
+      "status": 200,
+      "limit": "1"
+    },
+    "unexpectedNetworkErrors": 0
+  },
+  "lifecycleExtent": {
+    "completed": [
+      "bounded scoped A,A,B Observation witness and exact left/right source bindings",
+      "left and right GROUP and right Pivot apply, exact rows, and reload",
+      "LEFT Join preview, proposal Cancel, Apply, exact values, and reload",
+      "saved LEFT Join edit to INNER; INNER preview, Cancel preservation, Apply, and reload",
+      "opened saved Join history and completed the removal proposal preview",
+      "expected stale LEFT-selection cancellation correlated to source switch and successful replacement read"
+    ],
+    "stoppedAt": "Final Join removal comparison found candidate construction {version:1,steps:[]} while the target baseline construction was null/omitted.",
+    "notReached": [
+      "Cancel removal preservation checks",
+      "Join removal Apply, empty target verification, and scoped source preservation",
+      "final no-publish/no-TABLE_REVISION check"
+    ],
+    "productPassClaim": false
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "7a463f157a52d85485fe31f375e7bf3f8fd55b7a20ce166cd191e8389ccd381a",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "7a463f157a52d85485fe31f375e7bf3f8fd55b7a20ce166cd191e8389ccd381a",
+        "files": 1526
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "7fd9d6ba97715e9da5d9cb0e005ec50f41e5f145b63ca26d194cfebc0609de6b",
+        "files": 211
+      },
+      "after": {
+        "sha256": "7fd9d6ba97715e9da5d9cb0e005ec50f41e5f145b63ca26d194cfebc0609de6b",
+        "files": 211
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-parallel-wave91/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/attachments/cda-domain-report-json-5de37dfbe2ac09d3cf07745e165626c8b3e80035.json",
+      "sha256": "b3fd28b8bd2700ddae65ab57db12a35fe30967a680503e140f2b6771deee0225"
+    },
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave91/cda-current-draft-group-pivot-join/attempt1/results.json",
+      "sha256": "5b156ba0663a07f3d7214025cc004bc1044454a6be3c95891dce699c6493790c"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave91/cda-current-draft-group-pivot-join/attempt1/runner.log",
+      "sha256": "62e155b695a1b98ff6e4c5585247aab057b450bc4bf80af48c3e509b2f618e86"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-parallel-wave91/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/error-context.md",
+      "sha256": "4146326de05e5b97138a249b22863e7b0d8e23ba516dff8b0ecfd556868bc441"
+    },
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave91/closure.json",
+      "sha256": "be62ae83a3beabb21cfae5aea84616722c670098c531aa2e14863d493524213a"
+    }
+  },
+  "nextCheck": "Validate whether the persisted target may canonically omit construction when the removal candidate is version 1 with zero steps. Keep the exact empty-state oracle and resolve the representation against the producer contract; then rerun this exact case with a fresh Explorer, complete removal Cancel/Apply and source-preservation checks, and require all 30 named checks before passing."
+}

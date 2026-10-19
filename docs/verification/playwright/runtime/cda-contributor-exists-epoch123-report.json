@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "epoch": 123,
+  "scenario": "cda-contributor-exists",
+  "case": "contributor-exists",
+  "title": "CDA contributor EXISTS: full policy lifecycle with strict Cancel-time diagnostic failure",
+  "status": "failed_product",
+  "runnerStatus": "failed",
+  "coverageStatus": "partial",
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-contributor-exists-epoch123-closure.json",
+  "classification": {
+    "kind": "frontend_cancel_pagination_teardown_race",
+    "rootAcceptedClassification": "frontend Cancel pagination teardown race",
+    "summary": "The RelatedExpand route query started a cursor offset 400 page while the baseline Cancel action ran; closing the proposal panel unmounted the editor and aborted the request. Proposal-panel Cancel lacks the owner pauseAndDrain step used before related mutations.",
+    "productFailureEstablished": true,
+    "productLifecycleAccepted": false,
+    "strictUnexpectedDiagnosticsGate": "failed",
+    "aggregateFiveSecondGate": "unrun"
+  },
+  "sourceDiagnosis": {
+    "attribution": "Request playwright-21 cursor offset400 starts during Cancel and is aborted on editor unmount; proposal-panel Cancel lacks existing query owner pauseAndDrain before closing. Independent source and request-timeline investigations agree.",
+    "evidence": [
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "lines": "256-328",
+        "finding": "The editor owns cursor pagination; the loop can launch another related-choice page after a prior page advances the cursor."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "lines": "330-352",
+        "finding": "The query owner pauseAndDrain sets the pause flag and waits for the active page to settle."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "line": 1795,
+        "finding": "The RelatedExpand query owner is passed through the editor boundary."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "739-742",
+        "finding": "Existing mutation flow calls queryOwner.pauseAndDrain before changing related state."
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "lines": "3481-3486",
+        "finding": "Proposal-panel Cancel clears proposal/editor state without pausing and draining the related-choice query owner."
+      }
+    ],
+    "corroboration": "Root acceptance records independent source and request-timeline investigations agreeing on this ownership race."
+  },
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "8ac98a36d327d4e69b14fec8d220b46b2dd02a1b6044eda4c3877b81babcf34b",
+      "files": 1553
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "requiredChecks": {
+    "total": 16,
+    "passed": 14,
+    "failed": 1,
+    "unrun": 1,
+    "passedNames": [
+      "Independent scoped CDA oracle supplies exact zero, one, and many Patient-to-Observation witnesses",
+      "Initial source preview matches the exact three raw Patient witnesses",
+      "Unfiltered ALL_MATCHES preview equals every exact raw related Observation row",
+      "Cancel preserves the exact source document, population, and rendered rows",
+      "Native Contributor controls select the exact Observation.id EXISTS condition",
+      "Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices",
+      "PRESERVE_PARENT Apply saves the exact EXISTS rule and raw-oracle rows",
+      "PRESERVE_PARENT rows, EXISTS policy, and source binding survive reload",
+      "EXCLUDE edit preserves the EXISTS binding and renders exactly matching raw rows",
+      "EXCLUDE rows, policy, and source binding survive reload",
+      "Cancel removal preserves saved EXCLUDE rows and the exact Builder workspace",
+      "Removal Apply restores exact source construction, columns, rows, and population",
+      "Restored source schema, population, and exact baseline rows survive reload",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [
+      "Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal"
+    ],
+    "unrunNames": [
+      "All Contributor EXISTS lifecycle actions finish within five seconds"
+    ],
+    "rawMissingNames": [
+      "Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal",
+      "All Contributor EXISTS lifecycle actions finish within five seconds"
+    ]
+  },
+  "assertions": {
+    "passed": 47,
+    "failed": 1,
+    "total": 48,
+    "failedNames": [
+      "no unexpected network, module, or browser errors"
+    ]
+  },
+  "nativeActions": {
+    "passed": 32,
+    "failed": 0,
+    "total": 32,
+    "maximumElapsedMs": 201,
+    "actionsOverFiveSeconds": 0
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed"
+    },
+    "correctness": {
+      "status": "failed",
+      "note": "Failed only at the final strict unexpected-diagnostics assertion."
+    },
+    "persistence": {
+      "status": "passed"
+    },
+    "performance": {
+      "status": "untested",
+      "note": "The terminal aggregate five-second required check did not run; no recorded action exceeded five seconds."
+    }
+  },
+  "lifecycle": {
+    "status": "failed_product",
+    "summary": "The native policy lifecycle reached 14/16 required checks; its strict terminal diagnostics gate failed after the Cancel-time request abort. The separate aggregate timing check was unrun.",
+    "completeLifecyclePassed": false,
+    "productLifecycleAccepted": false,
+    "noProductPassClaim": true,
+    "nextAction": "Focused product regression and reviewed owner pause/drain correction; rerun same complete native case without suppressing abort"
+  },
+  "cancelAbort": {
+    "requestIndexOneBased": 21,
+    "requestId": "related-expand-choices-e822c180-4002-44f4-9cc8-25ea9589f86a",
+    "browserRequestId": "playwright-21",
+    "playwrightRequestId": "cda-request-132",
+    "method": "POST",
+    "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/contributor-exists-browser-1791330179593/authoring/v2/related-expand-choices",
+    "cursorOffset": 400,
+    "expected": false,
+    "error": "net::ERR_ABORTED",
+    "action": {
+      "id": "cda-action-7",
+      "label": "Cancel"
+    },
+    "startedAtRelativeMs": 10373,
+    "failedAtRelativeMs": 10502,
+    "durationMs": 129,
+    "mainFrameNavigations": []
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "8ac98a36d327d4e69b14fec8d220b46b2dd02a1b6044eda4c3877b81babcf34b",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "8ac98a36d327d4e69b14fec8d220b46b2dd02a1b6044eda4c3877b81babcf34b",
+        "files": 1553
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "eb8953f683d1c6451c0c8586b335965623dec520e0736e6571ae3b3bce00d2db",
+        "files": 266
+      },
+      "after": {
+        "sha256": "eb8953f683d1c6451c0c8586b335965623dec520e0736e6571ae3b3bce00d2db",
+        "files": 266
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "ownedMountsUnchanged": true,
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/health-before.json",
+        "sha256": "e213628a57d2002b4257d658da9ec520117b3c2e760189fdb19aa33e96b30c03"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave123/health-after.json",
+        "sha256": "8aa4b90228f1d0cc3d30c46502bd5b14c244bc389ac8399266905b92f1544eec"
+      }
+    }
+  },
+  "runner": {
+    "status": "failed",
+    "exitCode": 1,
+    "durationMs": 31017,
+    "unexpected": 1,
+    "expected": 0,
+    "results": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/results.json",
+      "sha256": "3a9eb9dab9c9fa8943a6cea069e62836948de7bb37e4d4c26d0a5777faa5719c",
+      "sizeBytes": 19017
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/runner.log",
+      "sha256": "8a4ce214087f6f09e1cc35ca9432d5cc2e5ccf2a8024e62147d19076309d3b82",
+      "sizeBytes": 3985
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/terminal.json",
+      "sha256": "ca4b50a6aabd8c09a9998c501233e663a1a779dee115f77beed1cc4e481ab5c3",
+      "sizeBytes": 15
+    }
+  },
+  "rawArtifacts": {
+    "failureClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave123/failure-closure.json",
+      "sha256": "62b84b2f381d97082b81f2c6d9a69052967ac08be10a5b860ab5f78355a6fe5e",
+      "sizeBytes": 9199
+    },
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-parallel-wave123/root-acceptance.json",
+      "sha256": "99ef9bccdbba5ae0b6b1dae4fef5582f11589d1a3719d2a4720af2e7943acc00",
+      "sizeBytes": 850
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave123/integrity-closure.json",
+      "sha256": "5dfa35304b27246db2129c566374d5e1a72fa95e80b48cc3cb6c6634370a6ce6",
+      "sizeBytes": 4500
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+      "sha256": "e16f97ec4abe59f57119f520d164d1bad3c9f6a93185e0add67af614ce299b81",
+      "sizeBytes": 362031
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-parallel-wave123/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/error-context.md",
+      "sha256": "9a0ddedf69923a93c4dddae616cbcb66666ffb1a62c165bd3704baed4af8547a",
+      "sizeBytes": 70298
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave123/root-acceptance.json",
+    "sha256": "99ef9bccdbba5ae0b6b1dae4fef5582f11589d1a3719d2a4720af2e7943acc00",
+    "status": "INTEGRITY_ACCEPTED_BROWSER_FAILED_PRODUCT",
+    "classification": "frontend Cancel pagination teardown race",
+    "sourceFreezeReleased": true,
+    "lifecycleAccepted": false
+  },
+  "noRawPayloadsEmbedded": true
+}

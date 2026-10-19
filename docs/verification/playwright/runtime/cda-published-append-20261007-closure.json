@@ -1,0 +1,525 @@
+{
+  "schemaVersion": 1,
+  "status": "CLOSED_PASS",
+  "case": {
+    "scenarioId": "cda-published-upstream-append",
+    "caseName": "published-append",
+    "title": "Publish three exact CDA sources, APPEND null padding, and restore the rooted target",
+    "classification": "PUBLISHED_CDA_THREE_SOURCE_APPEND_NULL_PADDING_FULL_LIFECYCLE_PASS",
+    "status": "passed",
+    "requiredChecks": {
+      "total": 34,
+      "passed": 34,
+      "failed": 0,
+      "unrun": 0,
+      "outcomes": [
+        {
+          "name": "bounded raw CDA witnesses provide two disjoint Observation final pairs and two matching Patient FHIR IDs",
+          "status": "passed"
+        },
+        {
+          "name": "fresh source Explorer is empty and bound to exact CDA project, generation, and scope",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source A source binds exact immutable raw witness selection",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source B source binds exact immutable raw witness selection",
+          "status": "passed"
+        },
+        {
+          "name": "Patient ID source source binds exact immutable raw witness selection",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source A preview matches its selected raw witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "Observation source B preview matches its selected raw witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "Patient ID source preview matches its selected raw witnesses",
+          "status": "passed"
+        },
+        {
+          "name": "native Builder publication succeeds for the three selected raw CDA source tables",
+          "status": "passed"
+        },
+        {
+          "name": "published catalog exposes exact current revisions for each selected source output",
+          "status": "passed"
+        },
+        {
+          "name": "initial Cancel probe target is rooted empty and bound to the native Combine creation response",
+          "status": "passed"
+        },
+        {
+          "name": "saved lifecycle target is rooted empty and bound to the native Combine creation response",
+          "status": "passed"
+        },
+        {
+          "name": "native APPEND preview equals the exact duplicate-preserving CDA union with Patient null padding",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND proposal pins the three exact source revisions and explicit Patient status null padding",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling the initial published APPEND proposal preserves the exact rooted empty target",
+          "status": "passed"
+        },
+        {
+          "name": "Initial APPEND Cancel reload restores exact rooted empty target within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "applied APPEND matches the exact CDA multiset and null padding",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND Apply reload reaches exact null-padded CDA rows within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND Apply reload reaches exact null-padded CDA rows within five seconds renders exact saved APPEND rows",
+          "status": "passed"
+        },
+        {
+          "name": "saved APPEND edit reconstructs the Patient status mapping as explicit Empty",
+          "status": "passed"
+        },
+        {
+          "name": "saved APPEND edit preview retains exact rows and Patient null padding",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling saved APPEND edit leaves the original step and Status label intact",
+          "status": "passed"
+        },
+        {
+          "name": "Saved-edit Cancel reload preserves exact original APPEND rows within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "Saved-edit Cancel reload preserves exact original APPEND rows within five seconds renders exact saved APPEND rows",
+          "status": "passed"
+        },
+        {
+          "name": "saved APPEND Apply preview retains exact rows and null padding",
+          "status": "passed"
+        },
+        {
+          "name": "saved APPEND label edit retains stable step and explicit Patient null padding",
+          "status": "passed"
+        },
+        {
+          "name": "Saved-edit Apply reload reaches exact APPEND rows within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "Saved-edit Apply reload reaches exact APPEND rows within five seconds renders exact saved APPEND rows",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND removal proposal targets the exact rooted output",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling APPEND removal preserves saved step, draft, and exact rows",
+          "status": "passed"
+        },
+        {
+          "name": "applying APPEND removal restores the exact pre-combine rooted empty target",
+          "status": "passed"
+        },
+        {
+          "name": "APPEND removal reload restores exact rooted empty target within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "published raw CDA source tables and exact Explorer scope remain unchanged through APPEND lifecycle",
+          "status": "passed"
+        },
+        {
+          "name": "all native published CDA APPEND actions complete within five seconds",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 153,
+      "total": 153
+    },
+    "actions": {
+      "passed": 62,
+      "maximumMeasuredMs": 1974
+    },
+    "renderCheckpoints": {
+      "passed": 5,
+      "maximumMs": 1482.2246250000026,
+      "budgetMs": 5000
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "failedChecks": [],
+    "missingChecks": []
+  },
+  "run": {
+    "id": "4iAz40",
+    "directory": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-4iAz40",
+    "startedAt": "2026-10-07T21:28:55.509Z",
+    "finishedAt": "2026-10-07T21:30:56.518Z",
+    "bracketDurationMs": 121007,
+    "nativeSpec": "scripts/verify-ui/specs/cda-published-upstream-append.spec.mjs",
+    "selectedTest": "publish exact raw CDA sources, Append with null padding, and restore the rooted target",
+    "grep": "publish exact raw CDA sources, Append with null padding, and restore the rooted target$",
+    "sourceCommit": "7cb944b685e173a92085462ee999bce796b36994",
+    "command": "source '/private/tmp/loom-native-combine-join-wave109/browser-environment.sh' && source '/private/tmp/loom-native-combine-join-wave109/capture-environment.sh' && LOOM_CDA_NO_AUTH=1 node scripts/run-native-verification-bracket.mjs --scenario cda-published-upstream-append --case published-append --grep 'publish exact raw CDA sources, Append with null padding, and restore the rooted target$' --evidence-parent /private/tmp/loom-verification-runs"
+  },
+  "scope": {
+    "note": "Published real-CDA APPEND only; this does not establish broad Basic fixture Combine coverage or unpublished/current-draft APPEND coverage.",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "fixture": "Published real-CDA source tables through Builder",
+    "notCovered": [
+      "published-source Basic fixture APPEND",
+      "unpublished/current-draft APPEND",
+      "other Join and APPEND variants"
+    ]
+  },
+  "oracle": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "scanLimitPerResource": 2000,
+    "scanLimitBoundsReturnedRowsNotDatabaseScanCost": true,
+    "observationStatus": "final",
+    "observationCount": 4,
+    "patientFHIRIDCount": 2,
+    "disjointObservationDocuments": true,
+    "duplicateFinalStatusCount": 4,
+    "expectedNullPaddedRows": [
+      [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        "final"
+      ],
+      [
+        "485e2567-b566-56f3-b5bd-5f025f37cd95",
+        "final"
+      ],
+      [
+        "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+        "final"
+      ],
+      [
+        "5577788c-1255-5439-85bb-8651f6f597a4",
+        "final"
+      ],
+      [
+        "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+        null
+      ],
+      [
+        "15063d54-c705-58e2-acfe-f5d7d48b415a",
+        null
+      ]
+    ],
+    "expectedHeaders": [
+      "Record ID",
+      "Status"
+    ],
+    "editedHeaders": [
+      "Record ID",
+      "Clinical status"
+    ],
+    "selectedWitnesses": {
+      "observation-left": [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        "485e2567-b566-56f3-b5bd-5f025f37cd95"
+      ],
+      "observation-right": [
+        "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+        "5577788c-1255-5439-85bb-8651f6f597a4"
+      ],
+      "patient": [
+        "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+        "15063d54-c705-58e2-acfe-f5d7d48b415a"
+      ]
+    },
+    "expectedUiDisplayRows": [
+      [
+        "52f5e622-0181-5feb-936c-e9992ab26616",
+        "final"
+      ],
+      [
+        "485e2567-b566-56f3-b5bd-5f025f37cd95",
+        "final"
+      ],
+      [
+        "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+        "final"
+      ],
+      [
+        "5577788c-1255-5439-85bb-8651f6f597a4",
+        "final"
+      ],
+      [
+        "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+        "\u2014"
+      ],
+      [
+        "15063d54-c705-58e2-acfe-f5d7d48b415a",
+        "\u2014"
+      ]
+    ],
+    "observedApply": {
+      "headers": [
+        "Record ID",
+        "Status"
+      ],
+      "rows": [
+        [
+          "52f5e622-0181-5feb-936c-e9992ab26616",
+          "final"
+        ],
+        [
+          "485e2567-b566-56f3-b5bd-5f025f37cd95",
+          "final"
+        ],
+        [
+          "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+          "\u2014"
+        ],
+        [
+          "15063d54-c705-58e2-acfe-f5d7d48b415a",
+          "\u2014"
+        ],
+        [
+          "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+          "final"
+        ],
+        [
+          "5577788c-1255-5439-85bb-8651f6f597a4",
+          "final"
+        ]
+      ],
+      "comparison": "unordered row multiset; rendered order is retained as evidence, not asserted"
+    },
+    "observedEditedApply": {
+      "headers": [
+        "Record ID",
+        "Clinical status"
+      ],
+      "rows": [
+        [
+          "2cad1748-5e1e-5018-b5b4-f87ac1d8aef8",
+          "final"
+        ],
+        [
+          "5577788c-1255-5439-85bb-8651f6f597a4",
+          "final"
+        ],
+        [
+          "52f5e622-0181-5feb-936c-e9992ab26616",
+          "final"
+        ],
+        [
+          "485e2567-b566-56f3-b5bd-5f025f37cd95",
+          "final"
+        ],
+        [
+          "dd5ed8d2-853b-51d6-9beb-dfa8aa71322d",
+          "\u2014"
+        ],
+        [
+          "15063d54-c705-58e2-acfe-f5d7d48b415a",
+          "\u2014"
+        ]
+      ],
+      "comparison": "unordered row multiset; rendered order is retained as evidence, not asserted"
+    }
+  },
+  "lifecycle": {
+    "actions": 62,
+    "maximumMeasuredActionLatencyMs": 1974,
+    "renderCheckpoints": 5,
+    "maximumRenderCheckpointLatencyMs": 1482.2246250000026,
+    "budgetMs": 5000,
+    "reloadCheckpoints": {
+      "Initial APPEND Cancel reload restores exact rooted empty target within five seconds": 1382,
+      "APPEND Apply reload reaches exact null-padded CDA rows within five seconds": 1438,
+      "Saved-edit Cancel reload preserves exact original APPEND rows within five seconds": 1482,
+      "Saved-edit Apply reload reaches exact APPEND rows within five seconds": 1413,
+      "APPEND removal reload restores exact rooted empty target within five seconds": 1388
+    },
+    "phases": [
+      "publish three raw CDA source tables",
+      "create rooted empty target",
+      "initial APPEND proposal and Cancel",
+      "configure APPEND with three exact pinned source revisions",
+      "preview and Apply exact six-row union",
+      "reload",
+      "saved edit preview and Cancel",
+      "saved edit Apply",
+      "reload",
+      "removal preview and Cancel",
+      "fresh post-Cancel removal re-preview and Apply",
+      "reload and restore rooted empty target"
+    ]
+  },
+  "source": {
+    "acceptedCommit": "7cb944b685e173a92085462ee999bce796b36994",
+    "fingerprint": {
+      "before": {
+        "sha256": "e29db3f6c0447305020a4157ee7c5df9817b4e892256206de83927cb1931f337",
+        "files": 1611
+      },
+      "after": {
+        "sha256": "e29db3f6c0447305020a4157ee7c5df9817b4e892256206de83927cb1931f337",
+        "files": 1611
+      },
+      "unchanged": true,
+      "watchedFileCount": 1127,
+      "changedPaths": []
+    }
+  },
+  "apiBuildIdentity": {
+    "before": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+    "after": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+    "precheckMatches": true,
+    "unchanged": true
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "e29db3f6c0447305020a4157ee7c5df9817b4e892256206de83927cb1931f337",
+        "files": 1611
+      },
+      "after": {
+        "sha256": "e29db3f6c0447305020a4157ee7c5df9817b4e892256206de83927cb1931f337",
+        "files": 1611
+      },
+      "unchanged": true,
+      "watchedFileCount": 1127,
+      "changedPaths": []
+    },
+    "docs": {
+      "before": {
+        "sha256": "5898da01b628efb1b2125b920e3be2fe14c046d52e6e2d7c03a96c64d8d01e75",
+        "files": 302
+      },
+      "after": {
+        "sha256": "5898da01b628efb1b2125b920e3be2fe14c046d52e6e2d7c03a96c64d8d01e75",
+        "files": 302
+      },
+      "unchanged": true
+    },
+    "apiBuildIdentity": {
+      "before": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+      "after": "786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:786d08d73d9c6675ab99c45322b96a32efed8aa7c4c8ba8180f19f7ecd872fd8:ce684c31db8b835d3cbc164086e1e5184df7e3affff5ffa4493c07ea01125ec5",
+      "precheckMatches": true,
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "status": "PASS",
+      "targetUnchanged": true
+    },
+    "healthBefore": {
+      "status": "PASS",
+      "samples": 3
+    },
+    "healthAfter": {
+      "status": "PASS",
+      "samples": 3
+    },
+    "errors": 0,
+    "networkErrors": 0,
+    "incidentalErrors": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "canonicalArtifacts": {
+    "summary": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-4iAz40/summary.json",
+      "sha256": "010a13ea072c76f1c3bf519c5b8aa598a733a1714f81dfcbf9292cebe3491d83"
+    },
+    "rawDomainReport": {
+      "path": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-4iAz40/playwright-results/cda-published-upstream-app-8e048-d-restore-the-rooted-target/attachments/cda-domain-report-json-52ac3707bd4203f047191891e915d7d965236c99.json",
+      "sha256": "84adf8aa0bfa164a7f60ffd6d3f71edfd4e7d2897c1600b7bf0c8d88f882ec47"
+    },
+    "durableReport": {
+      "path": "docs/verification/playwright/runtime/cda-published-append-20261007-report.json",
+      "sha256": "497967e0ff80e04840ba3bc2b17c37c2b8a784d9e06a7fc7f5e2443cb6e803b7"
+    }
+  },
+  "priorHarnessAttempts": [
+    {
+      "runId": "Z1afnY",
+      "status": "harness-failure",
+      "checks": {
+        "passed": 0,
+        "total": 34,
+        "unrun": 34
+      },
+      "actions": 0,
+      "cause": "Legacy arangosh transport did not use the existing owned no-auth file-transport invocation and stopped before the bounded witness scan or UI lifecycle.",
+      "productFailure": false,
+      "summaryPath": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-Z1afnY/summary.json",
+      "summarySha256": "f99fc54b2a390c5f767cffa2de56d45facb3fc6ea9d82697506bf7fe1a938363",
+      "domainReportPath": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-Z1afnY/playwright-results/cda-published-upstream-app-8e048-d-restore-the-rooted-target/attachments/cda-domain-report-json-138e67f9f0a09cac08156bf5a4b5cb4414770b16.json",
+      "domainReportSha256": "4a831336ab437119bd53974c5a74b3d3ad21a952883b6c7c4a1e30213df4d115"
+    },
+    {
+      "runId": "aHpmZu",
+      "status": "harness-failure",
+      "checks": {
+        "passed": 29,
+        "total": 34,
+        "unrun": 5
+      },
+      "cause": "Removal preview cleanup called a nonexistent requestCapture.stop method and required a grid. Retained response/DOM showed valid rooted-empty zero-column status-only preview; cleanup and readiness handling were corrected.",
+      "productFailure": false,
+      "sourceFingerprint": {
+        "sha256": "cf711e7b3199938243feb08624ad804319c94aecdafd700dc52ca7750d5fd7ce",
+        "files": 1609
+      },
+      "summaryPath": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-aHpmZu/summary.json",
+      "summarySha256": "8c02546f7aab9f33f4793d74670b7e2cffb59f8fd62940820a17ba93cffb0a80",
+      "domainReportPath": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-aHpmZu/playwright-results/cda-published-upstream-app-8e048-d-restore-the-rooted-target/attachments/cda-domain-report-json-747ae079f36a1636f502b7d447db9a0b844028d8.json",
+      "domainReportSha256": "9dbeb6ab4d25af3de488f4a56d8c91bdffabefb179ba2a4160f01b56d4b8abff"
+    },
+    {
+      "runId": "a4rcgL",
+      "status": "harness-failure",
+      "checks": {
+        "passed": 31,
+        "total": 34,
+        "unrun": 3
+      },
+      "cause": "After removal Cancel, the driver clicked stale Apply rather than reselecting the saved APPEND and taking a fresh preview. The correction waits for a fresh post-Cancel browser request and binds response, receipt and current DOM before Apply.",
+      "productFailure": false,
+      "sourceFingerprint": {
+        "sha256": "e89f048e3a380ea50ea60eeed6585fddea636cdbd02fde352472044dddb7bdd6",
+        "files": 1611
+      },
+      "summaryPath": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-a4rcgL/summary.json",
+      "summarySha256": "8f6687b050df5118a4469c67d134abf71bc4c46b4ee846d36d62aeaecabcddf4",
+      "domainReportPath": "/private/tmp/loom-verification-runs/run-cda-published-upstream-append-published-append-a4rcgL/playwright-results/cda-published-upstream-app-8e048-d-restore-the-rooted-target/attachments/cda-domain-report-json-30e77de0f8f4489c1bde737b72604ac513f9f93d.json",
+      "domainReportSha256": "b4657a6df9364adb5fedf97cd89c2538546009fd87ad108368e3356a17667a7b"
+    }
+  ],
+  "noRawPayloadsEmbedded": true
+}

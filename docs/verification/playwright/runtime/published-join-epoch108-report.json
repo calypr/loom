@@ -1,0 +1,504 @@
+{
+  "schemaVersion": 1,
+  "epoch": 108,
+  "scenario": "builder-combine",
+  "case": "join",
+  "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+  "status": "failed_product",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed_product",
+  "classification": "PRODUCT_CONSTRUCTION_INPUTS_READY_GUARD_REJECTED_ACTIVE_SUPERSEDED",
+  "classificationReason": "The native browser test published the Observation and DiagnosticReport source tables, then its project-scoped POST to construction-inputs returned HTTP 503 AUTHORING_UNAVAILABLE (request 983b201f-a296-4d3b-81eb-98038fdde731) before Combine started. The API log records getExplorerConstructionInputs and \"immutable source presentation does not match published revision\". Source review confirms the guard requires READY at construction_inputs_catalog.go:508-510 while activation marks the prior revision SUPERSEDED and the candidate/publication ACTIVE at activation.go:175,182,204. A candidate correction is staged; the same case must verify it in epoch109.",
+  "startedAt": "2026-10-06T18:16:55.713Z",
+  "finishedAt": "2026-10-06T18:17:06.689Z",
+  "durableClosurePath": "docs/verification/playwright/runtime/published-join-epoch108-closure.json",
+  "target": {
+    "kind": "basic-devloop-browser-fixture",
+    "project": "loom_dev_verify_mux037g2-904bf96",
+    "generation": "fixture-v1",
+    "fixtureContext": {
+      "freshExplorerCreated": true,
+      "project": "loom_dev_verify_mux037g2-904bf96",
+      "generation": "fixture-v1",
+      "explorerId": "verify-g2-904bf96-combine",
+      "workspaceTitle": "Verify g2-904bf96 combine",
+      "snapshotToken": "sha256:56a6ac529a84a5a1fc867de091fa0abd9d50f96e815244c31b0e5574d41ec533",
+      "draftVersion": 6,
+      "sourceTables": [
+        "Observation",
+        "DiagnosticReport"
+      ],
+      "patientIds": [
+        "combine-fixture-patient"
+      ],
+      "observationIds": [
+        "combine-observation-final-1",
+        "combine-observation-final-2",
+        "combine-observation-preliminary",
+        "combine-observation-unmatched"
+      ],
+      "diagnosticReportIds": [
+        "combine-observation-final-1",
+        "combine-observation-final-2",
+        "combine-observation-preliminary"
+      ],
+      "combineStarted": false
+    },
+    "fixtureSetupStatus": "fresh-explorer-created",
+    "cdaDatasetClaim": false
+  },
+  "requiredChecks": {
+    "total": 32,
+    "passed": 6,
+    "failed": 0,
+    "unrun": 26,
+    "passedNames": [
+      "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
+      "Observation source starts with every literal fixture identity",
+      "DiagnosticReport source starts with every literal fixture identity",
+      "native source-table publication completed successfully",
+      "Builder response matches the exact project-scoped route, workspace title, and source output identities",
+      "source Builder snapshot is bound to the expected generation, draft, and authorization scope"
+    ],
+    "unrunNames": [
+      "source revisions are published in the exact project, generation, and authorization scope",
+      "source schemas expose compatible nullable scalar ID keys, scalar status fields, and a numeric Observation value",
+      "published source API and schema fingerprint captured within five seconds",
+      "native Combine creates a rooted empty Observation target without adding an authored step or output column",
+      "native Combine inputs pin the exact current Observation and DiagnosticReport revisions",
+      "published Join source labels match independently authored columns and source previews",
+      "pinned published source cards show immutable authored output and column labels",
+      "Join output names and labels default from selected pinned fields without manual entry",
+      "INNER preview returns the three exact rows matched on shared required IDs",
+      "INNER Apply preserves the exact joined rows",
+      "INNER table reload retains the three exact rows",
+      "Canceling the LEFT edit leaves the saved INNER operation unchanged",
+      "LEFT preview retains the unmatched Observation with empty right-side values",
+      "LEFT preview before Apply includes null projections for the unmatched row",
+      "LEFT Apply preserves exact matches and unmatched null fields",
+      "LEFT rows and nulls survive Builder reload",
+      "KEY_JOIN removal proposal is ready for the rooted empty target",
+      "removing KEY_JOIN and reloading restores the rooted empty target",
+      "published Observation and DiagnosticReport source tables remain unchanged",
+      "project, generation, Explorer, and authorization scope remain stable",
+      "open Combine operation chooser action-to-render within budget",
+      "choose KEY_JOIN and load the initial two input selectors action-to-render within budget",
+      "render INNER Join preview action-to-render within budget",
+      "open saved Combine editor and load pinned sources action-to-render within budget",
+      "render LEFT Join preview action-to-render within budget",
+      "repreview LEFT Join before Apply action-to-render within budget"
+    ],
+    "note": "The retained attachment records six named checks as passed and 26 as missing/unrun. The official browser test failed before Combine. Root source/API-log review confirmed the construction-inputs guard requires READY while activation writes ACTIVE/SUPERSEDED; a candidate correction is staged, with verification pending epoch109. Join preview, Apply, Cancel, edit, removal, and reload did not run."
+  },
+  "assertions": {
+    "passed": 49,
+    "failed": 1,
+    "total": 50,
+    "failedNames": [
+      {
+        "name": "official Playwright case completed without failure"
+      }
+    ]
+  },
+  "nativeActions": {
+    "passed": 24,
+    "failed": 0,
+    "total": 24,
+    "maxElapsedMs": 943,
+    "maxActionToRenderMs": 465,
+    "actions": [
+      {
+        "label": "open source Explorer creation",
+        "status": "passed",
+        "elapsedMs": 943,
+        "afterMs": 37
+      },
+      {
+        "label": "name source Explorer",
+        "status": "passed",
+        "elapsedMs": 67,
+        "afterMs": null
+      },
+      {
+        "label": "create blank source Explorer",
+        "status": "passed",
+        "elapsedMs": 199,
+        "afterMs": 105
+      },
+      {
+        "label": "name Observation source table",
+        "status": "passed",
+        "elapsedMs": 48,
+        "afterMs": null
+      },
+      {
+        "label": "create Observation source table with its direct identity",
+        "status": "passed",
+        "elapsedMs": 476,
+        "afterMs": 404
+      },
+      {
+        "label": "open Observation source Add columns",
+        "status": "passed",
+        "elapsedMs": 94,
+        "afterMs": 3
+      },
+      {
+        "label": "open Fields and related data",
+        "status": "passed",
+        "elapsedMs": 105,
+        "afterMs": null
+      },
+      {
+        "label": "open raw FHIR fields",
+        "status": "passed",
+        "elapsedMs": 57,
+        "afterMs": null
+      },
+      {
+        "label": "select Observation.status",
+        "status": "passed",
+        "elapsedMs": 895,
+        "afterMs": null
+      },
+      {
+        "label": "select Observation.valueInteger",
+        "status": "passed",
+        "elapsedMs": 152,
+        "afterMs": null
+      },
+      {
+        "label": "add Observation source fields",
+        "status": "passed",
+        "elapsedMs": 351,
+        "afterMs": 198
+      },
+      {
+        "label": "apply Observation source fields and render its preview",
+        "status": "passed",
+        "elapsedMs": 328,
+        "afterMs": 237
+      },
+      {
+        "label": "close source operation editor",
+        "status": "passed",
+        "elapsedMs": 111,
+        "afterMs": 3
+      },
+      {
+        "label": "start DiagnosticReport source table",
+        "status": "passed",
+        "elapsedMs": 78,
+        "afterMs": 2
+      },
+      {
+        "label": "name DiagnosticReport source table",
+        "status": "passed",
+        "elapsedMs": 74,
+        "afterMs": null
+      },
+      {
+        "label": "create DiagnosticReport source table with its direct identity",
+        "status": "passed",
+        "elapsedMs": 583,
+        "afterMs": 465
+      },
+      {
+        "label": "open DiagnosticReport source Add columns",
+        "status": "passed",
+        "elapsedMs": 79,
+        "afterMs": 5
+      },
+      {
+        "label": "open Fields and related data",
+        "status": "passed",
+        "elapsedMs": 67,
+        "afterMs": null
+      },
+      {
+        "label": "open raw FHIR fields",
+        "status": "passed",
+        "elapsedMs": 99,
+        "afterMs": null
+      },
+      {
+        "label": "select DiagnosticReport.status",
+        "status": "passed",
+        "elapsedMs": 376,
+        "afterMs": null
+      },
+      {
+        "label": "add DiagnosticReport source fields",
+        "status": "passed",
+        "elapsedMs": 394,
+        "afterMs": 189
+      },
+      {
+        "label": "apply DiagnosticReport source fields and render its preview",
+        "status": "passed",
+        "elapsedMs": 253,
+        "afterMs": 150
+      },
+      {
+        "label": "close source operation editor",
+        "status": "passed",
+        "elapsedMs": 99,
+        "afterMs": 2
+      },
+      {
+        "label": "publish both exact source tables",
+        "status": "passed",
+        "elapsedMs": 382,
+        "afterMs": 304
+      }
+    ]
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "failed",
+    "persistence": "untested",
+    "performance": "passed"
+  },
+  "firstFailure": {
+    "method": "POST",
+    "path": "/api/v1/projects/loom_dev_verify_mux037g2-904bf96/explorers/verify-g2-904bf96-combine/authoring/v2/construction-inputs",
+    "status": 503,
+    "code": "AUTHORING_UNAVAILABLE",
+    "stage": "construction-inputs",
+    "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+    "message": "published construction inputs are unavailable",
+    "testDurationMs": 7330,
+    "workflowLocation": {
+      "file": "scripts/verify-ui/workflows/builder-combine.mjs",
+      "line": 161,
+      "function": "readPublishedInputs"
+    },
+    "lifecycleBoundary": "after source table publication and source Builder binding, before Combine started",
+    "confirmedCause": "The construction-inputs readiness guard requires READY, while activation writes ACTIVE/SUPERSEDED.",
+    "responseDurationMs": 86,
+    "apiLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/api-error-983b201f-a296-4d3b-81eb-98038fdde731.sanitized.log",
+      "sha256": "b0771f822c6fd821d794b0aa7db18488f922e9d11c7da9b1159834a8ff65cf8c",
+      "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+      "operation": "getExplorerConstructionInputs",
+      "status": 503,
+      "cause": "immutable source presentation does not match published revision"
+    },
+    "sourceReferences": [
+      {
+        "path": "internal/server/construction_inputs_catalog.go",
+        "lines": [
+          508,
+          509,
+          510
+        ],
+        "sha256": "db273b779b3ceb8b540b46adb488ebdbf08e5ed630b5bcdf39555d01b675f223",
+        "fact": "source presentation is rejected unless revision.Status == READY"
+      },
+      {
+        "path": "internal/explorer/arango/activation.go",
+        "lines": [
+          175,
+          182,
+          204
+        ],
+        "sha256": "7a8b2881ff5c797ea29c38658498288387abc7357104dc232458f5ee27ce0453",
+        "fact": "activation marks prior revision SUPERSEDED and candidate/publication ACTIVE"
+      }
+    ],
+    "repairCandidate": {
+      "path": "/private/tmp/loom-combine-active-status-stage-20261006/handoff.patch",
+      "sha256": "2f5021b890aad2e6667687b93ddcfd9dd9b7c39ad14f18c00b289ee4549a6d78",
+      "status": "staged; verification pending epoch109"
+    }
+  },
+  "lifecycle": {
+    "status": "failed_before_combine",
+    "sourceTablesPublished": true,
+    "constructionInputs": "failed_product_http_503",
+    "combineChooser": "unrun",
+    "joinPreview": "unrun",
+    "cancel": "unrun",
+    "apply": "unrun",
+    "edit": "unrun",
+    "removal": "unrun",
+    "reload": "unrun",
+    "cause": "The construction-inputs readiness guard requires READY, while activation writes ACTIVE/SUPERSEDED.",
+    "fixPendingEpoch": 109
+  },
+  "incidentalAssetFailures": [
+    {
+      "kind": "asset-failure",
+      "url": "http://127.0.0.1:30008/favicon.ico",
+      "status": 404
+    }
+  ],
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "after": {
+        "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+        "files": 1534
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "4160d62fefa064df5536838ef4eb40786fab4cf696af21645d81613cedcc89b7",
+        "files": 248
+      },
+      "after": {
+        "sha256": "4160d62fefa064df5536838ef4eb40786fab4cf696af21645d81613cedcc89b7",
+        "files": 248
+      },
+      "unchanged": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "after": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/health-before.json",
+        "sha256": "d80822ad9c21ecb7b860a5e1f8cdc61337d644740ca142752146dce47db861d5"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-combine-join-wave108/health-after.json",
+        "sha256": "830102bb71010eb6129d7804f41401f942edc79fe2674e718b3d6562282ded69"
+      }
+    },
+    "targetRoleNote": "Integrity target records the owned stack used for source/API/build/health/mount validation. It is not the browser fixture project; see target for the basic devloop fixture."
+  },
+  "timing": {
+    "testDurationMs": 7330,
+    "runnerDurationMs": 16218.65,
+    "nativeActions": 24,
+    "maxActionElapsedMs": 943,
+    "maxActionToRenderMs": 465
+  },
+  "rawArtifacts": {
+    "domainReport": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/attachments/loom-verification-report-json-faad69b5f3eed0431f3e131fb145d6cf7db610c0.json",
+      "sha256": "390aac45da916661262ad5133b2cd34f1648cdc7c8584785d2255043eb96a087"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/results.json",
+      "sha256": "6c1c6e83ec78f9236d16db7b7abcfc17816d21ed6ed00d2d36f9708a0cec06bb"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/runner.log",
+      "sha256": "b79dd536ff83435b4a3239cdca547cd6e8e271438f35910b7b00cf936b156eb8"
+    },
+    "errorContext": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/attempt1/artifacts/join-KEY-JOIN-INNER-LEFT-p-7f058-y-cancel-removal-and-reload/error-context.md",
+      "sha256": "6dd60f40b850df5fa649f2bcf5f49c493881fcbfdd12caf1afa3bac31879a885"
+    },
+    "strictIntegrityClosure": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/closure.json",
+      "sha256": "982454504836072e78f7bd8e67cc0d567ae4fe930daac891e0c1771651da404e"
+    },
+    "apiErrorLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/api-error-983b201f-a296-4d3b-81eb-98038fdde731.sanitized.log",
+      "sha256": "b0771f822c6fd821d794b0aa7db18488f922e9d11c7da9b1159834a8ff65cf8c",
+      "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+      "operation": "getExplorerConstructionInputs",
+      "status": 503,
+      "cause": "immutable source presentation does not match published revision"
+    },
+    "repairCandidatePatch": {
+      "path": "/private/tmp/loom-combine-active-status-stage-20261006/handoff.patch",
+      "sha256": "2f5021b890aad2e6667687b93ddcfd9dd9b7c39ad14f18c00b289ee4549a6d78",
+      "status": "staged; verification pending epoch109"
+    }
+  },
+  "confirmedCause": {
+    "summary": "The construction-inputs readiness guard requires READY, while activation writes ACTIVE/SUPERSEDED.",
+    "confirmation": "Confirmed against the exact API log entry and source lines after epoch108.",
+    "apiLog": {
+      "path": "/private/tmp/loom-native-combine-join-wave108/api-error-983b201f-a296-4d3b-81eb-98038fdde731.sanitized.log",
+      "sha256": "b0771f822c6fd821d794b0aa7db18488f922e9d11c7da9b1159834a8ff65cf8c",
+      "requestId": "983b201f-a296-4d3b-81eb-98038fdde731",
+      "operation": "getExplorerConstructionInputs",
+      "status": 503,
+      "cause": "immutable source presentation does not match published revision"
+    },
+    "sourceReferences": [
+      {
+        "path": "internal/server/construction_inputs_catalog.go",
+        "lines": [
+          508,
+          509,
+          510
+        ],
+        "sha256": "db273b779b3ceb8b540b46adb488ebdbf08e5ed630b5bcdf39555d01b675f223",
+        "fact": "source presentation is rejected unless revision.Status == READY"
+      },
+      {
+        "path": "internal/explorer/arango/activation.go",
+        "lines": [
+          175,
+          182,
+          204
+        ],
+        "sha256": "7a8b2881ff5c797ea29c38658498288387abc7357104dc232458f5ee27ce0453",
+        "fact": "activation marks prior revision SUPERSEDED and candidate/publication ACTIVE"
+      }
+    ],
+    "repairCandidate": {
+      "path": "/private/tmp/loom-combine-active-status-stage-20261006/handoff.patch",
+      "sha256": "2f5021b890aad2e6667687b93ddcfd9dd9b7c39ad14f18c00b289ee4549a6d78",
+      "status": "staged; verification pending epoch109"
+    },
+    "fixStatus": "pending epoch109 verification"
+  },
+  "ownedStackValidationTarget": {
+    "kind": "isolated",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "274ffdbf89822a5ad6d2972cedbcd9c431ef75de8aa5c366f6530f907a87727b",
+      "files": 1534
+    },
+    "apiBuildIdentity": "515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:515282ceaff546db82c74acd965aa3efa167158bd355220568d041603ddb8720:6249df280cc3597a7f2843aedc45d34270846a38ade91ae08295cc5d2ca0fa10",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "verificationScope": "Native browser fixture uses the basic devloop fixture; the CDA/FHIR project is only the owned stack validation target."
+}

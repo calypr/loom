@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 1,
+  "epoch": 124,
+  "scenario": "cda-contributor-exists",
+  "case": "contributor-exists",
+  "title": "CDA contributor EXISTS",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-contributor-exists-epoch124-closure.json",
+  "classification": "ROOT_ACCEPTED_FULL_LIFECYCLE_PASS",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rootAcceptanceStatus": "ROOT_ACCEPTED_FULL_LIFECYCLE_PASS",
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1",
+    "kind": "owned-cda",
+    "sourceFingerprint": {
+      "sha256": "1e82afc79c722c3e4a7f9c5ba9a1e11504ea75d1840b53ce485f2df1803e1011",
+      "files": 1553
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+  "requiredChecks": {
+    "total": 16,
+    "passed": 16,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "Independent scoped CDA oracle supplies exact zero, one, and many Patient-to-Observation witnesses",
+      "Initial source preview matches the exact three raw Patient witnesses",
+      "Unfiltered ALL_MATCHES preview equals every exact raw related Observation row",
+      "Cancel preserves the exact source document, population, and rendered rows",
+      "Native Contributor controls select the exact Observation.id EXISTS condition",
+      "Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices",
+      "PRESERVE_PARENT Apply saves the exact EXISTS rule and raw-oracle rows",
+      "PRESERVE_PARENT rows, EXISTS policy, and source binding survive reload",
+      "EXCLUDE edit preserves the EXISTS binding and renders exactly matching raw rows",
+      "EXCLUDE rows, policy, and source binding survive reload",
+      "Cancel removal preserves saved EXCLUDE rows and the exact Builder workspace",
+      "Removal Apply restores exact source construction, columns, rows, and population",
+      "Restored source schema, population, and exact baseline rows survive reload",
+      "Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal",
+      "All Contributor EXISTS lifecycle actions finish within five seconds",
+      "CDA watched source and API build stayed unchanged"
+    ]
+  },
+  "assertions": [
+    {
+      "name": "Independent scoped CDA oracle supplies exact zero, one, and many Patient-to-Observation witnesses",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Contributor EXISTS QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "Initial source preview matches the exact three raw Patient witnesses",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Patient <-[subject]- Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Which related records count? · All matching records completed",
+      "status": "passed"
+    },
+    {
+      "name": "Unfiltered ALL_MATCHES preview equals every exact raw related Observation row",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel completed",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel preserves the exact source document, population, and rendered rows",
+      "status": "passed"
+    },
+    {
+      "name": "Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Make a row for each related record Follow a relationship to another record type, such as Patient to Observation. Make a row for each match, with existing values repeated. Fields from each matched record become available in Add columns. By default, keep a current row once when no records match. Example: Patient A with 2 Observations → 2 rows, each describing Patient A and one Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Patient <-[subject]- Observation completed",
+      "status": "passed"
+    },
+    {
+      "name": "Which related records count? · All matching records completed",
+      "status": "passed"
+    },
+    {
+      "name": "Only records meeting a condition completed",
+      "status": "passed"
+    },
+    {
+      "name": " completed",
+      "status": "passed"
+    },
+    {
+      "name": " completed",
+      "status": "passed"
+    },
+    {
+      "name": "id · string completed",
+      "status": "passed"
+    },
+    {
+      "name": "Native Contributor controls select the exact Observation.id EXISTS condition",
+      "status": "passed"
+    },
+    {
+      "name": "Select ERROR completed",
+      "status": "passed"
+    },
+    {
+      "name": "Scoped ERROR validation exposes enabled PRESERVE_PARENT and EXCLUDE repair choices",
+      "status": "passed"
+    },
+    {
+      "name": "Select PRESERVE_PARENT completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "PRESERVE_PARENT Apply saves the exact EXISTS rule and raw-oracle rows",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Contributor EXISTS QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "PRESERVE_PARENT rows, EXISTS policy, and source binding survive reload",
+      "status": "passed"
+    },
+    {
+      "name": "1. Expand related records completed",
+      "status": "passed"
+    },
+    {
+      "name": "Edit completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select EXCLUDE completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "name": "EXCLUDE edit preserves the EXISTS binding and renders exactly matching raw rows",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Contributor EXISTS QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "EXCLUDE rows, policy, and source binding survive reload",
+      "status": "passed"
+    },
+    {
+      "name": "1. Expand related records completed",
+      "status": "passed"
+    },
+    {
+      "name": "Remove completed",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel completed",
+      "status": "passed"
+    },
+    {
+      "name": "Cancel removal preserves saved EXCLUDE rows and the exact Builder workspace",
+      "status": "passed"
+    },
+    {
+      "name": "1. Expand related records One row per distinct Observation via Subject; only records with id; omit parents without a match. completed",
+      "status": "passed"
+    },
+    {
+      "name": "Remove completed",
+      "status": "passed"
+    },
+    {
+      "name": "Apply removal completed",
+      "status": "passed"
+    },
+    {
+      "name": "Removal Apply restores exact source construction, columns, rows, and population",
+      "status": "passed"
+    },
+    {
+      "name": "▤ Contributor EXISTS QA completed",
+      "status": "passed"
+    },
+    {
+      "name": "Restored source schema, population, and exact baseline rows survive reload",
+      "status": "passed"
+    },
+    {
+      "name": "Only the scoped ERROR validation and proven cancellation are expected; unrelated diagnostics remain fatal",
+      "status": "passed"
+    },
+    {
+      "name": "All Contributor EXISTS lifecycle actions finish within five seconds",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    }
+  ],
+  "dimensions": {
+    "usability": {
+      "status": "passed"
+    },
+    "correctness": {
+      "status": "passed"
+    },
+    "persistence": {
+      "status": "passed"
+    },
+    "performance": {
+      "status": "passed"
+    }
+  },
+  "actions": {
+    "total": 32,
+    "passed": 32,
+    "maxNativeControlElapsedMs": 193
+  },
+  "lifecycle": {
+    "witnesses": {
+      "sourcePatients": 3,
+      "relatedObservationCounts": {
+        "zero": 0,
+        "one": 1,
+        "many": 7
+      }
+    },
+    "baselineRows": 3,
+    "preserveParentRows": 9,
+    "excludeRows": 8,
+    "validated": "EXISTS on Observation.id; ERROR repair; PRESERVE_PARENT and EXCLUDE preview/apply/reload; Cancel/remove/restore; exact source, population, rows, and reload state."
+  },
+  "performanceEvidence": {
+    "completeActionToRender": {
+      "source": "standalone domain.cases durationMs",
+      "timedCompleteCheckpoints": 19,
+      "maximumDurationMs": 2133,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "source-selection-zero-one-many",
+          "durationMs": 2133
+        },
+        {
+          "name": "open-related-expand-editor",
+          "durationMs": 559
+        },
+        {
+          "name": "all-matching-contributor-baseline-preview",
+          "durationMs": 1192
+        },
+        {
+          "name": "cancel-all-matching-preview",
+          "durationMs": 787
+        },
+        {
+          "name": "open-related-expand-editor",
+          "durationMs": 523
+        },
+        {
+          "name": "configure-exists-contributor-rule",
+          "durationMs": 1037
+        },
+        {
+          "name": "exists-error-policy-repair",
+          "durationMs": 729
+        },
+        {
+          "name": "exists-preserve-parent-repair-preview",
+          "durationMs": 696
+        },
+        {
+          "name": "apply-exists-preserve-parent-to-render",
+          "durationMs": 1048
+        },
+        {
+          "name": "reload-exists-preserve-parent",
+          "durationMs": 1908
+        },
+        {
+          "name": "edit-saved-step-to-policy-control",
+          "durationMs": 685
+        },
+        {
+          "name": "edit-exists-policy-exclude-preview",
+          "durationMs": 748
+        },
+        {
+          "name": "apply-exists-exclude-to-render",
+          "durationMs": 1178
+        },
+        {
+          "name": "reload-edited-exists-exclude",
+          "durationMs": 1887
+        },
+        {
+          "name": "remove-exists-contributor-preview",
+          "durationMs": 689
+        },
+        {
+          "name": "cancel-exists-remove-to-render",
+          "durationMs": 758
+        },
+        {
+          "name": "remove-exists-contributor-preview",
+          "durationMs": 684
+        },
+        {
+          "name": "apply-exists-remove-to-render",
+          "durationMs": 991
+        },
+        {
+          "name": "reload-restored-source-table",
+          "durationMs": 1838
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 32,
+      "maximumActionElapsedMs": 193,
+      "usedForPerformanceClaim": false
+    },
+    "namedCheckpointsMs": {
+      "applyPreserveParent": 1048,
+      "reloadPreserveParent": 1908,
+      "applyExclude": 1178,
+      "reloadExclude": 1887,
+      "cancelRemoval": 758,
+      "applyRemoval": 991,
+      "reloadRestoredSource": 1838
+    }
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "1e82afc79c722c3e4a7f9c5ba9a1e11504ea75d1840b53ce485f2df1803e1011",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "1e82afc79c722c3e4a7f9c5ba9a1e11504ea75d1840b53ce485f2df1803e1011",
+        "files": 1553
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "network": {
+    "nativeBrowserRequestRecords": 95,
+    "unexpectedNetworkErrors": 0,
+    "unexpectedErrors": 0,
+    "expectedHttpFailures": 1,
+    "expectedCancellations": 1
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave124/root-acceptance.json",
+    "sha256": "2b0c8eb69a710904a5c42d889473ea1c94618f6fd485c426512d982f9eff0beb",
+    "status": "ROOT_ACCEPTED_FULL_LIFECYCLE_PASS",
+    "sourceFreezeReleased": true,
+    "lifecycleAccepted": true,
+    "closureSha256": "09310ee3171ba7eba6ea5d0098d9e4e80c6940032ba4994bbbac86ab45c92244"
+  },
+  "rawArtifacts": {
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/cda-report.json",
+      "sha256": "424bdb3635851e6df058836b402631bcc45552a69a85fcaea5bf5f2815e5f94f",
+      "sizeBytes": 341870
+    },
+    "standaloneDomainAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/artifacts/standalone-cda-fields-CDA--7cbad-ists-CDA-contributor-exists/attachments/standalone-contributor-exists-domain-json-d2958266418654308240044bb9379c477ae5d01e.json",
+      "sha256": "2f4fee34ab26f6a3a3c6998a56a18663646b2acc353c3113e6c0b6e5b2ff7341",
+      "sizeBytes": 17871687
+    },
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave124/closure.json",
+      "sha256": "09310ee3171ba7eba6ea5d0098d9e4e80c6940032ba4994bbbac86ab45c92244"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave124/integrity-closure.json",
+      "sha256": "4c47bbac4224de5a488dd663d806e6f237cfcba98326d5b5deb017117186cba9"
+    },
+    "runnerResults": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/results.json",
+      "sha256": "ae1c6fd2233bfe7d55451cc9248a402f00fa6963b453f1798e311607bedb72d4"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/runner.log",
+      "sha256": "f1731b5b00e358b143e0fabb7284897c76592a814d1b54295cece4e66f9fff17"
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave124/cda-contributor-exists/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af"
+    }
+  },
+  "scopeNote": "Root accepted the registered CDA Patient-to-Observation EXISTS lifecycle. This does not claim all contributor predicates or routes."
+}

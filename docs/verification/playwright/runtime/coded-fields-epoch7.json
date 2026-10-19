@@ -1,0 +1,373 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "native-playwright-runtime-evidence",
+  "status": "passed",
+  "case": {
+    "title": "CDA coded field lifecycle",
+    "file": "scripts/playwright/standalone-cda-fields.spec.mjs",
+    "grep": "CDA coded field lifecycle"
+  },
+  "run": {
+    "command": "npm run test:browser -- playwright/standalone-cda-fields.spec.mjs --grep 'CDA coded field lifecycle' --output /private/tmp/loom-native-parallel-wave7/coded/results",
+    "processExitCode": 0,
+    "officialPlaywright": {
+      "testCount": 1,
+      "testStatus": "passed",
+      "expected": 1,
+      "unexpected": 0,
+      "flaky": 0,
+      "skipped": 0
+    },
+    "workflowAssertions": {
+      "passed": 52,
+      "failed": 0
+    },
+    "recordedActions": {
+      "passed": 52,
+      "failed": 0
+    },
+    "metadataStatuses": {
+      "runnerStatus": "passed",
+      "genericReportStatus": "unverified",
+      "attachedDomainStatus": "passed"
+    },
+    "freshExplorer": "coded-field-lifecycle-1791218615986",
+    "durationMs": {
+      "playwrightResult": 39128,
+      "browserLifecycle": 37055,
+      "playwrightSuite": 41166.094
+    },
+    "parallelTimingClassification": "provisional_under_concurrent_functional_cases",
+    "actionLatency": {
+      "scope": "all 52 recorded Playwright actions",
+      "count": 52,
+      "maxMs": 215,
+      "maxActionOrdinal": 5,
+      "maxActionLabel": "Cancel",
+      "sourceArray": "/private/tmp/loom-native-parallel-wave7/coded/results/standalone-cda-fields-CDA--81b91-e-CDA-coded-field-lifecycle/cda-report.json:actions"
+    }
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008"
+  },
+  "identity": {
+    "sourceFingerprint": {
+      "before": {
+        "sha256": "0c0de382e2a33eeeeb5c989dbd171b6dcf2e028ae863336959efb41b27cf38d0",
+        "files": 1485
+      },
+      "after": {
+        "sha256": "0c0de382e2a33eeeeb5c989dbd171b6dcf2e028ae863336959efb41b27cf38d0",
+        "files": 1485
+      },
+      "unchanged": true,
+      "watchedFileCount": 1114,
+      "changedPaths": [],
+      "baselineArtifact": "/private/tmp/loom-native-parallel-wave7/source-before.json",
+      "baselineArtifactSha256": "adfd79bfb66b784437e53730bcbb7793348a755cca0a2296e043d032461e9fcc"
+    },
+    "apiBuildIdentity": {
+      "before": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "after": "9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:9e0e53a002c2cde544c54a34905fcea04f51a00d5247909f6204e73ccc85fc3c:1480cbf92c206363ef5f24926e95396d0a25634ff9b9c99a08df3a26db41d114",
+      "unchanged": true,
+      "baselineArtifact": "/private/tmp/loom-native-parallel-wave7/api-identity.json",
+      "baselineArtifactSha256": "fb140282a2d9c29c66c6b03c266b0b9e7ae1557da30a31a32f839b1750d073e5"
+    }
+  },
+  "oracle": {
+    "kind": "bounded raw CDA witness finder plus a separate exact-membership raw CDA oracle over selected current-generation fhir_edge joins",
+    "patientReference": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+    "contributorCount": 25,
+    "rawValueCount": 25,
+    "distinctValues": [
+      "aliquot",
+      "analyte",
+      "portion",
+      "sample",
+      "slide"
+    ]
+  },
+  "lifecycle": {
+    "onePolicyExpected422": {
+      "requestId": "playwright-60",
+      "browserRequestId": "playwright-60",
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/coded-field-lifecycle-1791218615986/authoring/v2/construction-choice-proposals",
+      "status": 422,
+      "responseCode": "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES",
+      "form": "ALL",
+      "rowValuePolicy": "ONE",
+      "distinctValues": [
+        "aliquot",
+        "analyte",
+        "portion",
+        "sample",
+        "slide"
+      ]
+    },
+    "supersededBrowseCancellation": {
+      "requestId": "frame-source-options-44e05f2a-12e4-43c1-9869-72e95b592417",
+      "browserRequestId": "playwright-40",
+      "method": "POST",
+      "path": "/api/v1/projects/loom_dev_cda_fhir/explorers/coded-field-lifecycle-1791218615986/authoring/v2/frame-source-options",
+      "error": "net::ERR_ABORTED",
+      "scopeAction": "search Observation framing sources",
+      "priorQuery": null,
+      "replacementQuery": "Observation"
+    },
+    "persistenceReceipts": [
+      {
+        "name": "reload-selected-specimen-source",
+        "receiptId": "receipt_20c92a07c08a7dd3edfbea36c426d1605255a5c4861a9cc23fa777f5898c0b11",
+        "rowCount": 25,
+        "nativeRowCount": 25
+      },
+      {
+        "name": "reload-grouped-specimen-contributors",
+        "receiptId": "receipt_0d26cce483648fc0443e8bd27c75cc1cacc65cb7ffec646fed7385bd20e46f2b",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      },
+      {
+        "name": "reload-applied-coded-contributor-values",
+        "receiptId": "receipt_d42581302735255450f271ed3f1975daec83a726d592d7672fa6c1291943ac25",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      },
+      {
+        "name": "reload-edited-coded-column-label",
+        "receiptId": "receipt_d5e6361ec382ad2c1db6962191da35463dec402f1c90ec46e149bc9fee7e27d3",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      },
+      {
+        "name": "reload-hidden-grouped-output",
+        "receiptId": "receipt_33711937b6a52b6c73f9c2018594722b91e8262f3367d25c6b9e233750ca477f",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      },
+      {
+        "name": "reload-visible-grouped-output",
+        "receiptId": "receipt_b3ac3eb2660596ddd3bf382bc4373e6566ba43849a841a6c6929d153d606c317",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      },
+      {
+        "name": "reload-after-coded-column-removal",
+        "receiptId": "receipt_77e8aae09fbb00e1d56da0116f030c1e0496ad7e10d6d9cd901850ddb0589540",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      },
+      {
+        "name": "reload-after-coded-frame-removal",
+        "receiptId": "receipt_fffb79d719b7216545ff5db2cbd6603d963a931343b486ba5953c913712a3d55",
+        "rowCount": 1,
+        "nativeRowCount": 1
+      }
+    ],
+    "protectedExplorerUntouched": true,
+    "unexpectedBrowserOrHttpFailures": 0,
+    "allStagesPassed": true,
+    "allPolicySuccess": {
+      "stage": "coded-all-apply-to-native-render",
+      "preflight": "coded-all-preflight passed",
+      "applyCommandStatus": 200,
+      "savedPreviewStage": "coded-all-saved-preview-matches-independent-cda",
+      "values": [
+        "aliquot",
+        "analyte",
+        "portion",
+        "sample",
+        "slide"
+      ],
+      "reloadReceipt": "receipt_d42581302735255450f271ed3f1975daec83a726d592d7672fa6c1291943ac25"
+    },
+    "lifecycleStages": [
+      {
+        "name": "reload-selected-specimen-source",
+        "durationMs": 1738,
+        "rowCount": 25,
+        "nativeRowCount": 25,
+        "receiptId": "receipt_20c92a07c08a7dd3edfbea36c426d1605255a5c4861a9cc23fa777f5898c0b11"
+      },
+      {
+        "name": "patient-reference-group-preview-cancel-target",
+        "durationMs": 655,
+        "rows": [
+          [
+            "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+            "25"
+          ]
+        ]
+      },
+      {
+        "name": "cancel-group-preview-preserves-source",
+        "durationMs": 787
+      },
+      {
+        "name": "group-specimens-by-patient-reference-preview",
+        "durationMs": 689,
+        "rows": [
+          [
+            "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+            "25"
+          ]
+        ]
+      },
+      {
+        "name": "group-specimens-by-patient-reference-apply",
+        "durationMs": 320
+      },
+      {
+        "name": "reload-grouped-specimen-contributors",
+        "durationMs": 1285,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_0d26cce483648fc0443e8bd27c75cc1cacc65cb7ffec646fed7385bd20e46f2b"
+      },
+      {
+        "name": "save-fresh-signed-component-frame",
+        "durationMs": 1733,
+        "status": 200,
+        "pages": 1
+      },
+      {
+        "name": "fresh-signed-specimen_type-choice",
+        "durationMs": 225
+      },
+      {
+        "name": "cancel-coded-category-selection",
+        "durationMs": 749
+      },
+      {
+        "name": "fresh-signed-specimen_type-choice",
+        "durationMs": 281
+      },
+      {
+        "name": "coded-one-disagreement-from-independent-cda-values",
+        "durationMs": 1102,
+        "httpStatus": 422,
+        "errorCode": "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES",
+        "contributorCount": 25,
+        "rawValueCount": 25,
+        "distinctValues": [
+          "aliquot",
+          "analyte",
+          "portion",
+          "sample",
+          "slide"
+        ]
+      },
+      {
+        "name": "coded-all-preflight",
+        "durationMs": 433,
+        "previewDurationMs": 110
+      },
+      {
+        "name": "coded-all-apply-to-native-render",
+        "durationMs": 307,
+        "commandStatus": 200
+      },
+      {
+        "name": "coded-all-saved-preview-matches-independent-cda",
+        "durationMs": 658,
+        "values": [
+          "aliquot",
+          "analyte",
+          "portion",
+          "sample",
+          "slide"
+        ]
+      },
+      {
+        "name": "reload-applied-coded-contributor-values",
+        "durationMs": 1322,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_d42581302735255450f271ed3f1975daec83a726d592d7672fa6c1291943ac25"
+      },
+      {
+        "name": "edit-coded-column-label",
+        "durationMs": 874
+      },
+      {
+        "name": "reload-edited-coded-column-label",
+        "durationMs": 1318,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_d5e6361ec382ad2c1db6962191da35463dec402f1c90ec46e149bc9fee7e27d3"
+      },
+      {
+        "name": "hide-renamed-grouped-output",
+        "durationMs": 896
+      },
+      {
+        "name": "reload-hidden-grouped-output",
+        "durationMs": 1322,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_33711937b6a52b6c73f9c2018594722b91e8262f3367d25c6b9e233750ca477f"
+      },
+      {
+        "name": "show-renamed-grouped-output",
+        "durationMs": 877
+      },
+      {
+        "name": "reload-visible-grouped-output",
+        "durationMs": 1305,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_b3ac3eb2660596ddd3bf382bc4373e6566ba43849a841a6c6929d153d606c317"
+      },
+      {
+        "name": "remove-coded-column-restores-group-shape",
+        "durationMs": 1095
+      },
+      {
+        "name": "reload-after-coded-column-removal",
+        "durationMs": 1474,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_77e8aae09fbb00e1d56da0116f030c1e0496ad7e10d6d9cd901850ddb0589540"
+      },
+      {
+        "name": "reload-after-coded-frame-removal",
+        "durationMs": 1427,
+        "rowCount": 1,
+        "nativeRowCount": 1,
+        "receiptId": "receipt_fffb79d719b7216545ff5db2cbd6603d963a931343b486ba5953c913712a3d55"
+      },
+      {
+        "name": "remove-empty-component-frame",
+        "durationMs": 2617
+      }
+    ]
+  },
+  "artifacts": {
+    "resultsJson": {
+      "path": "/private/tmp/loom-native-parallel-wave7/coded/results.json",
+      "sha256": "17fee2c2b0c3300b3ab7129abbcd01cec4d71c973366d31c24950d2a6d6ec858"
+    },
+    "cdaReport": {
+      "path": "/private/tmp/loom-native-parallel-wave7/coded/results/standalone-cda-fields-CDA--81b91-e-CDA-coded-field-lifecycle/cda-report.json",
+      "sha256": "95ccab11f8554425acefcadb9198a5120ec6d34368602f918bfb71ab459aa1df"
+    },
+    "domainAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave7/coded/results/standalone-cda-fields-CDA--81b91-e-CDA-coded-field-lifecycle/attachments/standalone-coded-field-lifecycle-domain.json",
+      "sha256": "702825588b397c43209a513b2fdf18e081236523cff3e2fe081f526edb1e7ddf"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave7/coded/runner.log",
+      "sha256": "c7d7d40d86169249c33b7e8eb5618f7eb64624257841aaddc4250d24a89d7ba1"
+    },
+    "release": {
+      "path": "/private/tmp/loom-native-parallel-wave7/release.json",
+      "sha256": "bdb6a701311463efedb93aabb4c02fb63a3cad3b2ae21576a0ecb7636bc647bc",
+      "status": "RELEASE_READY"
+    }
+  }
+}

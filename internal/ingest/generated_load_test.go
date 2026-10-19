@@ -119,6 +119,24 @@ func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
 	}
 }
 
+func TestGeneratedLoadRejectsUnknownAndUnsupportedResourceTypes(t *testing.T) {
+	for _, resourceType := range []string{"Unknown", "Resource"} {
+		t.Run(resourceType, func(t *testing.T) {
+			_, _, kind, err := loadRowGenerated(resourceType, []byte(`{}`), "project-1", map[string]float64{})
+			if kind != rowErrorGeneration || err == nil || !strings.Contains(err.Error(), "generated loader does not support") {
+				t.Fatalf("loadRowGenerated(%q) = kind %q err %v, want unsupported-resource generation error", resourceType, kind, err)
+			}
+		})
+	}
+}
+
+func TestWithProjectIDRetainsInputWhenPayloadCannotBeDecoded(t *testing.T) {
+	line := []byte(`{"resourceType":`)
+	if got := withProjectID(line, "project-1"); string(got) != string(line) {
+		t.Fatalf("withProjectID malformed-input fallback = %q, want original %q", got, line)
+	}
+}
+
 func TestGeneratedLoadRejectsMissingFHIRID(t *testing.T) {
 	_, _, kind, err := loadRowGenerated("DocumentReference", []byte(`{
   "resourceType": "DocumentReference",
