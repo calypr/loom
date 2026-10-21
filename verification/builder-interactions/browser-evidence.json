@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 2,
+  "generatedFrom": [
+    ".artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json"
+  ],
+  "cases": [
+    {
+      "id": "builder-controls:recompile",
+      "scenario": "builder-controls",
+      "case": "recompile",
+      "name": "builder-controls recompile",
+      "status": "passed",
+      "recordedAt": "2026-10-21T17:07:50.837Z",
+      "sourceFingerprint": "273156f27e0cd878b09f92388251a7b39ccb0676ddb9374fdc08c29c28957f59",
+      "sourceFileCount": 2040,
+      "apiBuildIdentity": "3967c46c0737b2b039f94e6775e2bc4455b3f08fed292a637fd03182167b9ca3:3967c46c0737b2b039f94e6775e2bc4455b3f08fed292a637fd03182167b9ca3:03b8085d60523649b5a27dc2d3150fb6d5b5ca59dd762682ffa66729882ecdfb",
+      "coveredRoutes": [
+        "GET /api/v1/projects/{project}/explorers",
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
+        "POST /api/v1/projects/{project}/explorers",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
+      ],
+      "injectedRoutes": [
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+      ],
+      "assertions": [
+        {
+          "name": "watched source fingerprint baseline captured before browser lifecycle",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "API build identity baseline captured before browser lifecycle",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "open Explorer creation completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "open Explorer creation action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "name blank Explorer completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "create blank Explorer completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "create blank Explorer action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "created a fresh Explorer distinct from the bootstrap",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "name Patient table for Recompile recovery completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "trigger automatic compilation rejection completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "trigger automatic compilation rejection action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "controlled automatic compilation failure is visible",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "controlled compilation rejection was injected exactly once",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "Recompile invokes the backend compiler completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "Recompile invokes the backend compiler action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "Recompile returned a successful compilation response",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "Preview renders both independent fixture Patients",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "automatic Preview is visible after authoring",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "independent Patient source stayed unchanged during Builder verification",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "incidental asset failures are explicitly recorded",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "fixture browser observer reported no unexpected network or runtime errors",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "watched source stayed unchanged during browser run",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "API build identity stayed unchanged during browser run",
+          "status": "passed",
+          "dimension": "correctness"
+        }
+      ],
+      "report": ".artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json",
+      "reportSha256": "fb41e8e3d811a2524598d50357fc78c6174c370e196d3f50935d096ebe7d8f1b"
+    }
+  ]
+}

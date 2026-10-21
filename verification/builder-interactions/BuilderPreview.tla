@@ -302,12 +302,12 @@ ChangeDraft ==
        discoveryResultValue, pivotMounted, pivotMissing, presenceTracked
      >>
 
-Reconcile ==
+AcceptCurrentDraft ==
   /\ acceptedDraft' = currentDraft
   /\ proposalPhase' = "none"
   /\ previewPhase' = "none"
   /\ discoveryPhase' = "idle"
-  /\ lastAction' = "Reconcile"
+  /\ lastAction' = "AcceptCurrentDraft"
   /\ UNCHANGED <<
        currentDraft, proposalOwner, previewOwner, applyPhase, applyOwner,
        applyAckTarget, applyAckResult, discoveryDraft, discoveryCategory,
@@ -423,7 +423,7 @@ Next ==
   \/ BeginApply
   \/ \E success \in BOOLEAN: ApplyAck(success)
   \/ ChangeDraft
-  \/ Reconcile
+  \/ AcceptCurrentDraft
   \/ \E missing \in BOOLEAN: SetPivotPair(missing)
   \/ ScheduleDiscovery
   \/ DiscoveryComplete

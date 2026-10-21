@@ -37,6 +37,21 @@ const GO_LIFECYCLE_TESTS = [
 const GO_SERVER_TESTS = [
   'TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly',
   'TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata',
+  'TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer',
+];
+const MODEL_RUNS = [
+  { name: 'builder-operations', module: 'BuilderOperations', config: 'BuilderOperations.cfg' },
+  { name: 'builder-preview-safety', module: 'BuilderPreview', config: 'BuilderPreviewSafety.cfg' },
+  { name: 'builder-workspace-lifecycle', module: 'WorkspaceLifecycle', config: 'WorkspaceLifecycle.cfg' },
+  { name: 'builder-row-definition-lifecycle', module: 'RowDefinitionLifecycle', config: 'RowDefinitionLifecycle.cfg' },
+  { name: 'builder-draft-restore', module: 'DraftRestore', config: 'DraftRestore.cfg' },
+  { name: 'builder-root-change', module: 'RootChange', config: 'RootChange.cfg' },
+  { name: 'builder-column-presentation', module: 'ColumnPresentation', config: 'ColumnPresentation.cfg' },
+  { name: 'builder-population', module: 'Population', config: 'Population.cfg' },
+  { name: 'builder-interpretation', module: 'Interpretation', config: 'Interpretation.cfg' },
+  { name: 'builder-supporting-surfaces', module: 'SupportingSurfaces', config: 'SupportingSurfaces.cfg' },
+  { name: 'builder-lifecycle-entry', module: 'LifecycleEntry', config: 'LifecycleEntry.cfg' },
+  { name: 'builder-reconcile-lifecycle', module: 'ReconcileLifecycle', config: 'ReconcileLifecycle.cfg' },
 ];
 
 const FINDINGS = [];
@@ -214,7 +229,7 @@ function runTlc(jarPath, modelModule, configFile, options = {}) {
   copyFileSync(resolve(ROOT, MODEL_DIR, configFile), join(modelDirectory, configFile));
   const args = [
     '-XX:+UseParallelGC', '-cp', jarPath, 'tlc2.TLC',
-    '-workers', options.workers ?? '4',
+    '-workers', options.workers ?? process.env.LOOM_TLC_WORKERS ?? '4',
     ...(options.continue ? ['-continue'] : []),
     '-metadir', metadataDirectory,
     '-config', configFile,
@@ -237,7 +252,16 @@ function vitestBinary() {
   fail('UI dependencies are missing. Install the existing workspace dependencies with npm install in ui/.');
 }
 
+function traceContractCounts() {
+  const contract = readJson(MODEL_DIR + '/builder-trace-contract.json');
+  return {
+    traceCount: contract.phase1?.expectedTraceCount,
+    scheduleCount: contract.phase1?.expectedScheduleCount,
+  };
+}
+
 function runFormalSchedules() {
+  const expected = traceContractCounts().traceCount;
   const reportDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-formal-vitest-'));
   const reportPath = join(reportDirectory, 'vitest.json');
   const tracePath = join(reportDirectory, 'traces.json');
@@ -260,13 +284,13 @@ function runFormalSchedules() {
     .map((assertion) => assertion.fullName);
   const passed = result.status === 0 &&
     report.success === true &&
-    report.numTotalTests === 61 &&
-    report.numPassedTests === 61 &&
+    report.numTotalTests === expected &&
+    report.numPassedTests === expected &&
     report.numFailedTests === 0 &&
     report.numPendingTests === 0 &&
     report.numTodoTests === 0;
   if (!passed) {
-    fail('the real-controller schedule suite failed. Expected 61/61 passing tests including two expected-failure findings. See ' + reportPath);
+    fail('the real-controller schedule suite failed. Expected ' + expected + '/' + expected + ' passing tests including retained expected-failure cases. See ' + reportPath);
   }
   if (!existsSync(tracePath)) fail('the formal suite did not write its trace corpus to ' + tracePath);
   return {
@@ -280,6 +304,7 @@ function runFormalSchedules() {
 }
 
 function runTraceValidation(tracePath) {
+  const expected = traceContractCounts().traceCount;
   const reportPath = tracePath.replace(/\.json$/, '-report.json');
   const result = runCommand(
     'TLA trace validation',
@@ -297,8 +322,8 @@ function runTraceValidation(tracePath) {
   if (result.status !== 0 || report.invalidCount !== 0) {
     fail('trace validation failed; inspect ' + reportPath);
   }
-  if (report.traceCount !== 61 || report.validatedCount !== 61) {
-    fail('trace validation did not cover all 61 formal traces: ' + JSON.stringify({
+  if (report.traceCount !== expected || report.validatedCount !== expected) {
+    fail('trace validation did not cover all ' + expected + ' formal traces: ' + JSON.stringify({
       traceCount: report.traceCount,
       validatedCount: report.validatedCount,
     }));
@@ -314,6 +339,26 @@ function runTraceValidation(tracePath) {
     coverage: report.coverage,
     unmodeledEvents: report.unmodeledEvents,
     reportPath,
+  };
+}
+
+function runTraceValidatorSelfTest(tracePath) {
+  const result = runCommand(
+    'TLA trace validator mutation self-test',
+    process.execPath,
+    [
+      'scripts/self-test-builder-traces.mjs',
+      '--traces',
+      tracePath,
+      '--contract',
+      MODEL_DIR + '/builder-trace-contract.json',
+    ],
+    ROOT,
+  );
+  return {
+    name: 'builder-trace-validator-self-test',
+    status: result.status === 0 ? 'pass' : 'fail',
+    outputTail: result.output.split('\n').slice(-30).join('\n'),
   };
 }
 
@@ -387,6 +432,7 @@ function buildFindings(tlcRuns) {
 }
 
 function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, retiredFindings, resolvedFindings, map, traceValidation }) {
+  const routeLedgerCheck = checks.find((check) => check.name === 'builder-route-ledger');
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -411,6 +457,7 @@ function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, re
       }),
       ...(check.outputTail ? { outputTail: check.outputTail } : {}),
     })),
+    routeLedger: routeLedgerCheck?.counts ?? null,
     traceValidation,
     findings,
     retiredFindings,
@@ -451,6 +498,20 @@ function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, re
     lines.push('- `' + check.name + '`: **' + check.status + '**' + counts);
   }
   lines.push('');
+  if (report.routeLedger) {
+    const ledger = report.routeLedger;
+    lines.push('## Route ledger');
+    lines.push('');
+    lines.push('- Builder routes: ' + ledger.builder + ' (' + ledger.tier1 + ' Tier 1, ' + ledger.tier2 + ' Tier 2).');
+    lines.push('- Proof: ' + ledger.modeledAndTraced + ' modeled-and-traced, ' + ledger.modeledOnly + ' modeled-only, ' +
+      ledger.contractTested + ' contract-tested, ' + ledger.unproven + ' unproven.');
+    lines.push('- Excluded authoring routes: ' + ledger.excluded + '.');
+    lines.push('- Builder evidence: ' + ledger.withBuilderEvidence + '/' + ledger.builder + ' routes.');
+    const countLabel = (count, singular, plural) => count + ' ' + (count === 1 ? singular : plural);
+    lines.push('- Route-level evidence: ' + countLabel(ledger.withTrace, 'trace', 'traces') + ', ' +
+      countLabel(ledger.withTest, 'test', 'tests') + ', ' + countLabel(ledger.withBrowserCase, 'browser case', 'browser cases') + '.');
+    lines.push('');
+  }
   lines.push('## Trace conformance');
   lines.push('');
   lines.push('- ' + traceValidation.traceCount + ' formal traces, ' + traceValidation.uniqueTraceCount + ' unique after deduplication.');
@@ -461,9 +522,12 @@ function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, re
   lines.push('- Required actions: ' + (missingActions.length === 0 ? 'all covered' : 'missing ' + missingActions.join(', ')) + '.');
   lines.push('- Required events: ' + (missingEvents.length === 0 ? 'all covered' : 'missing ' + missingEvents.join(', ')) + '.');
   const unmodeledTotal = traceValidation.unmodeledEvents?.total ?? 0;
+  const unclassifiedEvents = traceValidation.unmodeledEvents?.unclassified?.total ?? 0;
   const unmodeledKinds = Object.entries(traceValidation.unmodeledEvents?.byKind ?? {});
-  lines.push('- Unmodeled implementation events: ' + unmodeledTotal +
-    (unmodeledKinds.length === 0 ? '.' : ' (' + unmodeledKinds.map(([kind, count]) => kind + '=' + count).join(', ') + ').'));
+  lines.push('- Implementation events outside the trace vocabulary: ' + unmodeledTotal + ', ' + unclassifiedEvents + ' unclassified.');
+  if (unmodeledKinds.length > 0) {
+    lines.push('- Classified event kinds: ' + unmodeledKinds.map(([kind, count]) => kind + '=' + count).join(', ') + '.');
+  }
   lines.push('');
   lines.push('## Resolved regressions');
   lines.push('');
@@ -509,13 +573,51 @@ function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, re
   return report;
 }
 
+function runRouteLedger() {
+  const freshness = runCommand(
+    'Builder route ledger freshness',
+    process.execPath,
+    ['scripts/generate-builder-route-ledger.mjs', '--check'],
+    ROOT,
+  );
+  if (freshness.status !== 0) {
+    return {
+      name: 'builder-route-ledger',
+      status: 'fail',
+      counts: null,
+      output: freshness.output,
+    };
+  }
+  const result = runCommand(
+    'Builder route ledger',
+    process.execPath,
+    ['scripts/verify-builder-route-ledger.mjs', '--report-only'],
+    ROOT,
+  );
+  let counts = null;
+  try {
+    counts = JSON.parse(result.output.slice(result.output.indexOf('{'), result.output.lastIndexOf('}') + 1));
+  } catch {
+    counts = null;
+  }
+  return {
+    name: 'builder-route-ledger',
+    status: result.status === 0 ? 'pass' : 'fail',
+    counts,
+    output: result.output,
+  };
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
-  const options = { strict: false, skipGo: false };
-  for (const arg of args) {
+  const options = { strict: false, skipGo: false, model: null, listModels: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
     if (arg === '--strict') options.strict = true;
     else if (arg === '--skip-go') options.skipGo = true;
-    else fail('usage: node scripts/verify-builder-formal.mjs [--strict] [--skip-go]');
+    else if (arg === '--model') options.model = args[++index];
+    else if (arg === '--list-models') options.listModels = true;
+    else fail('usage: node scripts/verify-builder-formal.mjs [--strict] [--skip-go] [--model <name>] [--list-models]');
   }
   return options;
 }
@@ -544,11 +646,24 @@ async function main() {
     bytes(MODEL_DIR + '/Interpretation.tla').toString('utf8'),
     bytes(MODEL_DIR + '/SupportingSurfaces.tla').toString('utf8'),
     bytes(MODEL_DIR + '/LifecycleEntry.tla').toString('utf8'),
+    bytes(MODEL_DIR + '/ReconcileLifecycle.tla').toString('utf8'),
   ].join('\n');
   validateCoverageMap(inventory, map, modelText);
 
   const javaVersion = verifyJava();
   const jarPath = await acquireTlcJar();
+  if (options.listModels) {
+    for (const model of MODEL_RUNS) console.log(model.name + ' (' + model.module + ')');
+    return;
+  }
+  if (options.model) {
+    const model = MODEL_RUNS.find((candidate) => candidate.name === options.model || candidate.module === options.model);
+    if (!model) fail('unknown model ' + options.model + '; use --list-models');
+    const result = runTlc(jarPath, model.module, model.config);
+    if (!result.passed) fail(model.config + ' did not complete without an error.');
+    console.log('TLC ' + model.name + ': ' + result.stateCount + ' generated / ' + result.distinctStateCount + ' distinct, depth ' + result.depth);
+    return;
+  }
   process.env.GOCACHE = process.env.LOOM_GO_CACHE || join(tmpdir(), 'loom-go-build-cache');
 
   const operations = runTlc(jarPath, 'BuilderOperations', 'BuilderOperations.cfg');
@@ -562,6 +677,7 @@ async function main() {
   const interpretation = runTlc(jarPath, 'Interpretation', 'Interpretation.cfg');
   const supportingSurfaces = runTlc(jarPath, 'SupportingSurfaces', 'SupportingSurfaces.cfg');
   const lifecycleEntry = runTlc(jarPath, 'LifecycleEntry', 'LifecycleEntry.cfg');
+  const reconcileLifecycle = runTlc(jarPath, 'ReconcileLifecycle', 'ReconcileLifecycle.cfg');
 
   if (!operations.passed) fail('BuilderOperations.cfg did not complete without an error.');
   if (!safety.passed) fail('BuilderPreviewSafety.cfg did not complete without an error.');
@@ -574,9 +690,11 @@ async function main() {
   if (!interpretation.passed) fail('Interpretation.cfg did not complete without an error.');
   if (!supportingSurfaces.passed) fail('SupportingSurfaces.cfg did not complete without an error.');
   if (!lifecycleEntry.passed) fail('LifecycleEntry.cfg did not complete without an error.');
+  if (!reconcileLifecycle.passed) fail('ReconcileLifecycle.cfg did not complete without an error.');
 
   const scheduleRun = runFormalSchedules();
   const traceValidation = runTraceValidation(scheduleRun.tracePath);
+  const traceSelfTest = runTraceValidatorSelfTest(scheduleRun.tracePath);
   const checks = [
     { name: 'builder-operations', status: 'pass', stateCount: operations.stateCount, distinctStateCount: operations.distinctStateCount, depth: operations.depth },
     { name: 'builder-preview-safety', status: 'pass', stateCount: safety.stateCount, distinctStateCount: safety.distinctStateCount, depth: safety.depth },
@@ -589,8 +707,10 @@ async function main() {
     { name: 'builder-interpretation', status: 'pass', stateCount: interpretation.stateCount, distinctStateCount: interpretation.distinctStateCount, depth: interpretation.depth },
     { name: 'builder-supporting-surfaces', status: 'pass', stateCount: supportingSurfaces.stateCount, distinctStateCount: supportingSurfaces.distinctStateCount, depth: supportingSurfaces.depth },
     { name: 'builder-lifecycle-entry', status: 'pass', stateCount: lifecycleEntry.stateCount, distinctStateCount: lifecycleEntry.distinctStateCount, depth: lifecycleEntry.depth },
+    { name: 'builder-reconcile-lifecycle', status: 'pass', stateCount: reconcileLifecycle.stateCount, distinctStateCount: reconcileLifecycle.distinctStateCount, depth: reconcileLifecycle.depth },
     scheduleRun,
     traceValidation,
+    traceSelfTest,
   ];
 
   if (!options.skipGo) {
@@ -601,6 +721,7 @@ async function main() {
     checks.push({ name: 'go-server-boundary', status: 'skipped' });
   }
   checks.push(runInventorySourceCheck());
+  checks.push(runRouteLedger());
 
   const findings = buildFindings([]);
   const resolvedFindings = RESOLVED_FINDINGS.filter((resolved) =>
@@ -622,9 +743,10 @@ async function main() {
   });
 
   console.log('\nBuilder formal verification report: ' + resolve(ROOT, REPORT_RELATIVE));
+  if (report.routeLedger) console.log('Route ledger: ' + JSON.stringify(report.routeLedger));
   console.log('Coverage: ' + JSON.stringify(report.coverage));
   console.log('Trace conformance: ' + report.traceValidation.validatedCount + '/' + report.traceValidation.traceCount + ' validated; ' +
-    report.traceValidation.uniqueTraceCount + ' unique; unmodeled events=' + (report.traceValidation.unmodeledEvents?.total ?? 0));
+    report.traceValidation.uniqueTraceCount + ' unique; unclassified events=' + (report.traceValidation.unmodeledEvents?.unclassified?.total ?? 0));
   for (const finding of findings) {
     console.log('FINDING [' + finding.kind + '] ' + finding.id + ': ' + finding.title);
   }

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import type { GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
+import type { ExplorerAuthoringApiError, GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ConstructionCapabilitiesResponse,
   type ConstructionProposalResponse,
+  type ExplorerBuilderCompileResult,
   type ExplorerBuilderPreviewResult,
 } from '../../../types';
 import {
@@ -19,9 +20,16 @@ import {
   traceAction,
   traceEmbeddedPreviewExpansion,
   traceInitialObservation,
+  traceInitialObservationValue,
+  traceObservedAction,
   traceUnmodeled,
   writeTraces,
 } from '../../../../testSupport/formalTrace';
+import {
+  reconcileReceiptMatchesRequest,
+  reconcileRecoveryAction,
+  reconcileResultIsCurrent,
+} from '../authoring/reconcileRecovery';
 
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type ReadyProposal = Awaited<ReturnType<Lifecycle['proposeCandidateAndWait']>>;
@@ -864,5 +872,191 @@ describe('useConstructionLifecycle real-controller conformance schedules', () =>
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.canApply).toBe(true);
     unmount();
+  });
+});
+
+
+type ReconcilePhase = 'idle' | 'requesting' | 'succeeded' | 'stale' | 'conflict' | 'invalid' | 'failed';
+
+const reconcileObservation = (phase: ReconcilePhase, receiptPresent: boolean) => ({
+  status: phase,
+  canApply: false,
+  proposalIdPresent: false,
+  previewReceiptPresent: false,
+  rowsPresent: false,
+  receiptPresent,
+});
+
+const reconcileError = (code: string, retryable = false): ExplorerAuthoringApiError => ({
+  status: 409,
+  code,
+  message: code,
+  retryable,
+});
+
+const reconcileOptions = (overrides: Partial<{
+  readonly attempt: number;
+  readonly maxAttempts: number;
+  readonly staleRefreshes: number;
+  readonly maxStaleRefreshes: number;
+}> = {}) => ({
+  attempt: 1,
+  maxAttempts: 3,
+  staleRefreshes: 0,
+  maxStaleRefreshes: 2,
+  ...overrides,
+});
+
+const reconcileReceipt = (
+  overrides: Partial<ExplorerBuilderCompileResult> = {},
+): ExplorerBuilderCompileResult => ({
+  snapshotToken: 'S1',
+  draftVersion: 3,
+  draftDigest: 'D1',
+  outputs: [{ outputId: 'patients' }],
+  ...overrides,
+} as ExplorerBuilderCompileResult);
+
+describe('reconcile recovery formal schedule', () => {
+  it('reconcile success binds the receipt and an authored change clears it', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    expect(reconcileResultIsCurrent({
+      generation: 4,
+      currentGeneration: 4,
+      submittedExplorerId: 'patients',
+      currentExplorerId: 'patients',
+      submittedFingerprint: 'F1',
+      currentFingerprint: 'F1',
+    })).toBe(true);
+    expect(reconcileReceiptMatchesRequest(reconcileReceipt(), {
+      snapshotToken: 'S1',
+      outputId: 'patients',
+    })).toBe(true);
+
+    traceObservedAction('ReconcileSuccess', 'reconcile-response', reconcileObservation('succeeded', true));
+    traceObservedAction('ClearReceipt', 'identity-change', reconcileObservation('idle', false));
+    traceObservedAction('AuthoredChange', 'identity-change', reconcileObservation('idle', false));
+  });
+
+  it('reconcile stale snapshots refresh and retry twice, then repair', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileStale', 'reconcile-response', reconcileObservation('stale', false));
+    expect(reconcileRecoveryAction(reconcileError('STALE_SNAPSHOT'), reconcileOptions())).toBe('refresh-and-retry');
+
+    traceObservedAction('RetryReconcile', 'reconcile-retry', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileStale', 'reconcile-response', reconcileObservation('stale', false));
+    expect(reconcileRecoveryAction(reconcileError('STALE_SNAPSHOT'), reconcileOptions({ staleRefreshes: 1 }))).toBe('refresh-and-retry');
+
+    traceObservedAction('RetryReconcile', 'reconcile-retry', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileStale', 'reconcile-response', reconcileObservation('stale', false));
+    expect(reconcileRecoveryAction(reconcileError('STALE_SNAPSHOT'), reconcileOptions({ staleRefreshes: 2 }))).toBe('repair');
+  });
+
+  it('reconcile draft conflict refreshes and stops', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileConflict', 'reconcile-response', reconcileObservation('conflict', false));
+    expect(reconcileRecoveryAction(reconcileError('DRAFT_CONFLICT'), reconcileOptions())).toBe('refresh-and-stop');
+  });
+
+  it('reconcile invalid output repairs', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileInvalid', 'reconcile-response', reconcileObservation('invalid', false));
+    expect(reconcileRecoveryAction(reconcileError('VALIDATION_FAILED'), reconcileOptions())).toBe('repair');
+  });
+
+  it('reconcile retryable failure retries and then succeeds', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileFailure(retryable)', 'reconcile-response', reconcileObservation('failed', false));
+    expect(reconcileRecoveryAction(reconcileError('BACKEND_UNAVAILABLE', true), reconcileOptions())).toBe('retry');
+    expect(reconcileRecoveryAction(reconcileError('BACKEND_UNAVAILABLE', true), reconcileOptions({ attempt: 3 }))).toBe('repair');
+
+    traceObservedAction('RetryReconcile', 'reconcile-retry', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileSuccess', 'reconcile-response', reconcileObservation('succeeded', true));
+  });
+
+  it('reconcile fatal failure repairs', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    traceObservedAction('ReconcileFailure(fatal)', 'reconcile-response', reconcileObservation('failed', false));
+    expect(reconcileRecoveryAction(reconcileError('VALIDATION_FAILED'), reconcileOptions())).toBe('repair');
+  });
+
+  it('reconcile rejects stale results and mismatched receipts', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    expect(reconcileResultIsCurrent({
+      generation: 3,
+      currentGeneration: 4,
+      submittedExplorerId: 'patients',
+      currentExplorerId: 'patients',
+      submittedFingerprint: 'F1',
+      currentFingerprint: 'F1',
+    })).toBe(false);
+    expect(reconcileResultIsCurrent({
+      generation: 4,
+      currentGeneration: 4,
+      submittedExplorerId: 'other',
+      currentExplorerId: 'patients',
+      submittedFingerprint: 'F1',
+      currentFingerprint: 'F1',
+    })).toBe(false);
+    expect(reconcileResultIsCurrent({
+      generation: 4,
+      currentGeneration: 4,
+      submittedExplorerId: 'patients',
+      currentExplorerId: 'patients',
+      submittedFingerprint: 'F0',
+      currentFingerprint: 'F1',
+    })).toBe(false);
+    expect(reconcileReceiptMatchesRequest(reconcileReceipt({ snapshotToken: 'S2' }), {
+      snapshotToken: 'S1',
+      outputId: 'patients',
+    })).toBe(false);
+    expect(reconcileReceiptMatchesRequest(reconcileReceipt({ outputs: [{ outputId: 'other', columns: [] }] }), {
+      snapshotToken: 'S1',
+      outputId: 'patients',
+    })).toBe(false);
+
+    traceObservedAction('ReconcileSuccess', 'reconcile-response', reconcileObservation('succeeded', true));
+  });
+
+  it('reconcile ignores a late result after the workspace identity changes', () => {
+    startTrace('ReconcileLifecycle');
+    traceInitialObservationValue(reconcileObservation('idle', false));
+
+    traceObservedAction('RequestReconcile', 'reconcile-request', reconcileObservation('requesting', false));
+    traceObservedAction('AuthoredChange', 'identity-change', reconcileObservation('idle', false));
+    expect(reconcileResultIsCurrent({
+      generation: 4,
+      currentGeneration: 4,
+      submittedExplorerId: 'patients',
+      currentExplorerId: 'patients',
+      submittedFingerprint: 'F1',
+      currentFingerprint: 'F2',
+    })).toBe(false);
+    expect(reconcileReceiptMatchesRequest(reconcileReceipt({ snapshotToken: 'S2' }), {
+      snapshotToken: 'S1',
+      outputId: 'patients',
+    })).toBe(false);
+    traceUnmodeled('late-reconcile-ignored', 'late reconcile result from the old workspace fingerprint is ignored');
   });
 });

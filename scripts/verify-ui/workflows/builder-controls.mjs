@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserURL } from './builder-url.mjs';
+import { canonicalProjectID } from '../../loom-dev.mjs';
 import { recordCheck } from '../helpers/report.mjs';
 
 export const patientOracle = target => {
@@ -410,7 +411,8 @@ export const recompileWorkflow = async ({ page, report, action, check, fault }, 
   const { explorer } = await createBlankExplorerWithUI({ page, action, target: context.target, context, check }, 'recompile');
   report.target.explorer = explorer;
   const project = context.target.fixtureProject;
-  const path = `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorer)}/authoring/v2/reconcile`;
+  const encodedProject = encodeURIComponent(encodeURIComponent(canonicalProjectID(project)));
+  const path = `/api/v1/projects/${encodedProject}/explorers/${encodeURIComponent(explorer)}/authoring/v2/reconcile`;
   const injected = await fault({
     method: 'POST',
     path,

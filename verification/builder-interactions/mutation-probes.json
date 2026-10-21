@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "probes": [
+    {
+      "id": "apply-ack-owner-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "find": "      if (proposalOwnerRef.current === applyingOwner) cancel();",
+      "replace": "      cancel();",
+      "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "expectedFailure": "old Apply success after replacement"
+    },
+    {
+      "id": "preview-receipt-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "find": "  preview.receiptId === proposalId &&\n  preview.outputId === outputId &&",
+      "replace": "  preview.outputId === outputId &&",
+      "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "expectedFailure": "B preview=wrong receipt"
+    },
+    {
+      "id": "proposal-draft-digest-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "find": "          response.draftDigest === args.expectedDraftDigest;\n        if (!matchesBase)",
+      "replace": "          true;\n        if (!matchesBase)",
+      "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "expectedFailure": "expectedDraftDigest mismatch"
+    },
+    {
+      "id": "root-change-epoch-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+      "find": "): boolean => left.epoch === right.epoch && left.project === right.project &&",
+      "replace": "): boolean => left.project === right.project &&",
+      "test": "src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts",
+      "expectedFailure": "different request epoch"
+    },
+    {
+      "id": "population-removal-receipt-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+      "find": "    response.preview.receiptId !== response.proposalId || response.preview.outputId !== args.outputId",
+      "replace": "    response.preview.outputId !== args.outputId",
+      "test": "src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
+      "expectedFailure": "another receipt"
+    },
+    {
+      "id": "interpretation-apply-receipt-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx",
+      "find": "        candidateReceiptId: review.result.candidateReceiptId,",
+      "replace": "        candidateReceiptId: review.result.revisionId,",
+      "test": "src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+      "expectedFailure": "candidate-receipt"
+    },
+    {
+      "id": "discovery-generation-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "find": "        if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;",
+      "replace": "        if (controller.signal.aborted) return;",
+      "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.unit.test.tsx",
+      "expectedFailure": "same-key discovery settlement",
+      "equivalent": "invalidatePivotDiscovery aborts the active controller, so controller.signal.aborted rejects the stale settlement before the generation check is reached."
+    },
+    {
+      "id": "command-draft-version-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+      "find": "            snapshotToken: current.catalog.snapshotToken,\n            expectedDraftVersion: serverDraft.current.version,",
+      "replace": "            snapshotToken: current.catalog.snapshotToken,\n            expectedDraftVersion: current.draftVersion,",
+      "test": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
+      "testNamePattern": "automatically previews saved commands and publishes the resulting receipt",
+      "expectedFailure": "automatically previews saved commands"
+    }
+  ]
+}

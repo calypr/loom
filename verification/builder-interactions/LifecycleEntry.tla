@@ -1,4 +1,5 @@
 ---- MODULE LifecycleEntry ----
+\* Entry and command gating model. Reconcile request identity and outcomes live in ReconcileLifecycle.tla.
 EXTENDS Naturals, TLC
 
 VARIABLES e, lastAction
@@ -34,9 +35,9 @@ TypeOK ==
   /\ lastAction \in {
        "Init", "ParseRoute", "SelectionReady", "SelectionFailed",
        "ReplaceExplorer", "SetFeatureFocus", "StartCommand",
-       "CommandSuccess", "CommandStale", "ReconcileStart",
-       "ReconcileSuccess", "ReconcileRepair", "AuthoredChange",
-       "RetryReconcile"
+       "CommandSuccess", "CommandStale", "GateReconcile",
+       "ReconcileReceiptBound", "ReconcileNeedsRepair", "AuthoredChange",
+       "RetryEntryReconcile"
      }
 
 Init ==
@@ -163,7 +164,7 @@ CommandStale ==
      ]
   /\ lastAction' = "CommandStale"
 
-ReconcileStart ==
+GateReconcile ==
   /\ e.tablesRooted
   /\ e.snapshotPresent
   /\ e.draftVersion = e.committedVersion
@@ -171,9 +172,9 @@ ReconcileStart ==
        !.reconcileStatus = "checking",
        !.retryCount = 0
      ]
-  /\ lastAction' = "ReconcileStart"
+  /\ lastAction' = "GateReconcile"
 
-ReconcileSuccess(fingerprint) ==
+ReconcileReceiptBound(fingerprint) ==
   /\ e.reconcileStatus = "checking"
   /\ fingerprint = e.currentFingerprint
   /\ e' = [e EXCEPT
@@ -181,15 +182,15 @@ ReconcileSuccess(fingerprint) ==
        !.receiptFingerprint = fingerprint,
        !.receiptExplorer = e.currentExplorer
      ]
-  /\ lastAction' = "ReconcileSuccess"
+  /\ lastAction' = "ReconcileReceiptBound"
 
-ReconcileRepair ==
+ReconcileNeedsRepair ==
   /\ e.reconcileStatus = "checking"
   /\ e' = [e EXCEPT
        !.reconcileStatus = "repair",
        !.receiptFingerprint = "NONE"
      ]
-  /\ lastAction' = "ReconcileRepair"
+  /\ lastAction' = "ReconcileNeedsRepair"
 
 AuthoredChange(fingerprint) ==
   /\ fingerprint \in {"F0", "F1"}
@@ -201,14 +202,14 @@ AuthoredChange(fingerprint) ==
      ]
   /\ lastAction' = "AuthoredChange"
 
-RetryReconcile ==
+RetryEntryReconcile ==
   /\ e.reconcileStatus = "repair"
   /\ e.retryCount < 3
   /\ e' = [e EXCEPT
        !.reconcileStatus = "checking",
        !.retryCount = e.retryCount + 1
      ]
-  /\ lastAction' = "RetryReconcile"
+  /\ lastAction' = "RetryEntryReconcile"
 
 Next ==
   \/ \E mode \in {"demo", "edit"}, explorer \in {"E1", "E2"}, selectionRevision \in {"NONE", "S1"}:
@@ -220,11 +221,11 @@ Next ==
   \/ \E version \in 0..3: StartCommand(version)
   \/ \E version \in 1..3, digest \in {"D1", "D2"}: CommandSuccess(version, digest)
   \/ CommandStale
-  \/ ReconcileStart
-  \/ \E fingerprint \in {"F0", "F1"}: ReconcileSuccess(fingerprint)
-  \/ ReconcileRepair
+  \/ GateReconcile
+  \/ \E fingerprint \in {"F0", "F1"}: ReconcileReceiptBound(fingerprint)
+  \/ ReconcileNeedsRepair
   \/ \E fingerprint \in {"F0", "F1"}: AuthoredChange(fingerprint)
-  \/ RetryReconcile
+  \/ RetryEntryReconcile
 
 Spec == Init /\ [][Next]_vars
 

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "cd02d1306",
+  "probes": [
+    {
+      "id": "apply-ack-owner-guard",
+      "status": "killed",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "mutation": "Replace `      if (proposalOwnerRef.current === applyingOwner) cancel();` with `      cancel();`.",
+      "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "expectedFailure": "old Apply success after replacement",
+      "exitCode": 1,
+      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 7ms"
+    },
+    {
+      "id": "preview-receipt-guard",
+      "status": "killed",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "mutation": "Replace `  preview.receiptId === proposalId &&\\n  preview.outputId === outputId &&` with `  preview.outputId === outputId &&`.",
+      "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "expectedFailure": "B preview=wrong receipt",
+      "exitCode": 1,
+      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 6ms"
+    },
+    {
+      "id": "proposal-draft-digest-guard",
+      "status": "killed",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "mutation": "Replace `          response.draftDigest === args.expectedDraftDigest;\\n        if (!matchesBase)` with `          true;\\n        if (!matchesBase)`.",
+      "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "expectedFailure": "expectedDraftDigest mismatch",
+      "exitCode": 1,
+      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 7ms"
+    },
+    {
+      "id": "root-change-epoch-guard",
+      "status": "killed",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+      "mutation": "Replace `): boolean => left.epoch === right.epoch && left.project === right.project &&` with `): boolean => left.project === right.project &&`.",
+      "command": "vitest run src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts",
+      "expectedFailure": "different request epoch",
+      "exitCode": 1,
+      "failure": "× treats a different request epoch as a different root-change identity 4ms"
+    },
+    {
+      "id": "population-removal-receipt-guard",
+      "status": "killed",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+      "mutation": "Replace `    response.preview.receiptId !== response.proposalId || response.preview.outputId !== args.outputId` with `    response.preview.outputId !== args.outputId`.",
+      "command": "vitest run src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
+      "expectedFailure": "another receipt",
+      "exitCode": 1,
+      "failure": "× fails closed when the automatic preview belongs to another receipt 1018ms"
+    },
+    {
+      "id": "interpretation-apply-receipt-guard",
+      "status": "killed",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx",
+      "mutation": "Replace `        candidateReceiptId: review.result.candidateReceiptId,` with `        candidateReceiptId: review.result.revisionId,`.",
+      "command": "vitest run src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+      "expectedFailure": "candidate-receipt",
+      "exitCode": 1,
+      "failure": "-       \"candidateReceiptId\": \"candidate-receipt\","
+    },
+    {
+      "id": "discovery-generation-guard",
+      "status": "equivalent",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "mutation": "Replace `        if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;` with `        if (controller.signal.aborted) return;`.",
+      "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.unit.test.tsx",
+      "expectedFailure": "same-key discovery settlement",
+      "exitCode": 0,
+      "failure": "",
+      "equivalent": "invalidatePivotDiscovery aborts the active controller, so controller.signal.aborted rejects the stale settlement before the generation check is reached."
+    },
+    {
+      "id": "command-draft-version-guard",
+      "status": "survived",
+      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+      "mutation": "Replace `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: serverDraft.current.version,` with `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: current.draftVersion,`.",
+      "command": "vitest run src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx -t \"automatically previews saved commands and publishes the resulting receipt\"",
+      "expectedFailure": "automatically previews saved commands",
+      "exitCode": 0,
+      "failure": ""
+    }
+  ]
+}

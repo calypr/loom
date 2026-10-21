@@ -6,7 +6,7 @@ import type { useConstructionLifecycle } from '../src/features/ExplorerBuilder/c
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type LifecycleHandle = { readonly current: Lifecycle };
 
-export type FormalTraceModel = 'BuilderPreview' | 'ConstructionLifecycle';
+export type FormalTraceModel = 'BuilderPreview' | 'ConstructionLifecycle' | 'ReconcileLifecycle';
 
 export type FormalObservation = {
   readonly status: string;
@@ -14,6 +14,7 @@ export type FormalObservation = {
   readonly proposalIdPresent: boolean;
   readonly previewReceiptPresent: boolean;
   readonly rowsPresent: boolean;
+  readonly receiptPresent: boolean;
 };
 
 type FormalTraceAction = {
@@ -52,6 +53,7 @@ const observationFor = (lifecycle: LifecycleHandle): FormalObservation => {
     proposalIdPresent: hasResponse && Boolean(proposal.response.proposalId),
     previewReceiptPresent: hasPreview && Boolean(proposal.preview.receiptId),
     rowsPresent: hasPreview && Array.isArray(proposal.preview.rows),
+    receiptPresent: hasPreview && Boolean(proposal.preview.receiptId),
   };
 };
 
@@ -71,6 +73,11 @@ export const startTrace = (model: FormalTraceModel = 'BuilderPreview'): void => 
 export const traceInitialObservation = (lifecycle: LifecycleHandle): void => {
   if (!activeTrace) return;
   activeTrace.initialObservation = observationFor(lifecycle);
+};
+
+export const traceInitialObservationValue = (observation: FormalObservation): void => {
+  if (!activeTrace) return;
+  activeTrace.initialObservation = observation;
 };
 
 const traceActionWithObservation = (
@@ -97,12 +104,22 @@ export const traceAction = (
   traceActionWithObservation(label, event, observationFor(lifecycle), note);
 };
 
+export const traceObservedAction = (
+  label: string,
+  event: string,
+  observation: FormalObservation,
+  note?: string,
+): void => {
+  traceActionWithObservation(label, event, observation, note);
+};
+
 const EMBEDDED_PREVIEW_ABSTRACT_OBSERVATION: FormalObservation = {
   status: 'previewing',
   canApply: false,
   proposalIdPresent: false,
   previewReceiptPresent: false,
   rowsPresent: false,
+  receiptPresent: false,
 };
 
 export const traceEmbeddedPreviewExpansion = (lifecycle: LifecycleHandle): void => {

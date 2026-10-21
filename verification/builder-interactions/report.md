@@ -15,24 +15,36 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 - `builder-draft-restore`: **pass** (376 generated / 103 distinct, depth 9)
 - `builder-root-change`: **pass** (510 generated / 137 distinct, depth 10)
 - `builder-column-presentation`: **pass** (2845751 generated / 130465 distinct, depth 12)
-- `builder-population`: **pass** (1584747 generated / 114118 distinct, depth 19)
+- `builder-population`: **pass** (1584747 generated / 114118 distinct, depth 18)
 - `builder-interpretation`: **pass** (5711 generated / 636 distinct, depth 12)
 - `builder-supporting-surfaces`: **pass** (516262 generated / 34161 distinct, depth 13)
 - `builder-lifecycle-entry`: **pass** (13379003 generated / 845705 distinct, depth 20)
+- `builder-reconcile-lifecycle`: **pass** (1913635 generated / 148629 distinct, depth 19)
 - `real-controller-schedules`: **pass**
 - `builder-trace-validation`: **pass**
+- `builder-trace-validator-self-test`: **pass**
 - `go-internal-explorer-lifecycle`: **pass**
 - `go-internal-server`: **pass**
 - `ui-contract-inventory-source`: **pass**
+- `builder-route-ledger`: **pass**
+
+## Route ledger
+
+- Builder routes: 39 (21 Tier 1, 18 Tier 2).
+- Proof: 3 modeled-and-traced, 33 modeled-only, 0 contract-tested, 3 unproven.
+- Excluded authoring routes: 4.
+- Builder evidence: 39/39 routes.
+- Route-level evidence: 3 traces, 3 tests, 3 browser cases.
 
 ## Trace conformance
 
-- 61 formal traces, 12 unique after deduplication.
-- 61 validated against TLC model paths; 0 invalid.
-- Models: BuilderPreview=60, ConstructionLifecycle=1.
+- 69 formal traces, 20 unique after deduplication.
+- 69 validated against TLC model paths; 0 invalid.
+- Models: BuilderPreview=60, ConstructionLifecycle=1, ReconcileLifecycle=8.
 - Required actions: all covered.
 - Required events: all covered.
-- Unmodeled implementation events: 54 (BeginApply(rejected)=2, LatePreviewCompleteIgnored=10, LateProposalCompleteIgnored=31, LateProposalErrorIgnored=11).
+- Implementation events outside the trace vocabulary: 55, 0 unclassified.
+- Classified event kinds: BeginApply(rejected)=2, late-reconcile-ignored=1, LatePreviewCompleteIgnored=10, LateProposalCompleteIgnored=31, LateProposalErrorIgnored=11.
 
 ## Resolved regressions
 

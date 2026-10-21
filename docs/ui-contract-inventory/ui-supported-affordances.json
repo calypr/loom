@@ -71,7 +71,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "sha256": "254c17ff7de4308bb2268e505b2fd5befc44545adc449a68af020cea74c5bb20"
+        "sha256": "a2554743942975459e88cf5b1798e30c6f1e082d0db97634ea8b75c65f0a265c"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
@@ -84,6 +84,10 @@
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
         "sha256": "c977bc618ae3655d4fd922e48d29fa29f0305ddc7c567ea64250072a9ec4bf03"
+      },
+      {
+        "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts",
+        "sha256": "282c4f8dba2d795bbdfb59ed41d88a203600fb50599c715dfa225ad84b822a88"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
@@ -14769,11 +14773,11 @@
           "sourceConstructors": [
             {
               "sourcePath": "existingColumnConstructor",
-              "description": "ColumnSelector configured column onChange → BuilderWorkspace.applyPresentationChanges → previewPresentationCommand emits UPDATE_COLUMN"
+              "description": "ColumnSelector configured column onChange \u2192 BuilderWorkspace.applyPresentationChanges \u2192 previewPresentationCommand emits UPDATE_COLUMN"
             },
             {
               "sourcePath": "newFieldConstructor",
-              "description": "ColumnSelector available field onAdd → BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER"
+              "description": "ColumnSelector available field onAdd \u2192 BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER"
             },
             {
               "sourcePath": "endpoint",
@@ -14884,11 +14888,11 @@
               "sourceConstructors": [
                 {
                   "sourcePath": "existingColumnConstructor",
-                  "description": "ColumnSelector configured column onChange → BuilderWorkspace.applyPresentationChanges → previewPresentationCommand emits UPDATE_COLUMN"
+                  "description": "ColumnSelector configured column onChange \u2192 BuilderWorkspace.applyPresentationChanges \u2192 previewPresentationCommand emits UPDATE_COLUMN"
                 },
                 {
                   "sourcePath": "newFieldConstructor",
-                  "description": "ColumnSelector available field onAdd → BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER"
+                  "description": "ColumnSelector available field onAdd \u2192 BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER"
                 },
                 {
                   "sourcePath": "endpoint",
@@ -15158,8 +15162,8 @@
         {
           "sourceId": "builder.column_filter_presentation",
           "candidateOrRequestConstructor": {
-            "existingColumnConstructor": "ColumnSelector configured column onChange → BuilderWorkspace.applyPresentationChanges → previewPresentationCommand emits UPDATE_COLUMN",
-            "newFieldConstructor": "ColumnSelector available field onAdd → BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER",
+            "existingColumnConstructor": "ColumnSelector configured column onChange \u2192 BuilderWorkspace.applyPresentationChanges \u2192 previewPresentationCommand emits UPDATE_COLUMN",
+            "newFieldConstructor": "ColumnSelector available field onAdd \u2192 BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER",
             "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
             "evidence": [
               "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:145",
@@ -26877,7 +26881,7 @@
             "DATE",
             "DATE_TIME"
           ],
-          "description": "Logical types map string/uuid→STRING, code→CODE, boolean→BOOLEAN, integer→INTEGER, decimal/number→DECIMAL, date→DATE, and date_time/datetime→DATE_TIME; other types have no value editor."
+          "description": "Logical types map string/uuid\u2192STRING, code\u2192CODE, boolean\u2192BOOLEAN, integer\u2192INTEGER, decimal/number\u2192DECIMAL, date\u2192DATE, and date_time/datetime\u2192DATE_TIME; other types have no value editor."
         },
         {
           "id": "operator",

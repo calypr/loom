@@ -22,9 +22,9 @@ const CONTRACT_RELATIVE = MODEL_DIR + '/builder-trace-contract.json';
 const TLC_VERSION = '1.7.4';
 const TLC_SHA256 = '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88';
 const TLC_URL = 'https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar';
-const DEFAULT_EXPECTED_TRACE_COUNT = 61;
-const DEFAULT_EXPECTED_SCHEDULE_COUNT = 59;
-const DEFAULT_EXPECTED_FINDING_COUNT = 2;
+const DEFAULT_EXPECTED_TRACE_COUNT = 69;
+const DEFAULT_EXPECTED_SCHEDULE_COUNT = 69;
+const DEFAULT_EXPECTED_FINDING_COUNT = 0;
 const STATUSES = new Set([
   'idle',
   'previewing',
@@ -32,12 +32,19 @@ const STATUSES = new Set([
   'error',
   'needs-repair',
   'applying',
+  'requesting',
+  'succeeded',
+  'stale',
+  'conflict',
+  'invalid',
+  'failed',
 ]);
 const OBSERVATION_BOOLEAN_FIELDS = [
   'canApply',
   'proposalIdPresent',
   'previewReceiptPresent',
   'rowsPresent',
+  'receiptPresent',
 ];
 
 function fail(message) {
@@ -142,6 +149,16 @@ function validateContract(contract) {
   for (const [label, binding] of Object.entries(contract.actionBindings)) {
     if (!isPlainObject(binding) || typeof binding.event !== 'string' || binding.event.length === 0) {
       fail('trace contract actionBinding ' + label + ' must have an event');
+    }
+  }
+  if (contract.unmodeledEventPolicy !== undefined) {
+    if (!isPlainObject(contract.unmodeledEventPolicy)) {
+      fail('trace contract unmodeledEventPolicy must be an object when present');
+    }
+    for (const [kind, reason] of Object.entries(contract.unmodeledEventPolicy)) {
+      if (typeof reason !== 'string' || reason.trim().length === 0) {
+        fail('trace contract unmodeledEventPolicy ' + kind + ' must have a reason');
+      }
     }
   }
   if (!isPlainObject(contract.phase1)) fail('trace contract phase1 must be an object');
@@ -281,7 +298,8 @@ function tlaObservation(observation) {
     ', canApply |-> ' + tlaBool(observation.canApply) +
     ', proposalIdPresent |-> ' + tlaBool(observation.proposalIdPresent) +
     ', previewReceiptPresent |-> ' + tlaBool(observation.previewReceiptPresent) +
-    ', rowsPresent |-> ' + tlaBool(observation.rowsPresent) + ']';
+    ', rowsPresent |-> ' + tlaBool(observation.rowsPresent) +
+    ', receiptPresent |-> ' + tlaBool(observation.receiptPresent) + ']';
 }
 
 function tlaSequence(items) {
@@ -305,6 +323,22 @@ function builderPreviewObservationMapping(prime) {
     '        (previewPhase' + prime + ' = "ready")))',
     '  /\\ (obs.previewReceiptPresent => (previewPhase' + prime + ' = "ready"))',
     '  /\\ (obs.rowsPresent => (previewPhase' + prime + ' = "ready"))',
+  ].join('\n');
+}
+
+
+function reconcileLifecycleObservationMapping(prime) {
+  const state = prime ? "r'" : 'r';
+  return [
+    '  /\\ (obs.status = "idle" => (' + state + '.phase = "idle"))',
+    '  /\\ (obs.status = "requesting" => (' + state + '.phase = "requesting"))',
+    '  /\\ (obs.status = "succeeded" => (' + state + '.phase = "succeeded"))',
+    '  /\\ (obs.status = "stale" => (' + state + '.phase = "stale"))',
+    '  /\\ (obs.status = "conflict" => (' + state + '.phase = "conflict"))',
+    '  /\\ (obs.status = "invalid" => (' + state + '.phase = "invalid"))',
+    '  /\\ (obs.status = "failed" => (' + state + '.phase = "failed"))',
+    '  /\\ (obs.receiptPresent => (' + state + '.receipt.id # "NONE"))',
+    '  /\\ (~obs.receiptPresent => (' + state + '.receipt.id = "NONE"))',
   ].join('\n');
 }
 
@@ -351,10 +385,11 @@ function generateModule(trace, moduleName) {
   ];
   const modelMapping = trace.model === 'BuilderPreview'
     ? builderPreviewObservationMapping
-    : constructionLifecycleObservationMapping;
-  const nextApplicable = trace.model === 'BuilderPreview'
-    ? []
-    : [
+    : trace.model === 'ReconcileLifecycle'
+      ? reconcileLifecycleObservationMapping
+      : constructionLifecycleObservationMapping;
+  const nextApplicable = trace.model === 'ConstructionLifecycle'
+    ? [
         'ResourceIsApplicableNext(attempt) ==',
         '  /\\ attempt \\in Attempts',
         "  /\\ (attemptPhase')[attempt] = ProposalReady",
@@ -367,7 +402,8 @@ function generateModule(trace, moduleName) {
         "  /\\ (previewOutput')[attempt] = OutputFor((requestIdentity')[attempt])",
         "  /\\ (previewRowsNonNull')[attempt]",
         '',
-      ];
+      ]
+    : [];
   return [
     '---------------- MODULE ' + moduleName + ' ----------------',
     'EXTENDS ' + trace.model + ', Naturals, Sequences, TLC',
@@ -494,7 +530,7 @@ function writeReport(outputPath, report) {
   return absolute;
 }
 
-function reportUnmodeledEvents(traces) {
+function reportUnmodeledEvents(traces, policy = {}) {
   const byKind = new Map();
   const entries = [];
   for (const trace of traces) {
@@ -506,9 +542,16 @@ function reportUnmodeledEvents(traces) {
     }
     entries.push({ name: trace.name, model: trace.model, events });
   }
+  const unclassified = [...byKind.entries()]
+    .filter(([kind]) => !(kind in policy))
+    .sort(([left], [right]) => left.localeCompare(right));
   return {
     total: entries.reduce((sum, entry) => sum + entry.events.length, 0),
     byKind: Object.fromEntries([...byKind.entries()].sort(([left], [right]) => left.localeCompare(right))),
+    unclassified: {
+      total: unclassified.reduce((sum, [, count]) => sum + count, 0),
+      byKind: Object.fromEntries(unclassified),
+    },
     traces: entries,
   };
 }
@@ -652,12 +695,17 @@ async function main() {
       requiredEvents: { missing: missingEvents },
     },
     traces: reportTraces,
-    unmodeledEvents: reportUnmodeledEvents(traces),
+    unmodeledEvents: reportUnmodeledEvents(traces, contract.unmodeledEventPolicy),
     ...(options.allowPartial ? { partial: true } : {}),
   };
   if (javaVersion) report.tool = { name: 'TLC', version: TLC_VERSION, sha256: TLC_SHA256, java: javaVersion };
   const outputPath = options.output ? writeReport(options.output, report) : null;
 
+  const traceReport = reportTraces.length >= 0 ? reportUnmodeledEvents(traces, contract.unmodeledEventPolicy) : null;
+  const unclassifiedEvents = traceReport?.unclassified?.total ?? 0;
+  if (!options.allowPartial && unclassifiedEvents > 0) {
+    coverageProblems.push('unclassified implementation events: ' + JSON.stringify(traceReport.unclassified.byKind));
+  }
   const globalProblems = [...countProblems, ...coverageProblems];
   if (options.allowPartial) {
     console.log('Partial mode: trace/schedule/finding counts and required coverage are reported, not enforced.');

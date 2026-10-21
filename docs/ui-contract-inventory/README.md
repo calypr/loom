@@ -20,6 +20,8 @@ The Phase 1 trace layer currently records 61 formal traces, 12 unique after dedu
 - partially modeled or unmodeled behavior;
 - implementation fixture gaps.
 
+The route-level plan is [Builder formal verification plan](../verification/BUILDER_FORMAL_VERIFICATION_PLAN.md).
+
 The coverage map is `affordance-model-map.json`. It currently records all 57 affordances as modeled and implementation-tested, with no fixture gaps or untested entries. This completes the inventory coverage map, not every runtime permutation or backend path.
 
 The abandoned `full-ui` JavaScript state explorer and its comprehensive runner remain excluded. `ConstructionLifecycle.tla` with `verify-builder-interactions.mjs` remains the narrow proposal-ownership check. `verify-builder-operation-history.mjs` remains the bounded Group operation-history and Go replay check. The integrated runner above is the orchestrator.

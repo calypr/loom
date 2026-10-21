@@ -750,7 +750,7 @@ const openPivotPresentationProposal = async () => {
 
   mockRelatedExpandOwnerState.enabled = true;
   const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+  fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
   const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
   fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
   fireEvent.click(await screen.findByRole('button', { name: 'Emit Pivot presentation proposal' }));
@@ -999,7 +999,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       unresolved: [],
       diagnostics: [],
     }));
-    reconcile = vi.fn().mockReturnValue(resolvedRequest(receipt));
+    reconcile = vi.fn().mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+    }));
     preview = vi.fn().mockReturnValue(
       resolvedRequest({
         apiVersion,
@@ -1201,7 +1208,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: groupedWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: groupedWorkspace,
+    }));
     mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
       commandId: args.commandId,
       snapshotToken: args.snapshotToken,
@@ -1351,7 +1366,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: groupWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: groupWorkspace,
+    }));
     const sourceStage = {
       id: 'source_projection',
       inputStageId: '',
@@ -1588,7 +1611,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
     await waitFor(() => expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalled());
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const categoryEntry = within(rowSettings).getByTestId('construction-action-pivot-rows');
     expect(categoryEntry).toBeDisabled();
@@ -1833,7 +1856,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
     fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
 
@@ -2511,7 +2534,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: currentServerWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: currentServerWorkspace,
+    }));
     mockLoomClient.getSelection.mockImplementation(async (args: { readonly selectionRevision: string }) => ({
       revision: args.selectionRevision === selectionA.id ? selectionA : selectionB,
       members: [],
@@ -2545,7 +2576,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     });
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
     await waitFor(() => expect(panel).toHaveAttribute('data-selection-revision-id', selectionA.id));
@@ -2620,7 +2651,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: currentServerWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: currentServerWorkspace,
+    }));
     mockLoomClient.getSelection.mockResolvedValue({ revision: selection, members: [] });
     applyCommands.mockImplementation(() => {
       currentServerWorkspace = clearedMultiTableWorkspace;
@@ -2635,7 +2674,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     });
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const specimenPanel = await within(dialog).findByRole('region', { name: 'Starting collection' });
     await waitFor(() => expect(specimenPanel).toHaveAttribute('data-selection-revision-id', selection.id));
@@ -2645,7 +2684,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Select second table' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const patientDialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const patientPanel = await within(patientDialog).findByRole('region', { name: 'Starting collection' });
     expect(patientPanel).not.toHaveAttribute('data-selection-revision-id');
@@ -2686,7 +2725,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: currentServerWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: currentServerWorkspace,
+    }));
     mockLoomClient.getSelection.mockResolvedValue({ revision: selection, members: [] });
     applyCommands.mockImplementation(() => {
       currentServerWorkspace = detachedWorkspace;
@@ -2701,7 +2748,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     });
 
     const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
     await waitFor(() => expect(panel).toHaveAttribute('data-selection-revision-id', selection.id));
@@ -2756,7 +2803,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: attachedWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: attachedWorkspace,
+    }));
     let loadSignal: AbortSignal | undefined;
     let resolveSelection: (value: { readonly revision: SelectionRevision; readonly members: ReadonlyArray<never> }) => void = () => undefined;
     const staleSelection: SelectionRevision = {
@@ -2789,14 +2844,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(await within(rowSettings).findByText('Loading the saved selection…')).toBeInTheDocument();
     fireEvent.click(within(rowSettings).getByRole('button', { name: 'Back to table' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Row definition settings' })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
     await waitFor(() => expect(loadSignal?.aborted).toBe(true));
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const patientSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(await within(patientSettings).findByText('All authorized Patient records')).toBeInTheDocument();
     expect(within(patientSettings).queryByText('Loading the saved selection…')).not.toBeInTheDocument();
@@ -2825,7 +2880,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         },
       }],
     };
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: cohortWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: cohortWorkspace,
+    }));
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
       data: { ...builderState, workspace: cohortWorkspace },
       isLoading: false,
@@ -2871,7 +2934,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(await within(dialog).findByText('2 Specimen selected, not attached')).toBeInTheDocument();
     await waitFor(() => expect(mockLoomClient.listRowDefinitionChoices).toHaveBeenCalledTimes(2));
@@ -2907,7 +2970,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         },
       }],
     };
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: cohortWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: cohortWorkspace,
+    }));
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
       data: { ...builderState, workspace: cohortWorkspace },
       isLoading: false,
@@ -2924,7 +2995,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(await within(dialog).findByText('The saved cohort does not expose its source selection in this authorized catalog snapshot.')).toBeInTheDocument();
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
@@ -2944,7 +3015,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: attachedWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: attachedWorkspace,
+    }));
     mockLoomClient.searchPopulationRoutes.mockResolvedValue({
       snapshotToken: 'snapshot-1',
       outputId: 'specimens',
@@ -2977,7 +3056,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const panel = await within(rowSettings).findByRole('region', { name: 'Starting collection' });
     expect(await within(panel).findByText('Loading the saved selection…')).toBeInTheDocument();
@@ -3049,7 +3128,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
@@ -3096,7 +3175,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
     expect(applyCommands).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const currentPatientChoice = within(screen.getByRole('dialog', { name: 'Row definition settings' }))
       .getByRole('combobox', { name: 'Record type' });
     fireEvent.change(currentPatientChoice, { target: { value: 'node:patient-node' } });
@@ -3165,7 +3244,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
@@ -3291,7 +3370,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     render(
       <BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const picker = within(await screen.findByRole('dialog', { name: 'Row definition settings' }))
       .getByRole('combobox', { name: 'Record type' });
     const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
@@ -3981,7 +4060,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    reconcile.mockReturnValue(resolvedRequest({ ...receipt, builder: groupedWorkspace }));
+    reconcile.mockImplementation((args: {
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }) => resolvedRequest({
+      ...receipt,
+      snapshotToken: args.snapshotToken,
+      builder: groupedWorkspace,
+    }));
     mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
       readonly snapshotToken: string;
       readonly expectedDraftVersion: number;

@@ -587,14 +587,20 @@
         "StartCommand",
         "CommandSuccess",
         "CommandStale",
-        "ReconcileStart",
-        "ReconcileSuccess",
-        "ReconcileRepair",
+        "GateReconcile",
+        "ReconcileReceiptBound",
+        "ReconcileNeedsRepair",
         "AuthoredChange",
-        "RetryReconcile"
+        "RetryEntryReconcile",
+        "RequestReconcile",
+        "ReconcileStale",
+        "ReconcileConflict",
+        "ReconcileInvalid",
+        "ReconcileFailure",
+        "DraftChange"
       ],
       "implementationStatus": "tested",
-      "reason": "LifecycleEntry.tla models current-draft command identity, authoritative stale reload, receipt fingerprint/explorer validity, rooted-table reconciliation, and bounded retry; focused reconciliation tests cover persisted drafts, automatic reconcile/preview, and pending-command abort."
+      "reason": "LifecycleEntry.tla models command gating and receipt invalidation; ReconcileLifecycle.tla models reconcile request identity, receipt binding, stale and conflict outcomes, draft invalidation, and bounded retry. Focused reconciliation tests cover persisted drafts, automatic reconcile/preview, and pending-command abort."
     },
     {
       "id": "builder.table_route_and_occurrence_selection",

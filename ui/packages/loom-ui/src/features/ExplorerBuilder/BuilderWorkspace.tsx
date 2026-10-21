@@ -90,6 +90,13 @@ import {
   previewRecoveryAction,
   type PreviewLimit,
 } from './authoring/previewRecovery';
+import {
+  isDraftDesynchronized,
+  isStaleSnapshot,
+  reconcileReceiptMatchesRequest,
+  reconcileRecoveryAction,
+  reconcileResultIsCurrent,
+} from './authoring/reconcileRecovery';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
@@ -246,18 +253,6 @@ const unsupportedSavedSourceColumns = (tables: BuilderAuthoringState['tables']) 
         label: column.label,
       })),
   );
-const isStaleSnapshot = (code: string | undefined) =>
-  [
-    'STALE_CATALOG_SNAPSHOT',
-    'STALE_SNAPSHOT',
-    'SNAPSHOT_STALE',
-    'STALE_RECEIPT',
-    'RECEIPT_STALE',
-    'COMPILE_RECEIPT_NOT_FOUND',
-    'RECEIPT_RECOMPILE_REQUIRED',
-  ].includes(code ?? '');
-const isDraftDesynchronized = (code: string | undefined) =>
-  ['DRAFT_CONFLICT', 'INVALID_EXPLORER_COMMAND_RESULT'].includes(code ?? '');
 const opaqueId = (prefix: 'output' | 'tab' | 'step') =>
   `${prefix}-${window.crypto.randomUUID()}`;
 const constructionSourceStageId = 'source_projection';
@@ -2516,6 +2511,9 @@ const BuilderWorkspaceContent = ({
     let draftVersion = submitted.draftVersion;
     let draftDigest = submitted.draftDigest;
     let attempt = 1;
+    let staleRefreshes = 0;
+    const maxAttempts = 3;
+    const maxStaleRefreshes = 2;
     if (!owner) dispatch({ type: 'compiling' });
     for (;;) {
       if (owner?.cancelled) return undefined;
@@ -2536,14 +2534,30 @@ const BuilderWorkspaceContent = ({
       }
       try {
         const value = await request.unwrap();
-        if (owner?.cancelled || generation !== compileGeneration.current) return undefined;
+        if (owner?.cancelled) return undefined;
         const current = latestState.current;
-        if (
-          current.explorerId !== submitted.explorerId ||
-          intentFingerprint(workspaceFromState(current)) !==
-            submittedFingerprint
-        )
+        if (!reconcileResultIsCurrent({
+          generation,
+          currentGeneration: compileGeneration.current,
+          submittedExplorerId: submitted.explorerId,
+          currentExplorerId: current.explorerId,
+          submittedFingerprint,
+          currentFingerprint: intentFingerprint(workspaceFromState(current)),
+        })) return undefined;
+        if (!reconcileReceiptMatchesRequest(value, {
+          snapshotToken,
+          ...(outputId ? { outputId } : {}),
+        })) {
+          dispatch({
+            type: 'repair',
+            diagnostics: [{
+              severity: 'error',
+              code: 'RECONCILE_RECEIPT_MISMATCH',
+              message: 'Loom returned a compile receipt for a different snapshot or output.',
+            }],
+          });
           return undefined;
+        }
         dispatch({ type: 'compiled', value });
         return value.diagnostics.some(
           (diagnostic) => diagnostic.severity === 'error',
@@ -2558,7 +2572,13 @@ const BuilderWorkspaceContent = ({
           apiError.code === 'CLIENT_CANCELLED'
         )
           return undefined;
-        if (isDraftDesynchronized(apiError.code)) {
+        const recovery = reconcileRecoveryAction(apiError, {
+          attempt,
+          maxAttempts,
+          staleRefreshes,
+          maxStaleRefreshes,
+        });
+        if (recovery === 'refresh-and-stop') {
           const refreshed = await refetchBuilder({ reload: true });
           if (owner?.cancelled) return undefined;
           if (refreshed.data) {
@@ -2572,17 +2592,18 @@ const BuilderWorkspaceContent = ({
           }
           return undefined;
         }
-        if (isStaleSnapshot(apiError.code)) {
+        if (recovery === 'refresh-and-retry') {
           const refreshed = await refetchBuilder({ reload: true });
           if (owner?.cancelled || !refreshed.data) return undefined;
           syncBuilderData(refreshed.data, 'catalog');
           snapshotToken = refreshed.data.catalog.snapshotToken;
           draftVersion = refreshed.data.draftVersion;
           draftDigest = refreshed.data.draftDigest;
+          staleRefreshes += 1;
           attempt += 1;
           continue;
         }
-        if (apiError.retryable && attempt < 3) {
+        if (recovery === 'retry') {
           attempt += 1;
           await new Promise((resolve) => window.setTimeout(resolve, 250));
           continue;

@@ -4,6 +4,7 @@ import type { DraftTable } from './model';
 import {
   parseCatalogRootRouteSelection,
   resolveCatalogRootRouteSelection,
+  sameRootChangeRequestIdentity,
   startingRootChoices,
 } from './rootChangeSelection';
 
@@ -130,4 +131,18 @@ describe('catalog-root selection contract', () => {
       true,
     )).toBeUndefined();
   });
+});
+
+it('treats a different request epoch as a different root-change identity', () => {
+  const identity = {
+    epoch: 1,
+    project: 'project',
+    explorerId: 'explorer',
+    outputId: 'patients',
+    snapshotToken: 'snapshot',
+    draftVersion: 3,
+    draftDigest: 'digest',
+  };
+  expect(sameRootChangeRequestIdentity(identity, { ...identity })).toBe(true);
+  expect(sameRootChangeRequestIdentity(identity, { ...identity, epoch: 2 })).toBe(false);
 });

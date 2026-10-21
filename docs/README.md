@@ -22,6 +22,9 @@ and operating guides. Superseded product plans and their evidence live under
   defines the five active work packages, implementation ownership, and user outcomes.
   [The product index](product/README.md) links the current verification protocol,
   execution ledger, and archived history.
+- [Builder formal verification plan](verification/BUILDER_FORMAL_VERIFICATION_PLAN.md) covers Tier 1 lifecycle and Tier 2 route-conformance work.
+- [Builder reconcile transitions](verification/builder-reconcile-transitions.md) maps reconcile states, guards, effects, and model actions to the implementation.
+- [Route proof chain](verification/ROUTE_PROOF_CHAIN.md) defines the evidence a route needs before it is route-proven.
 - [GraphQL API](GRAPHQL_API.md) — graph, FHIR dataframe, and published-data
   GraphQL contracts.
 

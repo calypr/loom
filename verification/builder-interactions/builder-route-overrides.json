@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "scope": "Mounted Builder UI routes. Routes used by Viewer or with no mounted Builder caller are excluded with a reason.",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish",
+      "tier": 1,
+      "uiCallers": [
+        "builder.publish"
+      ],
+      "evidence": [
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "needle": "publishBuilder"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/api.ts",
+          "needle": "'/publish'"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
+      "tier": 2,
+      "uiCallers": [
+        "builder.interpretation.configured_column_context"
+      ],
+      "evidence": [
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "needle": "useResolveConfiguredColumnContextsQuery"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/api.ts",
+          "needle": "'/configured-column-context'"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries",
+      "tier": 1,
+      "uiCallers": [
+        "legacy.table_shape.category_discovery"
+      ],
+      "evidence": [
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+          "needle": "discoverTableShapeCategories"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/api.ts",
+          "needle": "'/table-shape-category-discoveries'"
+        }
+      ]
+    }
+  ],
+  "excludedAuthoringRoutes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts",
+      "reason": "Viewer artifact preparation, not a mounted Builder action."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId}",
+      "reason": "Viewer artifact download, not a mounted Builder action."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace",
+      "reason": "Viewer cell trace, not a mounted Builder action."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields",
+      "reason": "No mounted Builder caller. ConceptCatalog tests assert the Builder does not call schema-fields."
+    }
+  ],
+  "proofs": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "ReconcileLifecycle.tla",
+        "traceEvent": "reconcile-response",
+        "schedule": "reconcile-recovery",
+        "contractTest": null,
+        "goTest": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Reconcile success, stale retry, conflict, invalid, retryable, fatal, identity rejection, and late result schedules. Go receipt test and Recompile browser case.",
+        "scope": "reconcile request, recovery, and late-result lifecycle",
+        "coveredActions": [
+          "RequestReconcile",
+          "RetryReconcile",
+          "ReconcileSuccess",
+          "ReconcileStale",
+          "ReconcileConflict",
+          "ReconcileInvalid",
+          "ReconcileFailure(retryable)",
+          "ReconcileFailure(fatal)",
+          "ClearReceipt",
+          "AuthoredChange"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "BuilderPreview.tla",
+        "traceEvent": "preview-response",
+        "schedule": "preview-ownership",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Fallback preview ownership schedules; Go preview contract test; Recompile browser case asserts preview rows.",
+        "scope": "preview request, ownership, and late-response lifecycle",
+        "coveredActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "BuilderPreview.tla",
+        "traceEvent": "finish-apply",
+        "schedule": "apply-ownership",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Apply command slice. Apply ownership schedule, Go preview/apply contract test, and Recompile browser case command requests.",
+        "scope": "apply command slice",
+        "coveredActions": [
+          "BeginApply",
+          "ApplyAck"
+        ]
+      }
+    }
+  ]
+}

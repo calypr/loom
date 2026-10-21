@@ -14,7 +14,7 @@
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-      "sha256": "254c17ff7de4308bb2268e505b2fd5befc44545adc449a68af020cea74c5bb20",
+      "sha256": "a2554743942975459e88cf5b1798e30c6f1e082d0db97634ea8b75c65f0a265c",
       "contract": "Mounted operation availability and applyConstructionProposal -> finishApply wiring."
     },
     {
@@ -49,7 +49,7 @@
     },
     {
       "path": "verification/builder-interactions/BuilderPreview.tla",
-      "sha256": "fe858547dcbd55745e92ac6c6a00844b24fc4a29091a151884947c2a12292164",
+      "sha256": "039f776b8c0c14cf1fdabda83b09e165974f9bec3b948892a0b3c3b24877fc6d",
       "contract": "Async proposal/preview/apply/discovery TLA+ model."
     },
     {
@@ -59,12 +59,12 @@
     },
     {
       "path": "verification/builder-interactions/builder-trace-contract.json",
-      "sha256": "0f872b43768424f72a929ed8827c17c0eb8e614397ff23665c8682005150e2c1",
+      "sha256": "2c4a78398fac7ed5168281289dfa2ac528c58958ca17e98b3c686647f35dade2",
       "contract": "Phase 1 abstract action, event, and observation vocabulary for implementation traces."
     },
     {
       "path": "ui/packages/loom-ui/testSupport/formalTrace.ts",
-      "sha256": "88196af12e74208b195e0d15b24d5e38fe600391b2128f39c8cff1147ad1eb46",
+      "sha256": "d6f00432395fdcc9e07368bfc7c531681af186241aa55992e8b824ea08934abc",
       "contract": "Test-only trace recorder used by the real-controller formal suite."
     },
     {
@@ -149,13 +149,28 @@
     },
     {
       "path": "verification/builder-interactions/LifecycleEntry.tla",
-      "sha256": "0dda83131e93526b6dd5636ccc8f1d1a35bba4554e1a7529d4582e301e739421",
+      "sha256": "ad2a1f7068ab2c12876f8a1960ba251b395f7634a9674576ca882954a4b9bc5b",
       "contract": "Demo entry routing and server draft command/reconcile lifecycle model."
     },
     {
       "path": "verification/builder-interactions/LifecycleEntry.cfg",
       "sha256": "f81b5a27c2ee28f384851d4da77281087377e1ea54561dec7cc139eaf1904eed",
       "contract": "LifecycleEntry model bounds and safety invariants."
+    },
+    {
+      "path": "verification/builder-interactions/ReconcileLifecycle.tla",
+      "sha256": "e818588a8cda911252823578c86824a40497d9e522afc7d6a5386e6479ebea89",
+      "contract": "Reconcile request identity, receipt binding, stale and conflict outcomes, draft invalidation, and bounded retry model."
+    },
+    {
+      "path": "verification/builder-interactions/ReconcileLifecycle.cfg",
+      "sha256": "09c6dae6fcf6347da2a50c86746b167d58b6ee2afeaa6453cc33fc91d4f31035",
+      "contract": "Reconcile model bounds and safety invariants."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts",
+      "sha256": "282c4f8dba2d795bbdfb59ed41d88a203600fb50599c715dfa225ad84b822a88",
+      "contract": "Reconcile stale, conflict, retry, and repair decisions plus receipt and result identity acceptance."
     }
   ]
 }
