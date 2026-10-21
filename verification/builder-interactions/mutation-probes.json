@@ -74,6 +74,30 @@
       "testNamePattern": "automatically previews saved commands and publishes the resulting receipt",
       "expectedFailure": "automatically previews saved commands",
       "modelAction": "LifecycleEntry.StartCommand"
+    },
+    {
+      "id": "construction-inputs-draft-version-guard",
+      "runner": "go",
+      "file": "internal/server/construction_inputs_catalog.go",
+      "find": "if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {",
+      "replace": "if owner.DraftDigest != request.ExpectedDraftDigest {",
+      "test": "./internal/server",
+      "testNamePattern": "TestConstructionInputsCatalogRejectsStaleDraftBeforeListing",
+      "expectedFailure": "stale draft was accepted",
+      "modelAction": "ReconcileLifecycle.DraftChange",
+      "modelActionRationale": "Construction inputs rejects a stale draft identity before reading catalog data; DraftChange is the model draft-identity transition."
+    },
+    {
+      "id": "construction-inputs-cursor-draft-guard",
+      "runner": "go",
+      "file": "internal/server/construction_inputs_catalog.go",
+      "find": "cursor.SnapshotToken != request.SnapshotToken || cursor.DraftVersion != request.ExpectedDraftVersion || cursor.DraftDigest != request.ExpectedDraftDigest ||",
+      "replace": "cursor.SnapshotToken != request.SnapshotToken || cursor.DraftDigest != request.ExpectedDraftDigest ||",
+      "test": "./internal/server",
+      "testNamePattern": "TestConstructionInputsCatalogFiltersUnauthorizedScopeAndSupportsStablePaging",
+      "expectedFailure": "cursor from a different draft version was accepted",
+      "modelAction": "ReconcileLifecycle.DraftChange",
+      "modelActionRationale": "The catalog cursor binds the draft identity; DraftChange is the model draft-identity transition."
     }
   ]
 }

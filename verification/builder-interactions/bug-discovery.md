@@ -1,40 +1,75 @@
 # Builder bug discovery
 
-Status: generated from the mutation probes and retained evidence.
+Status: generated from the mutation probes, retained evidence, source hashes, and the strict allowlist.
 
 ## Summary
 
 | Measure | Count |
 | --- | ---: |
-| probes | 8 |
-| evidence | 8 |
-| killed | 6 |
+| probes | 10 |
+| evidence | 10 |
+| killed | 8 |
 | survived | 1 |
+| allowedSurvivors | 1 |
+| unallowedSurvivors | 0 |
 | equivalent | 1 |
 | missing | 0 |
-| strictPass | no |
+| unhashedSources | 0 |
+| staleSources | 0 |
+| triageErrors | 0 |
+| strictPass | yes |
 | actionObligations | 153 |
-| probedActions | 8 |
-| unprobedActions | 145 |
+| probedActions | 9 |
+| unprobedActions | 144 |
 
 ## Probes
 
-| Probe | Model action | Status | Expected failure |
-| --- | --- | --- | --- |
-| `apply-ack-owner-guard` | `BuilderPreview.ApplyAck` | killed | old Apply success after replacement |
-| `preview-receipt-guard` | `BuilderPreview.PreviewComplete` | killed | B preview=wrong receipt |
-| `proposal-draft-digest-guard` | `BuilderPreview.ProposalComplete` | killed | expectedDraftDigest mismatch |
-| `root-change-epoch-guard` | `RootChange.WorkspaceChanged` | killed | different request epoch |
-| `population-removal-receipt-guard` | `Population.ApplyRemoval` | killed | another receipt |
-| `interpretation-apply-receipt-guard` | `Interpretation.ApplyCandidate` | killed | candidate-receipt |
-| `discovery-generation-guard` | `BuilderPreview.DiscoveryComplete` | equivalent | same-key discovery settlement |
-| `command-draft-version-guard` | `LifecycleEntry.StartCommand` | survived | automatically previews saved commands |
+| Probe | Runner | Model action | Status | Source hash | Expected failure |
+| --- | --- | --- | --- | --- | --- |
+| `apply-ack-owner-guard` | vitest | `BuilderPreview.ApplyAck` | killed | current | old Apply success after replacement |
+| `preview-receipt-guard` | vitest | `BuilderPreview.PreviewComplete` | killed | current | B preview=wrong receipt |
+| `proposal-draft-digest-guard` | vitest | `BuilderPreview.ProposalComplete` | killed | current | expectedDraftDigest mismatch |
+| `root-change-epoch-guard` | vitest | `RootChange.WorkspaceChanged` | killed | current | different request epoch |
+| `population-removal-receipt-guard` | vitest | `Population.ApplyRemoval` | killed | current | another receipt |
+| `interpretation-apply-receipt-guard` | vitest | `Interpretation.ApplyCandidate` | killed | current | candidate-receipt |
+| `discovery-generation-guard` | vitest | `BuilderPreview.DiscoveryComplete` | equivalent | current | same-key discovery settlement |
+| `command-draft-version-guard` | vitest | `LifecycleEntry.StartCommand` | survived | current | automatically previews saved commands |
+| `construction-inputs-draft-version-guard` | go | `ReconcileLifecycle.DraftChange` | killed | current | stale draft was accepted |
+| `construction-inputs-cursor-draft-guard` | go | `ReconcileLifecycle.DraftChange` | killed | current | cursor from a different draft version was accepted |
+
+## Allowlist
+
+- `command-draft-version-guard`: Known product gap: command draft identity is not yet covered by a targeted CAS test.
 
 ## Survivors
 
-- `command-draft-version-guard` mutated `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx`. The focused test did not fail with `automatically previews saved commands`.
+- `command-draft-version-guard` is allowlisted: Known product gap: command draft identity is not yet covered by a targeted CAS test.
 
-## Actions without a mutation probe
+## Stale or unhashed evidence
+
+Every retained probe has a current source hash.
+
+## Action coverage
+
+| Measure | Count |
+| --- | ---: |
+| actionObligations | 153 |
+| probedActions | 9 |
+| unprobedActions | 144 |
+
+Covered actions:
+
+- `BuilderPreview.ApplyAck`: `apply-ack-owner-guard`
+- `BuilderPreview.DiscoveryComplete`: `discovery-generation-guard`
+- `BuilderPreview.PreviewComplete`: `preview-receipt-guard`
+- `BuilderPreview.ProposalComplete`: `proposal-draft-digest-guard`
+- `Interpretation.ApplyCandidate`: `interpretation-apply-receipt-guard`
+- `LifecycleEntry.StartCommand`: `command-draft-version-guard`
+- `Population.ApplyRemoval`: `population-removal-receipt-guard`
+- `ReconcileLifecycle.DraftChange`: `construction-inputs-cursor-draft-guard`, `construction-inputs-draft-version-guard`
+- `RootChange.WorkspaceChanged`: `root-change-epoch-guard`
+
+Actions without a mutation probe:
 
 - `BuilderOperations.AuthorStep`
 - `BuilderOperations.ResetWorkspace`
@@ -76,8 +111,8 @@ Status: generated from the mutation probes and retained evidence.
 - `ConstructionLifecycle.PreviewComplete`
 - `ConstructionLifecycle.PreviewError`
 - `ConstructionLifecycle.ProposalComplete`
-- 105 more in the JSON report.
+- 104 more in the JSON report.
 
 ## Bounds
 
-The probes are hand-authored frontend guards. The report proves which guards have retained mutation evidence. It does not generate model-derived mutants or backend probes yet.
+The probes are hand-authored guards. The report proves which guards have fresh mutation evidence and which model actions have no probe. It does not generate model-derived mutants yet.

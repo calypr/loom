@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LEDGER = 'verification/builder-interactions/route-contract.json';
@@ -12,6 +13,9 @@ const MODEL_MAP = 'verification/builder-interactions/affordance-model-map.json';
 const ROUTE_ACTION_PROPOSALS = 'verification/builder-interactions/route-action-proposals.json';
 const CONTRACT_PROOF_PROPOSALS = 'verification/builder-interactions/contract-proof-proposals.json';
 const BUG_DISCOVERY = 'verification/builder-interactions/bug-discovery.json';
+const PROPOSAL_DECISIONS = 'verification/builder-interactions/proposal-decisions.json';
+const MUTATION_PROPOSALS = 'verification/builder-interactions/mutation-probe-proposals.json';
+const BROWSER_PROPOSALS = 'verification/builder-interactions/browser-case-proposals.json';
 const OUTPUT_JSON = 'verification/builder-interactions/readiness.json';
 const OUTPUT_MD = 'verification/builder-interactions/readiness.md';
 const check = process.argv.includes('--check');
@@ -31,6 +35,9 @@ const modelMap = readJson(MODEL_MAP);
 const routeActionProposals = existsSync(resolve(ROOT, ROUTE_ACTION_PROPOSALS)) ? readJson(ROUTE_ACTION_PROPOSALS) : null;
 const contractProofProposals = existsSync(resolve(ROOT, CONTRACT_PROOF_PROPOSALS)) ? readJson(CONTRACT_PROOF_PROPOSALS) : null;
 const bugDiscovery = existsSync(resolve(ROOT, BUG_DISCOVERY)) ? readJson(BUG_DISCOVERY) : null;
+const proposalDecisions = existsSync(resolve(ROOT, PROPOSAL_DECISIONS)) ? readJson(PROPOSAL_DECISIONS) : null;
+const mutationProposals = existsSync(resolve(ROOT, MUTATION_PROPOSALS)) ? readJson(MUTATION_PROPOSALS) : null;
+const browserProposals = existsSync(resolve(ROOT, BROWSER_PROPOSALS)) ? readJson(BROWSER_PROPOSALS) : null;
 const browserRoutes = new Set((browser.cases ?? []).flatMap((entry) => entry.coveredRoutes ?? []));
 
 const gapOrder = {
@@ -115,17 +122,40 @@ const emptyRouteActions = routes.filter((route) => route.routeActionState === 'e
 const traceTested = routes.filter((route) => route.status === 'trace-tested');
 const modeledAndTracedWithoutBrowser = routes.filter((route) => route.status === 'modeled-and-traced' && !route.browserCovered);
 const bugDiscoveryReady = bugDiscovery?.summary?.strictPass === true;
+const routeActionDecisionList = proposalDecisions?.routeActionDecisions ?? [];
+const contractDecisionList = proposalDecisions?.contractProofDecisions ?? [];
+const allDecisions = [...routeActionDecisionList, ...contractDecisionList];
+const decisionCount = (decision) => allDecisions.filter((entry) => entry.decision === decision).length;
+const expectedDecisionCount = (routeActionProposals?.summary?.routes ?? 0) + (contractProofProposals?.summary?.routes ?? 0);
+const proposalDecisionsPresent = allDecisions.length === expectedDecisionCount && expectedDecisionCount > 0;
+const proposalDecisionsPending = decisionCount('pending');
+const proposalDecisionsAccepted = decisionCount('accept');
+const proposalDecisionsRejected = decisionCount('reject');
+const proposalReviewReady = proposalDecisionsPresent && proposalDecisionsPending === 0;
+const mutationCoverageReady = (bugDiscovery?.summary?.unprobedActions ?? Number.POSITIVE_INFINITY) === 0;
+const decisionCheck = spawnSync(process.execPath, ['scripts/apply-builder-proposal-decisions.mjs', '--check'], {
+  cwd: ROOT,
+  encoding: 'utf8',
+});
+const proposalDecisionsValid = decisionCheck.status === 0;
+const leverReady = bugDiscoveryReady && proposalDecisionsPresent && proposalDecisionsValid;
 const readiness = {
   endToEndReady: strictBlockers.length === 0
     && (summary.missingCandidate ?? 0) === 0
     && (summary.missingRouteBound ?? 0) === 0
     && featureMapReady
-    && bugDiscoveryReady,
+    && leverReady
+    && proposalReviewReady
+    && mutationCoverageReady,
   routeActionAuditReady: missingRouteActions.length === 0 && emptyRouteActions.length === 0,
   obligationAttributionReady: (summary.missingRouteBound ?? 0) === 0 && (summary.missingCandidate ?? 0) === 0,
   browserEvidenceReady: traceTested.length === 0 && modeledAndTracedWithoutBrowser.length === 0,
   featureMapReady,
   bugDiscoveryReady,
+  proposalReviewReady,
+  mutationCoverageReady,
+  proposalDecisionsValid,
+  leverReady,
 };
 
 const payload = {
@@ -175,6 +205,21 @@ const payload = {
     mutationEquivalent: bugDiscovery?.summary?.equivalent ?? 0,
     mutationUnprobedActions: bugDiscovery?.summary?.unprobedActions ?? 0,
     mutationStrictPass: bugDiscovery?.summary?.strictPass ?? null,
+    mutationProbeCandidates: mutationProposals?.summary?.actions ?? 0,
+    mutationProbeCandidatesHigh: mutationProposals?.summary?.high ?? 0,
+    mutationProbeCandidatesWithoutTests: mutationProposals?.summary?.withoutCandidateTests ?? 0,
+    mutationGuardCandidates: mutationProposals?.summary?.guardCandidates ?? 0,
+    mutationActionsWithGuardCandidates: mutationProposals?.summary?.withGuardCandidates ?? 0,
+    browserCaseProposals: browserProposals?.summary?.routes ?? 0,
+    browserCaseProposalsHigh: browserProposals?.summary?.high ?? 0,
+    routeActionDecisions: routeActionDecisionList.length,
+    contractProofDecisions: contractDecisionList.length,
+    proposalDecisionsPending,
+    proposalDecisionsAccepted,
+    proposalDecisionsRejected,
+    proposalReviewReady,
+    mutationCoverageReady,
+    proposalDecisionsValid,
   },
   blockerRoutes: strictBlockers
     .map(({ id, tier, method, path, status, nextGap: gap }) => ({ id, tier, method, path, status, nextGap: gap })),
@@ -213,6 +258,12 @@ lines.push('');
 lines.push('| Measure | Count |');
 lines.push('| --- | ---: |');
 for (const [key, value] of Object.entries(payload.lever)) lines.push('| ' + key + ' | ' + (typeof value === 'boolean' ? (value ? 'yes' : 'no') : value) + ' |');
+lines.push('');
+lines.push('## Readiness gates');
+lines.push('');
+lines.push('| Gate | Ready |');
+lines.push('| --- | --- |');
+for (const [key, value] of Object.entries(readiness)) lines.push('| ' + key + ' | ' + (value ? 'yes' : 'no') + ' |');
 lines.push('');
 lines.push('## Missing obligations');
 lines.push('');

@@ -92,7 +92,7 @@ function parseTlaText(text) {
     definitions.add(match[1]);
   }
   const next = text.match(/^Next\s*==\s*([\s\S]*?)^Spec\s*==/m);
-  if (!next) return { actions: [], invariants: [] };
+  if (!next) throw new Error('TLA model has no Next == ... Spec == block');
   const actions = [];
   for (const clause of next[1].split(/\n\s*\\\/\s*/).map((part) => part.replace(/^\\\/\s*/, '')).filter(Boolean)) {
     let target = clause.trim();
@@ -102,15 +102,41 @@ function parseTlaText(text) {
     const action = names.find((name) => !/^Inv_/.test(name) && !['TypeOK', 'Next', 'Spec', 'Init'].includes(name));
     if (action) actions.push(action);
   }
+  if (actions.length === 0) throw new Error('TLA Next == block has no parseable action');
   return { actions: uniqueSorted(actions), invariants: [] };
 }
 
 function parseTla(modelFile) {
-  return parseTlaText(readFileSync(modelFile, 'utf8'));
+  try {
+    return parseTlaText(readFileSync(modelFile, 'utf8'));
+  } catch (error) {
+    fail(modelFile + ': ' + error.message);
+  }
+}
+
+function parseInvariantsText(text) {
+  return uniqueSorted([...text.matchAll(/^INVARIANT\s+([A-Za-z_][A-Za-z0-9_]*)/gm)]
+    .map((match) => match[1])
+    .filter((name) => name !== 'TypeOK'));
+}
+
+function parseInvariants(cfgFile) {
+  return parseInvariantsText(readFileSync(cfgFile, 'utf8'));
 }
 
 function selfTestParser() {
-  const fixture = `---- MODULE ParserSelfTest ----
+  const assert = (condition, message) => {
+    if (!condition) fail('parser self-test: ' + message);
+  };
+  const expectThrow = (label, text) => {
+    try {
+      parseTlaText(text);
+    } catch {
+      return;
+    }
+    fail('parser self-test: ' + label + ' did not fail');
+  };
+  const twoActions = `---- MODULE TwoActions ----
 EXTENDS Naturals
 VARIABLES x
 Init == x = 0
@@ -121,18 +147,88 @@ Next ==
   \\/ SecondAction
 Spec == Init /\\ [][Next]_x
 ====`;
-  const parsed = parseTlaText(fixture);
-  if (!parsed.actions.includes('FirstAction')) fail('parser self-test dropped the first Next action');
-  if (!parsed.actions.includes('SecondAction')) fail('parser self-test dropped the second Next action');
-  if (parsed.actions.length !== 2) fail('parser self-test parsed ' + parsed.actions.length + ' actions, expected 2');
-  console.log('PASS obligation parser keeps the first Next action');
-}
+  const parsed = parseTlaText(twoActions);
+  assert(parsed.actions.includes('FirstAction'), 'dropped the first Next action');
+  assert(parsed.actions.includes('SecondAction'), 'dropped the second Next action');
+  assert(parsed.actions.length === 2, 'expected 2 actions, got ' + parsed.actions.length);
 
-function parseInvariants(cfgFile) {
-  const text = readFileSync(cfgFile, 'utf8');
-  return uniqueSorted([...text.matchAll(/^INVARIANT\s+([A-Za-z_][A-Za-z0-9_]*)/gm)]
-    .map((match) => match[1])
-    .filter((name) => name !== 'TypeOK'));
+  const existsBound = `---- MODULE Exists ----
+EXTENDS Naturals
+VARIABLES x
+Requests == {1}
+Init == x = 0
+Handle(request) == x' = request
+Stop == x' = 0
+Next ==
+  \\/ \\E request \\in Requests :
+       Handle(request)
+  \\/ Stop
+Spec == Init /\\ [][Next]_x
+====`;
+  const existsParsed = parseTlaText(existsBound);
+  assert(existsParsed.actions.includes('Handle'), 'dropped the exists-bound action');
+  assert(existsParsed.actions.includes('Stop'), 'dropped the action after the exists bound');
+
+  const singleAction = `---- MODULE Single ----
+EXTENDS Naturals
+VARIABLES x
+Init == x = 0
+OnlyAction == x' = 1
+Next == OnlyAction
+Spec == Init /\\ [][Next]_x
+====`;
+  assert(parseTlaText(singleAction).actions.join(',') === 'OnlyAction', 'did not parse a single Next action');
+
+  const commented = `---- MODULE Commented ----
+EXTENDS Naturals
+VARIABLES x
+Init == x = 0
+FirstAction == x = 0 /\\ x' = 1 \\* first branch
+SecondAction == x = 1 /\\ x' = 0
+Next ==
+  \\/ FirstAction \\* selected branch
+  \\/ SecondAction
+Spec == Init /\\ [][Next]_x
+====`;
+  assert(parseTlaText(commented).actions.join(',') === 'FirstAction,SecondAction', 'did not ignore TLA comments');
+
+  const filtered = `---- MODULE Filtered ----
+EXTENDS Naturals
+VARIABLES x
+Init == x = 0
+Inv_Bad == x = 1
+GoodAction == x' = 1
+Next ==
+  \\/ Inv_Bad
+  \\/ GoodAction
+Spec == Init /\\ [][Next]_x
+====`;
+  assert(parseTlaText(filtered).actions.join(',') === 'GoodAction', 'did not filter Inv_ actions');
+
+  expectThrow('missing Next/Spec', '---- MODULE Missing ----\n====');
+  expectThrow('missing Spec', `---- MODULE MissingSpec ----
+EXTENDS Naturals
+VARIABLES x
+Action == x' = 1
+Next == Action
+====`);
+  expectThrow('unknown action', `---- MODULE Unknown ----
+EXTENDS Naturals
+VARIABLES x
+Next == MissingAction
+Spec == [][Next]_x
+====`);
+  expectThrow('only invariant actions', `---- MODULE InvOnly ----
+EXTENDS Naturals
+VARIABLES x
+Inv_Bad == x = 1
+Next == Inv_Bad
+Spec == [][Next]_x
+====`);
+
+  const invariants = parseInvariantsText('INVARIANT TypeOK\nINVARIANT Safety\nINVARIANT Safety\n');
+  assert(invariants.join(',') === 'Safety', 'invariant parser did not filter TypeOK or deduplicate');
+  console.log('PASS obligation parser self-test: 10 fixtures');
 }
 
 function testNameFromFile(text) {

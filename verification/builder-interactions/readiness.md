@@ -63,15 +63,45 @@ End to end ready: no.
 | Measure | Count |
 | --- | ---: |
 | routeActionProposals | 24 |
-| routeActionProposalLow | 6 |
+| routeActionProposalLow | 2 |
 | contractProofProposals | 34 |
-| contractProofProposalLow | 12 |
-| mutationProbes | 8 |
-| mutationKilled | 6 |
+| contractProofProposalLow | 11 |
+| mutationProbes | 10 |
+| mutationKilled | 8 |
 | mutationSurvived | 1 |
 | mutationEquivalent | 1 |
-| mutationUnprobedActions | 145 |
-| mutationStrictPass | no |
+| mutationUnprobedActions | 144 |
+| mutationStrictPass | yes |
+| mutationProbeCandidates | 144 |
+| mutationProbeCandidatesHigh | 76 |
+| mutationProbeCandidatesWithoutTests | 39 |
+| mutationGuardCandidates | 39 |
+| mutationActionsWithGuardCandidates | 28 |
+| browserCaseProposals | 28 |
+| browserCaseProposalsHigh | 7 |
+| routeActionDecisions | 24 |
+| contractProofDecisions | 34 |
+| proposalDecisionsPending | 58 |
+| proposalDecisionsAccepted | 0 |
+| proposalDecisionsRejected | 0 |
+| proposalReviewReady | no |
+| mutationCoverageReady | no |
+| proposalDecisionsValid | yes |
+
+## Readiness gates
+
+| Gate | Ready |
+| --- | --- |
+| endToEndReady | no |
+| routeActionAuditReady | no |
+| obligationAttributionReady | no |
+| browserEvidenceReady | no |
+| featureMapReady | yes |
+| bugDiscoveryReady | yes |
+| proposalReviewReady | no |
+| mutationCoverageReady | no |
+| proposalDecisionsValid | yes |
+| leverReady | yes |
 
 ## Missing obligations
 

@@ -1,114 +1,1288 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedFrom": {
     "probes": "verification/builder-interactions/mutation-probes.json",
     "evidence": "verification/builder-interactions/mutation-evidence.json",
+    "allowlist": "verification/builder-interactions/mutation-strict-allowlist.json",
     "obligations": "verification/builder-interactions/test-obligations.json"
   },
+  "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
   "summary": {
-    "probes": 8,
-    "evidence": 8,
-    "killed": 6,
+    "probes": 10,
+    "evidence": 10,
+    "killed": 8,
     "survived": 1,
+    "allowedSurvivors": 1,
+    "unallowedSurvivors": 0,
     "equivalent": 1,
     "missing": 0,
-    "strictPass": false,
+    "unhashedSources": 0,
+    "staleSources": 0,
+    "triageErrors": 0,
+    "strictPass": true,
     "actionObligations": 153,
-    "probedActions": 8,
-    "unprobedActions": 145
+    "probedActions": 9,
+    "unprobedActions": 144
   },
+  "allowlist": [
+    {
+      "id": "command-draft-version-guard",
+      "reason": "Known product gap: command draft identity is not yet covered by a targeted CAS test.",
+      "owner": "Builder formal verification",
+      "issue": "docs/verification/BUILDER_FORMAL_VERIFICATION_PLAN.md"
+    }
+  ],
   "probes": [
     {
       "id": "apply-ack-owner-guard",
+      "runner": "vitest",
       "modelAction": "BuilderPreview.ApplyAck",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceMatches": true,
       "expectedFailure": "old Apply success after replacement",
       "status": "killed",
       "mutation": "Replace `      if (proposalOwnerRef.current === applyingOwner) cancel();` with `      cancel();`.",
-      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 7ms",
-      "equivalent": null
+      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 9ms",
+      "equivalent": null,
+      "allowlisted": false
     },
     {
       "id": "preview-receipt-guard",
+      "runner": "vitest",
       "modelAction": "BuilderPreview.PreviewComplete",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceMatches": true,
       "expectedFailure": "B preview=wrong receipt",
       "status": "killed",
       "mutation": "Replace `  preview.receiptId === proposalId &&\\n  preview.outputId === outputId &&` with `  preview.outputId === outputId &&`.",
-      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 6ms",
-      "equivalent": null
+      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 7ms",
+      "equivalent": null,
+      "allowlisted": false
     },
     {
       "id": "proposal-draft-digest-guard",
+      "runner": "vitest",
       "modelAction": "BuilderPreview.ProposalComplete",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceMatches": true,
       "expectedFailure": "expectedDraftDigest mismatch",
       "status": "killed",
       "mutation": "Replace `          response.draftDigest === args.expectedDraftDigest;\\n        if (!matchesBase)` with `          true;\\n        if (!matchesBase)`.",
-      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 7ms",
-      "equivalent": null
+      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 6ms",
+      "equivalent": null,
+      "allowlisted": false
     },
     {
       "id": "root-change-epoch-guard",
+      "runner": "vitest",
       "modelAction": "RootChange.WorkspaceChanged",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+      "sourceHash": "0c54d8b4d08111c75ac4447911138334c08b72550001e76c7542425e381e2fd7",
+      "sourceMatches": true,
       "expectedFailure": "different request epoch",
       "status": "killed",
       "mutation": "Replace `): boolean => left.epoch === right.epoch && left.project === right.project &&` with `): boolean => left.project === right.project &&`.",
-      "failure": "× treats a different request epoch as a different root-change identity 4ms",
-      "equivalent": null
+      "failure": "× treats a different request epoch as a different root-change identity 3ms",
+      "equivalent": null,
+      "allowlisted": false
     },
     {
       "id": "population-removal-receipt-guard",
+      "runner": "vitest",
       "modelAction": "Population.ApplyRemoval",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+      "sourceHash": "2253277d58dd4f08ce19686c9abbc2598083dabb657c5f9e01841c5a52d4773e",
+      "sourceMatches": true,
       "expectedFailure": "another receipt",
       "status": "killed",
       "mutation": "Replace `    response.preview.receiptId !== response.proposalId || response.preview.outputId !== args.outputId` with `    response.preview.outputId !== args.outputId`.",
       "failure": "× fails closed when the automatic preview belongs to another receipt 1018ms",
-      "equivalent": null
+      "equivalent": null,
+      "allowlisted": false
     },
     {
       "id": "interpretation-apply-receipt-guard",
+      "runner": "vitest",
       "modelAction": "Interpretation.ApplyCandidate",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx",
+      "sourceHash": "ff860d40d114e4815e07e4d8fd2ee08b2b0b178b7da8d770df0de899603f41cd",
+      "sourceMatches": true,
       "expectedFailure": "candidate-receipt",
       "status": "killed",
       "mutation": "Replace `        candidateReceiptId: review.result.candidateReceiptId,` with `        candidateReceiptId: review.result.revisionId,`.",
       "failure": "-       \"candidateReceiptId\": \"candidate-receipt\",",
-      "equivalent": null
+      "equivalent": null,
+      "allowlisted": false
     },
     {
       "id": "discovery-generation-guard",
+      "runner": "vitest",
       "modelAction": "BuilderPreview.DiscoveryComplete",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceMatches": true,
       "expectedFailure": "same-key discovery settlement",
       "status": "equivalent",
       "mutation": "Replace `        if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;` with `        if (controller.signal.aborted) return;`.",
       "failure": "",
-      "equivalent": "invalidatePivotDiscovery aborts the active controller, so controller.signal.aborted rejects the stale settlement before the generation check is reached."
+      "equivalent": "invalidatePivotDiscovery aborts the active controller, so controller.signal.aborted rejects the stale settlement before the generation check is reached.",
+      "allowlisted": false
     },
     {
       "id": "command-draft-version-guard",
+      "runner": "vitest",
       "modelAction": "LifecycleEntry.StartCommand",
+      "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+      "sourceHash": "a2554743942975459e88cf5b1798e30c6f1e082d0db97634ea8b75c65f0a265c",
+      "sourceMatches": true,
       "expectedFailure": "automatically previews saved commands",
       "status": "survived",
       "mutation": "Replace `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: serverDraft.current.version,` with `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: current.draftVersion,`.",
       "failure": "",
-      "equivalent": null
+      "equivalent": null,
+      "allowlisted": true
+    },
+    {
+      "id": "construction-inputs-draft-version-guard",
+      "runner": "go",
+      "modelAction": "ReconcileLifecycle.DraftChange",
+      "modelActionRationale": "Construction inputs rejects a stale draft identity before reading catalog data; DraftChange is the model draft-identity transition.",
+      "source": "internal/server/construction_inputs_catalog.go",
+      "sourceHash": "1e3d9ef77c82cc5ca19614313318733ac9d5e9c7bc0d8064671d693d66a52db2",
+      "sourceMatches": true,
+      "expectedFailure": "stale draft was accepted",
+      "status": "killed",
+      "mutation": "Replace `if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {` with `if owner.DraftDigest != request.ExpectedDraftDigest {`.",
+      "failure": "construction_inputs_catalog_test.go:405: stale draft was accepted",
+      "equivalent": null,
+      "allowlisted": false
+    },
+    {
+      "id": "construction-inputs-cursor-draft-guard",
+      "runner": "go",
+      "modelAction": "ReconcileLifecycle.DraftChange",
+      "modelActionRationale": "The catalog cursor binds the draft identity; DraftChange is the model draft-identity transition.",
+      "source": "internal/server/construction_inputs_catalog.go",
+      "sourceHash": "1e3d9ef77c82cc5ca19614313318733ac9d5e9c7bc0d8064671d693d66a52db2",
+      "sourceMatches": true,
+      "expectedFailure": "cursor from a different draft version was accepted",
+      "status": "killed",
+      "mutation": "Replace `cursor.SnapshotToken != request.SnapshotToken || cursor.DraftVersion != request.ExpectedDraftVersion || cursor.DraftDigest != request.ExpectedDraftDigest ||` with `cursor.SnapshotToken != request.SnapshotToken || cursor.DraftDigest != request.ExpectedDraftDigest ||`.",
+      "failure": "construction_inputs_catalog_test.go:397: cursor from a different draft version was accepted",
+      "equivalent": null,
+      "allowlisted": false
     }
   ],
-  "survivors": [
+  "survivors": {
+    "allowed": [
+      {
+        "id": "command-draft-version-guard",
+        "reason": "Known product gap: command draft identity is not yet covered by a targeted CAS test."
+      }
+    ],
+    "unallowed": []
+  },
+  "actionCoverage": [
     {
-      "id": "command-draft-version-guard",
-      "modelAction": "LifecycleEntry.StartCommand",
-      "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-      "expectedFailure": "automatically previews saved commands",
-      "status": "survived",
-      "mutation": "Replace `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: serverDraft.current.version,` with `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: current.draftVersion,`.",
-      "failure": "",
-      "equivalent": null
+      "id": "BuilderOperations.AuthorStep",
+      "model": "BuilderOperations",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderOperations.ResetWorkspace",
+      "model": "BuilderOperations",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderOperations.RouteSavedStep",
+      "model": "BuilderOperations",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderOperations.UndoLastStep",
+      "model": "BuilderOperations",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.AcceptCurrentDraft",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.AdoptDiscovery",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.ApplyAck",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [
+        "apply-ack-owner-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "BuilderPreview.BeginApply",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.CancelProposal",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.ChangeDraft",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.ChangePivotKey",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.DiscoveryComplete",
+      "model": "BuilderPreview",
+      "routeBinding": "route",
+      "probes": [
+        "discovery-generation-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "BuilderPreview.LatePreviewComplete",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.LateProposalComplete",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.PreviewComplete",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [
+        "preview-receipt-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "BuilderPreview.ProposalComplete",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [
+        "proposal-draft-digest-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "BuilderPreview.ProposalError",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.ReplaceProposal",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.RetryProposal",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.ScheduleDiscovery",
+      "model": "BuilderPreview",
+      "routeBinding": "route",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.SetPivotPair",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.StartPreview",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.StartProposal",
+      "model": "BuilderPreview",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderPreview.UnmountEditor",
+      "model": "BuilderPreview",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.CreateRelatedAggregate",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.InspectColumn",
+      "model": "ColumnPresentation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.InspectRejected",
+      "model": "ColumnPresentation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.InspectSucceeded",
+      "model": "ColumnPresentation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.MoveColumn",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.RemoveConfiguredColumn",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.RenameColumn",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.SearchColumns",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.SetFeaturePolicy",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.SetFilterOffered",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.SetRowValuePolicy",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ColumnPresentation.ToggleVisibility",
+      "model": "ColumnPresentation",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.BeginApply",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.CancelProposal",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.ChangeDraftIdentity",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.LatePreviewSettlementIgnored",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.LateProposalSettlementIgnored",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.PreviewComplete",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.PreviewError",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.ProposalComplete",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.ProposalError",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.RetryProposal",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ConstructionLifecycle.StartProposal",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "DraftRestore.CancelRestore",
+      "model": "DraftRestore",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "DraftRestore.RestoreComplete",
+      "model": "DraftRestore",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "DraftRestore.SaveDraft",
+      "model": "DraftRestore",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "DraftRestore.StaleDraft",
+      "model": "DraftRestore",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "DraftRestore.StartRestore",
+      "model": "DraftRestore",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.ApplyCandidate",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [
+        "interpretation-apply-receipt-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "Interpretation.BeginCreate",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.CancelCreate",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.CreateBlocked",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.CreateFailed",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.CreateRevision",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.ReviewCandidate",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.ReviewReady",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Interpretation.ReviewStale",
+      "model": "Interpretation",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.AuthoredChange",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.CommandStale",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.CommandSuccess",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.GateReconcile",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.ParseRoute",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.ReconcileNeedsRepair",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.ReconcileReceiptBound",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.ReplaceExplorer",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.RetryEntryReconcile",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.SelectionFailed",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.SelectionReady",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.SetFeatureFocus",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "LifecycleEntry.StartCommand",
+      "model": "LifecycleEntry",
+      "routeBinding": "candidate",
+      "probes": [
+        "command-draft-version-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "Population.ApplyRemoval",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [
+        "population-removal-receipt-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "Population.AttachSelection",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.ClearAttached",
+      "model": "Population",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.CoverageComplete",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.CoverageIncomplete",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.CoverageStale",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.ExcludeMember",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.ExcludeRouteFound",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.ExcludeRouteMissing",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.LookupRoutes",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.RemovalFailed",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.RemovalReviewReady",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.ReplaceSelection",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.RequestCoverage",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.ReviewRemoval",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "Population.RouteLookupFailed",
+      "model": "Population",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.AuthoredChange",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ChangeExplorer",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ClearReceipt",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "route",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.DraftChange",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [
+        "construction-inputs-cursor-draft-guard",
+        "construction-inputs-draft-version-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "ReconcileLifecycle.ReconcileConflict",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ReconcileFailure",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ReconcileInvalid",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ReconcileStale",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ReconcileSuccess",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "route",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.RequestReconcile",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.RetryReconcile",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "route",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.SetSnapshotPresent",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.SetTablesRooted",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.ApplyPreview",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.AssessmentBlocked",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.AssessmentNoChange",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.AssessmentReady",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.AssessmentStale",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.BeginChange",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.Cancel",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.PreviewReady",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.PreviewUnavailable",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RootChange.WorkspaceChanged",
+      "model": "RootChange",
+      "routeBinding": "candidate",
+      "probes": [
+        "root-change-epoch-guard"
+      ],
+      "covered": true
+    },
+    {
+      "id": "RowDefinitionLifecycle.ApplyProposal",
+      "model": "RowDefinitionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RowDefinitionLifecycle.CancelProposal",
+      "model": "RowDefinitionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RowDefinitionLifecycle.ProposalComplete",
+      "model": "RowDefinitionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RowDefinitionLifecycle.ProposalFailed",
+      "model": "RowDefinitionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RowDefinitionLifecycle.RequestProposal",
+      "model": "RowDefinitionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "RowDefinitionLifecycle.SelectRow",
+      "model": "RowDefinitionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.ApplyFrameRemove",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.ApplyFrameReplace",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.BeginFrameRemove",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.BeginFrameReplace",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.CancelFrameChange",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.ConfirmFrameChange",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.ExpandGraph",
+      "model": "SupportingSurfaces",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.FocusReview",
+      "model": "SupportingSurfaces",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.InspectGraphNode",
+      "model": "SupportingSurfaces",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.NextLineagePage",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.RequestRowSources",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.RowSourcesReady",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.RowSourcesUnavailable",
+      "model": "SupportingSurfaces",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "SupportingSurfaces.ToggleGraphOrphans",
+      "model": "SupportingSurfaces",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.AbortPreview",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.AcceptPreview",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.AddRoute",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.CommandsApplied",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.CreateExplorer",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.DeleteCapability",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.DeleteExplorer",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.ExplorerListComplete",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.ExplorerListError",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.HydrateBuilder",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.PreviewComplete",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.PreviewFailed",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.RecompileReceipt",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.RefreshCatalog",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.RemoveRoute",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.RetryTransient",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.SelectExplorer",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.SelectOccurrence",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.SelectTable",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "WorkspaceLifecycle.StartPreview",
+      "model": "WorkspaceLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
     }
   ],
   "unprobedActions": [
@@ -198,7 +1372,6 @@
     "ReconcileLifecycle.AuthoredChange",
     "ReconcileLifecycle.ChangeExplorer",
     "ReconcileLifecycle.ClearReceipt",
-    "ReconcileLifecycle.DraftChange",
     "ReconcileLifecycle.ReconcileConflict",
     "ReconcileLifecycle.ReconcileFailure",
     "ReconcileLifecycle.ReconcileInvalid",
@@ -257,5 +1430,7 @@
     "WorkspaceLifecycle.SelectOccurrence",
     "WorkspaceLifecycle.SelectTable",
     "WorkspaceLifecycle.StartPreview"
-  ]
+  ],
+  "staleSources": [],
+  "triageErrors": []
 }

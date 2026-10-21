@@ -1,51 +1,71 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "baselineCommit": "cd02d1306",
   "probes": [
     {
       "id": "apply-ack-owner-guard",
       "status": "killed",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "BuilderPreview.ApplyAck",
       "mutation": "Replace `      if (proposalOwnerRef.current === applyingOwner) cancel();` with `      cancel();`.",
       "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
       "expectedFailure": "old Apply success after replacement",
       "exitCode": 1,
-      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 7ms"
+      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 9ms"
     },
     {
       "id": "preview-receipt-guard",
       "status": "killed",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "BuilderPreview.PreviewComplete",
       "mutation": "Replace `  preview.receiptId === proposalId &&\\n  preview.outputId === outputId &&` with `  preview.outputId === outputId &&`.",
       "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
       "expectedFailure": "B preview=wrong receipt",
       "exitCode": 1,
-      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 6ms"
+      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 7ms"
     },
     {
       "id": "proposal-draft-digest-guard",
       "status": "killed",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "BuilderPreview.ProposalComplete",
       "mutation": "Replace `          response.draftDigest === args.expectedDraftDigest;\\n        if (!matchesBase)` with `          true;\\n        if (!matchesBase)`.",
       "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
       "expectedFailure": "expectedDraftDigest mismatch",
       "exitCode": 1,
-      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 7ms"
+      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 6ms"
     },
     {
       "id": "root-change-epoch-guard",
       "status": "killed",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+      "sourceHash": "0c54d8b4d08111c75ac4447911138334c08b72550001e76c7542425e381e2fd7",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "RootChange.WorkspaceChanged",
       "mutation": "Replace `): boolean => left.epoch === right.epoch && left.project === right.project &&` with `): boolean => left.project === right.project &&`.",
       "command": "vitest run src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts",
       "expectedFailure": "different request epoch",
       "exitCode": 1,
-      "failure": "× treats a different request epoch as a different root-change identity 4ms"
+      "failure": "× treats a different request epoch as a different root-change identity 3ms"
     },
     {
       "id": "population-removal-receipt-guard",
       "status": "killed",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+      "sourceHash": "2253277d58dd4f08ce19686c9abbc2598083dabb657c5f9e01841c5a52d4773e",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "Population.ApplyRemoval",
       "mutation": "Replace `    response.preview.receiptId !== response.proposalId || response.preview.outputId !== args.outputId` with `    response.preview.outputId !== args.outputId`.",
       "command": "vitest run src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
       "expectedFailure": "another receipt",
@@ -55,7 +75,11 @@
     {
       "id": "interpretation-apply-receipt-guard",
       "status": "killed",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx",
+      "sourceHash": "ff860d40d114e4815e07e4d8fd2ee08b2b0b178b7da8d770df0de899603f41cd",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "Interpretation.ApplyCandidate",
       "mutation": "Replace `        candidateReceiptId: review.result.candidateReceiptId,` with `        candidateReceiptId: review.result.revisionId,`.",
       "command": "vitest run src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
       "expectedFailure": "candidate-receipt",
@@ -65,7 +89,11 @@
     {
       "id": "discovery-generation-guard",
       "status": "equivalent",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sourceHash": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "BuilderPreview.DiscoveryComplete",
       "mutation": "Replace `        if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;` with `        if (controller.signal.aborted) return;`.",
       "command": "vitest run src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.unit.test.tsx",
       "expectedFailure": "same-key discovery settlement",
@@ -76,12 +104,47 @@
     {
       "id": "command-draft-version-guard",
       "status": "survived",
+      "runner": "vitest",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+      "sourceHash": "a2554743942975459e88cf5b1798e30c6f1e082d0db97634ea8b75c65f0a265c",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "LifecycleEntry.StartCommand",
       "mutation": "Replace `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: serverDraft.current.version,` with `            snapshotToken: current.catalog.snapshotToken,\\n            expectedDraftVersion: current.draftVersion,`.",
       "command": "vitest run src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx -t \"automatically previews saved commands and publishes the resulting receipt\"",
       "expectedFailure": "automatically previews saved commands",
       "exitCode": 0,
       "failure": ""
+    },
+    {
+      "id": "construction-inputs-draft-version-guard",
+      "status": "killed",
+      "runner": "go",
+      "source": "internal/server/construction_inputs_catalog.go",
+      "sourceHash": "1e3d9ef77c82cc5ca19614313318733ac9d5e9c7bc0d8064671d693d66a52db2",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "ReconcileLifecycle.DraftChange",
+      "modelActionRationale": "Construction inputs rejects a stale draft identity before reading catalog data; DraftChange is the model draft-identity transition.",
+      "mutation": "Replace `if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {` with `if owner.DraftDigest != request.ExpectedDraftDigest {`.",
+      "command": "GOCACHE=<tmp> go test -count=1 -overlay /var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-mutation-go-HOJ1N9/overlay.json -run ^(TestConstructionInputsCatalogRejectsStaleDraftBeforeListing)$ ./internal/server",
+      "expectedFailure": "stale draft was accepted",
+      "exitCode": 1,
+      "failure": "construction_inputs_catalog_test.go:405: stale draft was accepted"
+    },
+    {
+      "id": "construction-inputs-cursor-draft-guard",
+      "status": "killed",
+      "runner": "go",
+      "source": "internal/server/construction_inputs_catalog.go",
+      "sourceHash": "1e3d9ef77c82cc5ca19614313318733ac9d5e9c7bc0d8064671d693d66a52db2",
+      "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714",
+      "modelAction": "ReconcileLifecycle.DraftChange",
+      "modelActionRationale": "The catalog cursor binds the draft identity; DraftChange is the model draft-identity transition.",
+      "mutation": "Replace `cursor.SnapshotToken != request.SnapshotToken || cursor.DraftVersion != request.ExpectedDraftVersion || cursor.DraftDigest != request.ExpectedDraftDigest ||` with `cursor.SnapshotToken != request.SnapshotToken || cursor.DraftDigest != request.ExpectedDraftDigest ||`.",
+      "command": "GOCACHE=<tmp> go test -count=1 -overlay /var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-mutation-go-961HHB/overlay.json -run ^(TestConstructionInputsCatalogFiltersUnauthorizedScopeAndSupportsStablePaging)$ ./internal/server",
+      "expectedFailure": "cursor from a different draft version was accepted",
+      "exitCode": 1,
+      "failure": "construction_inputs_catalog_test.go:397: cursor from a different draft version was accepted"
     }
-  ]
+  ],
+  "sourceCommit": "4d2f5a1711bdd4988e1c250c79c5fc903ec4e714"
 }

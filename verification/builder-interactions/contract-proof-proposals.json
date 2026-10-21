@@ -8,12 +8,14 @@
   },
   "summary": {
     "routes": 34,
-    "contractTested": 17,
-    "modeledOnly": 15,
-    "unproven": 2,
-    "high": 5,
-    "medium": 17,
-    "low": 12
+    "contractTested": 24,
+    "modeledOnly": 7,
+    "unproven": 3,
+    "readLike": 24,
+    "stateful": 10,
+    "high": 7,
+    "medium": 16,
+    "low": 11
   },
   "proposals": [
     {
@@ -22,6 +24,7 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "modeled-only",
       "proposedRouteActions": [
         "HydrateBuilder"
@@ -35,7 +38,14 @@
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -54,24 +64,6 @@
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
-        },
-        {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-suffix"
-        },
-        {
-          "kind": "go",
-          "name": "TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible",
-          "file": "internal/server/openapi_explorer_draft_restore_test.go",
-          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -82,40 +74,26 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "CancelProposal",
-        "PreviewComplete",
-        "ProposalComplete",
-        "ProposalError",
-        "ReplaceProposal",
-        "RetryProposal",
-        "StartPreview",
-        "StartProposal"
-      ],
-      "confidence": "low",
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
+      "confidence": "medium",
       "browserCase": null,
-      "goTest": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-      "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+      "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route-suffix"
-        },
         {
           "kind": "go",
           "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "mapping": "go-route"
         },
         {
           "kind": "go",
@@ -125,21 +103,15 @@
         },
         {
           "kind": "go",
-          "name": "TestBuilderFullUIRequestReplay",
+          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "route-suffix"
+          "mapping": "go-route-suffix"
         },
         {
-          "kind": "go",
-          "name": "TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave",
-          "file": "internal/server/openapi_explorer_construction_apply_preview_test.go",
-          "mapping": "route-suffix"
-        },
-        {
-          "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-suffix"
+          "kind": "ui",
+          "name": "projects stage-only cardinality out before the real proposal request is serialized",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
+          "mapping": "route-pattern"
         },
         {
           "kind": "ui",
@@ -149,7 +121,61 @@
         },
         {
           "kind": "ui",
+          "name": "opens the real Group editor and captures the exact serialized proposal request",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
           "name": "reports %s as an explicit adapter gap",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestApplyConstructionProposalOverCapCaptureKeepsValidationAndSave",
+          "file": "internal/server/openapi_explorer_construction_apply_preview_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "uses exact snake-case dimensions to emit the mounted Builder proposal request",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
           "mapping": "route-suffix"
         }
@@ -162,18 +188,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "ApplyCandidate",
-        "ReviewCandidate",
-        "ReviewReady",
-        "ReviewStale"
-      ],
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestInterpretationPreviewRouteRejectsMissingBody",
       "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
@@ -202,6 +224,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "modeled-only",
       "proposedRouteActions": [
         "BeginCreate",
@@ -213,7 +236,7 @@
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-      "uiTest": null,
+      "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
       "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
       "evidence": [
         {
@@ -221,6 +244,18 @@
           "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
           "file": "internal/server/openapi_explorer_write_scope_test.go",
           "mapping": "go-route"
+        },
+        {
+          "kind": "ui",
+          "name": "creates from the saved column without sending rules or auto-applying the result",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "ui",
+          "name": "revises the selected applicable head with its exact parent revision",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -231,6 +266,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "modeled-only",
       "proposedRouteActions": [
         "CoverageComplete",
@@ -259,18 +295,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "ApplyRemoval",
-        "RemovalFailed",
-        "RemovalReviewReady",
-        "ReviewRemoval"
-      ],
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS",
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
@@ -287,21 +319,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "AttachSelection",
-        "ExcludeMember",
-        "ExcludeRouteFound",
-        "ExcludeRouteMissing",
-        "LookupRoutes",
-        "ReplaceSelection",
-        "RouteLookupFailed"
-      ],
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -311,13 +336,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish",
       "currentStatus": "unproven",
+      "routeMode": "stateful",
       "proposedStatus": "unproven",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
       "uiTest": null,
-      "reason": "Write route with no route-level TLA action. Model it or add a route contract test.",
+      "reason": "Stateful route with no route-level TLA action. Model it or add a route contract test.",
       "evidence": [
         {
           "kind": "go",
@@ -340,6 +366,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "modeled-only",
       "proposedRouteActions": [
         "ApplyPreview",
@@ -374,29 +401,15 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "ApplyProposal",
-        "CancelProposal",
-        "PreviewComplete",
-        "ProposalComplete",
-        "ProposalFailed",
-        "RequestProposal",
-        "StartPreview",
-        "StartProposal"
-      ],
-      "confidence": "low",
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
+      "confidence": "medium",
       "browserCase": null,
-      "goTest": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
+      "goTest": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route-suffix"
-        },
         {
           "kind": "go",
           "name": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
@@ -405,9 +418,9 @@
         },
         {
           "kind": "go",
-          "name": "TestBuilderFullUIRequestReplay",
+          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "route-suffix"
+          "mapping": "go-route-suffix"
         },
         {
           "kind": "go",
@@ -424,16 +437,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries",
       "currentStatus": "unproven",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "DiscoveryComplete",
-        "ScheduleDiscovery"
-      ],
-      "confidence": "medium",
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
+      "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -443,13 +454,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestOpenAPIDocumentsOperationSpecificFailureStatuses",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
@@ -466,13 +478,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions",
       "currentStatus": "modeled-only",
-      "proposedStatus": "contract-tested",
+      "routeMode": "stateful",
+      "proposedStatus": "unproven",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Stateful route with no route-level TLA action. Model it or add a route contract test.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -482,13 +495,18 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections",
       "currentStatus": "modeled-only",
-      "proposedStatus": "contract-tested",
-      "proposedRouteActions": [],
-      "confidence": "low",
+      "routeMode": "stateful",
+      "proposedStatus": "modeled-only",
+      "proposedRouteActions": [
+        "ExcludeMember",
+        "ExcludeRouteFound",
+        "ExcludeRouteMissing"
+      ],
+      "confidence": "medium",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -498,19 +516,14 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "ParseRoute",
-        "ReplaceExplorer",
-        "SelectionFailed",
-        "SelectionReady",
-        "SetFeatureFocus"
-      ],
-      "confidence": "medium",
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
+      "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -520,13 +533,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "unproven",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Write route with no route-level TLA action. Model it or add a route contract test.",
+      "reason": "Stateful route with no route-level TLA action. Model it or add a route contract test.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -536,26 +550,38 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "CreateExplorer",
-        "DeleteCapability",
-        "DeleteExplorer",
-        "ExplorerListComplete",
-        "ExplorerListError",
-        "HydrateBuilder",
-        "SelectExplorer"
-      ],
-      "confidence": "medium",
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
+      "confidence": "high",
       "browserCase": "builder-controls:recompile",
-      "goTest": "TestAssessAndApplyRowChangeThroughPublicAPI",
+      "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -625,12 +651,6 @@
         },
         {
           "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "go-route"
@@ -685,25 +705,25 @@
         },
         {
           "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
+          "kind": "go",
+          "name": "TestCreateExplorerFromCurrentClonesWorkspaceOnServer",
+          "file": "internal/server/explorer_receipt_contract_test.go",
+          "mapping": "route-pattern"
         },
         {
           "kind": "go",
-          "name": "TestAcceptanceWorkspaceDefinesPatientCohortContract",
+          "name": "TestGeneratedExplorerMutationRoutePreservesNoAuthOmission",
+          "file": "internal/server/openapi_explorer_write_scope_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog",
           "file": "internal/acceptance/scenario_test.go",
           "mapping": "route-suffix"
         }
@@ -716,26 +736,42 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "modeled-only",
       "proposedRouteActions": [
         "CreateExplorer",
-        "DeleteCapability",
-        "DeleteExplorer",
-        "ExplorerListComplete",
-        "ExplorerListError",
         "HydrateBuilder",
         "SelectExplorer"
       ],
       "confidence": "medium",
       "browserCase": "builder-controls:recompile",
-      "goTest": "TestAssessAndApplyRowChangeThroughPublicAPI",
+      "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
       "uiTest": null,
       "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -805,12 +841,6 @@
         },
         {
           "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "go-route"
@@ -865,25 +895,25 @@
         },
         {
           "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
+          "kind": "go",
+          "name": "TestCreateExplorerFromCurrentClonesWorkspaceOnServer",
+          "file": "internal/server/explorer_receipt_contract_test.go",
+          "mapping": "route-pattern"
         },
         {
           "kind": "go",
-          "name": "TestAcceptanceWorkspaceDefinesPatientCohortContract",
+          "name": "TestGeneratedExplorerMutationRoutePreservesNoAuthOmission",
+          "file": "internal/server/openapi_explorer_write_scope_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog",
           "file": "internal/acceptance/scenario_test.go",
           "mapping": "route-suffix"
         }
@@ -896,19 +926,30 @@
       "method": "DELETE",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}",
       "currentStatus": "modeled-only",
+      "routeMode": "stateful",
       "proposedStatus": "modeled-only",
       "proposedRouteActions": [
-        "CreateExplorer",
         "DeleteCapability",
-        "DeleteExplorer",
-        "SelectExplorer"
+        "DeleteExplorer"
       ],
       "confidence": "medium",
       "browserCase": null,
-      "goTest": "TestAssessAndApplyRowChangeThroughPublicAPI",
+      "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
       "uiTest": null,
       "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
       "evidence": [
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "mapping": "route-proof"
+        },
         {
           "kind": "go",
           "name": "TestAssessAndApplyRowChangeThroughPublicAPI",
@@ -977,12 +1018,6 @@
         },
         {
           "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "go-route"
@@ -1037,15 +1072,33 @@
         },
         {
           "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRouteBuildsDefaultProjectionFromRecipe",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRoutePreservesCompilerResultUnits",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRouteReportsMalformedCurrentProjection",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRouteReturnsExplicitUnpublishedProjection",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
         }
       ],
       "reviewRequired": true
@@ -1056,18 +1109,26 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "high",
       "browserCase": "builder-controls:recompile",
       "goTest": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -1082,10 +1143,10 @@
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
+          "kind": "go",
+          "name": "TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog",
+          "file": "internal/acceptance/scenario_test.go",
+          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -1096,13 +1157,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -1112,18 +1174,26 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
       "currentStatus": "unproven",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "high",
       "browserCase": "builder-controls:recompile",
       "goTest": "TestConfiguredColumnContextRouteRejectsMissingBody",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -1136,12 +1206,6 @@
           "name": "TestInterpretationReadRoutesEnforceProjectReadAuthorization",
           "file": "internal/server/openapi_interpretation_routes_test.go",
           "mapping": "go-route"
-        },
-        {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
         }
       ],
       "reviewRequired": true
@@ -1152,18 +1216,26 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "high",
       "browserCase": "builder-controls:recompile",
       "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
       "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -1178,18 +1250,6 @@
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-suffix"
-        },
-        {
           "kind": "ui",
           "name": "exports only registered callable handlers and reports uncovered inventory IDs",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
@@ -1199,6 +1259,36 @@
           "kind": "ui",
           "name": "reports %s as an explicit adapter gap",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestBuilderHTTPSerializesEmptyConstructionStepsAsArray",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "route-suffix"
         }
       ],
@@ -1210,17 +1300,36 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": null,
       "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "ui",
-          "name": "uses indexed catalog fields without requesting generated schema fields",
+          "name": "allows supported related fields when source projection is unavailable and reports preview submission",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "browses coded system/version families and routes them with the signed family choice",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "continues an empty field-choice page until a usable current-table route is found",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "discards a delayed alternative page after the table context changes",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
           "mapping": "route-suffix"
         },
@@ -1228,6 +1337,90 @@
           "kind": "ui",
           "name": "drops a saved occurrence when switching to a related node and applies only a server route choice",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionSourcePicker.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps a field exclusion when semantic inventory finishes after the route search",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps a field selectable after a %s response",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps a supported choice when its page repeats a cursor and stops further paging",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps signed related %s ownership when grouped source projection is unavailable",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps supported choices from a truncated page even when no cursor remains",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps the same related-field choice open after a failed ONE proposal so ALL can be retried directly",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "loads table-specific route and output alternatives before the final Add action",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "preserves a saved result form when switching to another route that supports it",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "releases the picker when selection changes during Advanced route lookup",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "removes a field after route search exhausts without a current-table choice",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "sends the exact related field choice and candidate while keeping root projection simple",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "shows compiler-proven coded concepts and paired values while excluding other semantic families",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "uses server-issued route choices for a related concept without sending browser-selected edges",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "uses the resolved compiler default for the selected authored occurrence route on one Add click",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
           "mapping": "route-suffix"
         }
       ],
@@ -1239,13 +1432,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
@@ -1262,13 +1456,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -1278,17 +1473,18 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
-      "goTest": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
+      "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
+          "name": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "route-suffix"
         }
@@ -1301,17 +1497,18 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
-      "goTest": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
+      "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
+          "name": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "route-suffix"
         }
@@ -1324,13 +1521,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -1340,19 +1538,26 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "medium",
       "browserCase": null,
       "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "go",
           "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
           "mapping": "go-route"
+        },
+        {
+          "kind": "go",
+          "name": "TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation",
+          "file": "internal/server/openapi_explorer_row_definition_test.go",
+          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -1363,13 +1568,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -1379,24 +1585,20 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "high",
       "browserCase": "builder-controls:recompile",
       "goTest": "TestBrowseSemanticInventoryThroughPublicAPI",
       "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
-        },
-        {
-          "kind": "go",
-          "name": "TestBrowseSemanticInventoryThroughPublicAPI",
-          "file": "internal/server/openapi_semantic_inventory_test.go",
-          "mapping": "go-route"
+          "file": null,
+          "mapping": "browser-evidence"
         },
         {
           "kind": "playwright",
@@ -1405,8 +1607,26 @@
           "mapping": "route-proof"
         },
         {
+          "kind": "go",
+          "name": "TestBrowseSemanticInventoryThroughPublicAPI",
+          "file": "internal/server/openapi_semantic_inventory_test.go",
+          "mapping": "go-route"
+        },
+        {
           "kind": "ui",
-          "name": "uses indexed catalog fields without requesting generated schema fields",
+          "name": "aborts inventory reads when their scope owner changes",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "continues an empty field-choice page until a usable current-table route is found",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "discards a delayed alternative page after the table context changes",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
           "mapping": "route-suffix"
         },
@@ -1414,6 +1634,60 @@
           "kind": "ui",
           "name": "drops a saved occurrence when switching to a related node and applies only a server route choice",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionSourcePicker.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps a field exclusion when semantic inventory finishes after the route search",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps a field selectable after a %s response",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps a supported choice when its page repeats a cursor and stops further paging",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "keeps supported choices from a truncated page even when no cursor remains",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "loads table-specific route and output alternatives before the final Add action",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "preserves a saved result form when switching to another route that supports it",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "removes a field after route search exhausts without a current-table choice",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "uses server-issued route choices for a related concept without sending browser-selected edges",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "uses the resolved compiler default for the selected authored occurrence route on one Add click",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
           "mapping": "route-suffix"
         }
       ],
@@ -1425,29 +1699,20 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions",
       "currentStatus": "modeled-only",
-      "proposedStatus": "modeled-only",
-      "proposedRouteActions": [
-        "PreviewComplete",
-        "ProposalComplete",
-        "StartPreview",
-        "StartProposal"
-      ],
-      "confidence": "medium",
+      "routeMode": "read",
+      "proposedStatus": "contract-tested",
+      "proposedRouteActions": [],
+      "confidence": "high",
       "browserCase": "builder-controls:recompile",
       "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
       "uiTest": null,
-      "reason": "Route action proposal is non-empty. Apply the route actions and add a trace before a contract proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
-        },
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route"
+          "file": null,
+          "mapping": "browser-evidence"
         },
         {
           "kind": "playwright",
@@ -1457,9 +1722,9 @@
         },
         {
           "kind": "go",
-          "name": "TestBuilderFullUIRequestReplay",
+          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "route-suffix"
+          "mapping": "go-route"
         }
       ],
       "reviewRequired": true
@@ -1470,13 +1735,14 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities",
       "currentStatus": "modeled-only",
+      "routeMode": "read",
       "proposedStatus": "contract-tested",
       "proposedRouteActions": [],
       "confidence": "low",
       "browserCase": null,
       "goTest": null,
       "uiTest": null,
-      "reason": "Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.",
+      "reason": "Read-like route with no route-level TLA action. A browser case or route test is the correct proof.",
       "evidence": [],
       "reviewRequired": true
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ROOT, evidenceForRoute, readJson } from './lib/builder-route-evidence.mjs';
+import { ROOT, evidenceForRoute, readJson, routeMode } from './lib/builder-route-evidence.mjs';
 
 const LEDGER = 'verification/builder-interactions/route-contract.json';
 const OBLIGATIONS = 'verification/builder-interactions/test-obligations.json';
@@ -24,6 +24,7 @@ for (const route of ledger.routes ?? []) {
   if (status === 'modeled-and-traced' || status === 'contract-tested' || status === 'excluded') continue;
   if ((route.proof?.routeActions ?? []).length > 0) continue;
   const actionProposal = actionProposalByRoute.get(route.id);
+  const mode = routeMode(route);
   if (actionProposal && actionProposal.proposedRouteActions.length > 0) {
     const browserCase = actionProposal.evidence.find((entry) => entry.kind === 'browser')?.id ?? null;
     const goTest = actionProposal.evidence.find((entry) => entry.kind === 'go')?.name ?? null;
@@ -34,6 +35,7 @@ for (const route of ledger.routes ?? []) {
       method: route.method,
       path: route.path,
       currentStatus: status,
+      routeMode: mode,
       proposedStatus: 'modeled-only',
       proposedRouteActions: actionProposal.proposedRouteActions,
       confidence: actionProposal.confidence,
@@ -50,16 +52,16 @@ for (const route of ledger.routes ?? []) {
   const browserEvidence = evidence.browser[0]?.id ?? null;
   const goEvidence = evidence.tests.find((entry) => entry.kind === 'go');
   const uiEvidence = evidence.tests.find((entry) => entry.kind === 'ui');
-  const isWrite = route.method !== 'GET' && (route.path.includes('explicit-groups') || route.path.endsWith('/publish'));
   const hasTest = Boolean(goEvidence || uiEvidence);
   const confidence = browserEvidence && hasTest ? 'high' : browserEvidence || hasTest ? 'medium' : 'low';
-  const proposedStatus = isWrite ? 'unproven' : 'contract-tested';
+  const proposedStatus = mode === 'stateful' ? 'unproven' : 'contract-tested';
   proposals.push({
     routeId: route.id,
     tier: route.tier,
     method: route.method,
     path: route.path,
     currentStatus: status,
+    routeMode: mode,
     proposedStatus,
     proposedRouteActions: [],
     confidence,
@@ -67,8 +69,8 @@ for (const route of ledger.routes ?? []) {
     goTest: goEvidence?.name ?? null,
     uiTest: uiEvidence?.file ?? null,
     reason: proposedStatus === 'contract-tested'
-      ? 'Read or pure proposal route with no route-level TLA action. A browser case or route test is the correct proof.'
-      : 'Write route with no route-level TLA action. Model it or add a route contract test.',
+      ? 'Read-like route with no route-level TLA action. A browser case or route test is the correct proof.'
+      : 'Stateful route with no route-level TLA action. Model it or add a route contract test.',
     evidence: evidence.evidence,
     reviewRequired: true,
   });
@@ -80,6 +82,8 @@ const summary = {
   contractTested: proposals.filter((entry) => entry.proposedStatus === 'contract-tested').length,
   modeledOnly: proposals.filter((entry) => entry.proposedStatus === 'modeled-only').length,
   unproven: proposals.filter((entry) => entry.proposedStatus === 'unproven').length,
+  readLike: proposals.filter((entry) => entry.routeMode === 'read').length,
+  stateful: proposals.filter((entry) => entry.routeMode === 'stateful').length,
   high: proposals.filter((entry) => entry.confidence === 'high').length,
   medium: proposals.filter((entry) => entry.confidence === 'medium').length,
   low: proposals.filter((entry) => entry.confidence === 'low').length,
@@ -104,14 +108,14 @@ for (const [key, value] of Object.entries(summary)) lines.push('| ' + key + ' | 
 lines.push('');
 lines.push('## Review queue');
 lines.push('');
-lines.push('| Tier | Route | Proposed status | Confidence | Browser | Test | Evidence |');
-lines.push('| ---: | --- | --- | --- | --- | --- | --- |');
+lines.push('| Tier | Route | Mode | Proposed status | Confidence | Browser | Test | Evidence |');
+lines.push('| ---: | --- | --- | --- | --- | --- | --- | --- |');
 for (const entry of proposals) {
   const rendered = entry.evidence.slice(0, 3).map((item) => item.kind + (item.name ? ':' + item.name : '') + (item.file ? ' ' + item.file : ''));
   const evidence = entry.evidence.length === 0
     ? 'none'
     : rendered.join(', ') + (entry.evidence.length > rendered.length ? ' +' + (entry.evidence.length - rendered.length) + ' more' : '');
-  lines.push('| ' + [entry.tier, '`' + entry.method + ' ' + entry.path + '`', entry.proposedStatus, entry.confidence, entry.browserCase ?? 'none', entry.goTest ?? entry.uiTest ?? 'none', evidence].join(' | ') + ' |');
+  lines.push('| ' + [entry.tier, '`' + entry.method + ' ' + entry.path + '`', entry.routeMode, entry.proposedStatus, entry.confidence, entry.browserCase ?? 'none', entry.goTest ?? entry.uiTest ?? 'none', evidence].join(' | ') + ' |');
 }
 lines.push('');
 lines.push('## Bounds');

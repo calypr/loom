@@ -8,11 +8,13 @@
   },
   "summary": {
     "routes": 24,
-    "high": 8,
-    "medium": 10,
-    "low": 6,
-    "readOnly": 7,
-    "stateful": 17
+    "high": 17,
+    "medium": 5,
+    "low": 2,
+    "readOnly": 16,
+    "stateful": 8,
+    "exactEvidence": 15,
+    "suffixOnlyEvidence": 2
   },
   "proposals": [
     {
@@ -21,6 +23,7 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "builder",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -60,7 +63,14 @@
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -79,24 +89,6 @@
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
-        },
-        {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-suffix"
-        },
-        {
-          "kind": "go",
-          "name": "TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible",
-          "file": "internal/server/openapi_explorer_draft_restore_test.go",
-          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -107,7 +99,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
       "status": "modeled-only",
-      "kind": "proposal",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "ApplyAck",
@@ -122,36 +115,21 @@
         "StartPreview",
         "StartProposal"
       ],
-      "proposedRouteActions": [
-        "CancelProposal",
-        "PreviewComplete",
-        "ProposalComplete",
-        "ProposalError",
-        "ReplaceProposal",
-        "RetryProposal",
-        "StartPreview",
-        "StartProposal"
-      ],
-      "confidence": "low",
-      "reason": "Proposal route. The proposal and preview actions are candidates. Apply actions usually belong to the command route.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route-suffix"
-        },
         {
           "kind": "go",
           "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "mapping": "go-route"
         },
         {
           "kind": "go",
@@ -161,21 +139,15 @@
         },
         {
           "kind": "go",
-          "name": "TestBuilderFullUIRequestReplay",
+          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "route-suffix"
+          "mapping": "go-route-suffix"
         },
         {
-          "kind": "go",
-          "name": "TestApplyConstructionProposalReturnsExactPreviewOnlyAfterSave",
-          "file": "internal/server/openapi_explorer_construction_apply_preview_test.go",
-          "mapping": "route-suffix"
-        },
-        {
-          "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-suffix"
+          "kind": "ui",
+          "name": "projects stage-only cardinality out before the real proposal request is serialized",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
+          "mapping": "route-pattern"
         },
         {
           "kind": "ui",
@@ -185,7 +157,61 @@
         },
         {
           "kind": "ui",
+          "name": "opens the real Group editor and captures the exact serialized proposal request",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
           "name": "reports %s as an explicit adapter gap",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestApplyConstructionProposalOverCapCaptureKeepsValidationAndSave",
+          "file": "internal/server/openapi_explorer_construction_apply_preview_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "ui",
+          "name": "uses exact snake-case dimensions to emit the mounted Builder proposal request",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
           "mapping": "route-suffix"
         }
@@ -198,7 +224,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview",
       "status": "modeled-only",
-      "kind": "interpretation",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "ApplyCandidate",
@@ -206,14 +233,9 @@
         "ReviewReady",
         "ReviewStale"
       ],
-      "proposedRouteActions": [
-        "ApplyCandidate",
-        "ReviewCandidate",
-        "ReviewReady",
-        "ReviewStale"
-      ],
-      "confidence": "medium",
-      "reason": "Interpretation route. The review, revision, or apply actions are candidates. Review the handler for the exact transition.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [
         {
           "kind": "go",
@@ -242,6 +264,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "interpretation",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -266,6 +289,18 @@
           "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
           "file": "internal/server/openapi_explorer_write_scope_test.go",
           "mapping": "go-route"
+        },
+        {
+          "kind": "ui",
+          "name": "creates from the saved column without sending rules or auto-applying the result",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "ui",
+          "name": "revises the selected applicable head with its exact parent revision",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -276,6 +311,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "population",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -308,7 +344,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals",
       "status": "modeled-only",
-      "kind": "population",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "ApplyRemoval",
@@ -316,14 +353,9 @@
         "RemovalReviewReady",
         "ReviewRemoval"
       ],
-      "proposedRouteActions": [
-        "ApplyRemoval",
-        "RemovalFailed",
-        "RemovalReviewReady",
-        "ReviewRemoval"
-      ],
-      "confidence": "medium",
-      "reason": "Population route. The selection, coverage, route, or removal actions are candidates. Review the handler to remove UI-only actions.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [
         {
           "kind": "go",
@@ -340,7 +372,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes",
       "status": "modeled-only",
-      "kind": "population",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "AttachSelection",
@@ -351,17 +384,9 @@
         "ReplaceSelection",
         "RouteLookupFailed"
       ],
-      "proposedRouteActions": [
-        "AttachSelection",
-        "ExcludeMember",
-        "ExcludeRouteFound",
-        "ExcludeRouteMissing",
-        "LookupRoutes",
-        "ReplaceSelection",
-        "RouteLookupFailed"
-      ],
-      "confidence": "low",
-      "reason": "Population route. The selection, coverage, route, or removal actions are candidates. Review the handler to remove UI-only actions.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -371,12 +396,13 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish",
       "status": "unproven",
-      "kind": "other",
+      "routeMode": "stateful",
+      "kind": "publish",
       "currentRouteActions": [],
       "currentModelActions": [],
       "proposedRouteActions": [],
       "confidence": "low",
-      "reason": "No path rule matched. Review the handler and assign an action or contract test.",
+      "reason": "Publish route. No existing model action covers publication; model it or add a route contract test.",
       "evidence": [
         {
           "kind": "go",
@@ -399,6 +425,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "row-change",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -443,7 +470,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
       "status": "modeled-only",
-      "kind": "proposal",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "ApplyAck",
@@ -459,25 +487,10 @@
         "StartPreview",
         "StartProposal"
       ],
-      "proposedRouteActions": [
-        "ApplyProposal",
-        "CancelProposal",
-        "PreviewComplete",
-        "ProposalComplete",
-        "ProposalFailed",
-        "RequestProposal",
-        "StartPreview",
-        "StartProposal"
-      ],
-      "confidence": "low",
-      "reason": "Proposal route. The proposal and preview actions are candidates. Apply actions usually belong to the command route.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route-suffix"
-        },
         {
           "kind": "go",
           "name": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
@@ -486,9 +499,9 @@
         },
         {
           "kind": "go",
-          "name": "TestBuilderFullUIRequestReplay",
+          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "route-suffix"
+          "mapping": "go-route-suffix"
         },
         {
           "kind": "go",
@@ -505,15 +518,13 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries",
       "status": "unproven",
-      "kind": "discovery",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [],
-      "proposedRouteActions": [
-        "DiscoveryComplete",
-        "ScheduleDiscovery"
-      ],
-      "confidence": "medium",
-      "reason": "Discovery route. The request and completion actions come from the discovery lifecycle; verify the response identity and stale handling.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -523,6 +534,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "selection",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -530,8 +542,12 @@
         "ExcludeRouteFound",
         "ExcludeRouteMissing"
       ],
-      "proposedRouteActions": [],
-      "confidence": "low",
+      "proposedRouteActions": [
+        "ExcludeMember",
+        "ExcludeRouteFound",
+        "ExcludeRouteMissing"
+      ],
+      "confidence": "medium",
       "reason": "Selection route. The selection parsing and readiness actions are candidates. Review the handler for the exact transition.",
       "evidence": [],
       "reviewRequired": true
@@ -542,7 +558,8 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
       "status": "modeled-only",
-      "kind": "selection",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "ApplyRemoval",
@@ -555,15 +572,9 @@
         "SelectionReady",
         "SetFeatureFocus"
       ],
-      "proposedRouteActions": [
-        "ParseRoute",
-        "ReplaceExplorer",
-        "SelectionFailed",
-        "SelectionReady",
-        "SetFeatureFocus"
-      ],
-      "confidence": "medium",
-      "reason": "Selection route. The selection parsing and readiness actions are candidates. Review the handler for the exact transition.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [],
       "reviewRequired": true
     },
@@ -573,7 +584,8 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers",
       "status": "modeled-only",
-      "kind": "explorer",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "CreateExplorer",
@@ -585,22 +597,33 @@
         "Inv_DeleteKeepsFallback",
         "SelectExplorer"
       ],
-      "proposedRouteActions": [
-        "CreateExplorer",
-        "DeleteCapability",
-        "DeleteExplorer",
-        "ExplorerListComplete",
-        "ExplorerListError",
-        "HydrateBuilder",
-        "SelectExplorer"
-      ],
-      "confidence": "medium",
-      "reason": "Explorer route. The list, create, delete, or select actions are candidates. Review the handler for the exact transition.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -670,12 +693,6 @@
         },
         {
           "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "go-route"
@@ -730,25 +747,25 @@
         },
         {
           "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
+          "kind": "go",
+          "name": "TestCreateExplorerFromCurrentClonesWorkspaceOnServer",
+          "file": "internal/server/explorer_receipt_contract_test.go",
+          "mapping": "route-pattern"
         },
         {
           "kind": "go",
-          "name": "TestAcceptanceWorkspaceDefinesPatientCohortContract",
+          "name": "TestGeneratedExplorerMutationRoutePreservesNoAuthOmission",
+          "file": "internal/server/openapi_explorer_write_scope_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog",
           "file": "internal/acceptance/scenario_test.go",
           "mapping": "route-suffix"
         }
@@ -761,6 +778,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "explorer",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -775,10 +793,6 @@
       ],
       "proposedRouteActions": [
         "CreateExplorer",
-        "DeleteCapability",
-        "DeleteExplorer",
-        "ExplorerListComplete",
-        "ExplorerListError",
         "HydrateBuilder",
         "SelectExplorer"
       ],
@@ -788,7 +802,26 @@
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -858,12 +891,6 @@
         },
         {
           "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "go-route"
@@ -918,25 +945,25 @@
         },
         {
           "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
+          "kind": "go",
+          "name": "TestCreateExplorerFromCurrentClonesWorkspaceOnServer",
+          "file": "internal/server/explorer_receipt_contract_test.go",
+          "mapping": "route-pattern"
         },
         {
           "kind": "go",
-          "name": "TestAcceptanceWorkspaceDefinesPatientCohortContract",
+          "name": "TestGeneratedExplorerMutationRoutePreservesNoAuthOmission",
+          "file": "internal/server/openapi_explorer_write_scope_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog",
           "file": "internal/acceptance/scenario_test.go",
           "mapping": "route-suffix"
         }
@@ -949,6 +976,7 @@
       "method": "DELETE",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}",
       "status": "modeled-only",
+      "routeMode": "stateful",
       "kind": "explorer",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -958,14 +986,24 @@
         "SelectExplorer"
       ],
       "proposedRouteActions": [
-        "CreateExplorer",
         "DeleteCapability",
-        "DeleteExplorer",
-        "SelectExplorer"
+        "DeleteExplorer"
       ],
       "confidence": "medium",
       "reason": "Explorer route. The list, create, delete, or select actions are candidates. Review the handler for the exact transition.",
       "evidence": [
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-proof"
+        },
+        {
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "mapping": "route-proof"
+        },
         {
           "kind": "go",
           "name": "TestAssessAndApplyRowChangeThroughPublicAPI",
@@ -1034,12 +1072,6 @@
         },
         {
           "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
           "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "go-route"
@@ -1094,15 +1126,33 @@
         },
         {
           "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
           "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
           "file": "internal/server/explorer_config_route_test.go",
           "mapping": "go-route"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRouteBuildsDefaultProjectionFromRecipe",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRoutePreservesCompilerResultUnits",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRouteReportsMalformedCurrentProjection",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
+        },
+        {
+          "kind": "go",
+          "name": "TestExplorerStateRouteReturnsExplicitUnpublishedProjection",
+          "file": "internal/server/explorer_state_route_test.go",
+          "mapping": "route-pattern"
         }
       ],
       "reviewRequired": true
@@ -1113,6 +1163,7 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
       "status": "modeled-only",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -1128,7 +1179,14 @@
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -1143,10 +1201,10 @@
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
+          "kind": "go",
+          "name": "TestMigrateLegacyWorkspaceRejectsTruncatedOrMalformedBuilderCatalog",
+          "file": "internal/acceptance/scenario_test.go",
+          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -1157,6 +1215,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source",
       "status": "modeled-only",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -1176,6 +1235,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
       "status": "unproven",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [],
@@ -1186,7 +1246,14 @@
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -1199,12 +1266,6 @@
           "name": "TestInterpretationReadRoutesEnforceProjectReadAuthorization",
           "file": "internal/server/openapi_interpretation_routes_test.go",
           "mapping": "go-route"
-        },
-        {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
         }
       ],
       "reviewRequired": true
@@ -1215,6 +1276,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
       "status": "modeled-only",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -1238,7 +1300,14 @@
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
+          "file": null,
+          "mapping": "browser-evidence"
+        },
+        {
+          "kind": "playwright",
+          "name": "recompile",
+          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "mapping": "route-proof"
         },
         {
           "kind": "go",
@@ -1253,18 +1322,6 @@
           "mapping": "go-route"
         },
         {
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "kind": "go",
-          "name": "TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "mapping": "route-suffix"
-        },
-        {
           "kind": "ui",
           "name": "exports only registered callable handlers and reports uncovered inventory IDs",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
@@ -1274,6 +1331,36 @@
           "kind": "ui",
           "name": "reports %s as an explicit adapter gap",
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestBuilderHTTPSerializesEmptyConstructionStepsAsArray",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalCurrentCodingGroupSpecimenFocusObservationHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
+          "mapping": "route-suffix"
+        },
+        {
+          "kind": "go",
+          "name": "TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation",
+          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
           "mapping": "route-suffix"
         }
       ],
@@ -1285,6 +1372,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options",
       "status": "modeled-only",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -1308,6 +1396,7 @@
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
       "status": "modeled-only",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -1333,6 +1422,12 @@
           "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
           "mapping": "go-route"
+        },
+        {
+          "kind": "go",
+          "name": "TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation",
+          "file": "internal/server/openapi_explorer_row_definition_test.go",
+          "mapping": "route-suffix"
         }
       ],
       "reviewRequired": true
@@ -1343,6 +1438,7 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage",
       "status": "modeled-only",
+      "routeMode": "read",
       "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
@@ -1363,7 +1459,8 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions",
       "status": "modeled-only",
-      "kind": "proposal",
+      "routeMode": "read",
+      "kind": "read",
       "currentRouteActions": [],
       "currentModelActions": [
         "AddRoute",
@@ -1379,25 +1476,15 @@
         "StartPreview",
         "StartProposal"
       ],
-      "proposedRouteActions": [
-        "PreviewComplete",
-        "ProposalComplete",
-        "StartPreview",
-        "StartProposal"
-      ],
-      "confidence": "medium",
-      "reason": "Proposal route. The proposal and preview actions are candidates. Apply actions usually belong to the command route.",
+      "proposedRouteActions": [],
+      "confidence": "high",
+      "reason": "Route path is a read/search endpoint. No TLA transition belongs at the route boundary. The route should be contract-tested.",
       "evidence": [
         {
           "kind": "browser",
           "id": "builder-controls:recompile",
-          "file": null
-        },
-        {
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "go-route"
+          "file": null,
+          "mapping": "browser-evidence"
         },
         {
           "kind": "playwright",
@@ -1407,9 +1494,9 @@
         },
         {
           "kind": "go",
-          "name": "TestBuilderFullUIRequestReplay",
+          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "mapping": "route-suffix"
+          "mapping": "go-route"
         }
       ],
       "reviewRequired": true

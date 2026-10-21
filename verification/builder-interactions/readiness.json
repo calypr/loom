@@ -14,7 +14,11 @@
     "obligationAttributionReady": false,
     "browserEvidenceReady": false,
     "featureMapReady": true,
-    "bugDiscoveryReady": false
+    "bugDiscoveryReady": true,
+    "proposalReviewReady": false,
+    "mutationCoverageReady": false,
+    "proposalDecisionsValid": true,
+    "leverReady": true
   },
   "summary": {
     "routes": 39,
@@ -63,15 +67,30 @@
   },
   "lever": {
     "routeActionProposals": 24,
-    "routeActionProposalLow": 6,
+    "routeActionProposalLow": 2,
     "contractProofProposals": 34,
-    "contractProofProposalLow": 12,
-    "mutationProbes": 8,
-    "mutationKilled": 6,
+    "contractProofProposalLow": 11,
+    "mutationProbes": 10,
+    "mutationKilled": 8,
     "mutationSurvived": 1,
     "mutationEquivalent": 1,
-    "mutationUnprobedActions": 145,
-    "mutationStrictPass": false
+    "mutationUnprobedActions": 144,
+    "mutationStrictPass": true,
+    "mutationProbeCandidates": 144,
+    "mutationProbeCandidatesHigh": 76,
+    "mutationProbeCandidatesWithoutTests": 39,
+    "mutationGuardCandidates": 39,
+    "mutationActionsWithGuardCandidates": 28,
+    "browserCaseProposals": 28,
+    "browserCaseProposalsHigh": 7,
+    "routeActionDecisions": 24,
+    "contractProofDecisions": 34,
+    "proposalDecisionsPending": 58,
+    "proposalDecisionsAccepted": 0,
+    "proposalDecisionsRejected": 0,
+    "proposalReviewReady": false,
+    "mutationCoverageReady": false,
+    "proposalDecisionsValid": true
   },
   "blockerRoutes": [
     {

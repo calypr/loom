@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ROOT, evidenceForRoute, readJson, uniqueSorted } from './lib/builder-route-evidence.mjs';
+import { ROOT, evidenceForRoute, readJson, routeMode, uniqueSorted } from './lib/builder-route-evidence.mjs';
 
 const LEDGER = 'verification/builder-interactions/route-contract.json';
 const OBLIGATIONS = 'verification/builder-interactions/test-obligations.json';
@@ -17,9 +17,12 @@ const browser = readJson(BROWSER);
 const trace = readJson(TRACE);
 const tests = obligations.tests ?? [];
 
-const classify = (path) => {
-  if (path.includes('/explicit-groups')) return 'write';
+const classify = (route) => {
+  const path = route.path;
   if (path.endsWith('/builder')) return 'builder';
+  if (routeMode(route) === 'read') return 'read';
+  if (path.includes('/explicit-groups')) return 'write';
+  if (path.endsWith('/publish')) return 'publish';
   if (path.endsWith('discoveries')) return 'discovery';
   if (path.includes('/row-change')) return 'row-change';
   if (path.includes('/population-')) return 'population';
@@ -41,6 +44,8 @@ const propose = (route, kind, pool) => {
       return { proposed: [], confidence: 'high', reason: readReason };
     case 'write':
       return { proposed: [], confidence: 'low', reason: 'Write route. No existing model action covers this mutation. Model it or add a route contract test.' };
+    case 'publish':
+      return { proposed: [], confidence: 'low', reason: 'Publish route. No existing model action covers publication; model it or add a route contract test.' };
     case 'builder':
       return { proposed: filterPool(pool, /^HydrateBuilder$/), confidence: 'high', reason: 'The GET builder route hydrates the Builder workspace. HydrateBuilder is the route-level transition.' };
     case 'discovery': {
@@ -85,7 +90,7 @@ const propose = (route, kind, pool) => {
       };
     }
     case 'selection': {
-      const matched = filterPool(pool, /Selection|ParseRoute|SetFeatureFocus|ReplaceExplorer/);
+      const matched = filterPool(pool, /Selection|Exclude|ParseRoute|SetFeatureFocus|ReplaceExplorer/);
       return {
         proposed: matched,
         confidence: matched.length > 0 && matched.length <= 6 ? 'medium' : 'low',
@@ -93,7 +98,12 @@ const propose = (route, kind, pool) => {
       };
     }
     case 'explorer': {
-      const matched = filterPool(pool, /Explorer|HydrateBuilder|DeleteCapability/);
+      const pattern = route.method === 'DELETE'
+        ? /DeleteExplorer|DeleteCapability/
+        : route.method === 'POST'
+          ? /CreateExplorer|SelectExplorer|HydrateBuilder/
+          : /Explorer|HydrateBuilder/;
+      const matched = filterPool(pool, pattern);
       return {
         proposed: matched,
         confidence: matched.length > 0 && matched.length <= 8 ? 'medium' : 'low',
@@ -110,7 +120,8 @@ for (const route of ledger.routes ?? []) {
   const status = route.proof?.status ?? 'missing';
   if (status === 'modeled-and-traced' || status === 'contract-tested' || status === 'excluded') continue;
   if (route.proof?.routeActionReason) continue;
-  const kind = classify(route.path);
+  const kind = classify(route);
+  const mode = routeMode(route);
   const pool = uniqueSorted(route.proof?.modelActions ?? []);
   const result = propose(route, kind, pool);
   const evidence = evidenceForRoute(route, tests, browser.cases ?? []);
@@ -120,6 +131,7 @@ for (const route of ledger.routes ?? []) {
     method: route.method,
     path: route.path,
     status,
+    routeMode: mode,
     kind,
     currentRouteActions: route.proof?.routeActions ?? [],
     currentModelActions: pool,
@@ -137,8 +149,10 @@ const summary = {
   high: proposals.filter((entry) => entry.confidence === 'high').length,
   medium: proposals.filter((entry) => entry.confidence === 'medium').length,
   low: proposals.filter((entry) => entry.confidence === 'low').length,
-  readOnly: proposals.filter((entry) => entry.kind === 'read').length,
-  stateful: proposals.filter((entry) => entry.kind !== 'read').length,
+  readOnly: proposals.filter((entry) => entry.routeMode === 'read').length,
+  stateful: proposals.filter((entry) => entry.routeMode === 'stateful').length,
+  exactEvidence: proposals.filter((entry) => entry.evidence.some((item) => ['go-route', 'route-proof', 'route-pattern'].includes(item.mapping))).length,
+  suffixOnlyEvidence: proposals.filter((entry) => entry.evidence.length > 0 && entry.evidence.every((item) => item.mapping === 'route-suffix' || item.mapping === 'go-route-suffix')).length,
 };
 const payload = {
   schemaVersion: 1,
@@ -160,14 +174,14 @@ for (const [key, value] of Object.entries(summary)) lines.push('| ' + key + ' | 
 lines.push('');
 lines.push('## Review queue');
 lines.push('');
-lines.push('| Tier | Route | Kind | Confidence | Proposed actions | Evidence |');
-lines.push('| ---: | --- | --- | --- | --- | --- |');
+lines.push('| Tier | Route | Mode | Kind | Confidence | Proposed actions | Evidence |');
+lines.push('| ---: | --- | --- | --- | --- | --- | --- |');
 for (const entry of proposals) {
   const rendered = entry.evidence.slice(0, 3).map((item) => item.kind + (item.name ? ':' + item.name : '') + (item.file ? ' ' + item.file : ''));
   const evidence = entry.evidence.length === 0
     ? 'none'
     : rendered.join(', ') + (entry.evidence.length > rendered.length ? ' +' + (entry.evidence.length - rendered.length) + ' more' : '');
-  lines.push('| ' + [entry.tier, '`' + entry.method + ' ' + entry.path + '`', entry.kind, entry.confidence, entry.proposedRouteActions.length === 0 ? 'none' : entry.proposedRouteActions.map((action) => '`' + action + '`').join(', '), evidence].join(' | ') + ' |');
+  lines.push('| ' + [entry.tier, '`' + entry.method + ' ' + entry.path + '`', entry.routeMode, entry.kind, entry.confidence, entry.proposedRouteActions.length === 0 ? 'none' : entry.proposedRouteActions.map((action) => '`' + action + '`').join(', '), evidence].join(' | ') + ' |');
 }
 lines.push('');
 lines.push('## Bounds');

@@ -11,17 +11,22 @@ const valueFor = (name) => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
 };
+const fail = (message) => {
+  console.error('FAIL ' + message);
+  process.exit(1);
+};
 const reportPaths = [];
 for (let index = 0; index < args.length; index += 1) {
   if (args[index] === '--report') reportPaths.push(args[++index]);
 }
 const output = valueFor('--output') ?? DEFAULT_OUTPUT;
 const check = args.includes('--check');
-const fail = (message) => {
-  console.error('FAIL ' + message);
-  process.exit(1);
-};
-
+if (args.includes('--from-evidence')) {
+  const evidencePath = resolve(ROOT, output);
+  if (!existsSync(evidencePath)) fail(output + ' does not exist; cannot read --from-evidence');
+  const current = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  for (const reportPath of current.generatedFrom ?? []) reportPaths.push(reportPath);
+}
 if (reportPaths.length === 0) fail('usage: node scripts/generate-builder-browser-evidence.mjs --report <report.json> [--report <report.json>] [--output <path>] [--check]');
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -39,7 +44,7 @@ const routeKey = (method, path) => String(method).toUpperCase() + ' ' + normaliz
 const cases = [];
 const generatedFrom = [];
 for (const reportPath of reportPaths) {
-  const absolute = isAbsolute(reportPath) ? reportPath : resolve(process.cwd(), reportPath);
+  const absolute = isAbsolute(reportPath) ? reportPath : resolve(ROOT, reportPath);
   if (!existsSync(absolute)) fail('browser report does not exist: ' + reportPath);
   const bytes = readFileSync(absolute);
   let report;

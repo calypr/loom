@@ -614,7 +614,14 @@ function runReadiness() {
     ['Builder obligation report freshness', ['scripts/build-test-obligations.mjs', '--check']],
     ['Builder route action proposals', ['scripts/propose-builder-route-actions.mjs', '--check']],
     ['Builder contract proof proposals', ['scripts/propose-builder-contract-proofs.mjs', '--check']],
+    ['Builder proposal decision self-test', ['scripts/apply-builder-proposal-decisions.mjs', '--self-test']],
+    ['Builder proposal decisions', ['scripts/apply-builder-proposal-decisions.mjs', '--check']],
+    ['Builder browser evidence', ['scripts/generate-builder-browser-evidence.mjs', '--from-evidence', '--check']],
+    ['Builder browser case proposals', ['scripts/propose-builder-browser-cases.mjs', '--check']],
+    ['Builder mutation probe proposal self-test', ['scripts/propose-builder-mutation-probes.mjs', '--self-test']],
+    ['Builder mutation probe proposals', ['scripts/propose-builder-mutation-probes.mjs', '--check']],
     ['Builder bug discovery report', ['scripts/run-builder-bug-discovery.mjs', '--check']],
+    ['Builder bug discovery strict gate', ['scripts/run-builder-bug-discovery.mjs', '--check', '--strict']],
     ['Builder readiness report', ['scripts/build-builder-readiness.mjs', '--check']],
   ];
   for (const [label, command] of checks) {
