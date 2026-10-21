@@ -9,6 +9,9 @@ const BROWSER = 'verification/builder-interactions/browser-evidence.json';
 const TRACE = 'verification/builder-interactions/builder-trace-contract.json';
 const INVENTORY = 'docs/ui-contract-inventory/ui-supported-affordances.json';
 const MODEL_MAP = 'verification/builder-interactions/affordance-model-map.json';
+const ROUTE_ACTION_PROPOSALS = 'verification/builder-interactions/route-action-proposals.json';
+const CONTRACT_PROOF_PROPOSALS = 'verification/builder-interactions/contract-proof-proposals.json';
+const BUG_DISCOVERY = 'verification/builder-interactions/bug-discovery.json';
 const OUTPUT_JSON = 'verification/builder-interactions/readiness.json';
 const OUTPUT_MD = 'verification/builder-interactions/readiness.md';
 const check = process.argv.includes('--check');
@@ -25,6 +28,9 @@ const browser = readJson(BROWSER);
 const trace = readJson(TRACE);
 const inventory = readJson(INVENTORY);
 const modelMap = readJson(MODEL_MAP);
+const routeActionProposals = existsSync(resolve(ROOT, ROUTE_ACTION_PROPOSALS)) ? readJson(ROUTE_ACTION_PROPOSALS) : null;
+const contractProofProposals = existsSync(resolve(ROOT, CONTRACT_PROOF_PROPOSALS)) ? readJson(CONTRACT_PROOF_PROPOSALS) : null;
+const bugDiscovery = existsSync(resolve(ROOT, BUG_DISCOVERY)) ? readJson(BUG_DISCOVERY) : null;
 const browserRoutes = new Set((browser.cases ?? []).flatMap((entry) => entry.coveredRoutes ?? []));
 
 const gapOrder = {
@@ -108,15 +114,18 @@ const missingRouteActions = routes.filter((route) => route.routeActionState === 
 const emptyRouteActions = routes.filter((route) => route.routeActionState === 'empty');
 const traceTested = routes.filter((route) => route.status === 'trace-tested');
 const modeledAndTracedWithoutBrowser = routes.filter((route) => route.status === 'modeled-and-traced' && !route.browserCovered);
+const bugDiscoveryReady = bugDiscovery?.summary?.strictPass === true;
 const readiness = {
   endToEndReady: strictBlockers.length === 0
     && (summary.missingCandidate ?? 0) === 0
     && (summary.missingRouteBound ?? 0) === 0
-    && featureMapReady,
+    && featureMapReady
+    && bugDiscoveryReady,
   routeActionAuditReady: missingRouteActions.length === 0 && emptyRouteActions.length === 0,
   obligationAttributionReady: (summary.missingRouteBound ?? 0) === 0 && (summary.missingCandidate ?? 0) === 0,
   browserEvidenceReady: traceTested.length === 0 && modeledAndTracedWithoutBrowser.length === 0,
   featureMapReady,
+  bugDiscoveryReady,
 };
 
 const payload = {
@@ -155,6 +164,18 @@ const payload = {
   },
   statusCounts,
   actionStateCounts,
+  lever: {
+    routeActionProposals: routeActionProposals?.summary?.routes ?? 0,
+    routeActionProposalLow: routeActionProposals?.summary?.low ?? 0,
+    contractProofProposals: contractProofProposals?.summary?.routes ?? 0,
+    contractProofProposalLow: contractProofProposals?.summary?.low ?? 0,
+    mutationProbes: bugDiscovery?.summary?.probes ?? 0,
+    mutationKilled: bugDiscovery?.summary?.killed ?? 0,
+    mutationSurvived: bugDiscovery?.summary?.survived ?? 0,
+    mutationEquivalent: bugDiscovery?.summary?.equivalent ?? 0,
+    mutationUnprobedActions: bugDiscovery?.summary?.unprobedActions ?? 0,
+    mutationStrictPass: bugDiscovery?.summary?.strictPass ?? null,
+  },
   blockerRoutes: strictBlockers
     .map(({ id, tier, method, path, status, nextGap: gap }) => ({ id, tier, method, path, status, nextGap: gap })),
   worklist,
@@ -186,6 +207,12 @@ lines.push('');
 lines.push('| State | Count |');
 lines.push('| --- | ---: |');
 for (const [key, value] of Object.entries(actionStateCounts)) lines.push('| ' + key + ' | ' + value + ' |');
+lines.push('');
+lines.push('## Lever inputs');
+lines.push('');
+lines.push('| Measure | Count |');
+lines.push('| --- | ---: |');
+for (const [key, value] of Object.entries(payload.lever)) lines.push('| ' + key + ' | ' + (typeof value === 'boolean' ? (value ? 'yes' : 'no') : value) + ' |');
 lines.push('');
 lines.push('## Missing obligations');
 lines.push('');

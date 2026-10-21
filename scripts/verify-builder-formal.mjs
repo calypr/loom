@@ -609,22 +609,19 @@ function runRouteLedger() {
 }
 
 function runReadiness() {
-  const obligations = runCommand(
-    'Builder obligation report freshness',
-    process.execPath,
-    ['scripts/build-test-obligations.mjs', '--check'],
-    ROOT,
-  );
-  if (obligations.status !== 0) {
-    return { name: 'builder-readiness', status: 'fail', output: obligations.output };
+  const checks = [
+    ['Builder obligation parser self-test', ['scripts/build-test-obligations.mjs', '--self-test']],
+    ['Builder obligation report freshness', ['scripts/build-test-obligations.mjs', '--check']],
+    ['Builder route action proposals', ['scripts/propose-builder-route-actions.mjs', '--check']],
+    ['Builder contract proof proposals', ['scripts/propose-builder-contract-proofs.mjs', '--check']],
+    ['Builder bug discovery report', ['scripts/run-builder-bug-discovery.mjs', '--check']],
+    ['Builder readiness report', ['scripts/build-builder-readiness.mjs', '--check']],
+  ];
+  for (const [label, command] of checks) {
+    const result = runCommand(label, process.execPath, command, ROOT);
+    if (result.status !== 0) return { name: 'builder-readiness', status: 'fail', output: result.output };
   }
-  const readiness = runCommand(
-    'Builder readiness report',
-    process.execPath,
-    ['scripts/build-builder-readiness.mjs', '--check'],
-    ROOT,
-  );
-  return { name: 'builder-readiness', status: readiness.status === 0 ? 'pass' : 'fail', output: readiness.output };
+  return { name: 'builder-readiness', status: 'pass', output: '' };
 }
 
 function parseArgs() {

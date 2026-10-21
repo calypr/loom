@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T19:23:22.409Z",
+  "generatedAt": "2026-10-21T19:40:55.844Z",
   "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
   "tool": {
     "name": "TLC",
@@ -15,7 +15,7 @@
       "status": "pass",
       "stateCount": 86902,
       "distinctStateCount": 5525,
-      "depth": 9
+      "depth": 7
     },
     {
       "name": "builder-preview-safety",
@@ -29,7 +29,7 @@
       "status": "pass",
       "stateCount": 48194160,
       "distinctStateCount": 3472373,
-      "depth": 29
+      "depth": 30
     },
     {
       "name": "builder-row-definition-lifecycle",
@@ -43,7 +43,7 @@
       "status": "pass",
       "stateCount": 376,
       "distinctStateCount": 103,
-      "depth": 10
+      "depth": 9
     },
     {
       "name": "builder-root-change",
@@ -126,7 +126,7 @@
         "TestBuilderFullUIEmptyRootCreationDispatchUsesRealService",
         "TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.401s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.442s\n"
     },
     {
       "name": "go-internal-server",
@@ -136,7 +136,7 @@
         "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
         "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.765s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.705s\n"
     },
     {
       "name": "ui-contract-inventory-source",
@@ -753,7 +753,7 @@
         }
       ]
     },
-    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-xROArJ/traces-report.json"
+    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-pfNkf8/traces-report.json"
   },
   "findings": [],
   "retiredFindings": [

@@ -58,6 +58,21 @@ End to end ready: no.
 | empty | 10 |
 | missing | 24 |
 
+## Lever inputs
+
+| Measure | Count |
+| --- | ---: |
+| routeActionProposals | 24 |
+| routeActionProposalLow | 6 |
+| contractProofProposals | 34 |
+| contractProofProposalLow | 12 |
+| mutationProbes | 8 |
+| mutationKilled | 6 |
+| mutationSurvived | 1 |
+| mutationEquivalent | 1 |
+| mutationUnprobedActions | 145 |
+| mutationStrictPass | no |
+
 ## Missing obligations
 
 | Binding | Count |

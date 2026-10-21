@@ -7,7 +7,8 @@
       "find": "      if (proposalOwnerRef.current === applyingOwner) cancel();",
       "replace": "      cancel();",
       "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-      "expectedFailure": "old Apply success after replacement"
+      "expectedFailure": "old Apply success after replacement",
+      "modelAction": "BuilderPreview.ApplyAck"
     },
     {
       "id": "preview-receipt-guard",
@@ -15,7 +16,8 @@
       "find": "  preview.receiptId === proposalId &&\n  preview.outputId === outputId &&",
       "replace": "  preview.outputId === outputId &&",
       "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-      "expectedFailure": "B preview=wrong receipt"
+      "expectedFailure": "B preview=wrong receipt",
+      "modelAction": "BuilderPreview.PreviewComplete"
     },
     {
       "id": "proposal-draft-digest-guard",
@@ -23,7 +25,8 @@
       "find": "          response.draftDigest === args.expectedDraftDigest;\n        if (!matchesBase)",
       "replace": "          true;\n        if (!matchesBase)",
       "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-      "expectedFailure": "expectedDraftDigest mismatch"
+      "expectedFailure": "expectedDraftDigest mismatch",
+      "modelAction": "BuilderPreview.ProposalComplete"
     },
     {
       "id": "root-change-epoch-guard",
@@ -31,7 +34,8 @@
       "find": "): boolean => left.epoch === right.epoch && left.project === right.project &&",
       "replace": "): boolean => left.project === right.project &&",
       "test": "src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts",
-      "expectedFailure": "different request epoch"
+      "expectedFailure": "different request epoch",
+      "modelAction": "RootChange.WorkspaceChanged"
     },
     {
       "id": "population-removal-receipt-guard",
@@ -39,7 +43,8 @@
       "find": "    response.preview.receiptId !== response.proposalId || response.preview.outputId !== args.outputId",
       "replace": "    response.preview.outputId !== args.outputId",
       "test": "src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
-      "expectedFailure": "another receipt"
+      "expectedFailure": "another receipt",
+      "modelAction": "Population.ApplyRemoval"
     },
     {
       "id": "interpretation-apply-receipt-guard",
@@ -47,7 +52,8 @@
       "find": "        candidateReceiptId: review.result.candidateReceiptId,",
       "replace": "        candidateReceiptId: review.result.revisionId,",
       "test": "src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
-      "expectedFailure": "candidate-receipt"
+      "expectedFailure": "candidate-receipt",
+      "modelAction": "Interpretation.ApplyCandidate"
     },
     {
       "id": "discovery-generation-guard",
@@ -56,7 +62,8 @@
       "replace": "        if (controller.signal.aborted) return;",
       "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.unit.test.tsx",
       "expectedFailure": "same-key discovery settlement",
-      "equivalent": "invalidatePivotDiscovery aborts the active controller, so controller.signal.aborted rejects the stale settlement before the generation check is reached."
+      "equivalent": "invalidatePivotDiscovery aborts the active controller, so controller.signal.aborted rejects the stale settlement before the generation check is reached.",
+      "modelAction": "BuilderPreview.DiscoveryComplete"
     },
     {
       "id": "command-draft-version-guard",
@@ -65,7 +72,8 @@
       "replace": "            snapshotToken: current.catalog.snapshotToken,\n            expectedDraftVersion: current.draftVersion,",
       "test": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
       "testNamePattern": "automatically previews saved commands and publishes the resulting receipt",
-      "expectedFailure": "automatically previews saved commands"
+      "expectedFailure": "automatically previews saved commands",
+      "modelAction": "LifecycleEntry.StartCommand"
     }
   ]
 }

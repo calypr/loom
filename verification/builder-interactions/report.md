@@ -8,11 +8,11 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 
 ## Checks
 
-- `builder-operations`: **pass** (86902 generated / 5525 distinct, depth 9)
+- `builder-operations`: **pass** (86902 generated / 5525 distinct, depth 7)
 - `builder-preview-safety`: **pass** (496664 generated / 66469 distinct, depth 20)
-- `builder-workspace-lifecycle`: **pass** (48194160 generated / 3472373 distinct, depth 29)
+- `builder-workspace-lifecycle`: **pass** (48194160 generated / 3472373 distinct, depth 30)
 - `builder-row-definition-lifecycle`: **pass** (619 generated / 177 distinct, depth 10)
-- `builder-draft-restore`: **pass** (376 generated / 103 distinct, depth 10)
+- `builder-draft-restore`: **pass** (376 generated / 103 distinct, depth 9)
 - `builder-root-change`: **pass** (510 generated / 137 distinct, depth 10)
 - `builder-column-presentation`: **pass** (2845751 generated / 130465 distinct, depth 12)
 - `builder-population`: **pass** (1584747 generated / 114118 distinct, depth 19)

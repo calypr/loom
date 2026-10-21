@@ -1,0 +1,58 @@
+# Builder contract proof proposals
+
+Status: generated review queue. These proposals do not change the route ledger.
+
+## Summary
+
+| Measure | Count |
+| --- | ---: |
+| routes | 34 |
+| contractTested | 17 |
+| modeledOnly | 15 |
+| unproven | 2 |
+| high | 5 |
+| medium | 17 |
+| low | 12 |
+
+## Review queue
+
+| Tier | Route | Proposed status | Confidence | Browser | Test | Evidence |
+| ---: | --- | --- | --- | --- | --- | --- |
+| 1 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder` | modeled-only | high | builder-controls:recompile | TestBuilderUnavailableResponseExplainsResourceInventoryRebuild | browser, go:TestBuilderUnavailableResponseExplainsResourceInventoryRebuild internal/server/explorer_capability_test.go, go:TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody internal/acceptance/scenario_test.go +4 more |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals` | modeled-only | low | none | TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal | go:TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal internal/explorer/lifecycle/builder_full_ui_replay_test.go, go:TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService internal/explorer/lifecycle/builder_full_ui_replay_test.go, go:TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly internal/server/openapi_explorer_construction_proposal_test.go +6 more |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview` | modeled-only | medium | none | TestInterpretationPreviewRouteRejectsMissingBody | go:TestInterpretationPreviewRouteRejectsMissingBody internal/server/openapi_interpretation_routes_test.go, go:TestInterpretationReadRoutesEnforceProjectReadAuthorization internal/server/openapi_interpretation_routes_test.go, ui:renders only server-listed applicable summaries, then reviews, cancels, and applies the exact receipt ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions` | modeled-only | medium | none | TestGeneratedExplorerMutationRoutesForwardAuthResourcePath | go:TestGeneratedExplorerMutationRoutesForwardAuthResourcePath internal/server/openapi_explorer_write_scope_test.go |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping` | modeled-only | medium | none | TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction | go:TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction internal/server/openapi_explorer_population_mapping_construction_test.go |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals` | modeled-only | medium | none | TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS | go:TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS internal/server/openapi_explorer_population_member_proposal_test.go |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes` | modeled-only | low | none | none | none |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish` | unproven | medium | none | TestGeneratedExplorerMutationRoutesForwardAuthResourcePath | go:TestGeneratedExplorerMutationRoutesForwardAuthResourcePath internal/server/openapi_explorer_write_scope_test.go, go:TestOpenAPIDocumentsOperationSpecificFailureStatuses internal/server/openapi_route_inventory_test.go |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change` | modeled-only | low | none | TestAssessAndApplyRowChangeThroughPublicAPI | go:TestAssessAndApplyRowChangeThroughPublicAPI internal/server/explorer_row_change_route_test.go |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals` | modeled-only | low | none | TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService | go:TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService internal/explorer/lifecycle/builder_full_ui_replay_test.go, go:TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt internal/server/case008_row_definition_preview_route_test.go, go:TestBuilderFullUIRequestReplay internal/explorer/lifecycle/builder_full_ui_replay_test.go +1 more |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries` | modeled-only | medium | none | none | none |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals` | contract-tested | medium | none | TestOpenAPIDocumentsOperationSpecificFailureStatuses | go:TestOpenAPIDocumentsOperationSpecificFailureStatuses internal/server/openapi_route_inventory_test.go |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions` | contract-tested | low | none | none | none |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/selections` | contract-tested | low | none | none | none |
+| 1 | `GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}` | modeled-only | medium | none | none | none |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups` | unproven | low | none | none | none |
+| 2 | `GET /api/v1/projects/{project}/explorers` | modeled-only | medium | builder-controls:recompile | TestAssessAndApplyRowChangeThroughPublicAPI | browser, go:TestAssessAndApplyRowChangeThroughPublicAPI internal/server/explorer_row_change_route_test.go, go:TestBrowseSemanticInventoryThroughPublicAPI internal/server/openapi_semantic_inventory_test.go +23 more |
+| 2 | `POST /api/v1/projects/{project}/explorers` | modeled-only | medium | builder-controls:recompile | TestAssessAndApplyRowChangeThroughPublicAPI | browser, go:TestAssessAndApplyRowChangeThroughPublicAPI internal/server/explorer_row_change_route_test.go, go:TestBrowseSemanticInventoryThroughPublicAPI internal/server/openapi_semantic_inventory_test.go +23 more |
+| 2 | `DELETE /api/v1/projects/{project}/explorers/{explorerId}` | modeled-only | medium | none | TestAssessAndApplyRowChangeThroughPublicAPI | go:TestAssessAndApplyRowChangeThroughPublicAPI internal/server/explorer_row_change_route_test.go, go:TestBrowseSemanticInventoryThroughPublicAPI internal/server/openapi_semantic_inventory_test.go, go:TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt internal/server/explorer_receipt_contract_test.go +20 more |
+| 2 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability` | contract-tested | high | builder-controls:recompile | TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody | browser, go:TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody internal/acceptance/scenario_test.go, go:TestMigrateLegacyWorkspaceForOldAPIPreservesExactBytes internal/acceptance/scenario_test.go +1 more |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source` | contract-tested | low | none | none | none |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context` | contract-tested | high | builder-controls:recompile | TestConfiguredColumnContextRouteRejectsMissingBody | browser, go:TestConfiguredColumnContextRouteRejectsMissingBody internal/server/openapi_interpretation_routes_test.go, go:TestInterpretationReadRoutesEnforceProjectReadAuthorization internal/server/openapi_interpretation_routes_test.go +1 more |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities` | contract-tested | high | builder-controls:recompile | TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly | browser, go:TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly internal/server/openapi_explorer_construction_proposal_test.go, go:TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata internal/server/openapi_explorer_construction_proposal_test.go +4 more |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices` | contract-tested | medium | none | ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx | ui:uses indexed catalog fields without requesting generated schema fields ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx, ui:drops a saved occurrence when switching to a related node and applies only a server route choice ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionSourcePicker.unit.test.tsx |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs` | contract-tested | medium | none | TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog | go:TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog internal/server/openapi_explorer_construction_inputs_test.go |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options` | contract-tested | low | none | none | none |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices` | contract-tested | medium | none | TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices | go:TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices internal/server/openapi_explorer_construction_proposal_test.go |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors` | contract-tested | medium | none | TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices | go:TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices internal/server/openapi_explorer_construction_proposal_test.go |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices` | contract-tested | low | none | none | none |
+| 2 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices` | contract-tested | medium | none | TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint | go:TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint internal/explorer/lifecycle/builder_full_ui_replay_test.go |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage` | contract-tested | low | none | none | none |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory` | contract-tested | high | builder-controls:recompile | TestBrowseSemanticInventoryThroughPublicAPI | browser, go:TestBrowseSemanticInventoryThroughPublicAPI internal/server/openapi_semantic_inventory_test.go, playwright:recompile scripts/verify-ui/specs/builder-controls.spec.mjs +2 more |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions` | modeled-only | medium | builder-controls:recompile | TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint | browser, go:TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint internal/explorer/lifecycle/builder_full_ui_replay_test.go, playwright:recompile scripts/verify-ui/specs/builder-controls.spec.mjs +1 more |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities` | contract-tested | low | none | none | none |
+
+## Bounds
+
+A proposal is evidence, not proof. Review the test or browser case before adding it to `builder-route-overrides.json`.

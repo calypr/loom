@@ -86,8 +86,7 @@ function routeSuffix(path) {
   return /^\{[^}]+\}$/.test(suffix) ? null : suffix;
 }
 
-function parseTla(modelFile) {
-  const text = readFileSync(modelFile, 'utf8');
+function parseTlaText(text) {
   const definitions = new Set();
   for (const match of text.matchAll(/^([A-Za-z_][A-Za-z0-9_]*)(?:\([^)]*\))?\s*==/gm)) {
     definitions.add(match[1]);
@@ -104,6 +103,29 @@ function parseTla(modelFile) {
     if (action) actions.push(action);
   }
   return { actions: uniqueSorted(actions), invariants: [] };
+}
+
+function parseTla(modelFile) {
+  return parseTlaText(readFileSync(modelFile, 'utf8'));
+}
+
+function selfTestParser() {
+  const fixture = `---- MODULE ParserSelfTest ----
+EXTENDS Naturals
+VARIABLES x
+Init == x = 0
+FirstAction == x = 0 /\\ x' = 1
+SecondAction == x = 1 /\\ x' = 0
+Next ==
+  \\/ FirstAction
+  \\/ SecondAction
+Spec == Init /\\ [][Next]_x
+====`;
+  const parsed = parseTlaText(fixture);
+  if (!parsed.actions.includes('FirstAction')) fail('parser self-test dropped the first Next action');
+  if (!parsed.actions.includes('SecondAction')) fail('parser self-test dropped the second Next action');
+  if (parsed.actions.length !== 2) fail('parser self-test parsed ' + parsed.actions.length + ' actions, expected 2');
+  console.log('PASS obligation parser keeps the first Next action');
 }
 
 function parseInvariants(cfgFile) {
@@ -137,6 +159,11 @@ function mappingRank(mapping) {
 
 function betterMapping(left, right) {
   return mappingRank(left) >= mappingRank(right) ? left : right;
+}
+
+if (args.includes('--self-test')) {
+  selfTestParser();
+  process.exit(0);
 }
 
 const ledger = readJson(LEDGER);
