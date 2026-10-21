@@ -37,7 +37,8 @@ Make formal verification reflect the Builder's real API surface. Every UI-called
 - [x] Audited the 12 routes whose only mapped action was `AuthorStep` and added `routeActions` to the ledger. Seven are read-only and belong in `contract-tested`; `construction-choice-proposals` uses the proposal actions; `table-shape-proposals` and `table-shape-resolutions` are contract-tested because they do not mutate the draft; `explicit-groups` needs a new Population action or a contract test.
 - [x] Added the `construction-category-discoveries` pilot trace: `SetPivotPair`, `ScheduleDiscovery`, and `DiscoveryComplete` are bound to the real hook schedule. The formal suite now validates 70/70 traces. The Go contract test rejects a stale discovery before the category scan. The route proof is `trace-tested`, not `modeled-and-traced`, because no browser report covers the route.
 - [ ] Add browser evidence for `construction-category-discoveries`. The Docker VM has no free disk, so a new Playwright report cannot run. Until then the strict route check rejects the pilot as `trace-tested`.
-- [ ] Triage the 138 missing action obligations and 866 tests with no exact obligation. Add exact test mappings before adding new browser cases.
+- [x] Added a generated readiness report at `verification/builder-interactions/readiness.json` and `.md`. The current report says end-to-end ready is no. It has 36 strict route blockers, 15 audited route-action routes, 24 routes without a route-action audit, 102 candidate-bound missing obligations, 36 unbound missing obligations, trace coverage for 3 of 13 models, and browser coverage for 11 of 39 routes. The full formal runner checks that the report is current.
+- [ ] Triage the 102 candidate-bound missing obligations and 24 routes without a route-action audit before adding new browser cases. The 36 unbound missing obligations are model setup actions, not route gaps.
 
 ## Tiers
 

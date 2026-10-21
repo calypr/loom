@@ -608,6 +608,25 @@ function runRouteLedger() {
   };
 }
 
+function runReadiness() {
+  const obligations = runCommand(
+    'Builder obligation report freshness',
+    process.execPath,
+    ['scripts/build-test-obligations.mjs', '--check'],
+    ROOT,
+  );
+  if (obligations.status !== 0) {
+    return { name: 'builder-readiness', status: 'fail', output: obligations.output };
+  }
+  const readiness = runCommand(
+    'Builder readiness report',
+    process.execPath,
+    ['scripts/build-builder-readiness.mjs', '--check'],
+    ROOT,
+  );
+  return { name: 'builder-readiness', status: readiness.status === 0 ? 'pass' : 'fail', output: readiness.output };
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   const options = { strict: false, skipGo: false, model: null, listModels: false };
@@ -722,6 +741,7 @@ async function main() {
   }
   checks.push(runInventorySourceCheck());
   checks.push(runRouteLedger());
+  checks.push(runReadiness());
 
   const findings = buildFindings([]);
   const resolvedFindings = RESOLVED_FINDINGS.filter((resolved) =>

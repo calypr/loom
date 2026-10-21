@@ -116,6 +116,9 @@ for (const route of selectedRoutes) {
   if (route.proof.status === 'modeled-only' && (!Array.isArray(route.proof.modelActions) || route.proof.modelActions.length === 0)) {
     problems.push(route.id + ': modeled-only route needs model actions');
   }
+  if (strict && route.proof.status === 'modeled-only' && (route.proof.routeActions ?? []).length === 0 && (route.proof.modelActions ?? []).length > 0) {
+    problems.push(route.id + ': modeled-only route has no route actions; choose contract-tested or unproven');
+  }
   if (route.proof.status === 'contract-tested' && !hasTest(route.proof)) {
     problems.push(route.id + ': contract-tested route needs a contract, Go, or UI test');
   }

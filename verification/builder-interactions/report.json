@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T19:13:38.017Z",
+  "generatedAt": "2026-10-21T19:23:22.409Z",
   "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
   "tool": {
     "name": "TLC",
@@ -15,7 +15,7 @@
       "status": "pass",
       "stateCount": 86902,
       "distinctStateCount": 5525,
-      "depth": 7
+      "depth": 9
     },
     {
       "name": "builder-preview-safety",
@@ -36,7 +36,7 @@
       "status": "pass",
       "stateCount": 619,
       "distinctStateCount": 177,
-      "depth": 12
+      "depth": 10
     },
     {
       "name": "builder-draft-restore",
@@ -92,7 +92,7 @@
       "status": "pass",
       "stateCount": 1913635,
       "distinctStateCount": 148629,
-      "depth": 21
+      "depth": 19
     },
     {
       "name": "real-controller-schedules",
@@ -126,7 +126,7 @@
         "TestBuilderFullUIEmptyRootCreationDispatchUsesRealService",
         "TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.710s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.401s\n"
     },
     {
       "name": "go-internal-server",
@@ -136,7 +136,7 @@
         "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
         "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.878s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.765s\n"
     },
     {
       "name": "ui-contract-inventory-source",
@@ -145,6 +145,10 @@
     },
     {
       "name": "builder-route-ledger",
+      "status": "pass"
+    },
+    {
+      "name": "builder-readiness",
       "status": "pass"
     }
   ],
@@ -749,7 +753,7 @@
         }
       ]
     },
-    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-deNSqV/traces-report.json"
+    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-xROArJ/traces-report.json"
   },
   "findings": [],
   "retiredFindings": [

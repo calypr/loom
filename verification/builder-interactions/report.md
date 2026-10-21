@@ -8,10 +8,10 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 
 ## Checks
 
-- `builder-operations`: **pass** (86902 generated / 5525 distinct, depth 7)
+- `builder-operations`: **pass** (86902 generated / 5525 distinct, depth 9)
 - `builder-preview-safety`: **pass** (496664 generated / 66469 distinct, depth 20)
 - `builder-workspace-lifecycle`: **pass** (48194160 generated / 3472373 distinct, depth 29)
-- `builder-row-definition-lifecycle`: **pass** (619 generated / 177 distinct, depth 12)
+- `builder-row-definition-lifecycle`: **pass** (619 generated / 177 distinct, depth 10)
 - `builder-draft-restore`: **pass** (376 generated / 103 distinct, depth 10)
 - `builder-root-change`: **pass** (510 generated / 137 distinct, depth 10)
 - `builder-column-presentation`: **pass** (2845751 generated / 130465 distinct, depth 12)
@@ -19,7 +19,7 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 - `builder-interpretation`: **pass** (5711 generated / 636 distinct, depth 12)
 - `builder-supporting-surfaces`: **pass** (516262 generated / 34161 distinct, depth 13)
 - `builder-lifecycle-entry`: **pass** (13379003 generated / 845705 distinct, depth 20)
-- `builder-reconcile-lifecycle`: **pass** (1913635 generated / 148629 distinct, depth 21)
+- `builder-reconcile-lifecycle`: **pass** (1913635 generated / 148629 distinct, depth 19)
 - `real-controller-schedules`: **pass**
 - `builder-trace-validation`: **pass**
 - `builder-trace-validator-self-test`: **pass**
@@ -27,6 +27,7 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 - `go-internal-server`: **pass**
 - `ui-contract-inventory-source`: **pass**
 - `builder-route-ledger`: **pass**
+- `builder-readiness`: **pass**
 
 ## Route ledger
 

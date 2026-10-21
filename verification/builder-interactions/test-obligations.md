@@ -13,6 +13,9 @@ Status: generated from the TLA models and existing test metadata.
 | covered | 15 |
 | partial | 86 |
 | missing | 138 |
+| missingRouteBound | 0 |
+| missingCandidate | 102 |
+| missingUnbound | 36 |
 | tests | 878 |
 | testsWithObligations | 12 |
 | testsWithoutObligations | 866 |
