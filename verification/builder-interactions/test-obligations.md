@@ -10,106 +10,109 @@ Status: generated from the TLA models and existing test metadata.
 | actions | 153 |
 | invariants | 86 |
 | obligations | 239 |
-| covered | 13 |
+| covered | 15 |
 | partial | 86 |
-| missing | 140 |
-| tests | 877 |
+| missing | 138 |
+| tests | 878 |
 | testsWithObligations | 12 |
-| testsWithoutObligations | 865 |
+| testsWithoutObligations | 866 |
 | obligationsWithMultipleTests | 26 |
 | duplicateTestNames | 0 |
 | repeatedPlaywrightChecks | 231 |
 | sharedProofs | 3 |
+| candidateRouteBindings | 194 |
 
 ## Obligations with no exact test
 
-- `BuilderOperations.AuthorStep` (21 route(s))
+- `BuilderOperations.AuthorStep` (16 route(s))
 - `BuilderOperations.ResetWorkspace` (0 route(s))
 - `BuilderOperations.RouteSavedStep` (1 route(s))
 - `BuilderOperations.UndoLastStep` (0 route(s))
 - `BuilderPreview.AcceptCurrentDraft` (0 route(s))
 - `BuilderPreview.AdoptDiscovery` (0 route(s))
-- `BuilderPreview.CancelProposal` (6 route(s))
+- `BuilderPreview.CancelProposal` (4 route(s))
 - `BuilderPreview.ChangeDraft` (0 route(s))
 - `BuilderPreview.ChangePivotKey` (0 route(s))
-- `BuilderPreview.DiscoveryComplete` (0 route(s))
 - `BuilderPreview.LatePreviewComplete` (0 route(s))
 - `BuilderPreview.LateProposalComplete` (0 route(s))
-- `BuilderPreview.ProposalComplete` (8 route(s))
-- `BuilderPreview.ProposalError` (4 route(s))
-- `BuilderPreview.ReplaceProposal` (4 route(s))
-- `BuilderPreview.RetryProposal` (4 route(s))
-- `BuilderPreview.ScheduleDiscovery` (0 route(s))
+- `BuilderPreview.ProposalComplete` (6 route(s))
+- `BuilderPreview.ProposalError` (2 route(s))
+- `BuilderPreview.ReplaceProposal` (2 route(s))
+- `BuilderPreview.RetryProposal` (2 route(s))
 - `BuilderPreview.SetPivotPair` (0 route(s))
-- `BuilderPreview.StartProposal` (8 route(s))
+- `BuilderPreview.StartProposal` (6 route(s))
 - `BuilderPreview.UnmountEditor` (0 route(s))
-- `ColumnPresentation.CreateRelatedAggregate` (1 route(s))
+- `ColumnPresentation.CreateRelatedAggregate` (0 route(s))
 - `ColumnPresentation.InspectColumn` (1 route(s))
 - `ColumnPresentation.InspectRejected` (1 route(s))
 - `ColumnPresentation.InspectSucceeded` (1 route(s))
-- `ColumnPresentation.MoveColumn` (1 route(s))
-- `ColumnPresentation.RemoveConfiguredColumn` (1 route(s))
-- `ColumnPresentation.RenameColumn` (1 route(s))
+- `ColumnPresentation.MoveColumn` (0 route(s))
+- `ColumnPresentation.RemoveConfiguredColumn` (0 route(s))
+- `ColumnPresentation.RenameColumn` (0 route(s))
 - `ColumnPresentation.SearchColumns` (0 route(s))
-- `ColumnPresentation.SetFeaturePolicy` (1 route(s))
-- `ColumnPresentation.SetFilterOffered` (1 route(s))
-- `ColumnPresentation.SetRowValuePolicy` (1 route(s))
-- `ColumnPresentation.ToggleVisibility` (1 route(s))
-- `ConstructionLifecycle.BeginApply` (8 route(s))
-- `ConstructionLifecycle.CancelProposal` (6 route(s))
+- `ColumnPresentation.SetFeaturePolicy` (0 route(s))
+- `ColumnPresentation.SetFilterOffered` (0 route(s))
+- `ColumnPresentation.SetRowValuePolicy` (0 route(s))
+- `ColumnPresentation.ToggleVisibility` (0 route(s))
+- `ConstructionLifecycle.BeginApply` (6 route(s))
+- `ConstructionLifecycle.CancelProposal` (4 route(s))
 - `ConstructionLifecycle.ChangeDraftIdentity` (0 route(s))
 - `ConstructionLifecycle.LatePreviewSettlementIgnored` (0 route(s))
 - `ConstructionLifecycle.LateProposalSettlementIgnored` (0 route(s))
-- `ConstructionLifecycle.PreviewComplete` (9 route(s))
+- `ConstructionLifecycle.PreviewComplete` (7 route(s))
 - `ConstructionLifecycle.PreviewError` (0 route(s))
-- `ConstructionLifecycle.ProposalComplete` (8 route(s))
-- `ConstructionLifecycle.ProposalError` (4 route(s))
-- `ConstructionLifecycle.RetryProposal` (4 route(s))
-- `ConstructionLifecycle.StartProposal` (8 route(s))
-- `DraftRestore.CancelRestore` (1 route(s))
-- `DraftRestore.RestoreComplete` (1 route(s))
-- `DraftRestore.SaveDraft` (1 route(s))
-- `DraftRestore.StaleDraft` (1 route(s))
-- `DraftRestore.StartRestore` (1 route(s))
-- `Interpretation.ApplyCandidate` (2 route(s))
+- `ConstructionLifecycle.ProposalComplete` (6 route(s))
+- `ConstructionLifecycle.ProposalError` (2 route(s))
+- `ConstructionLifecycle.RetryProposal` (2 route(s))
+- `ConstructionLifecycle.StartProposal` (6 route(s))
+- `DraftRestore.CancelRestore` (0 route(s))
+- `DraftRestore.RestoreComplete` (0 route(s))
+- `DraftRestore.SaveDraft` (0 route(s))
+- `DraftRestore.StaleDraft` (0 route(s))
+- `DraftRestore.StartRestore` (0 route(s))
+- `Interpretation.ApplyCandidate` (1 route(s))
 - `Interpretation.BeginCreate` (1 route(s))
 - `Interpretation.CancelCreate` (1 route(s))
 - `Interpretation.CreateBlocked` (1 route(s))
 - `Interpretation.CreateFailed` (1 route(s))
 - `Interpretation.CreateRevision` (1 route(s))
-- `Interpretation.ReviewCandidate` (2 route(s))
-- `Interpretation.ReviewReady` (2 route(s))
-- `Interpretation.ReviewStale` (2 route(s))
-- `LifecycleEntry.AuthoredChange` (3 route(s))
-- `LifecycleEntry.CommandStale` (3 route(s))
-- `LifecycleEntry.CommandSuccess` (3 route(s))
-- `LifecycleEntry.GateReconcile` (3 route(s))
+- `Interpretation.ReviewCandidate` (1 route(s))
+- `Interpretation.ReviewReady` (1 route(s))
+- `Interpretation.ReviewStale` (1 route(s))
+- `LifecycleEntry.AuthoredChange` (2 route(s))
+- `LifecycleEntry.CommandStale` (1 route(s))
+- `LifecycleEntry.CommandSuccess` (1 route(s))
+- `LifecycleEntry.GateReconcile` (1 route(s))
 - `LifecycleEntry.ParseRoute` (1 route(s))
-- `LifecycleEntry.ReconcileNeedsRepair` (3 route(s))
-- `LifecycleEntry.ReconcileReceiptBound` (3 route(s))
+- `LifecycleEntry.ReconcileNeedsRepair` (1 route(s))
+- `LifecycleEntry.ReconcileReceiptBound` (1 route(s))
 - `LifecycleEntry.ReplaceExplorer` (1 route(s))
-- `LifecycleEntry.RetryEntryReconcile` (3 route(s))
+- `LifecycleEntry.RetryEntryReconcile` (1 route(s))
 - `LifecycleEntry.SelectionFailed` (1 route(s))
 - `LifecycleEntry.SelectionReady` (1 route(s))
 - `LifecycleEntry.SetFeatureFocus` (1 route(s))
-- `LifecycleEntry.StartCommand` (3 route(s))
-- `Population.ApplyRemoval` (3 route(s))
-- `Population.AttachSelection` (2 route(s))
-- `Population.ClearAttached` (1 route(s))
+- `LifecycleEntry.StartCommand` (1 route(s))
+- `Population.ApplyRemoval` (2 route(s))
+- `Population.AttachSelection` (1 route(s))
+- `Population.ClearAttached` (0 route(s))
 - `Population.CoverageComplete` (1 route(s))
 - `Population.CoverageIncomplete` (1 route(s))
 - `Population.CoverageStale` (1 route(s))
-- `Population.ExcludeMember` (3 route(s))
-- `Population.ExcludeRouteFound` (3 route(s))
-- `Population.ExcludeRouteMissing` (3 route(s))
-- `Population.LookupRoutes` (2 route(s))
-- 60 more in the JSON report.
+- `Population.ExcludeMember` (2 route(s))
+- `Population.ExcludeRouteFound` (2 route(s))
+- `Population.ExcludeRouteMissing` (2 route(s))
+- `Population.LookupRoutes` (1 route(s))
+- `Population.RemovalFailed` (2 route(s))
+- `Population.RemovalReviewReady` (2 route(s))
+- 58 more in the JSON report.
 
 ## Obligations with exact tests
 
 - `BuilderPreview.ApplyAck`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
 - `BuilderPreview.BeginApply`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
+- `BuilderPreview.DiscoveryComplete`: go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`
 - `BuilderPreview.PreviewComplete`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
+- `BuilderPreview.ScheduleDiscovery`: go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`
 - `BuilderPreview.StartPreview`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
 - `ReconcileLifecycle.AuthoredChange`: playwright `recompile`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `reconcile recovery formal schedule`
 - `ReconcileLifecycle.ClearReceipt`: playwright `recompile`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `reconcile recovery formal schedule`
@@ -199,56 +202,56 @@ No duplicate test names found.
 
 ## Tests with no exact obligation
 
-- `playwright` `Duplicate, rename, select, delete, copy, and reload tables$` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Add columns waits for a current-draft preview` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Explorer deletion removes the disposable Explorer, preserves the exact fallback URL, and blocks invalid deletes$` in `scripts/verify-ui/specs/builder-explorer-deletion.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Explorer deletion stays hidden and preserves the exact Explorer list and URL across reload$` in `scripts/verify-ui/specs/builder-explorer-deletion-unavailable.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
+- `playwright` `Duplicate, rename, select, delete, copy, and reload tables$` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `Add columns waits for a current-draft preview` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `Explorer deletion removes the disposable Explorer, preserves the exact fallback URL, and blocks invalid deletes$` in `scripts/verify-ui/specs/builder-explorer-deletion.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `Explorer deletion stays hidden and preserves the exact Explorer list and URL across reload$` in `scripts/verify-ui/specs/builder-explorer-deletion-unavailable.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `Builder load list recovery shows the list failure and recovers through the in-app Retry` in `scripts/verify-ui/specs/builder-load.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `Builder load state recovery shows the state failure and recovers through the in-app Retry` in `scripts/verify-ui/specs/builder-load.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
-- `playwright` `catalog-backed suggestions expose actionable Patient candidates$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Builder authoring previews, changes an existing table root, and reloads$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `native Record type picker resolves Condition-to-Specimen alternatives through the Patient-subject path$` in `scripts/verify-ui/specs/condition-specimen-route-ambiguity.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `native table reorder preserves exact saved order and rows after reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `cohort-recode` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `cohort-expand` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `repeated-empty` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `standard Group entry proposes an empty-key COUNT_ROWS preview$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `selected Patient coverage preserves exact membership through detach, reattach, and reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Explorer switching shows distinct tables and restores the selected Explorer after reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Dataframe contract panel shows the exact Patient output and lineage$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `legacy semantics v9 preserves the saved Patient digest through native row actions and reload$` in `scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$` in `scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `published MEMBERSHIP uses exact Basic source revisions through INCLUDE, EXCLUDE edit, removal, and reload$` in `scripts/verify-ui/specs/published-membership.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
+- `playwright` `catalog-backed suggestions expose actionable Patient candidates$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Builder authoring previews, changes an existing table root, and reloads$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `native Record type picker resolves Condition-to-Specimen alternatives through the Patient-subject path$` in `scripts/verify-ui/specs/condition-specimen-route-ambiguity.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `native table reorder preserves exact saved order and rows after reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `cohort-recode` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `cohort-expand` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `repeated-empty` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `standard Group entry proposes an empty-key COUNT_ROWS preview$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `selected Patient coverage preserves exact membership through detach, reattach, and reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Explorer switching shows distinct tables and restores the selected Explorer after reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Dataframe contract panel shows the exact Patient output and lineage$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `legacy semantics v9 preserves the saved Patient digest through native row actions and reload$` in `scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$` in `scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `published MEMBERSHIP uses exact Basic source revisions through INCLUDE, EXCLUDE edit, removal, and reload$` in `scripts/verify-ui/specs/published-membership.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `native cohort Group→Pivot publishes and reloads exact Viewer counts$` in `scripts/verify-ui/specs/cohort-group-pivot-publication.spec.mjs`
-- `playwright` `native coded source column survives edit, reload, removal, and reload$` in `scripts/verify-ui/specs/builder-coded-source-column.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture expands nested coding with owner, multiplicity, Cancel, Apply, edit, removal and reload$` in `scripts/verify-ui/specs/basic-nested-coding-expand.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture preserves related source and active-record fields through Group lifecycle$` in `scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic native PRESENCE maps a nonempty zero-match Group to false with exact true comparator and full lifecycle$` in `scripts/verify-ui/specs/basic-named-cohort-presence.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `native component expansion and distinct Pivot survive preview, edit, removal, and reload$` in `scripts/verify-ui/specs/scope-001-repeated-expand-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture adds standalone coded fields with exact Coding version and display correlation$` in `scripts/verify-ui/specs/standalone-coded-fields.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$` in `scripts/verify-ui/specs/basic-coded-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture preserves exact row identities through native Pivot→Unpivot lifecycle$` in `scripts/verify-ui/specs/basic-pivot-unpivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture preserves exact Patient rows through native Unpivot→Pivot, edit, reload, and restoration$` in `scripts/verify-ui/specs/basic-unpivot-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture groups exact native Unpivot keys and counts$` in `scripts/verify-ui/specs/basic-unpivot-group.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `date filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$` in `scripts/verify-ui/specs/basic-temporal-filter.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$` in `scripts/verify-ui/specs/basic-temporal-filter.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `mapped-plus-orphan-to-empty` in `scripts/verify-ui/specs/population-member-removal.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `removes one mapped contributor, preserves the lower nonempty GROUP, and restores the exact baseline$` in `scripts/verify-ui/specs/population-member-removal.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `full-population-discovery` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `fixture-lifecycle` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `matches SUM and MAX output and restores the full CDA source after reload$` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `related quantity Pivot groups by text and applies SUM/MAX across the full route$` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `join` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `append` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `append-derived-edit` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `group-pivot` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `group-pivot-append` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `membership` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `join` in `scripts/verify-ui/specs/join.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `append` in `scripts/verify-ui/specs/append.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `lifecycle` in `scripts/verify-ui/specs/nullable-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `@dev-journey:verify-j01$` in `scripts/verify-ui/specs/dev-journeys.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `@dev-journey:verify-j05$` in `scripts/verify-ui/specs/dev-journeys.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
+- `playwright` `native coded source column survives edit, reload, removal, and reload$` in `scripts/verify-ui/specs/builder-coded-source-column.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
+- `playwright` `Basic fixture expands nested coding with owner, multiplicity, Cancel, Apply, edit, removal and reload$` in `scripts/verify-ui/specs/basic-nested-coding-expand.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Basic fixture preserves related source and active-record fields through Group lifecycle$` in `scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Basic native PRESENCE maps a nonempty zero-match Group to false with exact true comparator and full lifecycle$` in `scripts/verify-ui/specs/basic-named-cohort-presence.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `native component expansion and distinct Pivot survive preview, edit, removal, and reload$` in `scripts/verify-ui/specs/scope-001-repeated-expand-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Basic fixture adds standalone coded fields with exact Coding version and display correlation$` in `scripts/verify-ui/specs/standalone-coded-fields.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$` in `scripts/verify-ui/specs/basic-coded-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
+- `playwright` `Basic fixture preserves exact row identities through native Pivot→Unpivot lifecycle$` in `scripts/verify-ui/specs/basic-pivot-unpivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Basic fixture preserves exact Patient rows through native Unpivot→Pivot, edit, reload, and restoration$` in `scripts/verify-ui/specs/basic-unpivot-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Basic fixture groups exact native Unpivot keys and counts$` in `scripts/verify-ui/specs/basic-unpivot-group.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `date filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$` in `scripts/verify-ui/specs/basic-temporal-filter.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$` in `scripts/verify-ui/specs/basic-temporal-filter.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `mapped-plus-orphan-to-empty` in `scripts/verify-ui/specs/population-member-removal.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `removes one mapped contributor, preserves the lower nonempty GROUP, and restores the exact baseline$` in `scripts/verify-ui/specs/population-member-removal.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `full-population-discovery` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `fixture-lifecycle` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `matches SUM and MAX output and restores the full CDA source after reload$` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `related quantity Pivot groups by text and applies SUM/MAX across the full route$` in `scripts/verify-ui/specs/root-quantity-pivot.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `join` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `append` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `append-derived-edit` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `group-pivot` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `group-pivot-append` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `membership` in `scripts/verify-ui/specs/draft-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `join` in `scripts/verify-ui/specs/join.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `append` in `scripts/verify-ui/specs/append.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `lifecycle` in `scripts/verify-ui/specs/nullable-combine.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `@dev-journey:verify-j01$` in `scripts/verify-ui/specs/dev-journeys.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `@dev-journey:verify-j05$` in `scripts/verify-ui/specs/dev-journeys.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `output` in `scripts/verify-ui/specs/viewer-query.spec.mjs`
 - `playwright` `Viewer shared filters apply to linked outputs, cancel cleanly, and reset on reload$` in `scripts/verify-ui/specs/viewer-shared-filter.spec.mjs`
 - `playwright` `Viewer paginates exact fixture Patient identities and resets page state$` in `scripts/verify-ui/specs/viewer-pagination.spec.mjs`
@@ -260,26 +263,26 @@ No duplicate test names found.
 - `playwright` `Viewer downloads the published Patient dataset as an exact identity-bound ZIP$` in `scripts/verify-ui/specs/viewer-output-dataset-zip.spec.mjs`
 - `playwright` `Viewer dataset ZIP exports the complete authorized population while a facet is selected$` in `scripts/verify-ui/specs/viewer-output-filtered-dataset-zip.spec.mjs`
 - `playwright` `Basic Viewer output excludes rows from another project and generation$` in `scripts/verify-ui/specs/basic-runtime-scope-isolation.spec.mjs`
-- `playwright` `compound-coded-group-basic` in `scripts/verify-ui/specs/standalone-misc.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Basic fixture groups literal Observation codes with exact counts through Preview, Cancel, Apply, edit, removal and reload$` in `scripts/verify-ui/specs/basic-coded-group-recorded-code.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `previews, applies, reloads, and removes the exact optional routed semantic value$` in `scripts/verify-ui/specs/semantic-construction-choice-route.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Preview limits$` in `scripts/verify-ui/specs/standalone-builder.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, WorkspaceLifecycle
-- `playwright` `create, edit, cancel, apply, and remove a typed CDA filter$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `filter two-key Observation Group output by subject reference through Cancel, Apply, edit, removal, and reload$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `Explicit row-root replacement previews a reset, cancels safely, applies, and survives reload$` in `scripts/verify-ui/specs/basic-root-replacement.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `select Observation directly from a plain Patient table and restore Patient$` in `scripts/verify-ui/specs/standalone-cda-plain-patient-root-selector.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `rebase Patient rows through Observation and restore the original route and values$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `remove an unmapped selected resource, verify the saved route, and reload$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `CDA starting collection handoff hand off a starting collection, attach its route, preview, and reload$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `restricted Calypr auth keeps related Builder rows within the granted path across Cancel and Apply$` in `scripts/verify-ui/specs/scope-001-restricted-auth.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `replace a dependent starting collection across Patient and Observation, then restore its route lifecycle$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `replace the Patient setup with the exact default Observation page on the same table$` in `scripts/verify-ui/specs/cda-same-table-root-replacement.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `preserves missing-component owners through EXPANDED and GROUP removal Cancel$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `applies source expansion, verifies item values, and restores original Observation rows$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `medication-preserve-parent` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- `playwright` `preserve and exclude exact positive Medication matches through native edit and reload$` in `scripts/verify-ui/specs/related-medication-positive-fixture.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ColumnPresentation, ConstructionLifecycle, DraftRestore, Interpretation, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
-- 785 more in the JSON report.
+- `playwright` `compound-coded-group-basic` in `scripts/verify-ui/specs/standalone-misc.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Basic fixture groups literal Observation codes with exact counts through Preview, Cancel, Apply, edit, removal and reload$` in `scripts/verify-ui/specs/basic-coded-group-recorded-code.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `previews, applies, reloads, and removes the exact optional routed semantic value$` in `scripts/verify-ui/specs/semantic-construction-choice-route.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Preview limits$` in `scripts/verify-ui/specs/standalone-builder.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `create, edit, cancel, apply, and remove a typed CDA filter$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `filter two-key Observation Group output by subject reference through Cancel, Apply, edit, removal, and reload$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Explicit row-root replacement previews a reset, cancels safely, applies, and survives reload$` in `scripts/verify-ui/specs/basic-root-replacement.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `select Observation directly from a plain Patient table and restore Patient$` in `scripts/verify-ui/specs/standalone-cda-plain-patient-root-selector.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `rebase Patient rows through Observation and restore the original route and values$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, RootChange, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `remove an unmapped selected resource, verify the saved route, and reload$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `CDA starting collection handoff hand off a starting collection, attach its route, preview, and reload$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `restricted Calypr auth keeps related Builder rows within the granted path across Cancel and Apply$` in `scripts/verify-ui/specs/scope-001-restricted-auth.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `replace a dependent starting collection across Patient and Observation, then restore its route lifecycle$` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `replace the Patient setup with the exact default Observation page on the same table$` in `scripts/verify-ui/specs/cda-same-table-root-replacement.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RootChange, WorkspaceLifecycle
+- `playwright` `preserves missing-component owners through EXPANDED and GROUP removal Cancel$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `applies source expansion, verifies item values, and restores original Observation rows$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `medication-preserve-parent` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `preserve and exclude exact positive Medication matches through native edit and reload$` in `scripts/verify-ui/specs/related-medication-positive-fixture.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- 786 more in the JSON report.
 
 ## Shared route proof evidence
 

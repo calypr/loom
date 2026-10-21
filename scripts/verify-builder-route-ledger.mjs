@@ -7,7 +7,7 @@ const LEDGER = 'verification/builder-interactions/route-contract.json';
 const TRACE_CONTRACT = 'verification/builder-interactions/builder-trace-contract.json';
 const BROWSER_EVIDENCE = 'verification/builder-interactions/browser-evidence.json';
 const FORMAL_SCRIPT = 'scripts/verify-builder-formal.mjs';
-const STATUSES = new Set(['modeled-and-traced', 'modeled-only', 'contract-tested', 'unproven', 'excluded']);
+const STATUSES = new Set(['modeled-and-traced', 'trace-tested', 'modeled-only', 'contract-tested', 'unproven', 'excluded']);
 
 const fail = (message) => {
   console.error('FAIL ' + message);
@@ -60,7 +60,7 @@ for (const route of selectedRoutes) {
   }
   if (!STATUSES.has(route.proof.status)) problems.push(route.id + ': unknown proof status ' + route.proof.status);
   if (!Array.isArray(route.proof.modelActions)) problems.push(route.id + ': proof.modelActions must be an array');
-  if (route.proof.status === 'modeled-and-traced') {
+  if (route.proof.status === 'modeled-and-traced' || route.proof.status === 'trace-tested') {
     if (!route.proof.scope) problems.push(route.id + ': modeled-and-traced route needs a scope');
     if (!Array.isArray(route.proof.coveredActions) || route.proof.coveredActions.length === 0) {
       problems.push(route.id + ': modeled-and-traced route needs covered actions');
@@ -94,14 +94,16 @@ for (const route of selectedRoutes) {
         if (!uiTest.includes(schedule.test)) problems.push(route.id + ': schedule test is not in the UI test: ' + schedule.test);
       }
     }
-    if (!hasTest(route.proof)) problems.push(route.id + ': modeled-and-traced route needs an executable test');
-    if (!route.proof.browserCase) problems.push(route.id + ': modeled-and-traced route needs a browser case');
-    else {
-      const browserCase = browserCases.get(route.proof.browserCase);
-      if (!browserCase) problems.push(route.id + ': browser case is not recorded: ' + route.proof.browserCase);
-      else if (!['pass', 'passed'].includes(browserCase.status)) problems.push(route.id + ': browser case is not passing: ' + route.proof.browserCase);
-      else if (!Array.isArray(browserCase.coveredRoutes) || !browserCase.coveredRoutes.includes(route.method + ' ' + route.path)) {
-        problems.push(route.id + ': browser case does not cover the route: ' + route.proof.browserCase);
+    if (!hasTest(route.proof)) problems.push(route.id + ': trace route needs an executable test');
+    if (route.proof.status === 'modeled-and-traced') {
+      if (!route.proof.browserCase) problems.push(route.id + ': modeled-and-traced route needs a browser case');
+      else {
+        const browserCase = browserCases.get(route.proof.browserCase);
+        if (!browserCase) problems.push(route.id + ': browser case is not recorded: ' + route.proof.browserCase);
+        else if (!['pass', 'passed'].includes(browserCase.status)) problems.push(route.id + ': browser case is not passing: ' + route.proof.browserCase);
+        else if (!Array.isArray(browserCase.coveredRoutes) || !browserCase.coveredRoutes.includes(route.method + ' ' + route.path)) {
+          problems.push(route.id + ': browser case does not cover the route: ' + route.proof.browserCase);
+        }
       }
     }
     if (route.proof.goTest && !formalScript.includes(route.proof.goTest)) {
@@ -161,6 +163,7 @@ const counts = {
   tier2: selectedRoutes.filter((route) => route.tier === 2).length,
   tier3: selectedRoutes.filter((route) => route.tier === 3).length,
   modeledAndTraced: selectedRoutes.filter((route) => proofStatus(route) === 'modeled-and-traced').length,
+  traceTested: selectedRoutes.filter((route) => proofStatus(route) === 'trace-tested').length,
   modeledOnly: selectedRoutes.filter((route) => proofStatus(route) === 'modeled-only').length,
   contractTested: selectedRoutes.filter((route) => proofStatus(route) === 'contract-tested').length,
   unproven: selectedRoutes.filter((route) => proofStatus(route) === 'unproven').length,
@@ -182,6 +185,9 @@ if (!routeFilter) {
   if (Number.isInteger(scope?.modeledAndTraced) && scope.modeledAndTraced !== counts.modeledAndTraced) {
     problems.push('scope.modeledAndTraced does not match the route proof statuses');
   }
+  if (Number.isInteger(scope?.traceTested) && scope.traceTested !== counts.traceTested) {
+    problems.push('scope.traceTested does not match the route proof statuses');
+  }
   if (Number.isInteger(scope?.modeledOnly) && scope.modeledOnly !== counts.modeledOnly) {
     problems.push('scope.modeledOnly does not match the route proof statuses');
   }
@@ -196,6 +202,9 @@ if (!routeFilter) {
 console.log(JSON.stringify(counts, null, 2));
 for (const problem of problems) console.error('PROBLEM ' + problem);
 if (problems.length > 0) fail('route ledger has ' + problems.length + ' structural problems');
+if (strict && counts.traceTested > 0) {
+  fail(counts.traceTested + ' routes are trace-tested but not browser-proven; add browser evidence');
+}
 if (strict && counts.unproven + counts.modeledOnly > 0) {
   fail(counts.unproven + ' routes are unproven and ' + counts.modeledOnly + ' routes are modeled-only; assign route-level proof or exclude them');
 }

@@ -10,16 +10,16 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 
 - `builder-operations`: **pass** (86902 generated / 5525 distinct, depth 7)
 - `builder-preview-safety`: **pass** (496664 generated / 66469 distinct, depth 20)
-- `builder-workspace-lifecycle`: **pass** (48194160 generated / 3472373 distinct, depth 30)
-- `builder-row-definition-lifecycle`: **pass** (619 generated / 177 distinct, depth 10)
-- `builder-draft-restore`: **pass** (376 generated / 103 distinct, depth 9)
+- `builder-workspace-lifecycle`: **pass** (48194160 generated / 3472373 distinct, depth 29)
+- `builder-row-definition-lifecycle`: **pass** (619 generated / 177 distinct, depth 12)
+- `builder-draft-restore`: **pass** (376 generated / 103 distinct, depth 10)
 - `builder-root-change`: **pass** (510 generated / 137 distinct, depth 10)
 - `builder-column-presentation`: **pass** (2845751 generated / 130465 distinct, depth 12)
-- `builder-population`: **pass** (1584747 generated / 114118 distinct, depth 18)
+- `builder-population`: **pass** (1584747 generated / 114118 distinct, depth 19)
 - `builder-interpretation`: **pass** (5711 generated / 636 distinct, depth 12)
 - `builder-supporting-surfaces`: **pass** (516262 generated / 34161 distinct, depth 13)
 - `builder-lifecycle-entry`: **pass** (13379003 generated / 845705 distinct, depth 20)
-- `builder-reconcile-lifecycle`: **pass** (1913635 generated / 148629 distinct, depth 19)
+- `builder-reconcile-lifecycle`: **pass** (1913635 generated / 148629 distinct, depth 21)
 - `real-controller-schedules`: **pass**
 - `builder-trace-validation`: **pass**
 - `builder-trace-validator-self-test`: **pass**
@@ -31,16 +31,16 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 ## Route ledger
 
 - Builder routes: 39 (21 Tier 1, 18 Tier 2).
-- Proof: 3 modeled-and-traced, 33 modeled-only, 0 contract-tested, 3 unproven.
+- Proof: 3 modeled-and-traced, 32 modeled-only, 0 contract-tested, 3 unproven.
 - Excluded authoring routes: 4.
 - Builder evidence: 39/39 routes.
-- Route-level evidence: 3 traces, 3 tests, 3 browser cases.
+- Route-level evidence: 4 traces, 4 tests, 3 browser cases.
 
 ## Trace conformance
 
-- 69 formal traces, 20 unique after deduplication.
-- 69 validated against TLC model paths; 0 invalid.
-- Models: BuilderPreview=60, ConstructionLifecycle=1, ReconcileLifecycle=8.
+- 70 formal traces, 21 unique after deduplication.
+- 70 validated against TLC model paths; 0 invalid.
+- Models: BuilderPreview=61, ConstructionLifecycle=1, ReconcileLifecycle=8.
 - Required actions: all covered.
 - Required events: all covered.
 - Implementation events outside the trace vocabulary: 55, 0 unclassified.

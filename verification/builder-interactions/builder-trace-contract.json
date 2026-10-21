@@ -190,6 +190,18 @@
     "ClearReceipt": {
       "event": "identity-change",
       "trigger": "receipt is cleared without a request"
+    },
+    "SetPivotPair": {
+      "event": "pivot-mounted",
+      "trigger": "ConstructionReshapePivotEditor mounts the pivot category/value pair"
+    },
+    "ScheduleDiscovery": {
+      "event": "construction-discovery",
+      "trigger": "onDiscoverCategories sends the category discovery request"
+    },
+    "DiscoveryComplete": {
+      "event": "construction-discovery",
+      "trigger": "the discovery response settles"
     }
   },
   "observationFields": [
@@ -201,8 +213,8 @@
     "receiptPresent"
   ],
   "phase1": {
-    "expectedTraceCount": 69,
-    "expectedScheduleCount": 69,
+    "expectedTraceCount": 70,
+    "expectedScheduleCount": 70,
     "expectedFindingCount": 0,
     "requiredModels": [
       "BuilderPreview",
@@ -235,7 +247,10 @@
       "ReconcileFailure(retryable)",
       "ReconcileFailure(fatal)",
       "ClearReceipt",
-      "AuthoredChange"
+      "AuthoredChange",
+      "SetPivotPair",
+      "ScheduleDiscovery",
+      "DiscoveryComplete"
     ],
     "requiredEvents": [
       "propose-construction",
@@ -249,7 +264,9 @@
       "identity-change",
       "reconcile-request",
       "reconcile-retry",
-      "reconcile-response"
+      "reconcile-response",
+      "pivot-mounted",
+      "construction-discovery"
     ]
   },
   "unmodeledEventPolicy": {
@@ -292,6 +309,16 @@
         "apply ack",
         "replacement owner",
         "apply receipt"
+      ]
+    },
+    "construction-discovery": {
+      "test": "replays category discovery schedule",
+      "model": "BuilderPreview",
+      "covers": [
+        "pivot pair mount",
+        "schedule discovery",
+        "discovery complete",
+        "retained categories"
       ]
     }
   }

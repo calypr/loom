@@ -144,12 +144,17 @@ const traceContract = readJson(TRACE_CONTRACT);
 const browserEvidence = existsSync(resolve(ROOT, BROWSER_EVIDENCE)) ? readJson(BROWSER_EVIDENCE) : { cases: [] };
 const routeByKey = new Map();
 const actionToRoutes = new Map();
+const actionRouteBinding = new Map();
 for (const route of ledger.routes ?? []) {
   const key = routeKey(route.method, route.path);
   routeByKey.set(key, route);
-  for (const action of route.proof?.modelActions ?? []) {
+  const routeActions = route.proof?.routeActions ?? [];
+  const actions = routeActions.length > 0 ? routeActions : route.proof?.modelActions ?? [];
+  for (const action of actions) {
     if (!actionToRoutes.has(action)) actionToRoutes.set(action, new Set());
     actionToRoutes.get(action).add(key);
+    if (routeActions.length === 0) actionRouteBinding.set(action, 'candidate');
+    else if (actionRouteBinding.get(action) !== 'candidate') actionRouteBinding.set(action, 'route');
   }
 }
 
@@ -182,6 +187,7 @@ for (const [model, definition] of models) {
       routes: uniqueSorted([...(actionToRoutes.get(action) ?? [])]),
       tests: [],
       suspectedModels: [],
+      routeBinding: actionRouteBinding.get(action) ?? 'unbound',
       status: 'missing',
     };
     obligations.push(obligation);
@@ -202,6 +208,7 @@ for (const [model, definition] of models) {
       routes: modelRoutes,
       tests: [],
       suspectedModels: [model],
+      routeBinding: modelRoutes.length > 0 ? 'candidate' : 'unbound',
       status: 'missing',
     });
   }
@@ -216,6 +223,7 @@ function addTest(record) {
       routes: uniqueSorted(record.routes ?? []),
       obligations: uniqueSorted(record.obligations ?? []),
       suspectedModels: uniqueSorted(record.suspectedModels ?? []),
+      suspectedActions: uniqueSorted(record.suspectedActions ?? []),
       checks: record.checks ?? [],
     });
     return tests.get(key);
@@ -224,6 +232,7 @@ function addTest(record) {
   existing.routes = uniqueSorted([...existing.routes, ...(record.routes ?? [])]);
   existing.obligations = uniqueSorted([...existing.obligations, ...(record.obligations ?? [])]);
   existing.suspectedModels = uniqueSorted([...existing.suspectedModels, ...(record.suspectedModels ?? [])]);
+  existing.suspectedActions = uniqueSorted([...existing.suspectedActions, ...(record.suspectedActions ?? [])]);
   existing.checks = uniqueSorted([...existing.checks, ...(record.checks ?? [])]);
   existing.mapping = betterMapping(existing.mapping, record.mapping);
   return existing;
@@ -244,10 +253,17 @@ function obligationIdsForRoute(route) {
   }));
 }
 
+function suspectedActionsForRoutes(routes) {
+  return uniqueSorted(routes.flatMap((key) => {
+    const route = routeByKey.get(key);
+    return route?.proof?.routeActions?.length ? route.proof.routeActions : route?.proof?.modelActions ?? [];
+  }));
+}
+
 function suspectedModelsForRoutes(routes) {
   return uniqueSorted(routes.flatMap((key) => {
     const route = routeByKey.get(key);
-    return (route?.proof?.modelActions ?? []).flatMap((action) => {
+    return suspectedActionsForRoutes([key]).flatMap((action) => {
       const modelsForAction = actionNameToModels.get(action) ?? actionNameToModels.get(action.replace(/\(.*\)$/, '')) ?? [];
       return [...modelsForAction];
     });
@@ -375,6 +391,7 @@ for (const file of walkFiles(GO_ROOT, (path) => path.endsWith('_test.go'))) {
       routes: uniqueSorted(routes),
       obligations: routeObligations(uniqueSorted(routes)),
       suspectedModels: suspectedModelsForRoutes(uniqueSorted(routes)),
+      suspectedActions: suspectedActionsForRoutes(uniqueSorted(routes)),
       mapping,
       evidence: relativeFile,
     });
@@ -572,6 +589,7 @@ const summary = {
   duplicateTestNames: duplicateTestNames.length,
   repeatedPlaywrightChecks: duplicateChecks.length,
   sharedProofs: sharedProofs.length,
+  candidateRouteBindings: obligations.filter((obligation) => obligation.routeBinding === 'candidate').length,
 };
 
 const report = {
@@ -655,7 +673,8 @@ lines.push('## Tests with no exact obligation');
 lines.push('');
 for (const test of unmappedTests.slice(0, 80)) {
   const suspects = test.suspectedModels?.length ? '; suspected models: ' + test.suspectedModels.join(', ') : '';
-  lines.push('- `' + test.kind + '` `' + test.name + '` in `' + test.file + '`' + suspects);
+  const actions = test.suspectedActions?.length ? '; suspected actions: ' + test.suspectedActions.join(', ') : '';
+  lines.push('- `' + test.kind + '` `' + test.name + '` in `' + test.file + '`' + suspects + actions);
 }
 if (unmappedTests.length > 80) lines.push('- ' + (unmappedTests.length - 80) + ' more in the JSON report.');
 lines.push('');

@@ -84,6 +84,8 @@ const proofFor = (uiCallers) => {
     status: actions.length > 0 ? 'modeled-only' : 'unproven',
     model: null,
     modelActions: actions,
+    routeActions: [],
+    routeActionReason: null,
     traceEvent: null,
     schedule: null,
     contractTest: null,
@@ -221,6 +223,8 @@ for (const route of overrides.excludedAuthoringRoutes ?? []) {
       status: 'excluded',
       model: null,
       modelActions: [],
+      routeActions: [],
+      routeActionReason: null,
       traceEvent: null,
       schedule: null,
       contractTest: null,
@@ -238,6 +242,7 @@ const unaccountedAuthoringRoutes = [...generatedAuthoringRoutes]
 const ledgerAuthoringRoutes = [...routes.keys()].filter((key) => key.includes('/authoring/v2/')).length;
 const proofCounts = {
   modeledAndTraced: [...routes.values()].filter((route) => route.proof.status === 'modeled-and-traced').length,
+  traceTested: [...routes.values()].filter((route) => route.proof.status === 'trace-tested').length,
   modeledOnly: [...routes.values()].filter((route) => route.proof.status === 'modeled-only').length,
   contractTested: [...routes.values()].filter((route) => route.proof.status === 'contract-tested').length,
   unproven: [...routes.values()].filter((route) => route.proof.status === 'unproven').length,

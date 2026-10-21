@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T18:43:00.529Z",
+  "generatedAt": "2026-10-21T19:13:38.017Z",
   "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
   "tool": {
     "name": "TLC",
@@ -29,21 +29,21 @@
       "status": "pass",
       "stateCount": 48194160,
       "distinctStateCount": 3472373,
-      "depth": 30
+      "depth": 29
     },
     {
       "name": "builder-row-definition-lifecycle",
       "status": "pass",
       "stateCount": 619,
       "distinctStateCount": 177,
-      "depth": 10
+      "depth": 12
     },
     {
       "name": "builder-draft-restore",
       "status": "pass",
       "stateCount": 376,
       "distinctStateCount": 103,
-      "depth": 9
+      "depth": 10
     },
     {
       "name": "builder-root-change",
@@ -64,7 +64,7 @@
       "status": "pass",
       "stateCount": 1584747,
       "distinctStateCount": 114118,
-      "depth": 18
+      "depth": 19
     },
     {
       "name": "builder-interpretation",
@@ -92,21 +92,21 @@
       "status": "pass",
       "stateCount": 1913635,
       "distinctStateCount": 148629,
-      "depth": 19
+      "depth": 21
     },
     {
       "name": "real-controller-schedules",
       "status": "pass",
-      "tests": 69
+      "tests": 70
     },
     {
       "name": "builder-trace-validation",
       "status": "pass",
-      "traceCount": 69,
-      "uniqueTraceCount": 20,
-      "validatedCount": 69,
+      "traceCount": 70,
+      "uniqueTraceCount": 21,
+      "validatedCount": 70,
       "modelCounts": {
-        "BuilderPreview": 60,
+        "BuilderPreview": 61,
         "ConstructionLifecycle": 1,
         "ReconcileLifecycle": 8
       }
@@ -126,7 +126,7 @@
         "TestBuilderFullUIEmptyRootCreationDispatchUsesRealService",
         "TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.360s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.710s\n"
     },
     {
       "name": "go-internal-server",
@@ -136,7 +136,7 @@
         "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
         "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.809s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.878s\n"
     },
     {
       "name": "ui-contract-inventory-source",
@@ -155,25 +155,26 @@
     "tier2": 18,
     "tier3": 0,
     "modeledAndTraced": 3,
-    "modeledOnly": 33,
+    "traceTested": 1,
+    "modeledOnly": 32,
     "contractTested": 0,
     "unproven": 3,
     "excluded": 4,
     "withBuilderEvidence": 39,
     "withModelActions": 36,
-    "withTrace": 3,
-    "withTest": 3,
+    "withTrace": 4,
+    "withTest": 4,
     "withBrowserCase": 3
   },
   "traceValidation": {
     "name": "builder-trace-validation",
     "status": "pass",
-    "traceCount": 69,
-    "uniqueTraceCount": 20,
-    "validatedCount": 69,
+    "traceCount": 70,
+    "uniqueTraceCount": 21,
+    "validatedCount": 70,
     "invalidCount": 0,
     "modelCounts": {
-      "BuilderPreview": 60,
+      "BuilderPreview": 61,
       "ConstructionLifecycle": 1,
       "ReconcileLifecycle": 8
     },
@@ -748,7 +749,7 @@
         }
       ]
     },
-    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-HfrYWQ/traces-report.json"
+    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-deNSqV/traces-report.json"
   },
   "findings": [],
   "retiredFindings": [

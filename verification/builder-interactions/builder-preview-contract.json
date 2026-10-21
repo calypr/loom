@@ -59,7 +59,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-trace-contract.json",
-      "sha256": "2c4a78398fac7ed5168281289dfa2ac528c58958ca17e98b3c686647f35dade2",
+      "sha256": "cfee4c8b8b1a20acfcb9465cdd7424281fc3aea89d00c2b42a8248bd53bfee9d",
       "contract": "Phase 1 abstract action, event, and observation vocabulary for implementation traces."
     },
     {

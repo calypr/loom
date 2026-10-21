@@ -13,7 +13,8 @@
     "excludedAuthoringRoutes": 4,
     "unaccountedAuthoringRoutes": [],
     "modeledAndTraced": 3,
-    "modeledOnly": 33,
+    "traceTested": 1,
+    "modeledOnly": 32,
     "contractTested": 0,
     "unproven": 3
   },
@@ -27,6 +28,8 @@
         "status": "excluded",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -45,6 +48,8 @@
         "status": "excluded",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -63,6 +68,8 @@
         "status": "excluded",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -81,6 +88,8 @@
         "status": "excluded",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -145,6 +154,8 @@
           "StartCommand",
           "StartPreview"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -337,6 +348,11 @@
           "ToggleVisibility",
           "WorkspaceChanged"
         ],
+        "routeActions": [
+          "BeginApply",
+          "ApplyAck"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule.",
         "traceEvent": "finish-apply",
         "schedule": "apply-ownership",
         "contractTest": null,
@@ -371,18 +387,29 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
-        "model": null,
+        "status": "trace-tested",
+        "model": "BuilderPreview.tla",
         "modelActions": [
           "AuthorStep"
         ],
-        "traceEvent": null,
-        "schedule": null,
+        "routeActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ],
+        "routeActionReason": "Read-only discovery with an asynchronous request lifecycle. BuilderPreview models the request and completion; the stale-response path is part of the route contract.",
+        "traceEvent": "construction-discovery",
+        "schedule": "construction-discovery",
         "contractTest": null,
-        "goTest": null,
-        "uiTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Discovery request, pivot mount, and completion schedule. Go HTTP contract test rejects a stale stage discovery before the category scan. Browser evidence is still missing.",
+        "browserGap": "The Recompile browser report does not request the construction-category-discoveries route. A new browser report is blocked by the Docker VM disk being full.",
+        "scope": "category discovery request, stage identity, and completion lifecycle",
+        "coveredActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ]
       }
     },
     {
@@ -411,6 +438,11 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [
+          "StartProposal",
+          "ProposalComplete"
+        ],
+        "routeActionReason": "Proposal route creates a candidate receipt and preview. It does not mutate the saved draft, but it drives the UI proposal lifecycle.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -482,6 +514,8 @@
           "StartPreview",
           "StartProposal"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -517,6 +551,8 @@
           "ReviewReady",
           "ReviewStale"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -553,6 +589,8 @@
           "CreateFailed",
           "CreateRevision"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -587,6 +625,8 @@
           "CoverageStale",
           "RequestCoverage"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -623,6 +663,8 @@
           "RemovalReviewReady",
           "ReviewRemoval"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -662,6 +704,8 @@
           "ReplaceSelection",
           "RouteLookupFailed"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -759,6 +803,11 @@
           "StartProposal",
           "WorkspaceChanged"
         ],
+        "routeActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule.",
         "traceEvent": "preview-response",
         "schedule": "preview-ownership",
         "contractTest": null,
@@ -793,6 +842,8 @@
         "status": "unproven",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -858,6 +909,19 @@
           "StartPreview",
           "StartProposal"
         ],
+        "routeActions": [
+          "RequestReconcile",
+          "RetryReconcile",
+          "ReconcileSuccess",
+          "ReconcileStale",
+          "ReconcileConflict",
+          "ReconcileInvalid",
+          "ReconcileFailure(retryable)",
+          "ReconcileFailure(fatal)",
+          "ClearReceipt",
+          "AuthoredChange"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule.",
         "traceEvent": "reconcile-response",
         "schedule": "reconcile-recovery",
         "contractTest": null,
@@ -915,6 +979,8 @@
           "PreviewUnavailable",
           "WorkspaceChanged"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -966,6 +1032,8 @@
           "StartPreview",
           "StartProposal"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -995,6 +1063,8 @@
         "status": "unproven",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1036,6 +1106,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Candidate receipt only. The lifecycle test asserts the saved draft does not change. Contract test is the correct proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1077,6 +1149,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Pure table-shape resolution. Contract test is the correct proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1110,6 +1184,8 @@
           "ExcludeRouteFound",
           "ExcludeRouteMissing"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1152,6 +1228,8 @@
           "SelectionReady",
           "SetFeatureFocus"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1185,6 +1263,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Write route creates an explicit-group selection revision. No existing Population action covers revision creation. It needs a new model action or a contract test.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1226,6 +1306,8 @@
           "Inv_DeleteKeepsFallback",
           "SelectExplorer"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1267,6 +1349,8 @@
           "Inv_DeleteKeepsFallback",
           "SelectExplorer"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1302,6 +1386,8 @@
           "DeleteExplorer",
           "SelectExplorer"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1336,6 +1422,8 @@
           "HydrateBuilder",
           "SelectExplorer"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1371,6 +1459,8 @@
           "InspectRejected",
           "InspectSucceeded"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1400,6 +1490,8 @@
         "status": "unproven",
         "model": null,
         "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1475,6 +1567,8 @@
           "StartPreview",
           "StartProposal"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1512,6 +1606,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1545,6 +1641,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1589,6 +1687,8 @@
           "CancelFrameChange",
           "ConfirmFrameChange"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1627,6 +1727,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1665,6 +1767,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1698,6 +1802,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1749,6 +1855,8 @@
           "StartPreview",
           "StartProposal"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1784,6 +1892,8 @@
           "RowSourcesReady",
           "RowSourcesUnavailable"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1822,6 +1932,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1870,6 +1982,8 @@
           "StartPreview",
           "StartProposal"
         ],
+        "routeActions": [],
+        "routeActionReason": null,
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1911,6 +2025,8 @@
         "modelActions": [
           "AuthorStep"
         ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,

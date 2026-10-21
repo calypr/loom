@@ -54,15 +54,18 @@ Each Builder route has a `proof` object.
 }
 ```
 
-`scope` records which part of the route the proof covers. A proof for an apply command slice says so. `coveredActions` lists the model actions the trace and schedule actually exercise; the obligation report uses that list instead of every action that any caller of the route could reach. The status ladder is:
+`scope` records which part of the route the proof covers. A proof for an apply command slice says so. `modelActions` records the UI affordances that call the route. `routeActions` records what the route itself does. `coveredActions` lists the model actions the trace and schedule actually exercise; the obligation report uses that list instead of every action that any caller of the route could reach.
 
-- `modeled-and-traced`: all links exist.
+The status ladder is:
+
+- `modeled-and-traced`: all links exist, including browser evidence.
+- `trace-tested`: the model, trace, schedule, and executable test exist, but browser evidence is missing. The strict route check rejects it.
 - `modeled-only`: a model action is mapped, but the route has no trace, schedule, or executable test.
 - `contract-tested`: an executable contract test exists, but the route is not modeled and traced.
 - `unproven`: no model action and no executable test.
 - `excluded`: the route is outside the Builder scope and has a reason.
 
-The strict route check rejects `modeled-only` and `unproven`.
+The strict route check rejects `trace-tested`, `modeled-only`, and `unproven`.
 
 ## Reconcile example
 
@@ -82,7 +85,7 @@ The browser case confirms that the Recompile control sends a second reconcile re
 1. Add or extend a TLA model and run its `.cfg`.
 2. Add the trace event binding to `builder-trace-contract.json`.
 3. Add a real-controller formal schedule and emit the trace.
-4. Add the route's proof record to `builder-route-overrides.json`.
+4. Add the route's proof record to `builder-route-overrides.json`, including `routeActions` and `coveredActions`.
 5. Add the Go test to `GO_SERVER_TESTS` when a server route exists.
 6. Add the browser case to `browser-evidence.json`.
 7. Run `node scripts/verify-builder-formal.mjs`.

@@ -31,10 +31,13 @@ Make formal verification reflect the Builder's real API surface. Every UI-called
 - [x] Added a trace validator mutation self-test. It rejects a corrupted observation, a wrong model mapping, and a missing required event. The formal runner now runs it on every gate.
 - [x] Added a route ledger freshness and accounting check. The formal runner fails when the generated ledger is stale or when a generated authoring route is unaccounted.
 - [x] Rechecked the Recompile browser case on the current checkout. It passes and issues a successful reconcile request. The harness now uses the same canonical project encoding as the UI.
-- [x] Added a TLA-derived obligation report: `scripts/build-test-obligations.mjs` writes `verification/builder-interactions/test-obligations.json` and `.md`. The first complete pass finds 239 obligations across 153 actions and 86 invariants, with 13 exact-covered, 86 partial, and 140 missing. It also records 26 obligations with multiple same-level tests, 231 repeated Playwright checks, and 865 tests with no exact obligation.
+- [x] Added a TLA-derived obligation report: `scripts/build-test-obligations.mjs` writes `verification/builder-interactions/test-obligations.json` and `.md`. The current pass finds 239 obligations across 153 actions and 86 invariants, with 15 exact-covered, 86 partial, and 138 missing. It also records 26 obligations with multiple same-level tests, 231 repeated Playwright checks, and 866 tests with no exact obligation.
 - [x] Added `scripts/generate-builder-browser-evidence.mjs` and made the route ledger verify the browser case `status` and `coveredRoutes`. `browser-evidence.json` now uses `builder-controls:recompile`.
 - [x] Added `coveredActions` to route proofs so the obligation map attaches only the TLA actions the trace and schedule exercise, not every action reachable by route callers. The route verifier checks covered actions against the model's action list.
-- [ ] Triage the 140 missing action obligations and 865 tests with no exact obligation. Add exact test mappings before adding new browser cases.
+- [x] Audited the 12 routes whose only mapped action was `AuthorStep` and added `routeActions` to the ledger. Seven are read-only and belong in `contract-tested`; `construction-choice-proposals` uses the proposal actions; `table-shape-proposals` and `table-shape-resolutions` are contract-tested because they do not mutate the draft; `explicit-groups` needs a new Population action or a contract test.
+- [x] Added the `construction-category-discoveries` pilot trace: `SetPivotPair`, `ScheduleDiscovery`, and `DiscoveryComplete` are bound to the real hook schedule. The formal suite now validates 70/70 traces. The Go contract test rejects a stale discovery before the category scan. The route proof is `trace-tested`, not `modeled-and-traced`, because no browser report covers the route.
+- [ ] Add browser evidence for `construction-category-discoveries`. The Docker VM has no free disk, so a new Playwright report cannot run. Until then the strict route check rejects the pilot as `trace-tested`.
+- [ ] Triage the 138 missing action obligations and 866 tests with no exact obligation. Add exact test mappings before adding new browser cases.
 
 ## Tiers
 
@@ -85,7 +88,7 @@ Each Builder entry records:
 - request identity fields;
 - response binding fields;
 - stale rule and error classes;
-- `proof`: status, scope, model, model actions, covered actions, trace event, schedule, contract test, Go test, UI test, browser case, and reason.
+- `proof`: status, scope, model, UI model actions, route actions, covered actions, trace event, schedule, contract test, Go test, UI test, browser case, and reason.
 
 Allowed proof statuses are `modeled-and-traced`, `modeled-only`, `contract-tested`, `unproven`, and `excluded`.
 

@@ -105,7 +105,20 @@
           "ReconcileFailure(fatal)",
           "ClearReceipt",
           "AuthoredChange"
-        ]
+        ],
+        "routeActions": [
+          "RequestReconcile",
+          "RetryReconcile",
+          "ReconcileSuccess",
+          "ReconcileStale",
+          "ReconcileConflict",
+          "ReconcileInvalid",
+          "ReconcileFailure(retryable)",
+          "ReconcileFailure(fatal)",
+          "ClearReceipt",
+          "AuthoredChange"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule."
       }
     },
     {
@@ -125,7 +138,12 @@
         "coveredActions": [
           "StartPreview",
           "PreviewComplete"
-        ]
+        ],
+        "routeActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule."
       }
     },
     {
@@ -145,7 +163,129 @@
         "coveredActions": [
           "BeginApply",
           "ApplyAck"
+        ],
+        "routeActions": [
+          "BeginApply",
+          "ApplyAck"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries",
+      "proof": {
+        "routeActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ],
+        "routeActionReason": "Read-only discovery with an asynchronous request lifecycle. BuilderPreview models the request and completion; the stale-response path is part of the route contract.",
+        "status": "trace-tested",
+        "model": "BuilderPreview.tla",
+        "traceEvent": "construction-discovery",
+        "schedule": "construction-discovery",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": null,
+        "browserGap": "The Recompile browser report does not request the construction-category-discoveries route. A new browser report is blocked by the Docker VM disk being full.",
+        "reason": "Discovery request, pivot mount, and completion schedule. Go HTTP contract test rejects a stale stage discovery before the category scan. Browser evidence is still missing.",
+        "scope": "category discovery request, stage identity, and completion lifecycle",
+        "coveredActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
         ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+      "proof": {
+        "routeActions": [
+          "StartProposal",
+          "ProposalComplete"
+        ],
+        "routeActionReason": "Proposal route creates a candidate receipt and preview. It does not mutate the saved draft, but it drives the UI proposal lifecycle."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Candidate receipt only. The lifecycle test asserts the saved draft does not change. Contract test is the correct proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Pure table-shape resolution. Contract test is the correct proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Write route creates an explicit-group selection revision. No existing Population action covers revision creation. It needs a new model action or a contract test."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
       }
     }
   ]

@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import type { ExplorerAuthoringApiError, GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
+import type { DiscoverConstructionCategoriesArgs, ExplorerAuthoringApiError, GetConstructionCapabilitiesArgs, ProposeConstructionArgs } from '../../../api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ConstructionCapabilitiesResponse,
+  type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalResponse,
   type ExplorerBuilderCompileResult,
   type ExplorerBuilderPreviewResult,
@@ -57,10 +58,17 @@ type PreviewCall = {
   readonly transport: Deferred<ExplorerBuilderPreviewResult>;
 };
 
+type DiscoveryCall = {
+  readonly args: DiscoverConstructionCategoriesArgs;
+  readonly signal: AbortSignal | undefined;
+  readonly transport: Deferred<ConstructionCategoryDiscoveryResponse>;
+};
+
 type ControlledClient = {
   readonly client: ConstructionLifecycleClient;
   readonly proposals: ProposalCall[];
   readonly previews: PreviewCall[];
+  readonly discoveries: DiscoveryCall[];
 };
 
 type ProposalResponseMode =
@@ -185,13 +193,32 @@ const proposalFor = (
   }
 };
 
+const discoveryFor = (
+  args: DiscoverConstructionCategoriesArgs,
+): ConstructionCategoryDiscoveryResponse => ({
+  snapshotToken: args.snapshotToken,
+  draftVersion: args.expectedDraftVersion,
+  draftDigest: args.expectedDraftDigest,
+  outputId: args.outputId,
+  stageId: args.stageId,
+  categoryColumnId: args.categoryColumnId,
+  valueColumnId: args.valueColumnId,
+  outcome: 'COMPLETE',
+  complete: true,
+  proofFingerprint: 'proof-discovery',
+  categories: [{ key: { kind: 'STRING', string: 'A' }, label: 'A' }],
+});
+
 const controlledClient = (): ControlledClient => {
   const proposals: ProposalCall[] = [];
   const previews: PreviewCall[] = [];
+  const discoveries: DiscoveryCall[] = [];
   const client = {
     getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
-    discoverConstructionCategories: vi.fn(async () => {
-      throw new Error('Category discovery is outside this conformance schedule.');
+    discoverConstructionCategories: vi.fn((args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) => {
+      const transport = deferred<ConstructionCategoryDiscoveryResponse>();
+      discoveries.push({ args, signal, transport });
+      return transport.promise;
     }),
     proposeConstruction: vi.fn((args: ProposeConstructionArgs, signal?: AbortSignal) => {
       const transport = deferred<ConstructionProposalResponse>();
@@ -204,7 +231,7 @@ const controlledClient = (): ControlledClient => {
       return transport.promise;
     }),
   } satisfies ConstructionLifecycleClient;
-  return { client, proposals, previews };
+  return { client, proposals, previews, discoveries };
 };
 
 const intentFor = (stepId: string): ConstructionCandidateIntent => ({
@@ -272,6 +299,41 @@ afterEach(() => {
 afterAll(() => writeTraces());
 
 describe('useConstructionLifecycle real-controller conformance schedules', () => {
+  it('replays category discovery schedule: mount pair; schedule; complete; keep categories', async () => {
+    startTrace();
+    const controlled = controlledClient();
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({
+      client: controlled.client,
+      capabilitiesRequest: baseRequest,
+    }));
+    await act(async () => { await flushMicrotasks(); });
+    traceInitialObservation(result);
+
+    const request = {
+      stageId: baseRequest.stageId,
+      categoryColumnId: 'category-id',
+      valueColumnId: 'value-id',
+    };
+    act(() => { result.current.onDiscoverCategories(request); });
+    expect(controlled.discoveries).toHaveLength(1);
+    const discovery = controlled.discoveries[0];
+    expect(discovery?.args.stageId).toBe(baseRequest.stageId);
+    traceAction('SetPivotPair', result, 'pivot-mounted', 'mount the pivot category/value pair');
+    traceAction('ScheduleDiscovery', result, 'construction-discovery', 'request category values');
+    if (!discovery) throw new Error('category discovery request was not sent');
+
+    await act(async () => {
+      discovery.transport.resolve(discoveryFor(discovery.args));
+      await flushMicrotasks();
+    });
+    traceAction('DiscoveryComplete', result, 'construction-discovery', 'category values complete');
+    expect(result.current.pivotDiscovery).toMatchObject({
+      status: 'complete',
+      categories: [{ label: 'A' }],
+    });
+    unmount();
+  });
+
   // Finite coverage: 2 proposal orders × 3 stale results × 5 current results,
   // 2 fallback-preview orders × 5 current preview results, and the listed
   // one-field identity, cancellation, retry, A→B→A, and stale-beginApply schedules.
