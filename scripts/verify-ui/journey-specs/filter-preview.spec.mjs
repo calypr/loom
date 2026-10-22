@@ -170,7 +170,6 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
     trace.traces[0].actions.push({
       label: 'CancelFilter',
       event: 'cancel-filter',
-      owner: proposalStarted.owner,
       observation: await captureBuilderObservation(fastPage),
     });
     persistTrace();
