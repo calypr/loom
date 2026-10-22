@@ -37,7 +37,7 @@ if (!journeyOnly && !requiredEvent) {
 }
 
 const workDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-trace-self-test-'));
-const runMutation = (label, mutate, expectedText, { allowPartial = false, semanticActionLabel = null } = {}) => {
+const runMutation = (label, mutate, expectedText, { allowPartial = false, semanticActionLabel = null, expectNoInitialState = false } = {}) => {
   if (expectedText?.semanticActionLabel) {
     semanticActionLabel = expectedText.semanticActionLabel;
     expectedText = null;
@@ -59,7 +59,7 @@ const runMutation = (label, mutate, expectedText, { allowPartial = false, semant
   ];
   if (allowPartial) verifierArgs.push('--allow-partial');
   const reportPath = join(workDirectory, label + '.report.json');
-  if (semanticActionLabel) verifierArgs.push('--output', reportPath);
+  if (semanticActionLabel || expectNoInitialState) verifierArgs.push('--output', reportPath);
   const result = spawnSync(process.execPath, verifierArgs, {
     cwd: ROOT,
     encoding: 'utf8',
@@ -88,6 +88,23 @@ const runMutation = (label, mutate, expectedText, { allowPartial = false, semant
         !(trace.tlc?.distinctStateCount > 0)) {
       console.error('FAIL ' + label + ': structured report does not identify the expected TLC transition failure');
       console.error(JSON.stringify({ status: trace?.status, failure, tlc: trace?.tlc }, null, 2));
+      return false;
+    }
+  }
+  if (expectNoInitialState) {
+    let report;
+    try {
+      report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    } catch (error) {
+      console.error('FAIL ' + label + ': validator did not write a structured TLC report');
+      console.error(error instanceof Error ? error.message : 'unknown failure');
+      return false;
+    }
+    const trace = report.traces?.[0];
+    if (trace?.status !== 'fail' || trace.failure?.message !== 'TLC found no initial state' ||
+        trace.tlc?.stateCount !== 0 || trace.tlc?.distinctStateCount !== 0) {
+      console.error('FAIL ' + label + ': rejection did not come from the mutated initial observation');
+      console.error(JSON.stringify({ status: trace?.status, failure: trace?.failure, tlc: trace?.tlc }, null, 2));
       return false;
     }
   }
@@ -1184,6 +1201,14 @@ if (!runPositiveBaseline()) {
 let passed = true;
 try {
   if (formalOnly) {
+    passed = runMutation('initial-observation-mismatch', (mutated) => {
+      const trace = mutated.traces.find((candidate) => candidate.model === 'BuilderPreview');
+      if (trace?.initialObservation) {
+        trace.initialObservation.status = trace.initialObservation.status === 'ready' ? 'idle' : 'ready';
+        mutated.traces = [trace];
+      }
+    }, 'trace validation failed', { allowPartial: true, expectNoInitialState: true }) && passed;
+
     const retainMountedReconcile = (mutated) => {
       const trace = mutated.traces.find((candidate) => candidate.model === 'ReconcileLifecycle');
       if (trace) mutated.traces = [trace];

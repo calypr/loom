@@ -748,7 +748,7 @@ function reconcileIdentityProblem(trace, where) {
     return { message: where + ' must contain the captured initial A request and three subsequent mounted observations' };
   }
   const initial = trace.initialObservation.reconcile;
-  if (initial.current.modelKey !== 'W1' || initial.activeRequestKey !== 'A' ||
+  if (initial.current.modelKey !== 'W1' ||
       initial.request?.modelKey !== 'A' || initial.receipt !== null || initial.returned !== null) {
     return { message: where + '.initialObservation must capture pending A against mounted workspace W1' };
   }
@@ -792,10 +792,6 @@ function reconcileIdentityProblem(trace, where) {
     const current = observation.current;
     const currentProblem = reconcileWorkspaceProblem(current.modelKey, current, actionWhere + '.observation.reconcile.current', false);
     if (currentProblem) return { message: currentProblem, actionIndex };
-    const expectedActive = 'B';
-    if (observation.activeRequestKey !== expectedActive) {
-      return { message: actionWhere + ' active request owner does not match the mounted lifecycle', actionIndex };
-    }
     const returned = observation.returned;
     if (actionIndex === 0) {
       if (returned !== null) return { message: actionWhere + ' cannot claim a response before it settles', actionIndex };
@@ -818,7 +814,7 @@ function reconcileIdentityProblem(trace, where) {
         return { message: actionWhere + ' mounted success must display B receipt/output for current workspace W2', actionIndex };
       }
     } else if (!receipt || current.modelKey !== 'W2' ||
-        observation.status !== trace.actions[actionIndex - 1].observation.status) {
+        action.observation.status !== trace.actions[actionIndex - 1].observation.status) {
       return { message: actionWhere + ' late A settlement must retain the mounted status and current workspace', actionIndex };
     }
   }
@@ -832,7 +828,6 @@ function expectedWorkspaceFor(requestKey) {
 
 function reconcileObservationProblem(reconcile, where) {
   if (!isPlainObject(reconcile)) return where + ' must be an object for ReconcileLifecycle observations';
-  if (![null, 'A', 'B'].includes(reconcile.activeRequestKey)) return where + '.activeRequestKey must be null, A, or B';
   const identity = (value, field, allowed = null) => {
     if (typeof value !== 'string' || value.length === 0) return where + '.' + field + ' must be a non-empty string';
     if (allowed && !allowed.includes(value)) return where + '.' + field + ' has an unsupported model key';
@@ -1351,8 +1346,7 @@ function tlaObservation(observation) {
     ', proposalIdPresent |-> ' + tlaBool(observation.proposalIdPresent) +
     ', previewReceiptPresent |-> ' + tlaBool(observation.previewReceiptPresent) +
     ', rowsPresent |-> ' + tlaBool(observation.rowsPresent) +
-    ', receiptPresent |-> ' + tlaBool(observation.receiptPresent) +
-    ', reconcileActiveRequestKey |-> ' + tlaObservedValue(nestedObservedValue(observation, 'reconcile', 'activeRequestKey')) +
+    ', receiptPresent |-> ' + tlaBool(observation.receiptPresent ?? Boolean(observation.reconcile?.receipt)) +
     ', reconcileCurrentKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'current', 'modelKey')) +
     ', reconcileCurrentDraftVersion |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'current', 'draftVersion')) +
     ', reconcileCurrentDraftDigest |-> ' + tlaObservedValue(reconcileModelValue(observation, 'current', 'draftDigest', reconcileDigestModelKey)) +
@@ -1446,9 +1440,8 @@ function reconcileLifecycleObservationMapping(prime) {
   const state = prime ? "r'" : 'r';
   const requestIds = prime ? "traceRequestIds'" : 'traceRequestIds';
   return [
-    '  /\\ (obs.status = "empty" => (' + state + '.phase \in {"idle", "requesting"}))',
+    '  /\\ (obs.status = "empty" => (' + state + '.phase \\in {"idle", "requesting"}))',
     '  /\\ (obs.status = "ready" => (' + state + '.phase = "succeeded"))',
-    '  /\\ obs.reconcileActiveRequestKey = IF ' + state + '.activeRequest = "NONE" THEN "NoObservedValue" ELSE ' + state + '.activeRequest',
     '  /\\ obs.reconcileCurrentKey = ' + state + '.currentWorkspace',
     '  /\\ obs.reconcileCurrentDraftVersion = WorkspaceFor(' + state + '.currentWorkspace).draft',
     '  /\\ obs.reconcileCurrentDraftDigest = WorkspaceFor(' + state + '.currentWorkspace).digest',
@@ -1460,13 +1453,13 @@ function reconcileLifecycleObservationMapping(prime) {
     '       /\\ obs.reconcileRequestWorkspaceKey = "NoObservedValue")',
     ...['A', 'B'].flatMap((key) => [
       '  /\\ (obs.reconcileRequestModelKey = "' + key + '" =>',
-      '       /\\ ' + state + '.requests["' + key + '"].workspace = obs.reconcileRequestWorkspaceKey',
+      '       /\\ ' + state + '.requestLedger["' + key + '"].workspace = obs.reconcileRequestWorkspaceKey',
       '       /\\ obs.reconcileRequestRawId = ' + requestIds + '["' + key + '"]',
-      '       /\\ obs.reconcileRequestDraftVersion = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).draft',
-      '       /\\ obs.reconcileRequestDraftDigest = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).digest',
-      '       /\\ obs.reconcileRequestSnapshotToken = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).snapshot',
-      '       /\\ obs.reconcileRequestOutputModelKey = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).outputKey',
-      '       /\\ obs.reconcileRequestExplorerId = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).explorer)',
+      '       /\\ obs.reconcileRequestDraftVersion = WorkspaceFor(' + state + '.requestLedger["' + key + '"].workspace).draft',
+      '       /\\ obs.reconcileRequestDraftDigest = WorkspaceFor(' + state + '.requestLedger["' + key + '"].workspace).digest',
+      '       /\\ obs.reconcileRequestSnapshotToken = WorkspaceFor(' + state + '.requestLedger["' + key + '"].workspace).snapshot',
+      '       /\\ obs.reconcileRequestOutputModelKey = WorkspaceFor(' + state + '.requestLedger["' + key + '"].workspace).outputKey',
+      '       /\\ obs.reconcileRequestExplorerId = WorkspaceFor(' + state + '.requestLedger["' + key + '"].workspace).explorer)',
     ]),
     '  /\\ obs.reconcileReceiptModelKey = IF ' + state + '.receipt.id = "NONE" THEN "NoObservedValue" ELSE ' + state + '.receipt.id',
     '  /\\ obs.reconcileReceiptRequestKey = IF ' + state + '.receipt.id = "NONE" THEN "NoObservedValue" ELSE ' + state + '.receipt.requestKey',
@@ -1614,7 +1607,7 @@ function actionIdentityPreserved(model) {
     '       /\\ before.' + field + ' = after.' + field,
   );
   const reconcileFields = [
-    'status', 'reconcileActiveRequestKey', 'reconcileCurrentKey', 'reconcileCurrentDraftVersion',
+    'status', 'reconcileCurrentKey', 'reconcileCurrentDraftVersion',
     'reconcileCurrentDraftDigest', 'reconcileCurrentSnapshotToken', 'reconcileCurrentOutputModelKey',
     'reconcileCurrentExplorerId', 'reconcileReceiptModelKey', 'reconcileReceiptRequestKey',
     'reconcileReceiptWorkspaceKey', 'reconcileReceiptOutputModelKey',
@@ -1675,7 +1668,10 @@ function generateModule(trace, moduleName) {
         '  /\\ traceIndex = 0',
         '  /\\ traceRequestIds = [key \\in RequestKeys |-> "NoObservedValue"]',
       ]
-    : ['  /\\ traceIndex = 1'];
+    : [
+        '  /\\ traceIndex = 1',
+        '  /\\ ObsMatches(TraceObservations[1])',
+      ];
   const reconcileTraceNext = reconcileTrace
     ? [
         '  IF traceIndex = 0',
@@ -1819,7 +1815,7 @@ function runTlc(jarPath, trace, uniqueIndex) {
   const result = spawnSync('java', args, { cwd: modelDirectory, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
   const text = (result.stdout || '') + (result.stderr || '');
   const parsed = parseTlc(text);
-  if (parsed.passed) {
+  if (parsed.passed && parsed.stateCount > 0) {
     return { ...parsed, status: 'pass', modulePath: join(modelDirectory, moduleFile), runDirectory };
   }
   const traceIndexes = [...text.matchAll(/traceIndex = ([0-9]+)/g)].map((match) => Number(match[1]));
@@ -1834,7 +1830,11 @@ function runTlc(jarPath, trace, uniqueIndex) {
     modulePath: join(modelDirectory, moduleFile),
     runDirectory,
     failure: {
-      message: result.error ? result.error.message : 'TLC did not complete the trace',
+      message: result.error
+        ? result.error.message
+        : parsed.passed && parsed.stateCount === 0
+          ? 'TLC found no initial state'
+          : 'TLC did not complete the trace',
       actionIndex,
       actionLabel: label,
       modulePath: join(modelDirectory, moduleFile),

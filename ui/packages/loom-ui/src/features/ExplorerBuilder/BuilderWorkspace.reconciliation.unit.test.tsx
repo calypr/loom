@@ -14,7 +14,6 @@ import {
   usePreviewExplorerAuthoringV2Mutation,
   usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
-  useReconcileExplorerBuilderV2Mutation,
   LoomProvider,
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
@@ -72,6 +71,8 @@ const mockLoomClient = vi.hoisted(() => ({
 const mockLoomClientReference = vi.hoisted(() => ({ current: undefined as unknown }));
 const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
 const mockUseActualReshapeEditor = vi.hoisted(() => ({ enabled: false }));
+const mockUseActualReconcile = vi.hoisted(() => ({ enabled: false }));
+const mockReconcileMutation = vi.hoisted(() => vi.fn());
 const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   draftVersion: 1,
   draftDigest: 'sha256:draft-1',
@@ -105,7 +106,10 @@ vi.mock('../../react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: vi.fn(),
     usePopulationMappingMutation: vi.fn(),
     usePublishExplorerAuthoringV2Mutation: vi.fn(),
-    useReconcileExplorerBuilderV2Mutation: vi.fn(),
+    useReconcileExplorerBuilderV2Mutation: (...args: Parameters<typeof actual.useReconcileExplorerBuilderV2Mutation>) =>
+      mockUseActualReconcile.enabled
+        ? actual.useReconcileExplorerBuilderV2Mutation(...args)
+        : mockReconcileMutation(...args),
     useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
   };
 });
@@ -119,6 +123,13 @@ const render = (
   wrapper: ({ children }) => (
     <LoomProvider client={mockLoomClient as unknown as LoomClient}>{children}</LoomProvider>
   ),
+});
+
+const renderWithLoomClient = (
+  ui: React.ReactNode,
+  client: LoomClient,
+) => renderUI(ui, {
+  wrapper: ({ children }) => <LoomProvider client={client}>{children}</LoomProvider>,
 });
 
 vi.mock('./components/BuilderToolbar', () => ({
@@ -850,6 +861,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClientReference.current = undefined;
     mockRelatedExpandOwnerState.enabled = false;
     mockUseActualReshapeEditor.enabled = false;
+    mockUseActualReconcile.enabled = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
     mockRelatedExpandQueryOwner.resume.mockReset();
     mockLoomClient.getSelection.mockReset();
@@ -1056,7 +1068,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       assessRowChange,
       { isLoading: false },
     ]);
-    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+    mockReconcileMutation.mockReset().mockReturnValue([
       reconcile,
       { isLoading: false },
     ]);
@@ -4058,13 +4070,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       readonly result: ExplorerBuilderCompileResult;
     };
 
-    const pendingA = deferredRequest<ExplorerBuilderCompileResult>();
-    const pendingB = deferredRequest<ExplorerBuilderCompileResult>();
+    const pendingA = deferredRequest<Response>();
+    const pendingB = deferredRequest<Response>();
     const returnedA = { ...receipt, receiptId: 'receipt-A' } satisfies ExplorerBuilderCompileResult;
     const returnedB = { ...receipt, receiptId: 'receipt-B' } satisfies ExplorerBuilderCompileResult;
     const capturedReconciles: CapturedReconcile[] = [];
     const returnedReconciles: ReturnedReconcile[] = [];
     const outputModelKeys = new Map<string, OutputModelKey>();
+    const fetchReconcile = vi.fn<typeof globalThis.fetch>();
 
     const workspaceKeyFor = (draftVersion: number, draftDigest: string): WorkspaceKey => {
       if (draftVersion === 1 && draftDigest === 'sha256:draft-1') return 'W1';
@@ -4149,10 +4162,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       if (!visibleOutputId) throw new Error('mounted BuilderWorkspace omitted its selected output identity');
       const currentReceiptId = constructionPreview.getAttribute('data-preview-receipt-id') ?? '';
       const surfacedReceipt = currentReceiptId ? returnedReconcileFor(currentReceiptId) : null;
-      const pendingCalls = capturedReconciles.filter((call) =>
-        !returnedReconciles.some((returnedCall) => returnedCall.modelKey === call.modelKey),
-      );
-      const activeRequestKey = surfacedReceipt?.modelKey ?? pendingCalls.at(-1)?.modelKey ?? null;
       const currentCall = [...capturedReconciles].reverse().find((call) =>
         call.args.draftVersion === draftVersion && call.args.draftDigest === draftDigest,
       );
@@ -4165,7 +4174,6 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       const returnedCall = latestSettledReconcile();
       return {
         status,
-        activeRequestKey,
         current: {
           modelKey: workspaceKey,
           draftVersion,
@@ -4198,14 +4206,39 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       };
     };
 
-    reconcile.mockImplementation((args: ReconcileExplorerBuilderArgs) => {
+    fetchReconcile.mockImplementation((input, init) => {
+      const url = new URL(String(input), 'http://loom.test');
+      const segments = url.pathname.split('/');
+      const projectSegment = segments[segments.indexOf('projects') + 1];
+      const explorerSegment = segments[segments.indexOf('explorers') + 1];
+      if (!url.pathname.endsWith('/authoring/v2/reconcile') || !projectSegment || !explorerSegment ||
+          typeof init?.body !== 'string') {
+        throw new Error(`unexpected reconcile transport request ${url.pathname}`);
+      }
+      const requestId = new Headers(init.headers).get('X-Request-ID');
+      if (!requestId) throw new Error('reconcile transport omitted its X-Request-ID header');
+      let project = decodeURIComponent(projectSegment);
+      try {
+        project = decodeURIComponent(project);
+      } catch {
+        throw new Error('reconcile transport project path was not valid double-encoded project identity');
+      }
+      const args = {
+        ...(JSON.parse(init.body) as Omit<ReconcileExplorerBuilderArgs, 'project' | 'explorerId' | 'authResourcePath' | 'requestId'>),
+        project,
+        explorerId: decodeURIComponent(explorerSegment),
+        authResourcePath: url.searchParams.get('auth_resource_path') ?? undefined,
+        requestId,
+      } satisfies ReconcileExplorerBuilderArgs;
       const modelKey: ReconcileKey = capturedReconciles.length === 0 ? 'A' : 'B';
       const call = { modelKey, args };
       capturedReconciles.push(call);
       const pending = modelKey === 'A' ? pendingA : pendingB;
-      void pending.promise.then((result) => returnedReconciles.push({ ...call, result }));
-      const request = pending.request;
-      return request;
+      void pending.promise.then(async (response) => {
+        const result = await response.clone().json() as ExplorerBuilderCompileResult;
+        returnedReconciles.push({ ...call, result });
+      });
+      return pending.promise;
     });
     preview.mockImplementation((args: PreviewExplorerBuilderArgs) => resolvedRequest({
       apiVersion,
@@ -4220,13 +4253,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     } satisfies ExplorerBuilderPreviewResult));
 
     startTrace('ReconcileLifecycle');
+    mockUseActualReconcile.enabled = true;
     try {
-      render(
+      renderWithLoomClient(
         <BuilderWorkspace
           organization="HTAN_INT"
           project="BForePC"
           explorerId="test"
         />,
+        createLoomClient({ fetch: fetchReconcile }),
       );
 
       await waitFor(() => expect(capturedReconciles).toHaveLength(1));
@@ -4250,7 +4285,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         requestASnapshot,
         'RequestReconcile(A)',
         'requestA',
-        'actual reconcile mutation call captured during initial mount',
+        'real reconcile hook/client; only reconcile fetch is deferred; other hook fixtures remain mocked',
       );
       expect(requestA.args).toMatchObject({
         explorerId: 'test',
@@ -4307,10 +4342,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         'WorkspaceChangeStartsReconcile(B)',
         'workspaceChangeB',
         requestBSnapshot,
+        'mounted workspace edit caused B through the real reconcile hook/client and deferred fetch transport',
       );
 
       await act(async () => {
-        pendingB.resolve(returnedB);
+        pendingB.resolve(new Response(JSON.stringify(returnedB), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }));
         await Promise.resolve();
       });
       await waitFor(() => {
@@ -4362,10 +4401,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         'ReconcileSuccess(B)',
         'successB',
         successSnapshot,
+        'deferred B HTTP response was parsed by the real client and rendered by BuilderWorkspace',
       );
 
       await act(async () => {
-        pendingA.resolve(returnedA);
+        pendingA.resolve(new Response(JSON.stringify(returnedA), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }));
         await Promise.resolve();
       });
       await waitFor(() => expect(returnedReconciles).toHaveLength(2));
@@ -4377,7 +4420,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         outputId: screen.getByTestId('construction-preview').getAttribute('data-preview-output-id'),
       };
       expect(visibleAfterLateA).toEqual(visibleB);
-      expect(reconcile).toHaveBeenCalledTimes(2);
+      expect(fetchReconcile).toHaveBeenCalledTimes(2);
       expect(preview).toHaveBeenCalledTimes(1);
 
       const returnedCallA = returnedReconciles[1];
@@ -4405,6 +4448,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         'LateReconcileIgnored(A)',
         'lateA',
         lateASnapshot,
+        'deferred A HTTP response settled after B through the real client; mounted DOM retained B',
       );
       expect(returnedCallA.result.receiptId).toBe('receipt-A');
       expect(returnedCallA.result.outputs.map((output) => output.outputId)).toEqual(['specimens']);

@@ -35,7 +35,6 @@ type HookFormalObservation = {
 
 export type ReconcileTraceSnapshot = {
   readonly status: string;
-  readonly activeRequestKey: 'A' | 'B' | null;
   readonly current: {
     readonly modelKey: 'W1' | 'W2';
     readonly draftVersion: number;
@@ -220,9 +219,10 @@ export const traceReconcileAction = (
   label: string,
   event: string,
   snapshot: ReconcileTraceSnapshot,
+  note?: string,
 ): void => {
   if (!activeTrace || activeTrace.model !== 'ReconcileLifecycle') return;
-  traceActionWithObservation(label, event, reconcileObservationFor(snapshot));
+  traceActionWithObservation(label, event, reconcileObservationFor(snapshot), note);
 };
 
 export const traceEmbeddedPreviewAccepted = (

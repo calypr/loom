@@ -1,9 +1,6 @@
 ---- MODULE ReconcileLifecycle ----
 EXTENDS Naturals, TLC
 
-\* Bounded reconcile model. Request ownership is retained per request so an
-\* older request can settle after a newer workspace has become authoritative.
-
 MaxRetry == 2
 MaxStaleRefresh == 2
 
@@ -56,7 +53,7 @@ vars == <<r, lastAction>>
 TypeOK ==
   /\ r.currentWorkspace \in WorkspaceKeys
   /\ r.activeRequest \in RequestKeys \cup {"NONE"}
-  /\ r.requests \in [RequestKeys -> [status : RequestStatuses, workspace : WorkspaceKeys]]
+  /\ r.requestLedger \in [RequestKeys -> [status : RequestStatuses, workspace : WorkspaceKeys]]
   /\ r.phase \in {"idle", "requesting", "succeeded", "stale", "conflict", "invalid", "failed"}
   /\ r.errorClass \in {"none", "stale", "conflict", "invalid", "retryable", "fatal"}
   /\ r.receipt.id \in ReceiptIds
@@ -91,13 +88,13 @@ SuccessActionLabel(requestKey) == IF requestKey = "A" THEN "ReconcileSuccess(A)"
 LateActionLabel(requestKey) == IF requestKey = "A" THEN "LateReconcileIgnored(A)" ELSE "LateReconcileIgnored(B)"
 
 RequestMatchesCurrent(requestKey) ==
-  r.requests[requestKey].workspace = r.currentWorkspace
+  r.requestLedger[requestKey].workspace = r.currentWorkspace
 
 Init ==
   /\ r = [
        currentWorkspace |-> "W1",
        activeRequest |-> "NONE",
-       requests |-> EmptyRequests,
+       requestLedger |-> EmptyRequests,
        phase |-> "idle",
        errorClass |-> "none",
        receipt |-> EmptyReceipt,
@@ -113,11 +110,11 @@ RequestReconcile(requestKey) ==
   /\ requestKey \in RequestKeys
   /\ r.phase = "idle"
   /\ r.activeRequest = "NONE"
-  /\ r.requests[requestKey].status = "idle"
+  /\ r.requestLedger[requestKey].status = "idle"
   /\ r.tablesRooted
   /\ r.snapshotPresent
   /\ r' = [r EXCEPT
-       !.requests[requestKey] = [status |-> "requesting", workspace |-> r.currentWorkspace],
+       !.requestLedger[requestKey] = [status |-> "requesting", workspace |-> r.currentWorkspace],
        !.activeRequest = requestKey,
        !.phase = "requesting",
        !.errorClass = "none",
@@ -134,7 +131,7 @@ RetryReconcile ==
     /\ \/ (r.phase = "stale" /\ r.staleRefreshCount < MaxStaleRefresh)
        \/ (r.phase = "failed" /\ r.errorClass = "retryable" /\ r.retryCount < MaxRetry)
     /\ r' = [r EXCEPT
-         !.requests[requestKey] = [status |-> "requesting", workspace |-> r.currentWorkspace],
+         !.requestLedger[requestKey] = [status |-> "requesting", workspace |-> r.currentWorkspace],
          !.phase = "requesting",
          !.errorClass = "none",
          !.receipt = EmptyReceipt,
@@ -146,10 +143,10 @@ RetryReconcile ==
 ReconcileSuccess(requestKey) ==
   /\ requestKey \in RequestKeys
   /\ r.activeRequest = requestKey
-  /\ r.requests[requestKey].status = "requesting"
+  /\ r.requestLedger[requestKey].status = "requesting"
   /\ RequestMatchesCurrent(requestKey)
   /\ r' = [r EXCEPT
-       !.requests[requestKey].status = "accepted",
+       !.requestLedger[requestKey].status = "accepted",
        !.phase = "succeeded",
        !.errorClass = "none",
        !.receipt = [id |-> ReceiptFor(requestKey), requestKey |-> requestKey,
@@ -163,23 +160,23 @@ ReconcileSuccess(requestKey) ==
 
 LateReconcileIgnored(requestKey) ==
   /\ requestKey \in RequestKeys
-  /\ r.requests[requestKey].status = "requesting"
+  /\ r.requestLedger[requestKey].status = "requesting"
   /\ \/ r.activeRequest # requestKey
      \/ ~RequestMatchesCurrent(requestKey)
   /\ r' = [r EXCEPT
-       !.requests[requestKey].status = "ignored",
+       !.requestLedger[requestKey].status = "ignored",
        !.lastReturned = [requestKey |-> requestKey, id |-> ReceiptFor(requestKey),
-                         workspace |-> r.requests[requestKey].workspace,
-                         outputKey |-> WorkspaceFor(r.requests[requestKey].workspace).outputKey]
+                         workspace |-> r.requestLedger[requestKey].workspace,
+                         outputKey |-> WorkspaceFor(r.requestLedger[requestKey].workspace).outputKey]
      ]
   /\ lastAction' = LateActionLabel(requestKey)
 
 ReconcileStale ==
   /\ r.activeRequest \in RequestKeys
   /\ r.phase = "requesting"
-  /\ r.requests[r.activeRequest].status = "requesting"
+  /\ r.requestLedger[r.activeRequest].status = "requesting"
   /\ r' = [r EXCEPT
-       !.requests[r.activeRequest].status = "rejected",
+       !.requestLedger[r.activeRequest].status = "rejected",
        !.phase = "stale",
        !.errorClass = "stale",
        !.receipt = EmptyReceipt
@@ -189,9 +186,9 @@ ReconcileStale ==
 ReconcileConflict ==
   /\ r.activeRequest \in RequestKeys
   /\ r.phase = "requesting"
-  /\ r.requests[r.activeRequest].status = "requesting"
+  /\ r.requestLedger[r.activeRequest].status = "requesting"
   /\ r' = [r EXCEPT
-       !.requests[r.activeRequest].status = "rejected",
+       !.requestLedger[r.activeRequest].status = "rejected",
        !.phase = "conflict",
        !.errorClass = "conflict",
        !.receipt = EmptyReceipt
@@ -201,9 +198,9 @@ ReconcileConflict ==
 ReconcileInvalid ==
   /\ r.activeRequest \in RequestKeys
   /\ r.phase = "requesting"
-  /\ r.requests[r.activeRequest].status = "requesting"
+  /\ r.requestLedger[r.activeRequest].status = "requesting"
   /\ r' = [r EXCEPT
-       !.requests[r.activeRequest].status = "rejected",
+       !.requestLedger[r.activeRequest].status = "rejected",
        !.phase = "invalid",
        !.errorClass = "invalid",
        !.receipt = EmptyReceipt
@@ -214,9 +211,9 @@ ReconcileFailure(retryable) ==
   /\ retryable \in BOOLEAN
   /\ r.activeRequest \in RequestKeys
   /\ r.phase = "requesting"
-  /\ r.requests[r.activeRequest].status = "requesting"
+  /\ r.requestLedger[r.activeRequest].status = "requesting"
   /\ r' = [r EXCEPT
-       !.requests[r.activeRequest].status = "rejected",
+       !.requestLedger[r.activeRequest].status = "rejected",
        !.phase = "failed",
        !.errorClass = IF retryable THEN "retryable" ELSE "fatal",
        !.receipt = EmptyReceipt
@@ -227,14 +224,14 @@ ReconcileFailure(retryable) ==
 
 WorkspaceChangeStartsReconcile ==
   /\ r.currentWorkspace = "W1"
-  /\ r.requests["A"].status = "requesting"
-  /\ r.requests["B"].status = "idle"
+  /\ r.requestLedger["A"].status = "requesting"
+  /\ r.requestLedger["B"].status = "idle"
   /\ r.tablesRooted
   /\ r.snapshotPresent
   /\ r' = [r EXCEPT
        !.currentWorkspace = "W2",
        !.activeRequest = "B",
-       !.requests["B"] = [status |-> "requesting", workspace |-> "W2"],
+       !.requestLedger["B"] = [status |-> "requesting", workspace |-> "W2"],
        !.phase = "requesting",
        !.errorClass = "none",
        !.receipt = EmptyReceipt,

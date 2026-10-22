@@ -39,12 +39,12 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "69288671abc05316c9413a0ac085152577730e00e3eaf3a381977ae5f8bcb545",
+      "sha256": "9335d29e89ac9bb320f840c08749f469115088d91e3795e7d1a6bc514bbe25de",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "216a1a640cd3893ada73079e264dab58909a4ec35ff1bc494f58eea9b9301fbf",
+      "sha256": "57fb429d37ea42ff65dc2efa679d52819fef0f29250080dd25bc3d7bcc4e0db3",
       "contract": "Trace mutation controls for reconcile stale receipt/output takeover, request ownership, response binding, and settlement order."
     },
     {
@@ -108,13 +108,18 @@
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
+      "path": "ui/packages/loom-ui/src/api.ts",
+      "sha256": "02eb5a4a44efc9f15ba756c23b6a2c80908e955ccbc74d8d76df09ff7a2844be",
+      "contract": "Real reconcile HTTP request serialization and compile-result validation exercised through the deferred fetch transport."
+    },
+    {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
       "sha256": "bc17ed3e49f74cf70d94bf9708ac4f8baf506fb579dc2fd23f14bd9cb9c6a557",
       "contract": "Mounted reconcileCurrent request identity guard, current workspace checks, and compiled reducer dispatch path replayed by the real BuilderWorkspace race."
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
-      "sha256": "6b4daec679abcd9eb6273f87c42b1b20ffd0fcc622c816777b9db125e109a95e",
+      "sha256": "15c0c3412f31af6d0e27dc983f98819ef714ae8b5f8304395c77d4219578b484",
       "contract": "Mounted BuilderWorkspace A/B reconcile race, captured request/settlement identities, and rendered receipt/output oracle."
     },
     {
@@ -158,8 +163,13 @@
       "contract": "Request identity, owner gating, preview receipt checks, Pivot discovery generation/key/adoption, beginApply, and finishApply."
     },
     {
+      "path": "ui/packages/loom-ui/src/react.tsx",
+      "sha256": "4655069a2206447e9db33076da1a8d8ea87d0724b1818af33d789067a11fe7ca",
+      "contract": "Real useReconcileExplorerBuilderV2Mutation hook and LoomProvider path mounted by the reconcile race."
+    },
+    {
       "path": "ui/packages/loom-ui/testSupport/formalTrace.ts",
-      "sha256": "070bb4aeb39ff178437111af19ee4b4332b31d6eab5153c45f051eca36c1cf75",
+      "sha256": "5d6f5b756a89d75ebb75d3bc6fb4745a9e9bf47e10deef2c5a78237ad9da503e",
       "contract": "Test-only trace recorder used by the real-controller formal suite."
     },
     {
@@ -259,7 +269,7 @@
     },
     {
       "path": "verification/builder-interactions/ReconcileLifecycle.tla",
-      "sha256": "280a58c9b1c8052b4a4ff474656a25b7463de2ffa6d6edb4cf68ef37d760658e",
+      "sha256": "2922232e06aadd3b01642633e13aa70390369287af1f92980f76bac018218aee",
       "contract": "Reconcile request identity, receipt binding, stale and conflict outcomes, draft invalidation, and bounded retry model."
     },
     {
