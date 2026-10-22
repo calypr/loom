@@ -51,6 +51,7 @@ const OBSERVATION_BOOLEAN_FIELDS = [
   'rowsPresent',
   'receiptPresent',
 ];
+const BUILDER_JOURNEY_PREVIEW_SURFACES = new Set(['row-operation', 'main-table', 'unknown']);
 
 function fail(message) {
   throw new Error(message);
@@ -388,6 +389,9 @@ function journeyPreviewEvidenceProblem(action, where) {
       response.proposalId !== observation.proposalId) {
     return where + ' response.proposalId does not match displayed observation.proposalId';
   }
+  if (!['row-operation', 'main-table'].includes(observation.proposalPreviewSurface)) {
+    return where + ' ready proposal has no matching rendered proposal preview surface';
+  }
   const pairs = [
     ['proposalOutputId', observation.proposalOutputId, 'response.proposalOutputId does not match displayed observation.proposalOutputId'],
     ['proposalSnapshotToken', observation.proposalSnapshotToken, 'response.proposalSnapshotToken does not match displayed observation.proposalSnapshotToken'],
@@ -483,6 +487,62 @@ function observationProblem(observation, where, model) {
     for (const field of ['available', 'enabled', 'applying']) {
       if (observation.apply[field] !== undefined && observation.apply[field] !== null && typeof observation.apply[field] !== 'boolean') {
         return where + '.apply.' + field + ' must be a boolean or null';
+      }
+    }
+  }
+  if (model === 'BuilderJourney') {
+    const surface = observation.proposalPreviewSurface;
+    if (typeof surface !== 'string' || !BUILDER_JOURNEY_PREVIEW_SURFACES.has(surface)) {
+      return where + '.proposalPreviewSurface must be row-operation, main-table, or unknown';
+    }
+    if (!Object.hasOwn(observation, 'embeddedProposalPreview')) {
+      return where + '.embeddedProposalPreview must be explicit for the selected proposal preview surface';
+    }
+    const embedded = observation.embeddedProposalPreview;
+    if (surface === 'unknown') {
+      if (embedded !== null) {
+        return where + '.proposalPreviewSurface "unknown" cannot claim an embedded proposal preview';
+      }
+      if (observation.previewReceiptPresent || observation.rowsPresent || observation.receiptPresent ||
+          observation.previewReceiptId !== null || observation.previewOutputId !== null) {
+        return where + '.proposalPreviewSurface "unknown" cannot populate proposal preview fields';
+      }
+    } else {
+      if (!isPlainObject(embedded)) {
+        return where + '.proposalPreviewSurface ' + JSON.stringify(surface) + ' requires an embedded proposal preview';
+      }
+      if (typeof observation.proposalId !== 'string' || observation.proposalId.length === 0) {
+        return where + '.proposalPreviewSurface ' + JSON.stringify(surface) + ' requires a rendered proposalId';
+      }
+      if (surface === 'main-table') {
+        const rawMainPreview = observation.sourceTablePreview;
+        const rawMainProposalId = rawMainPreview?.proposalId;
+        if (typeof rawMainProposalId !== 'string' || rawMainProposalId.length === 0) {
+          return where + '.main-table proposal preview requires sourceTablePreview.proposalId';
+        }
+        if (rawMainProposalId !== observation.proposalId) {
+          return where + '.main-table sourceTablePreview.proposalId does not match displayed proposalId';
+        }
+        for (const field of ['status', 'receiptId', 'outputId', 'rowsPresent']) {
+          if (!Object.hasOwn(rawMainPreview, field) || !Object.hasOwn(embedded, field) ||
+              rawMainPreview[field] !== embedded[field]) {
+            return where + '.main-table embeddedProposalPreview.' + field + ' does not match raw sourceTablePreview.' + field;
+          }
+        }
+        if (rawMainPreview.rowCount !== undefined && rawMainPreview.rowCount !== null &&
+            rawMainPreview.rowCount !== embedded.rowCount) {
+          return where + '.main-table embeddedProposalPreview.rowCount does not match raw sourceTablePreview.rowCount';
+        }
+      }
+      if (embedded.proposalId !== observation.proposalId) {
+        return where + '.embeddedProposalPreview.proposalId does not match displayed proposalId';
+      }
+      if (observation.previewReceiptPresent !== Boolean(embedded.receiptId) ||
+          observation.receiptPresent !== Boolean(embedded.receiptId) ||
+          observation.rowsPresent !== Boolean(embedded.rowsPresent) ||
+          observation.previewReceiptId !== (embedded.receiptId ?? null) ||
+          observation.previewOutputId !== (embedded.outputId ?? null)) {
+        return where + '.proposal preview fields must be flattened from the selected surface only';
       }
     }
   }

@@ -167,6 +167,7 @@ const runJourneyCrossEvidenceMutation = () => {
     status: 'ready',
     receiptId: 'source-receipt-self-test',
     outputId: 'source-output-self-test',
+    proposalId: null,
     rowsPresent: true,
     rowCount: 3,
     renderedRowCount: 3,
@@ -176,17 +177,19 @@ const runJourneyCrossEvidenceMutation = () => {
     tablePreviewStatus: 'ready',
     canApply: false,
     proposalIdPresent: false,
+    proposalId: null,
+    proposalOutputId: null,
+    proposalSnapshotToken: null,
+    proposalDraftVersion: null,
+    proposalDraftDigest: null,
     previewReceiptPresent: false,
     rowsPresent: false,
     receiptPresent: false,
+    previewReceiptId: null,
+    previewOutputId: null,
+    proposalPreviewSurface: 'unknown',
     sourceTablePreview,
-    embeddedProposalPreview: {
-      status: 'none',
-      receiptId: null,
-      outputId: null,
-      proposalId: null,
-      rowsPresent: false,
-    },
+    embeddedProposalPreview: null,
     apply: { available: false, enabled: false, applying: false },
   };
   const owner = { kind: 'proposal', attempt: 'P1' };
@@ -262,14 +265,9 @@ const runJourneyCrossEvidenceMutation = () => {
           proposalDraftDigest: null,
           previewReceiptId: null,
           previewOutputId: null,
+          proposalPreviewSurface: 'unknown',
           sourceTablePreview,
-          embeddedProposalPreview: {
-            status: 'pending',
-            receiptId: null,
-            outputId: null,
-            proposalId: null,
-            rowsPresent: false,
-          },
+          embeddedProposalPreview: null,
           apply: { available: false, enabled: false, applying: false },
         },
       },
@@ -295,6 +293,7 @@ const runJourneyCrossEvidenceMutation = () => {
           proposalDraftDigest: readyResponse.proposalDraftDigest,
           previewReceiptId: readyResponse.preview.receiptId,
           previewOutputId: readyResponse.preview.outputId,
+          proposalPreviewSurface: 'row-operation',
           sourceTablePreview,
           embeddedProposalPreview: {
             status: 'ready',
@@ -346,6 +345,55 @@ const runJourneyCrossEvidenceMutation = () => {
     return false;
   }
   console.log('PASS journey positive baseline: validator accepted the self-test-only capture-shaped preview trace');
+
+  const mainTableJourneyPayload = JSON.parse(JSON.stringify(journeyPayload));
+  const mainTableObservation = mainTableJourneyPayload.traces[0].actions[1].observation;
+  const mainTablePreview = {
+    ...sourceTablePreview,
+    status: 'ready',
+    receiptId: readyResponse.preview.receiptId,
+    outputId: readyResponse.preview.outputId,
+    proposalId: readyResponse.proposalId,
+    draftVersion: readyResponse.proposalDraftVersion,
+    draftDigest: readyResponse.proposalDraftDigest,
+    rowsPresent: readyResponse.preview.rowsPresent,
+    rowCount: readyResponse.preview.rowCount,
+    renderedRowCount: readyResponse.preview.rowCount,
+  };
+  mainTableObservation.proposalPreviewSurface = 'main-table';
+  mainTableObservation.sourceTablePreview = mainTablePreview;
+  mainTableObservation.embeddedProposalPreview = {
+    status: mainTablePreview.status,
+    receiptId: mainTablePreview.receiptId,
+    outputId: mainTablePreview.outputId,
+    proposalId: mainTablePreview.proposalId,
+    rowsPresent: mainTablePreview.rowsPresent,
+    rowCount: mainTablePreview.rowCount,
+    renderedRowCount: mainTablePreview.renderedRowCount,
+  };
+  const mainTablePath = join(workDirectory, 'journey-main-table-positive-baseline.json');
+  const mainTableReportPath = join(workDirectory, 'journey-main-table-positive-baseline.report.json');
+  writeFileSync(mainTablePath, JSON.stringify(mainTableJourneyPayload, null, 2) + '\n');
+  const mainTableBaseline = spawnSync(process.execPath, [
+    'scripts/verify-builder-traces.mjs',
+    '--traces', mainTablePath,
+    '--contract', journeyContractPath,
+    '--allow-partial',
+    '--quiet',
+    '--output', mainTableReportPath,
+  ], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const mainTableReport = JSON.parse(readFileSync(mainTableReportPath, 'utf8'));
+  if (mainTableBaseline.status !== 0 || mainTableReport.traces?.[0]?.status !== 'pass') {
+    console.error('FAIL journey main-table positive baseline: validator rejected matching raw and selected main-table preview evidence');
+    console.error(JSON.stringify(mainTableReport.traces?.[0] ?? null, null, 2));
+    console.error(((mainTableBaseline.stdout || '') + (mainTableBaseline.stderr || '')).split('\n').slice(-12).join('\n'));
+    return false;
+  }
+  console.log('PASS journey main-table positive baseline: validator accepted matching raw and selected preview evidence');
 
   const mutated = JSON.parse(JSON.stringify(journeyPayload));
   mutated.traces[0].actions[1].response.proposalId = 'forged-response-proposal-id';
@@ -412,6 +460,72 @@ const runJourneyCrossEvidenceMutation = () => {
     return false;
   }
   console.log('PASS journey-missing-observed-output-id: validator rejected the absent rendered output ID before TLC');
+
+  const runJourneySurfaceMutation = (label, mutateObservation, diagnostic) => {
+    const surfaceMutation = JSON.parse(JSON.stringify(journeyPayload));
+    mutateObservation(surfaceMutation.traces[0].actions[1].observation);
+    const surfacePath = join(workDirectory, label + '.json');
+    const surfaceReportPath = join(workDirectory, label + '.report.json');
+    writeFileSync(surfacePath, JSON.stringify(surfaceMutation, null, 2) + '\n');
+    const surfaceResult = spawnSync(process.execPath, [
+      'scripts/verify-builder-traces.mjs',
+      '--traces', surfacePath,
+      '--contract', journeyContractPath,
+      '--allow-partial',
+      '--quiet',
+      '--output', surfaceReportPath,
+    ], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    if (surfaceResult.status === 0) {
+      console.error('FAIL ' + label + ': validator accepted source preview data as proposal preview evidence');
+      return false;
+    }
+    const surfaceReport = JSON.parse(readFileSync(surfaceReportPath, 'utf8'));
+    const surfaceFailure = surfaceReport.traces?.[0];
+    if (surfaceFailure?.status !== 'fail' ||
+        !surfaceFailure.failure?.message?.includes(diagnostic) ||
+        surfaceFailure.tlc !== undefined) {
+      console.error('FAIL ' + label + ': rejection did not come from the intended pre-TLC preview-surface check');
+      console.error(JSON.stringify(surfaceFailure ?? null, null, 2));
+      return false;
+    }
+    console.log('PASS ' + label + ': validator rejected source preview data as proposal preview evidence');
+    return true;
+  };
+
+  const absentProposalId = runJourneySurfaceMutation(
+    'journey-source-preview-without-proposal-id',
+    (observation) => {
+      observation.proposalPreviewSurface = 'main-table';
+      observation.embeddedProposalPreview = { ...observation.sourceTablePreview };
+      observation.previewReceiptPresent = true;
+      observation.rowsPresent = sourceTablePreview.rowsPresent;
+      observation.receiptPresent = true;
+      observation.previewReceiptId = sourceTablePreview.receiptId;
+      observation.previewOutputId = sourceTablePreview.outputId;
+    },
+    'traces[0].actions[1].observation.main-table proposal preview requires sourceTablePreview.proposalId',
+  );
+  const mismatchedProposalId = runJourneySurfaceMutation(
+    'journey-source-preview-with-mismatched-proposal-id',
+    (observation) => {
+      const staleProposalId = 'stale-source-proposal-self-test';
+      const sourcePreviewAsCandidate = { ...observation.sourceTablePreview, proposalId: staleProposalId };
+      observation.proposalPreviewSurface = 'main-table';
+      observation.sourceTablePreview = sourcePreviewAsCandidate;
+      observation.embeddedProposalPreview = sourcePreviewAsCandidate;
+      observation.previewReceiptPresent = true;
+      observation.rowsPresent = sourcePreviewAsCandidate.rowsPresent;
+      observation.receiptPresent = true;
+      observation.previewReceiptId = sourcePreviewAsCandidate.receiptId;
+      observation.previewOutputId = sourcePreviewAsCandidate.outputId;
+    },
+    'traces[0].actions[1].observation.main-table sourceTablePreview.proposalId does not match displayed proposalId',
+  );
+  if (!absentProposalId || !mismatchedProposalId) return false;
   return true;
 };
 

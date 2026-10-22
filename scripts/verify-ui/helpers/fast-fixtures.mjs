@@ -258,11 +258,44 @@ export const captureBuilderObservation = async (page) => page.evaluate(() => {
   const proposalPanel = document.querySelector('[data-testid="construction-proposal-panel"]');
   const applyButton = proposalPanel?.querySelector('[data-testid="construction-apply-proposal"]');
   const sourceTable = sourcePreview?.querySelector('[data-testid="preview-table-content"] [role="table"]');
+  const sourceNativeTable = sourcePreview?.querySelector('table');
   const sourcePreviewError = sourcePreview?.querySelector('p[role="status"]')?.textContent
     ?.startsWith('Preview did not complete for this draft') ?? false;
   const sourceRenderedRows = sourcePreview?.querySelectorAll('.construction-preview-data-row').length ?? 0;
-  const proposalPreviewElement = proposalPanel?.querySelector('[data-testid="construction-proposal-preview"]');
-  const proposalRenderedRows = proposalPreviewElement?.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length ?? 0;
+  const rowOperationEditor = proposalPanel?.closest('[data-testid="construction-row-operation-editor"]');
+  const rowOperationPanel = rowOperationEditor?.querySelector('[data-testid="construction-proposal-panel"]');
+  const rowOperationProposalPreview = rowOperationEditor?.querySelector('[data-testid="construction-proposal-preview"]');
+  const proposalId = attribute(proposalPanel, 'data-proposal-id');
+  const mainPreviewProposalId = attribute(sourcePreview, 'data-preview-proposal-id');
+  const rowOperationSurface = Boolean(
+    proposalId
+    && rowOperationEditor
+    && rowOperationPanel === proposalPanel
+    && rowOperationProposalPreview,
+  );
+  const mainTableSurface = Boolean(proposalId && mainPreviewProposalId === proposalId);
+  const proposalPreviewSurface = rowOperationSurface === mainTableSurface
+    ? 'unknown'
+    : rowOperationSurface
+      ? 'row-operation'
+      : mainTableSurface
+        ? 'main-table'
+        : 'unknown';
+  const proposalPreviewElement = proposalPreviewSurface === 'row-operation'
+    ? rowOperationProposalPreview
+    : proposalPreviewSurface === 'main-table'
+      ? sourcePreview
+      : null;
+  const proposalPreviewProposalId = proposalPreviewSurface === 'main-table'
+    ? mainPreviewProposalId
+    : proposalPreviewSurface === 'row-operation'
+      ? proposalId
+      : null;
+  const proposalPreviewTable = proposalPreviewElement?.querySelector('table');
+  const proposalPreviewRoleTable = proposalPreviewElement?.querySelector('[data-testid="preview-table-content"] [role="table"]');
+  const proposalRenderedRows = proposalPreviewSurface === 'main-table'
+    ? sourceRenderedRows
+    : proposalPreviewElement?.querySelectorAll('[data-testid="construction-proposal-preview-row"]').length ?? 0;
   const sourceTablePreview = sourcePreview ? {
     status: attribute(sourcePreview, 'data-preview-status'),
     receiptId: attribute(sourcePreview, 'data-preview-receipt-id'),
@@ -270,27 +303,30 @@ export const captureBuilderObservation = async (page) => page.evaluate(() => {
     proposalId: attribute(sourcePreview, 'data-preview-proposal-id'),
     draftVersion: numberAttribute(sourcePreview, 'data-current-draft-version'),
     draftDigest: attribute(sourcePreview, 'data-current-draft-digest'),
-    rowsPresent: Boolean(sourceTable),
+    rowsPresent: Boolean(sourceTable || sourceNativeTable),
     rowCount: rowCount(sourceTable),
     renderedRowCount: sourceRenderedRows,
   } : null;
-  const embeddedProposalTable = proposalPreviewElement?.querySelector('table');
   const embeddedProposalPreview = proposalPreviewElement ? {
     status: attribute(proposalPreviewElement, 'data-preview-status'),
     receiptId: attribute(proposalPreviewElement, 'data-preview-receipt-id'),
     outputId: attribute(proposalPreviewElement, 'data-preview-output-id'),
-    rowsPresent: Boolean(embeddedProposalTable),
-    rowCount: embeddedProposalTable ? proposalRenderedRows : null,
+    proposalId: proposalPreviewProposalId,
+    rowsPresent: Boolean(proposalPreviewTable || proposalPreviewRoleTable),
+    rowCount: proposalPreviewSurface === 'main-table'
+      ? rowCount(proposalPreviewRoleTable)
+      : proposalPreviewTable
+        ? proposalRenderedRows
+        : rowCount(proposalPreviewRoleTable),
     renderedRowCount: proposalRenderedRows,
   } : null;
-  const proposalId = attribute(proposalPanel, 'data-proposal-id');
   const proposalOutputId = attribute(proposalPanel, 'data-proposal-output-id');
   const proposalSnapshotToken = attribute(proposalPanel, 'data-proposal-snapshot-token');
   const proposalDraftVersion = numberAttribute(proposalPanel, 'data-proposal-draft-version');
   const proposalDraftDigest = attribute(proposalPanel, 'data-proposal-draft-digest');
   const proposalPreviewStatus = attribute(proposalPanel, 'data-proposal-preview-status');
   const tablePreviewStatus = sourceTablePreview?.status;
-  const renderedSourcePreview = Boolean(sourceTable || sourcePreviewError);
+  const renderedSourcePreview = Boolean(sourceTable || sourcePreviewError || sourcePreview?.querySelector('table'));
   const proposalStatus = attribute(proposalPanel, 'data-proposal-status');
 
   return {
@@ -304,6 +340,7 @@ export const captureBuilderObservation = async (page) => page.evaluate(() => {
     proposalDraftVersion,
     proposalDraftDigest,
     proposalPreviewStatus,
+    proposalPreviewSurface,
     previewReceiptPresent: Boolean(embeddedProposalPreview?.receiptId),
     rowsPresent: Boolean(embeddedProposalPreview?.rowsPresent),
     receiptPresent: Boolean(embeddedProposalPreview?.receiptId),
