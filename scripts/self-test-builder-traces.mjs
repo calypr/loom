@@ -229,6 +229,7 @@ const runJourneyCrossEvidenceMutation = () => {
       },
       response: {
         status: 200,
+        errorCode: null,
         requestId: 'request-source-self-test',
         captureId: 'capture-source-self-test',
         preview: {
