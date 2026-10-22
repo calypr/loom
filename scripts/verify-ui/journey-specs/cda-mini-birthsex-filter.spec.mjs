@@ -169,7 +169,6 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
     responseEvent: 'preview-response',
   });
   await valueInput.fill('F');
-  const filterProposalStarted = await filterProposalTrace.started;
   const filterProposalExchange = await filterProposalAttempt.settled;
   await filterProposalTrace.settled;
   const filterPreview = filterProposalExchange.payload.preview;
@@ -201,7 +200,6 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
   trace.traces[0].actions.push({
     label: 'CancelFilter',
     event: 'cancel-filter',
-    owner: filterProposalStarted.owner,
     observation: await captureBuilderObservation(fastPage),
   });
 
