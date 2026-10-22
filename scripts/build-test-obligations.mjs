@@ -108,7 +108,7 @@ function blobInfoAtCommit(commit, paths) {
     if (body.length !== size || output[offset + size] !== 0x0a) fail('git cat-file returned a malformed blob for ' + path);
     const lineCount = body.length === 0 ? 0
       : body.reduce((count, byte) => count + (byte === 0x0a ? 1 : 0), 0) + (body.at(-1) === 0x0a ? 0 : 1);
-    infos.set(path, { sha256: createHash('sha256').update(body).digest('hex'), lineCount, sourceText: body.toString('utf8') });
+    infos.set(path, { sha256: createHash('sha256').update(body).digest('hex'), lineCount, sourceLines: body.toString('utf8').split(/\r?\n/) });
     offset += size + 1;
   }
   return infos;
@@ -118,15 +118,63 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function isDiagnosticAssertionRecorder(sourceText, lineNumber) {
-  const lines = sourceText.split(/\r?\n/);
+function callArgumentsAt(lines, lineNumber, callPattern) {
   const index = lineNumber - 1;
-  const line = lines[index] ?? '';
-  if (/\brecordAssertion\s*\(/.test(line)) return true;
-  const checkStart = line.search(/\bcda\.check\s*\(/);
-  if (checkStart < 0) return false;
-  const excerpt = lines.slice(index, Math.min(lines.length, index + 3)).join('\n');
-  return /,\s*true\s*,/.test(excerpt.slice(checkStart, checkStart + 300));
+  const startLine = lines[index] ?? '';
+  const match = callPattern.exec(startLine);
+  if (!match) return [];
+  const excerpt = lines.slice(index, Math.min(lines.length, index + 12)).join('\n');
+  const openParen = startLine.indexOf('(', match.index);
+  const args = [];
+  let start = openParen + 1;
+  let parens = 1;
+  let brackets = 0;
+  let braces = 0;
+  let quote = null;
+  let escaped = false;
+  for (let cursor = start; cursor < excerpt.length; cursor++) {
+    const char = excerpt[cursor];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === '`') quote = char;
+    else if (char === '(') parens++;
+    else if (char === ')') {
+      if (parens === 1) {
+        args.push(excerpt.slice(start, cursor).trim());
+        return args;
+      }
+      parens--;
+    } else if (char === '[') brackets++;
+    else if (char === ']') brackets--;
+    else if (char === '{') braces++;
+    else if (char === '}') braces--;
+    else if (char === ',' && parens === 1 && brackets === 0 && braces === 0) {
+      args.push(excerpt.slice(start, cursor).trim());
+      start = cursor + 1;
+    }
+  }
+  return args;
+}
+
+function diagnosticReporterSummary(lines) {
+  const source = lines.join('\n');
+  return {
+    unconditionalPassedRecordAssertion: /\b(?:const|let)\s+recordAssertion\s*=\s*\([^)]*\)\s*=>\s*report\.assertions\.push\s*\(\s*\{[^}]*\bstatus\s*:\s*['"]passed['"][^}]*\}\s*\)/.test(source),
+    unconditionalTrueRecordCheck: /\b(?:const|let)\s+recordCheck\s*=\s*\([^)]*\)\s*=>\s*cda\.check\s*\([\s\S]{0,300}?,\s*true\s*,/.test(source),
+  };
+}
+
+function isDiagnosticAssertionRecorder(lines, lineNumber, reporterSummary) {
+  const cdaCheckArgs = callArgumentsAt(lines, lineNumber, /\bcda\.check\s*\(/);
+  if (cdaCheckArgs[2] === 'true') return true;
+  const recordCheckArgs = callArgumentsAt(lines, lineNumber, /\brecordCheck\s*\(/);
+  if (recordCheckArgs.includes('true')) return true;
+  if (reporterSummary.unconditionalPassedRecordAssertion && /\brecordAssertion\s*\(/.test(lines[lineNumber - 1] ?? '')) return true;
+  return reporterSummary.unconditionalTrueRecordCheck && /\brecordCheck\s*\(/.test(lines[lineNumber - 1] ?? '');
 }
 
 function buildRegistryCaseIndex(registry) {
@@ -146,6 +194,7 @@ function catalogErrors(catalog, {
   currentPaths,
   currentHashes,
   baselinePaths,
+  baselineInventorySha256,
   reviewedBlobInfos,
   caseIndex,
   models,
@@ -156,6 +205,40 @@ function catalogErrors(catalog, {
   const error = (message) => errors.push(message);
   const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
   const asArray = (value) => Array.isArray(value) ? value : [];
+  const evidenceLineCounts = new Map([...reviewedBlobInfos].map(([path, info]) => [path, info?.lineCount]));
+  const reporterSummaries = new Map([...reviewedBlobInfos].map(([path, info]) => [path, diagnosticReporterSummary(info?.sourceLines ?? [])]));
+  const validateEvidence = (anchors, label, required = false) => {
+    if (!Array.isArray(anchors)) {
+      error(required ? label + ' needs at least one source anchor and must be an array' : label + ' must be an array');
+      return;
+    }
+    if (required && anchors.length === 0) error(label + ' needs at least one source anchor');
+    for (const anchor of anchors) {
+      if (!isRecord(anchor) || !nonEmptyString(anchor.path) || !Number.isInteger(anchor.line)
+        || anchor.line < 1 || !nonEmptyString(anchor.kind)) {
+        error(label + ' entries need repository path, positive line, and kind');
+        continue;
+      }
+      const fullPath = resolve(ROOT, anchor.path);
+      const pathFromRoot = relative(ROOT, fullPath);
+      if (pathFromRoot === '..' || pathFromRoot.startsWith('../') || pathFromRoot.startsWith('..\\')) {
+        error(label + ' path escapes the repository: ' + anchor.path);
+        continue;
+      }
+      let lineCount = evidenceLineCounts.get(anchor.path);
+      if (lineCount === undefined) {
+        try {
+          const text = readFileSync(fullPath, 'utf8');
+          lineCount = text.length === 0 ? 0 : text.split(/\r?\n/).length - (text.endsWith('\n') ? 1 : 0);
+          evidenceLineCounts.set(anchor.path, lineCount);
+        } catch {
+          error(label + ' references unavailable source: ' + anchor.path);
+          continue;
+        }
+      }
+      if (anchor.line > lineCount) error(label + ' line is outside reviewed source: ' + anchor.path + ':' + anchor.line);
+    }
+  };
   const activePaths = new Set();
   const retiredPaths = new Set();
   const filesByPath = new Map();
@@ -168,6 +251,9 @@ function catalogErrors(catalog, {
   if (!isRecord(catalog) || catalog.schemaVersion !== 1) return ['catalog schemaVersion must be 1'];
   if (!nonEmptyString(catalog.sourceCommit)) error('catalog sourceCommit is required');
   if (nonEmptyString(catalog.sourceCommit) && !/^[a-f0-9]{40}$/.test(catalog.sourceCommit)) error('catalog sourceCommit must be a full commit hash');
+  if (!/^[a-f0-9]{64}$/.test(catalog.inventorySha256 ?? '')) error('catalog inventorySha256 must be a 64-character lowercase SHA-256');
+  if (!/^[a-f0-9]{64}$/.test(baselineInventorySha256 ?? '')) error('baseline inventory artifact SHA-256 could not be resolved');
+  else if (catalog.inventorySha256 !== baselineInventorySha256) error('catalog inventorySha256 does not match the baseline inventory artifact');
   for (const forbidden of ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
     if (Object.hasOwn(catalog, forbidden)) error('catalog cannot author runtime field ' + forbidden);
   }
@@ -218,11 +304,7 @@ function catalogErrors(catalog, {
       for (const checkId of asArray(mapping.focusedCheckIds)) {
         if (!registeredCase.focusedCheckIds.has(checkId)) error('claim ' + claim.id + ' references unknown focused check in ' + mapping.caseId + ': ' + checkId);
       }
-      if (!Array.isArray(mapping.evidence) || mapping.evidence.length === 0) {
-        error('claim ' + claim.id + ' journey mapping needs source evidence: ' + mapping.caseId);
-      } else if (mapping.evidence.some((anchor) => !isRecord(anchor) || !nonEmptyString(anchor.path) || !Number.isInteger(anchor.line) || anchor.line < 1)) {
-        error('claim ' + claim.id + ' journey evidence needs path and positive line anchors: ' + mapping.caseId);
-      }
+      validateEvidence(mapping.evidence, 'claim ' + claim.id + ' journey evidence for ' + mapping.caseId, true);
     }
     for (const forbidden of ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
       if (Object.hasOwn(claim, forbidden)) error('claim ' + claim.id + ' cannot author runtime field ' + forbidden);
@@ -248,10 +330,11 @@ function catalogErrors(catalog, {
       || !Array.isArray(file.sourceReview.evidence) || file.sourceReview.evidence.length === 0) {
       error('catalog file needs reviewed source evidence: ' + file.path);
     }
+    validateEvidence(file.sourceReview?.evidence, 'sourceReview evidence for ' + file.path, true);
     if (file.sourceReview?.reviewedCommit !== undefined && !/^[a-f0-9]{40}$/.test(file.sourceReview.reviewedCommit)) {
       error('sourceReview reviewedCommit must be a full commit hash: ' + file.path);
     }
-    if (file.sourceReview?.confidence !== undefined && !['high', 'medium', 'low'].includes(file.sourceReview.confidence)) {
+    if (!['high', 'medium', 'low'].includes(file.sourceReview?.confidence)) {
       error('sourceReview has unknown confidence: ' + file.path);
     }
     if (!isRecord(file.executionDiscovery)
@@ -259,6 +342,7 @@ function catalogErrors(catalog, {
       error('catalog file needs an explicit invocation-discovery state: ' + file.path);
     }
     if (file.executionDiscovery && !Array.isArray(file.executionDiscovery.evidence)) error('executionDiscovery evidence must be an array: ' + file.path);
+    validateEvidence(file.executionDiscovery?.evidence, 'executionDiscovery evidence for ' + file.path);
     if (file.executionDiscovery && !Array.isArray(file.executionDiscovery.unresolvedFacts)) error('executionDiscovery unresolvedFacts must be an array: ' + file.path);
     if (file.executionDiscovery?.status === 'static-path-found' && (file.executionDiscovery.evidence ?? []).length === 0) {
       error('static invocation finding needs a source anchor: ' + file.path);
@@ -285,7 +369,7 @@ function catalogErrors(catalog, {
         error('sourceAssertionId line must appear in sourceLines: ' + assertion.sourceAssertionId);
       }
       if (!evidenceKinds.has(assertion.evidenceKind)) error('assertion has unknown evidence kind ' + String(assertion.evidenceKind) + ': ' + assertion.sourceAssertionId);
-    if (!Array.isArray(assertion.sourceLines) || assertion.sourceLines.some((line) => !Number.isInteger(line) || line < 1)) {
+      if (!Array.isArray(assertion.sourceLines) || assertion.sourceLines.some((line) => !Number.isInteger(line) || line < 1)) {
         error('assertion needs positive source line anchors: ' + assertion.sourceAssertionId);
       }
       const reviewedInfo = reviewedBlobInfos.get(file.path);
@@ -293,9 +377,9 @@ function catalogErrors(catalog, {
         && assertion.sourceLines.some((line) => line > reviewedInfo.lineCount)) {
         error('assertion line anchor is outside reviewed source revision: ' + assertion.sourceAssertionId);
       }
-      if (assertion.evidenceKind === 'test-assertion' && reviewedInfo?.sourceText
-        && asArray(assertion.sourceLines).some((line) => isDiagnosticAssertionRecorder(reviewedInfo.sourceText, line))) {
-        error('test-assertion points to a diagnostic check/recordAssertion reporter rather than its underlying assertion: ' + assertion.sourceAssertionId);
+      if (assertion.evidenceKind === 'test-assertion' && reviewedInfo?.sourceLines
+        && asArray(assertion.sourceLines).some((line) => isDiagnosticAssertionRecorder(reviewedInfo.sourceLines, line, reporterSummaries.get(file.path)))) {
+        error('test-assertion points to a diagnostic check/recordCheck/recordAssertion reporter rather than its underlying assertion: ' + assertion.sourceAssertionId);
       }
       if (!['independent', 'shared', 'derived'].includes(assertion.independence)) {
         error('assertion has unknown independence kind: ' + assertion.sourceAssertionId);
@@ -307,6 +391,7 @@ function catalogErrors(catalog, {
     if (!isRecord(file.formalApplicability) || !nonEmptyString(file.formalApplicability.kind)) {
       error('catalog file needs an explicit formal applicability decision: ' + file.path);
     }
+    validateEvidence(file.formalApplicability?.evidence, 'formalApplicability evidence for ' + file.path, true);
     if (file.formalApplicability && !['direct-trace', 'trace-support', 'candidate', 'not-applicable', 'uncertain'].includes(file.formalApplicability.kind)) {
       error('catalog file has unknown formal applicability kind: ' + file.path);
     }
@@ -393,6 +478,7 @@ function catalogErrors(catalog, {
         || !Array.isArray(file.oracle.evidence) || file.oracle.evidence.length === 0) {
         error('file oracle needs kind, dataScope, and source evidence: ' + file.path);
       }
+      validateEvidence(file.oracle?.evidence, 'oracle evidence for ' + file.path, true);
     }
     const reviewedInfo = reviewedBlobInfos.get(file.path);
     if (!reviewedInfo) error('reviewed source revision does not contain ' + file.path);
@@ -405,14 +491,6 @@ function catalogErrors(catalog, {
     }
     if (asArray(file.sourceReview?.evidence).length && !asArray(file.sourceReview.evidence).some((anchor) => anchor.path === file.path)) {
       error('source review needs an anchor in the reviewed MJS file: ' + file.path);
-    }
-    const reviewedInfoForLines = reviewedBlobInfos.get(file.path);
-    if (reviewedInfoForLines) {
-      for (const anchor of asArray(file.sourceReview?.evidence)) {
-        if (anchor.path === file.path && (!Number.isInteger(anchor.line) || anchor.line < 1 || anchor.line > reviewedInfoForLines.lineCount)) {
-          error('source review anchor is outside reviewed MJS revision: ' + file.path);
-        }
-      }
     }
     for (const forbidden of ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
       if (Object.hasOwn(file, forbidden)) error('catalog file cannot author runtime field ' + forbidden + ': ' + file.path);
@@ -465,7 +543,8 @@ function selfTestCatalogValidation() {
     currentPaths: new Set([sourcePath]),
     currentHashes: new Map([[sourcePath, sourceHash]]),
     baselinePaths: new Set([sourcePath]),
-    reviewedBlobInfos: new Map([[sourcePath, { sha256: sourceHash, lineCount: 2, sourceText: 'assert.deepEqual(actual, expected);\ncda.check(\'correctness\', \'status label\', true, evidence);' }]]),
+    baselineInventorySha256: 'c'.repeat(64),
+    reviewedBlobInfos: new Map([[sourcePath, { sha256: sourceHash, lineCount: 2, sourceLines: ['assert.deepEqual(actual, expected);', 'cda.check(\'correctness\', \'status label\', true, evidence);'] }]]),
     caseIndex: new Map([['example:case', {
       requiredChecks: new Set(['shows source rows']),
       focusedCheckIds: new Set(['row-oracle']),
@@ -477,6 +556,7 @@ function selfTestCatalogValidation() {
   const validCatalog = () => ({
     schemaVersion: 1,
     sourceCommit,
+    inventorySha256: 'c'.repeat(64),
     claims: [{
       id: 'example.rows-preserved',
       statement: 'The loaded row set matches the independent fixture oracle.',
@@ -486,7 +566,7 @@ function selfTestCatalogValidation() {
         relation: 'direct',
         requiredChecks: ['shows source rows'],
         focusedCheckIds: ['row-oracle'],
-        evidence: [{ path: sourcePath, line: 1 }],
+        evidence: [{ path: sourcePath, line: 1, kind: 'registered journey check' }],
       }],
     }],
     files: [{
@@ -496,8 +576,8 @@ function selfTestCatalogValidation() {
       purpose: 'Runs the fixture-backed row rendering check.',
       role: 'test',
       testLayer: 'node-test',
-      sourceReview: { status: 'reviewed', reviewedCommit: sourceCommit, confidence: 'high', evidence: [{ path: sourcePath, line: 1 }] },
-      executionDiscovery: { status: 'static-path-found', evidence: [{ path: 'package.json', line: 1 }], unresolvedFacts: [] },
+      sourceReview: { status: 'reviewed', reviewedCommit: sourceCommit, confidence: 'high', evidence: [{ path: sourcePath, line: 1, kind: 'test assertion' }] },
+      executionDiscovery: { status: 'static-path-found', evidence: [{ path: 'scripts/package.json', line: 1, kind: 'registered test command' }], unresolvedFacts: [] },
       assertions: [{
         sourceAssertionId: 'source:scripts/example.test.mjs:L1:rows-match',
         semanticClaimId: 'example.rows-preserved',
@@ -508,6 +588,7 @@ function selfTestCatalogValidation() {
       formalApplicability: {
         kind: 'direct-trace',
         rationale: 'The captured load journey is checked against the row-preservation invariant.',
+        evidence: [{ path: sourcePath, line: 1, kind: 'checks captured load trace' }],
         limitation: 'The TLA model checks row presence, not exact cell values.',
         bindings: [{ model: 'ExampleModel', actions: ['LoadRows'], invariants: ['RowsPreserved'], scheduleIds: ['load-rows'], journeyIds: ['load-preview'] }],
       },
@@ -532,6 +613,18 @@ function selfTestCatalogValidation() {
   const staleSha = validCatalog();
   staleSha.files[0].sha256 = 'c'.repeat(64);
   expectError('stale source SHA', staleSha, 'SHA-256');
+
+  const staleInventorySha = validCatalog();
+  staleInventorySha.inventorySha256 = 'd'.repeat(64);
+  expectError('stale inventory SHA', staleInventorySha, 'does not match the baseline inventory artifact');
+
+  const shortInventorySha = validCatalog();
+  shortInventorySha.inventorySha256 = 'd'.repeat(58);
+  expectError('short inventory SHA', shortInventorySha, 'must be a 64-character lowercase SHA-256');
+
+  const missingFormalEvidence = validCatalog();
+  delete missingFormalEvidence.files[0].formalApplicability.evidence;
+  expectError('missing formal evidence', missingFormalEvidence, 'needs at least one source anchor');
 
   const unknownJourney = validCatalog();
   unknownJourney.claims[0].journeys[0].caseId = 'missing:case';
@@ -595,7 +688,69 @@ function selfTestCatalogValidation() {
   const diagnosticCheckClaim = validCatalog();
   diagnosticCheckClaim.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:status-label';
   diagnosticCheckClaim.files[0].assertions[0].sourceLines = [2];
-  expectError('literal-true diagnostic is not a test assertion', diagnosticCheckClaim, 'diagnostic check/recordAssertion reporter');
+  expectError('literal-true diagnostic is not a test assertion', diagnosticCheckClaim, 'diagnostic check/recordCheck/recordAssertion reporter');
+
+  const diagnosticRecordCheck = validCatalog();
+  diagnosticRecordCheck.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:recorded-check';
+  diagnosticRecordCheck.files[0].assertions[0].sourceLines = [2];
+  const recordCheckContext = {
+    ...context,
+    reviewedBlobInfos: new Map([[sourcePath, {
+      ...context.reviewedBlobInfos.get(sourcePath),
+      sourceLines: ['assert.deepEqual(actual, expected);', 'recordCheck(report, \'correctness\', \'status label\', true, evidence);'],
+    }]]),
+  };
+  expectError('recordCheck reporter is not a test assertion', diagnosticRecordCheck, 'diagnostic check/recordCheck/recordAssertion reporter', recordCheckContext);
+
+  const predicateRecordCheck = validCatalog();
+  predicateRecordCheck.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:recorded-check';
+  predicateRecordCheck.files[0].assertions[0].sourceLines = [2];
+  const predicateRecordCheckContext = {
+    ...context,
+    reviewedBlobInfos: new Map([[sourcePath, {
+      ...context.reviewedBlobInfos.get(sourcePath),
+      sourceLines: [
+        'function recordCheck(name, passed) { if (!passed) throw new Error(name); }',
+        'recordCheck(\'row count matches fixture\', actualRows.length === 2);',
+      ],
+    }]]),
+  };
+  assert(errorsFor(predicateRecordCheck, predicateRecordCheckContext).length === 0, 'real boolean predicate wrapper remains a valid test assertion');
+
+  const diagnosticRecordAssertion = validCatalog();
+  diagnosticRecordAssertion.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:recorded-assertion';
+  diagnosticRecordAssertion.files[0].assertions[0].sourceLines = [2];
+  const recordAssertionContext = {
+    ...context,
+    reviewedBlobInfos: new Map([[sourcePath, {
+      ...context.reviewedBlobInfos.get(sourcePath),
+      lineCount: 3,
+      sourceLines: [
+        'assert.deepEqual(actual, expected);',
+        'recordAssertion(\'status label\', evidence);',
+        'const recordAssertion = (name, evidence) => report.assertions.push({ name, status: \'passed\', evidence });',
+      ],
+    }]]),
+  };
+  expectError('recordAssertion reporter is not a test assertion', diagnosticRecordAssertion, 'diagnostic check/recordCheck/recordAssertion reporter', recordAssertionContext);
+
+  const predicateRecordAssertion = validCatalog();
+  predicateRecordAssertion.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L4:recorded-equality';
+  predicateRecordAssertion.files[0].assertions[0].sourceLines = [4];
+  const predicateRecordAssertionContext = {
+    ...context,
+    reviewedBlobInfos: new Map([[sourcePath, {
+      ...context.reviewedBlobInfos.get(sourcePath),
+      lineCount: 4,
+      sourceLines: [
+        'function recordAssertion(report, name, expected, actual) {',
+        '  if (JSON.stringify(expected) !== JSON.stringify(actual)) throw new Error(name);',
+        '}',
+        'recordAssertion(report, \'fixture row equality\', expected, actual);',
+      ],
+    }]]),
+  };
+  assert(errorsFor(predicateRecordAssertion, predicateRecordAssertionContext).length === 0, 'real recordAssertion equality guard remains a valid test assertion');
 
   const diagnosticCallThrough = validCatalog();
   diagnosticCallThrough.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:status-label';
@@ -603,7 +758,7 @@ function selfTestCatalogValidation() {
   diagnosticCallThrough.files[0].assertions[0].evidenceKind = 'call-through';
   assert(errorsFor(diagnosticCallThrough).length === 0, 'literal-true diagnostic may be catalogued as a call-through');
 
-  console.log('PASS semantic catalog validation self-test: 18 positive and negative fixtures');
+  console.log('PASS semantic catalog validation self-test: 25 positive and negative fixtures');
 }
 
 function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog) {
@@ -614,6 +769,7 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
   const currentHashes = new Map(paths.filter((path) => existsSync(resolve(ROOT, path)))
     .map((path) => [path, createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex')]));
   const baselinePaths = new Set(trackedMjsPaths(catalog.sourceCommit));
+  const baselineInventorySha256 = blobInfoAtCommit(catalog.sourceCommit, [OUTPUT_JSON]).get(OUTPUT_JSON)?.sha256;
   const currentPathSet = new Set(paths);
   const reviewedPathsByCommit = new Map();
   for (const file of catalog.files ?? []) {
@@ -630,6 +786,7 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
     currentPaths: currentPathSet,
     currentHashes,
     baselinePaths,
+    baselineInventorySha256,
     reviewedBlobInfos,
     caseIndex,
     models: modelDefinitions,
@@ -762,7 +919,7 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
     semanticClaims: catalog.claims.length,
     sourceAssertionOccurrences: sourceOccurrences.length,
     sourceAssertions: sourceOccurrences.filter((occurrence) => occurrence.evidenceKind === 'test-assertion').length,
-    diagnosticOccurrences: sourceOccurrences.filter((occurrence) => ['call-through', 'trace-capture'].includes(occurrence.evidenceKind)).length,
+    nonAssertionOccurrences: sourceOccurrences.filter((occurrence) => occurrence.evidenceKind !== 'test-assertion').length,
     claimsWithoutSourceAssertions: semanticClaims.filter((claim) => !claim.sourceAssertions.some((source) => source.evidenceKind === 'test-assertion')).length,
     claimsWithoutJourneyMappings: semanticClaims.filter((claim) => claim.journeys.length === 0).length,
     assertionEvidenceKindCounts,
@@ -1522,7 +1679,7 @@ lines.push('');
 lines.push(scriptCatalog.summary.baselineFiles + ' MJS files in the reviewed baseline are accounted for as active or retired records.');
 lines.push(scripts.filter((script) => script.lifecycle === 'active').length + ' are currently tracked; ' + scriptCatalog.summary.baselineRetired + ' baseline files have retained tombstones.');
 lines.push(scriptCatalog.summary.semanticClaims + ' semantic claims are defined once; ' + scriptCatalog.summary.sourceAssertions + ' source occurrences are direct test assertions, out of ' + scriptCatalog.summary.sourceAssertionOccurrences + ' total labeled occurrences.');
-lines.push(scriptCatalog.summary.diagnosticOccurrences + ' call-through or trace-capture occurrences are reported separately and do not count as test assertions.');
+lines.push(scriptCatalog.summary.nonAssertionOccurrences + ' other source-evidence occurrences are labeled by kind and do not count as direct test assertions.');
 lines.push(scriptCatalog.summary.sourceReviewed + ' catalog records have source-review evidence; ' + scriptCatalog.summary.runtimeUnverified + ' MJS records remain runtime-unverified.');
 lines.push('`role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.');
 lines.push('');
