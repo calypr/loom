@@ -16,7 +16,7 @@ export type FormalTraceOwner =
   | { readonly kind: 'apply'; readonly attempt: ProposalAttempt }
   | { readonly kind: 'discovery'; readonly attempt: 'D1' };
 
-export type FormalObservation = {
+type HookFormalObservation = {
   readonly status: string;
   readonly tablePreviewStatus?: string;
   readonly proposalId: string | null;
@@ -32,6 +32,53 @@ export type FormalObservation = {
   readonly rowsPresent: boolean;
   readonly receiptPresent: boolean;
 };
+
+export type ReconcileTraceSnapshot = {
+  readonly status: string;
+  readonly activeRequestKey: 'A' | 'B' | null;
+  readonly current: {
+    readonly modelKey: 'W1' | 'W2';
+    readonly draftVersion: number;
+    readonly draftDigest: string;
+    readonly snapshotToken: string;
+    readonly outputId: string;
+    readonly explorerId: string;
+  };
+  readonly request: {
+    readonly modelKey: 'A' | 'B';
+    readonly rawRequestId: string;
+    readonly workspaceKey: 'W1' | 'W2';
+    readonly draftVersion: number;
+    readonly draftDigest: string;
+    readonly snapshotToken: string;
+    readonly outputId: string;
+    readonly explorerId: string;
+  } | null;
+  readonly receipt: {
+    readonly modelKey: 'R1' | 'R2';
+    readonly receiptId: string;
+    readonly requestKey: 'A' | 'B';
+    readonly workspaceKey: 'W1' | 'W2';
+    readonly outputModelKey: 'O1' | 'O2';
+    readonly outputId: string;
+  } | null;
+  readonly returned: {
+    readonly requestKey: 'A' | 'B';
+    readonly receiptModelKey: 'R1' | 'R2';
+    readonly receiptId: string;
+    readonly workspaceKey: 'W1' | 'W2';
+    readonly outputModelKey: 'O1' | 'O2';
+    readonly outputId: string;
+    readonly outputIds: ReadonlyArray<string>;
+  } | null;
+};
+
+type ReconcileFormalObservation = {
+  readonly status: string;
+  readonly reconcile: Omit<ReconcileTraceSnapshot, 'status'>;
+};
+
+export type FormalObservation = HookFormalObservation | ReconcileFormalObservation;
 
 type FormalTraceAction = {
   readonly label: string;
@@ -98,6 +145,11 @@ const observationFor = (lifecycle: LifecycleHandle): FormalObservation => {
   };
 };
 
+const reconcileObservationFor = (snapshot: ReconcileTraceSnapshot): FormalObservation => {
+  const { status, ...reconcile } = snapshot;
+  return { status, reconcile };
+};
+
 export const startTrace = (model: FormalTraceModel = 'BuilderPreview'): void => {
   const name = expect.getState().currentTestName ?? '';
   const testTitle = name.split(' > ').at(-1) ?? name;
@@ -114,6 +166,11 @@ export const startTrace = (model: FormalTraceModel = 'BuilderPreview'): void => 
 export const traceInitialObservation = (lifecycle: LifecycleHandle): void => {
   if (!activeTrace) return;
   activeTrace.initialObservation = observationFor(lifecycle);
+};
+
+export const traceInitialReconcileObservation = (snapshot: ReconcileTraceSnapshot): void => {
+  if (!activeTrace || activeTrace.model !== 'ReconcileLifecycle') return;
+  activeTrace.initialObservation = reconcileObservationFor(snapshot);
 };
 
 const traceActionWithObservation = (
@@ -144,6 +201,15 @@ export const traceAction = (
   expectedProposal?: ProposalAttempt,
 ): void => {
   traceActionWithObservation(label, event, observationFor(lifecycle), note, owner, expectedProposal);
+};
+
+export const traceReconcileAction = (
+  label: string,
+  event: string,
+  snapshot: ReconcileTraceSnapshot,
+): void => {
+  if (!activeTrace || activeTrace.model !== 'ReconcileLifecycle') return;
+  traceActionWithObservation(label, event, reconcileObservationFor(snapshot));
 };
 
 export const traceEmbeddedPreviewAccepted = (
