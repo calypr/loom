@@ -364,7 +364,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "e66a59dfb87b5f5eb1b1d6870cbda920329f5e524d08553ff9855fc34d19fc16",
+      "sha256": "d7eaac96fea7359a01f20349e5ef61fc674340f6b7ab719ca8fa0f12bc73b9de",
       "contract": "Registered native Group lifecycle with exact three-column authored Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
     }
   ]

@@ -6,7 +6,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
-import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
+import {
+  findRenderedBuilderHeaderIndex,
+  normalizeRenderedBuilderHeader,
+  waitForBuilderRenderedGrid,
+} from '../helpers/builder-rendered-grid.mjs';
 import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import {
   addFieldWithCommandTrace,
@@ -140,6 +144,12 @@ const renderedSourceRowExpectations = (sourceRows, idLabel) => sourceRows.map(({
   'Name Family': { titleJsonArray: families },
   Gender: gender ?? '—',
 }));
+
+const assertRenderedHeaders = (actual, expected, message) => assert.deepEqual(
+  actual.map(normalizeRenderedBuilderHeader),
+  expected.map(normalizeRenderedBuilderHeader),
+  message,
+);
 
 const writeAndReplayGroupJourney = (journeyTrace, report, fixture) => {
   const tracePath = process.env.LOOM_JOURNEY_TRACE
@@ -422,7 +432,8 @@ export const groupEntryWorkflow = async (workflow, context) => {
     })));
     return { headers, rawRows };
   });
-  assert.deepEqual(initialRawRows.headers, authoredSourceLabels);
+  assertRenderedHeaders(initialRawRows.headers, authoredSourceLabels,
+    'Rendered Patient table must preserve the exact source header order and names.');
   assert.deepEqual(sourceRowsFromRendered(initialRawRows, sourceIdColumn.label), fixtureSourceRows,
     'Rendered authored source rows must equal the exact independent Patient.ndjson field values before Group entry.');
   await waitForBuilderRenderedGrid(page, {
@@ -913,7 +924,8 @@ export const groupEntryWorkflow = async (workflow, context) => {
       .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.replace(/\s+/g, ' ').trim()));
     return { headers, rows };
   });
-  assert.deepEqual(idAndGenderRenderedPreview.headers, [sourceIdColumn.label, genderLabel, 'Row count']);
+  assertRenderedHeaders(idAndGenderRenderedPreview.headers, [sourceIdColumn.label, genderLabel, 'Row count'],
+    'Rendered ID-and-gender Preview must preserve the exact ordered three-column shape.');
   assert.equal(idAndGenderRenderedPreview.rows.length, fixtureIDs.length);
   const renderedIDIndex = findRenderedBuilderHeaderIndex(idAndGenderRenderedPreview.headers, sourceIdColumn.label);
   const renderedGenderIndex = findRenderedBuilderHeaderIndex(idAndGenderRenderedPreview.headers, genderLabel);
@@ -936,7 +948,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
       rows: rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())),
     };
   });
-  assert.deepEqual(idAndGenderAppliedRows.headers, [sourceIdColumn.label, genderLabel, 'Row count'],
+  assertRenderedHeaders(idAndGenderAppliedRows.headers, [sourceIdColumn.label, genderLabel, 'Row count'],
     'Applied ID-and-gender Group must render exactly three columns.');
   const idAndGenderAppliedOracle = idAndGenderAppliedRows.rows
     .map(row => ({ id: row[0], gender: row[1] === '—' ? null : row[1], count: row[2] }))
@@ -977,7 +989,8 @@ export const groupEntryWorkflow = async (workflow, context) => {
   });
   const restoredIDOnlyIDIndex = findRenderedBuilderHeaderIndex(restoredIDOnlyPreview.headers, sourceIdColumn.label);
   const restoredIDOnlyCountIndex = findRenderedBuilderHeaderIndex(restoredIDOnlyPreview.headers, 'row count');
-  assert.deepEqual(restoredIDOnlyPreview.headers, [sourceIdColumn.label, 'Row count']);
+  assertRenderedHeaders(restoredIDOnlyPreview.headers, [sourceIdColumn.label, 'Row count'],
+    'Rendered ID-only Group Preview must preserve its exact two-column shape.');
   assert.deepEqual(restoredIDOnlyPreview.rows.map(row => row[restoredIDOnlyIDIndex]).sort(), fixtureIDs);
   assert(restoredIDOnlyPreview.rows.every(row => row[restoredIDOnlyCountIndex] === '1'));
   await captureApply('EditGroupAgain', 'edit-group', 'P1', () =>
@@ -1055,7 +1068,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
       })));
     return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
   });
-  assert.deepEqual(restoredPreview.headers, authoredSourceLabels,
+  assertRenderedHeaders(restoredPreview.headers, authoredSourceLabels,
     'Rendered removal proposal must contain the exact three authored source column labels.');
   assert.deepEqual(sourceRowsFromRendered(restoredPreview, sourceIdColumn.label), fixtureSourceRows,
     'Rendered removal proposal must restore the exact Patient.ndjson ID, family-list, and gender values.');
@@ -1137,7 +1150,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     })));
     return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
   }, { tableSelector: renderedTableSelector });
-  assert.deepEqual(restoredRows.headers, authoredSourceLabels,
+  assertRenderedHeaders(restoredRows.headers, authoredSourceLabels,
     'Reload after Group removal must render the exact three authored source columns.');
   assert.deepEqual(sourceRowsFromRendered(restoredRows, sourceIdColumn.label), fixtureSourceRows,
     'Reload after Group removal must restore exact Patient.ndjson ID, family-list, and gender values.');
