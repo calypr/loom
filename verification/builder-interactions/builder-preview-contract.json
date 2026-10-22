@@ -70,7 +70,7 @@
     {
       "path": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
       "contract": "CDA mini Journey trace producer for choice-preview capture, command binding, and rendered publication evidence.",
-      "sha256": "dc3845e8e29008172fa6e7c6553a0dc8f2c54b6d3f50b229ee18d668c4225f2c"
+      "sha256": "eb8e06a4e15e832cbe36d2908bee32f454a4e573ab0c7171ae98bbb297bd9ea9"
     },
     {
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
@@ -79,7 +79,7 @@
     },
     {
       "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
-      "sha256": "cffefbdb23c7486a21b3f452cc6c314f11c318d92920e3fbe5ed4dcf99acf661",
+      "sha256": "8c43d8dd849c48e6f34516caa6995ff52f185a9acdc27e68bd190c18f45f9056",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
