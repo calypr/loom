@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "f8ebdc7e387fc78c3d015b4bf53b43df4e744ae8f5a813a1ec88277a3f84b1ba",
+      "sha256": "150c3ae02c4c07d07233dd5771a46792afb18de96f1e7964bef4ca06a7cbc164",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {

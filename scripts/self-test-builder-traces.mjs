@@ -199,6 +199,7 @@ const runJourneyCrossEvidenceMutation = () => {
   };
   const readyResponse = {
     status: 200,
+    errorCode: null,
     requestId: request.requestId,
     captureId,
     proposalId: 'proposal-receipt-self-test',

@@ -358,7 +358,9 @@ function responseProblem(response, where) {
   if (response.proposalDraftVersion !== undefined && response.proposalDraftVersion !== null && typeof response.proposalDraftVersion !== 'number') {
     return where + '.proposalDraftVersion must be a number or null when present';
   }
-  if (response.errorCode !== undefined && typeof response.errorCode !== 'string') return where + '.errorCode must be a string when present';
+  if (response.errorCode !== undefined && response.errorCode !== null && typeof response.errorCode !== 'string') {
+    return where + '.errorCode must be a string or null when present';
+  }
   if (response.preview !== undefined && response.preview !== null) {
     if (!isPlainObject(response.preview)) return where + '.preview must be an object or null';
     for (const field of ['receiptId', 'outputId']) {
