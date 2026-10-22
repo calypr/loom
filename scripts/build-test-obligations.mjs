@@ -2,6 +2,8 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MODEL_DIR = 'verification/builder-interactions';
@@ -54,6 +56,70 @@ function walkFiles(root, predicate) {
 
 function uniqueSorted(values) {
   return [...new Set(values)].sort();
+}
+
+function scriptRole(path) {
+  if (/\.(test|spec)\.mjs$/.test(path)) return path.endsWith('.spec.mjs') ? 'browser-spec' : 'test';
+  if (/\.config\.mjs$/.test(path)) return 'config';
+  if (path.includes('/helpers/') || path.includes('/lib/')) return 'helper-or-oracle';
+  if (path.includes('/workflows/')) return 'browser-workflow';
+  return 'tool-or-module';
+}
+
+// These are source links, not proof that an implementation refines a model.
+function scriptInventory(modelDefinitions) {
+  const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' });
+  if (listed.status !== 0) fail('cannot inventory tracked scripts: ' + (listed.stderr || listed.error?.message));
+  const tracked = listed.stdout.split('\0').filter(Boolean).sort();
+  const paths = tracked.filter((path) => path.endsWith('.mjs'));
+  const rows = new Map(paths.map((path) => [path, {
+    path, role: scriptRole(path), present: existsSync(resolve(ROOT, path)),
+    sha256: existsSync(resolve(ROOT, path)) ? createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex') : null,
+    references: [], formalEvidence: [], decision: 'keep-unproven',
+  }]));
+  // Do not consume our own generated output: that would make --check recursive.
+  for (const source of tracked.filter((path) => path !== OUTPUT_JSON && path !== OUTPUT_MD
+    && !path.startsWith('generated/') && !path.includes('/runtime/')
+    && (/\.(mjs|ts|tsx|py|sh|md|ya?ml)$/.test(path) || path.endsWith('package.json') || path === 'Makefile'))) {
+    if (!existsSync(resolve(ROOT, source))) continue;
+    const text = readFileSync(resolve(ROOT, source), 'utf8');
+    for (const match of text.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"]([^'"]+\.mjs)['"]/g)) {
+      if (!match[1].startsWith('.')) continue;
+      const target = relative(ROOT, resolve(ROOT, source, '..', match[1]));
+      if (rows.has(target)) rows.get(target).references.push({ kind: 'literal-import-candidate', source, line: text.slice(0, match.index).split('\n').length });
+    }
+    for (const path of paths) {
+      if (path === source) continue;
+      const index = text.indexOf(path);
+      if (index >= 0) rows.get(path).references.push({ kind: 'path-mention', source, line: text.slice(0, index).split('\n').length });
+    }
+  }
+  const link = (path, kind, names, source, declaredActions = []) => {
+    if (!rows.has(path)) return;
+    rows.get(path).formalEvidence.push({ kind, source, declaredActions, models: names.map((name) => {
+      const definition = modelDefinitions.get(name);
+      if (!definition?.cfg) fail('script inventory references a model without a config: ' + name);
+      return { name, config: definition.cfg, modelActions: definition.actions, configuredInvariants: definition.invariants };
+    }) });
+  };
+  const runnerText = readFileSync(resolve(ROOT, FORMAL_RUNNER), 'utf8');
+  const runModules = [...runnerText.matchAll(/module: '([^']+)'/g)].map((match) => match[1]);
+  link(FORMAL_RUNNER, 'configured-model-runner', runModules, FORMAL_RUNNER + ':MODEL_RUNS');
+  link('scripts/verify-builder-interactions.mjs', 'configured-model-runner', ['ConstructionLifecycle'], 'scripts/verify-builder-interactions.mjs');
+  link('scripts/verify-builder-traces.mjs', 'trace-validator-not-producer', Object.keys(readJson(TRACE_CONTRACT).models), TRACE_CONTRACT);
+  const journeyManifest = MODEL_DIR + '/builder-journey-audit.json';
+  const journeyInventory = readJson(journeyManifest);
+  link(journeyInventory.runner, 'journey-runner-consumes-manual-traces', uniqueSorted(journeyInventory.journeys.map((journey) => journey.model).filter(Boolean)), journeyManifest);
+  for (const journey of journeyInventory.journeys) {
+    link(journey.spec, journey.model ? 'declared-journey-model-manual-observations' : 'unmodeled-browser-oracle',
+      journey.model ? [journey.model] : [], journeyManifest + '#' + journey.id, journey.actions ?? []);
+  }
+  return [...rows.values()].map((row) => ({ ...row,
+    referenceCount: row.references.length,
+    references: row.references.slice(0, 8),
+    gap: row.formalEvidence.length ? 'Links describe configured or declared checks, not a current passing run or runtime refinement.'
+      : 'No explicit formal producer/runner link audited; retain independent checks and review applicability.',
+  }));
 }
 
 function normalizeRoute(value) {
@@ -259,6 +325,9 @@ function betterMapping(left, right) {
 
 if (args.includes('--self-test')) {
   selfTestParser();
+  if (scriptRole('scripts/a.spec.mjs') !== 'browser-spec'
+    || scriptRole('scripts/a.test.mjs') !== 'test'
+    || scriptRole('scripts/lib/a.mjs') !== 'helper-or-oracle') fail('script inventory role classification failed');
   process.exit(0);
 }
 
@@ -718,6 +787,7 @@ const summary = {
   candidateRouteBindings: obligations.filter((obligation) => obligation.routeBinding === 'candidate').length,
 };
 
+const scripts = scriptInventory(models);
 const report = {
   schemaVersion: 1,
   sources: {
@@ -731,6 +801,8 @@ const report = {
     goRoot: GO_ROOT,
   },
   summary,
+  scripts,
+  scriptInventoryBounds: 'Tracked paths only. Import-syntax matches are candidates (comments and fixture strings may match); path mentions include documentation and historical records. Neither establishes executable reachability. Reference lists retain eight examples with a full count. Dynamic imports, glob discovery and manual CLI invocation remain unresolved. No row authorizes deletion. Formal links are declared/configured associations, not runtime proof or current run results.',
   obligations,
   tests: [...tests.values()].sort((left, right) => left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name)),
   duplicates: {
@@ -758,6 +830,31 @@ const lines = [];
 lines.push('# Test obligations');
 lines.push('');
 lines.push('Status: generated from the TLA models and existing test metadata.');
+lines.push('');
+lines.push('## Script quality inventory');
+lines.push('');
+lines.push(scripts.length + ' tracked MJS files are indexed in the JSON report under `scripts`; no new MJS runner is required.');
+lines.push('');
+lines.push('| Role | Files |');
+lines.push('| --- | ---: |');
+for (const role of uniqueSorted(scripts.map((script) => script.role))) lines.push('| ' + role + ' | ' + scripts.filter((script) => script.role === role).length + ' |');
+lines.push('');
+lines.push('### Explicit formal links');
+lines.push('');
+for (const script of scripts.filter((script) => script.formalEvidence.length)) {
+  lines.push('- `' + script.path + '`: ' + script.formalEvidence.map((evidence) => evidence.kind + (evidence.models.length ? ' → ' + evidence.models.map((model) => model.name).join(', ') : '')).join('; '));
+}
+lines.push('');
+lines.push('These are source associations, not passing runs. Journey observations are manually assembled; their independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.');
+lines.push('');
+lines.push('### Cleanup review order');
+lines.push('');
+lines.push('1. Replace manually assembled journey observations with observed implementation state where a model applies; preserve independent data oracles.');
+lines.push('2. Review classified-but-unreplayed late/rejected runtime events before expanding the model claims.');
+lines.push('3. Consolidate duplicate test/route parsers and TLC acquisition only after proving equivalent behavior.');
+lines.push('4. Investigate `scripts/verify-ui/helpers/playwright-verification.mjs` and `scripts/local-preview-index-explain.mjs`; static audit found no current importer/invocation, but historical and manual use remain unresolved. Neither is approved for deletion.');
+lines.push('');
+lines.push(report.scriptInventoryBounds);
 lines.push('');
 lines.push('## Summary');
 lines.push('');
