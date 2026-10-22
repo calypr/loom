@@ -102,33 +102,44 @@ const sourceRowsFromPreview = (preview, idLabel) => {
   const columns = preview?.columns ?? [];
   const column = label => columns.find(item => item.label === label)?.column;
   const id = column(idLabel);
-  const family0 = column('name[].family [0]');
-  const family1 = column('name[].family [1]');
-  const nameCount = column('name__count');
-  const gender = column('gender');
-  return (preview?.rows ?? []).map(row => ({
-    id: row[id],
-    family0: row[family0] ?? null,
-    family1: row[family1] ?? null,
-    nameCount: row[nameCount],
-    gender: row[gender] ?? null,
-  })).sort((left, right) => left.id.localeCompare(right.id));
+  const families = column('Name Family');
+  const gender = column('Gender');
+  assert(id && families && gender, 'Authored Patient source preview must expose ID, family-list, and gender columns.');
+  return (preview?.rows ?? []).map(row => {
+    const familyValues = row[families];
+    assert(Array.isArray(familyValues), 'Patient.name[].family ALL projection must preserve the exact source list.');
+    return {
+      id: row[id],
+      families: familyValues,
+      gender: row[gender] ?? null,
+    };
+  }).sort((left, right) => left.id.localeCompare(right.id));
 };
 
 const sourceRowsFromRendered = (rendered, idLabel) => {
   const index = label => findRenderedBuilderHeaderIndex(rendered.headers, label);
-  const cell = (row, label) => {
-    const value = row[index(label)] ?? '';
-    return value === '' ? null : value;
+  const cell = (row, label) => row[index(label)];
+  const familyValues = renderedCell => {
+    const title = renderedCell?.title;
+    let value;
+    try { value = JSON.parse(title); } catch {
+      throw new Error('Rendered Patient.name[].family cell must expose its exact JSON-list title.');
+    }
+    assert(Array.isArray(value), 'Rendered Patient.name[].family cell title must be a JSON array.');
+    return value;
   };
-  return rendered.rows.map(row => ({
-    id: cell(row, idLabel),
-    family0: cell(row, 'name[].family [0]'),
-    family1: cell(row, 'name[].family [1]'),
-    nameCount: Number(cell(row, 'name__count')),
-    gender: cell(row, 'gender'),
+  return rendered.rawRows.map(row => ({
+    id: cell(row, idLabel).text,
+    families: familyValues(cell(row, 'Name Family')),
+    gender: cell(row, 'Gender').text === '—' ? null : cell(row, 'Gender').text,
   })).sort((left, right) => left.id.localeCompare(right.id));
 };
+
+const renderedSourceRowExpectations = (sourceRows, idLabel) => sourceRows.map(({ id, families, gender }) => ({
+  [idLabel]: id,
+  'Name Family': { titleJsonArray: families },
+  Gender: gender ?? '—',
+}));
 
 const writeAndReplayGroupJourney = (journeyTrace, report, fixture) => {
   const tracePath = process.env.LOOM_JOURNEY_TRACE
@@ -314,12 +325,16 @@ export const groupEntryWorkflow = async (workflow, context) => {
     .sort((left, right) => left.id.localeCompare(right.id));
   const fixtureSourceRows = fixturePatients.map(patient => ({
     id: patient.id,
-    family0: patient.name?.[0]?.family ?? null,
-    family1: patient.name?.[1]?.family ?? null,
-    nameCount: patient.name?.length ?? 0,
+    families: (patient.name ?? []).map(name => name?.family ?? null),
     gender: patient.gender ?? null,
   })).sort((left, right) => left.id.localeCompare(right.id));
-  fixtureOracle = { ...fixtureOracle, idGenderPairs: fixtureIDGenderPairs, sourceRows: fixtureSourceRows };
+  fixtureOracle = {
+    ...fixtureOracle,
+    idGenderPairs: fixtureIDGenderPairs,
+    sourceRows: fixtureSourceRows,
+    nativeSourceShape: 'three authored columns: Patient.id, Patient.name[].family ALL, Patient.gender',
+    separateLegacyShape: 'the five-column flattened Basic raw-table oracle remains in the legacy journey branch and is not replaced by this authored list-column evidence',
+  };
   report.target.fixtureRawOracle = fixtureOracle;
 
   const sourcePreviewAttempt = observeAuthoringAttempt(page, {
@@ -379,26 +394,41 @@ export const groupEntryWorkflow = async (workflow, context) => {
   sourceIdColumn = sourceDocument.columns?.find(column => column.source?.field?.path === 'id');
   sourceIdColumnId = sourceIdColumn?.columnId ?? sourceIdColumn?.id;
   assert(sourceIdColumnId && sourceIdColumn.label, 'Patient root must retain its source id column identity.');
-  const rawSourceLabels = [sourceIdColumn.label, 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
-  assert.deepEqual(sourceDocument.columns.map(column => column.label), rawSourceLabels,
-    'Fresh Patient root must retain the five exact source columns used by the Group removal oracle.');
+  const authoredSourceLabels = [sourceIdColumn.label, 'Name Family', 'Gender'];
+  assert.deepEqual(sourceDocument.columns.map(column => column.label), authoredSourceLabels,
+    'Fresh Patient root must retain the exact three native authored source columns.');
+  const authoredSourcePaths = sourceDocument.columns.map(column => column.source?.field?.path ?? null);
+  assert.deepEqual(authoredSourcePaths, ['id', 'name[].family', 'gender'],
+    'The authored list-value source must retain the exact Patient field bindings.');
+  const familyColumn = sourceDocument.columns.find(column => column.source?.field?.path === 'name[].family');
+  assert.equal(familyColumn?.source?.field?.projectionMode, 'ALL',
+    'The native family source column must preserve the complete Patient.name[].family list.');
   const sourceColumnIDs = sourceDocument.columns.map(column => column.columnId ?? column.id);
-  assert.equal(new Set(sourceColumnIDs).size, rawSourceLabels.length,
-    'Each raw Patient source column, including both repeated family fields, must retain a distinct Builder identity.');
-  assert.deepEqual((sourceFieldsAdded.columns ?? []).map(column => column.label), rawSourceLabels,
-    'Adding the two raw fields must produce the exact five-column source table.');
+  assert.equal(new Set(sourceColumnIDs).size, authoredSourceLabels.length,
+    'Each native authored Patient source column must retain a distinct Builder identity.');
+  assert.deepEqual((sourceFieldsAdded.columns ?? []).map(column => column.label), authoredSourceLabels,
+    'Adding the two raw fields must produce the exact three-column authored source table.');
+  assert.equal(Number(sourceFieldsAdded.rowCount ?? sourceFieldsAdded.rows?.length ?? 0), fixtureIDs.length,
+    'The authored source preview must preserve both raw Patient rows.');
   assert.deepEqual(sourceRowsFromPreview(sourceFieldsAdded, sourceIdColumn.label), fixtureSourceRows,
-    'The five-column source preview must equal Patient.ndjson before Group entry.');
+    'The ID, full family-list, and gender preview must equal Patient.ndjson before Group entry.');
   const initialRawRows = await page.evaluate(() => {
     const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
     const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
     const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
-    const rows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
-    return { headers, rows };
+    const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
+      text: cell.innerText.replace(/\s+/g, ' ').trim(),
+      title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
+    })));
+    return { headers, rawRows };
   });
-  assert.deepEqual(initialRawRows.headers, rawSourceLabels);
+  assert.deepEqual(initialRawRows.headers, authoredSourceLabels);
   assert.deepEqual(sourceRowsFromRendered(initialRawRows, sourceIdColumn.label), fixtureSourceRows,
-    'Rendered source rows must equal the independent Patient.ndjson field values before Group entry.');
+    'Rendered authored source rows must equal the exact independent Patient.ndjson field values before Group entry.');
+  await waitForBuilderRenderedGrid(page, {
+    tableSelector: renderedTableSelector,
+    expectedRows: renderedSourceRowExpectations(fixtureSourceRows, sourceIdColumn.label),
+  });
   report.target.table = {
     outputId,
     rootResourceType: 'Patient',
@@ -408,12 +438,20 @@ export const groupEntryWorkflow = async (workflow, context) => {
       id: column.columnId ?? column.id,
       label: column.label,
       sourcePath: column.source?.field?.path ?? null,
+      projectionMode: column.source?.field?.projectionMode ?? null,
     })),
     sourceRows: fixtureSourceRows,
   };
-  report.target.qaIsolation.workflowMutations.push('native UI added Patient.name[].family and Patient.gender to restore the five source columns before Group entry');
-  check('correctness', 'fresh Patient source table renders the exact five raw columns and Patient.ndjson values', true, {
-    columns: rawSourceLabels,
+  report.target.qaIsolation.workflowMutations.push('native UI added Patient.name[].family with ALL projection and Patient.gender, producing the exact three authored source columns before Group entry');
+  report.target.legacySourceShape = {
+    status: 'retained-separately-not-proven-by-this-case',
+    source: 'scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs Basic branch',
+    columns: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'],
+  };
+  check('correctness', 'fresh Patient source table renders exact authored ID, family-list, and gender values', true, {
+    columns: authoredSourceLabels,
+    sourcePaths: authoredSourcePaths,
+    familyProjectionMode: familyColumn.source.field.projectionMode,
     rows: fixtureSourceRows,
     rawSourceColumnIdentity: report.target.table.sourceColumns,
   });
@@ -901,7 +939,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   assert.deepEqual(idAndGenderAppliedRows.headers, [sourceIdColumn.label, genderLabel, 'Row count'],
     'Applied ID-and-gender Group must render exactly three columns.');
   const idAndGenderAppliedOracle = idAndGenderAppliedRows.rows
-    .map(row => ({ id: row[0], gender: row[1] || null, count: row[2] }))
+    .map(row => ({ id: row[0], gender: row[1] === '—' ? null : row[1], count: row[2] }))
     .sort((left, right) => left.id.localeCompare(right.id));
   assert.deepEqual(idAndGenderAppliedOracle, fixtureIDGenderPairs.map(pair => ({ ...pair, count: '1' })),
     'Applied ID-and-gender rows must render the exact Patient.ndjson IDs, genders, and counts.');
@@ -1002,28 +1040,32 @@ export const groupEntryWorkflow = async (workflow, context) => {
       && Boolean(document.querySelector('[data-testid="construction-removal-summary"]'))),
   }));
   const removalSourcePreview = removalPreviewCapture.exchange.payload?.preview;
-  assert.deepEqual(removalSourcePreview?.columns?.map(column => column.label), rawSourceLabels,
-    'Group removal proposal must restore the exact five raw Patient source columns.');
+  assert.deepEqual(removalSourcePreview?.columns?.map(column => column.label), authoredSourceLabels,
+    'Group removal proposal must restore the exact three native authored Patient source columns.');
   assert.deepEqual(sourceRowsFromPreview(removalSourcePreview, sourceIdColumn.label), fixtureSourceRows,
-    'Group removal proposal values must equal the independent Patient.ndjson field oracle.');
+    'Group removal proposal must restore exact ID, family-list, and gender values from Patient.ndjson.');
   const restoredPreview = await page.evaluate(() => {
     const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
     const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
       .map(cell => (cell.querySelector('span')?.innerText ?? cell.innerText).replace(/\s+/g, ' ').trim());
-    const rows = [...(preview?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
-      .map(row => [...row.querySelectorAll('td')].map(cell => cell.innerText.trim()));
-    return { headers, rows };
+    const rawRows = [...(preview?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])]
+      .map(row => [...row.querySelectorAll('td')].map(cell => ({
+        text: cell.innerText.replace(/\s+/g, ' ').trim(),
+        title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
+      })));
+    return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
   });
-  assert.deepEqual(restoredPreview.headers, rawSourceLabels,
-    'Rendered removal proposal must contain the exact five source column labels.');
+  assert.deepEqual(restoredPreview.headers, authoredSourceLabels,
+    'Rendered removal proposal must contain the exact three authored source column labels.');
   assert.deepEqual(sourceRowsFromRendered(restoredPreview, sourceIdColumn.label), fixtureSourceRows,
-    'Rendered removal proposal rows must equal the independent Patient.ndjson field oracle.');
-  const restoredIDIndex = findRenderedBuilderHeaderIndex(restoredPreview.headers, sourceIdColumn.label);
-  assert.deepEqual(restoredPreview.rows.map(row => row[restoredIDIndex]).sort(), fixtureIDs,
+    'Rendered removal proposal must restore the exact Patient.ndjson ID, family-list, and gender values.');
+  const removalRestoredRows = sourceRowsFromRendered(restoredPreview, sourceIdColumn.label);
+  assert.deepEqual(removalRestoredRows.map(row => row.id), fixtureIDs,
     'removing Group must preview the exact two original Patient rows');
   check('correctness', 'Group removal previews both literal source Patient rows', true, {
     headers: restoredPreview.headers,
     rows: restoredPreview.rows,
+    sourceRows: removalRestoredRows,
     patientIDs: fixtureIDs,
   });
   await action('Cancel keyed Group removal', page.getByTestId('construction-cancel-proposal'),
@@ -1071,6 +1113,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     id: column.columnId ?? column.id,
     label: column.label,
     sourcePath: column.source?.field?.path ?? null,
+    projectionMode: column.source?.field?.projectionMode ?? null,
   }));
   assert.deepEqual(removedSourceColumnIdentity, report.target.table.sourceColumns,
     'Removed Builder document must retain each original source column identity, label, and field binding.');
@@ -1080,29 +1123,35 @@ export const groupEntryWorkflow = async (workflow, context) => {
     await page.getByTestId(`construction-table-${outputId}`).click();
   }
   await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible' });
-  await waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
-    expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })) });
+  await waitForBuilderRenderedGrid(page, {
+    tableSelector: renderedTableSelector,
+    expectedRows: renderedSourceRowExpectations(fixtureSourceRows, sourceIdColumn.label),
+  });
   const restoredRows = await page.evaluate(({ tableSelector }) => {
     const table = document.querySelector(tableSelector);
     const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
     const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
-    const rows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim()));
-    return { headers, rows };
+    const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
+      text: cell.innerText.replace(/\s+/g, ' ').trim(),
+      title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
+    })));
+    return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
   }, { tableSelector: renderedTableSelector });
-  assert.deepEqual(restoredRows.headers, rawSourceLabels,
-    'Reload after Group removal must render the exact five raw source columns.');
+  assert.deepEqual(restoredRows.headers, authoredSourceLabels,
+    'Reload after Group removal must render the exact three authored source columns.');
   assert.deepEqual(sourceRowsFromRendered(restoredRows, sourceIdColumn.label), fixtureSourceRows,
-    'Reload after Group removal must restore the exact Patient.ndjson source values.');
+    'Reload after Group removal must restore exact Patient.ndjson ID, family-list, and gender values.');
   const restoredBuilder = await readBuilder();
   const restoredDocument = restoredBuilder.workspace.documents.find(item => item.output?.id === outputId);
   assert.deepEqual(restoredDocument?.columns?.map(column => ({
     id: column.columnId ?? column.id,
     label: column.label,
     sourcePath: column.source?.field?.path ?? null,
+    projectionMode: column.source?.field?.projectionMode ?? null,
   })), report.target.table.sourceColumns,
   'Reload after Group removal must restore each original source column binding and identity.');
-  const restoredRowsIDIndex = findRenderedBuilderHeaderIndex(restoredRows.headers, sourceIdColumn.label);
-  const restoredIDs = restoredRowsIDIndex < 0 ? [] : restoredRows.rows.map(row => row[restoredRowsIDIndex]).sort();
+  const restoredSourceRows = sourceRowsFromRendered(restoredRows, sourceIdColumn.label);
+  const restoredIDs = restoredSourceRows.map(row => row.id);
   assert.deepEqual(restoredIDs, fixtureIDs, 'removing Group and reloading must restore both exact source Patient IDs');
   journeyTrace.unmodeledEvents.push({
     kind: 'reload',
@@ -1115,13 +1164,14 @@ export const groupEntryWorkflow = async (workflow, context) => {
     draftDigest: removedBuilder.draftDigest,
     headers: restoredRows.headers,
     rows: restoredRows.rows,
+    sourceRows: restoredSourceRows,
     patientIDs: restoredIDs,
   });
   journeyTrace.outcome = {
     kind: 'table-preview',
     status: 'ready',
     rowCount: fixtureIDs.length,
-    columns: rawSourceLabels,
+    columns: authoredSourceLabels,
     restoredRowCount: fixtureIDs.length,
     restoredColumns: restoredRows.headers,
   };

@@ -653,7 +653,7 @@ export const registry = Object.freeze([
         requiredChecks: [
           "basic Patient fixture contains the two independently known records",
           "Direct Group action is actionable",
-          "fresh Patient source table renders the exact five raw columns and Patient.ndjson values",
+          "fresh Patient source table renders exact authored ID, family-list, and gender values",
           "direct standard Group entry defaults to empty-key COUNT_ROWS without an edit",
           "native Builder automatically proposes the exact empty-key COUNT_ROWS GROUP",
           "automatic Group proposal Preview returns one row with the independently expected count 2",

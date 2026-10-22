@@ -15,10 +15,11 @@ Progress: every inventory row has a journey spec or registered native case.
 `load-preview`, and `add-column-preview` pass on synthetic and CDA.
 `filter-preview` passes on synthetic. The old `edit-remove-reload` Basic run is
 historical evidence only; its registered native route now exercises the
-five-column raw source oracle, ID-only and ID-plus-gender edits, removal
-Cancel, and reload restoration. That expanded route is pending browser
-acceptance. The legacy spec still contains the independent CDA extension-field
-variant.
+three-column authored source oracle (Patient ID, the ALL-projected family list,
+and gender), ID-only and ID-plus-gender edits, removal Cancel, and reload
+restoration. That expanded route is pending browser acceptance. The legacy
+five-column flattened Basic source oracle remains a separate retained branch,
+and the legacy spec also contains the independent CDA extension-field variant.
 `group-pivot-preview` and `pivot-error` are red and reproduce F-001.
 `unpivot-preview` is red and reproduces F-004. Three rows have terminal CDA
 runs: `group-twice-preview`, `load-preview`, and `add-column-preview`.
@@ -121,7 +122,7 @@ The machine-readable list is
 | `add-column-preview` | Select rows, add a scalar column, preview. | Exact source columns and added values survive preview. | passing on synthetic and CDA |
 | `filter-preview` | Select rows, filter, preview, cancel. | Exact filtered rows, then the original rows after cancel. | passing on synthetic |
 | `unpivot-preview` | Select rows, stack columns, preview. | Exact field and value rows. | product-failure; red spec exists, F-004 |
-| `edit-remove-reload` | Registered Group-entry case enters empty-key Group, previews and cancels ID-only edit, applies ID-plus-gender, edits back to ID-only, then cancels and applies removal. | Pending native oracle: Patient.ndjson matches five distinct source columns; empty-key `COUNT_ROWS` is 2; both applied edit shapes match exact fixture IDs and genders; ID-only rows survive reload; removal and reload restore all five source bindings and values. Reload and exact values remain native checks; TLA models only abstract request/apply-owner chronology. | pending native; historical 28-call Basic run; CDA branch retained |
+| `edit-remove-reload` | Registered Group-entry case enters empty-key Group, previews and cancels ID-only edit, applies ID-plus-gender, edits back to ID-only, then cancels and applies removal. | Pending native oracle: the three authored source columns bind Patient `id`, `name[].family` with `ALL` projection, and `gender`; exact values and column identities survive removal and reload. Empty-key `COUNT_ROWS` is 2; both applied edit shapes match exact fixture IDs and genders; ID-only rows survive reload. The separate five-column flattened Basic oracle remains unmerged. Reload and exact values remain native checks; TLA models only abstract request/apply-owner chronology. | pending native; historical 28-call Basic run; CDA branch retained |
 | `pivot-error` | Pivot with error policies. | Typed 4xx product error, no applied draft change. | product-failure; red spec exists, F-001 |
 
 ## Completion check
@@ -269,7 +270,9 @@ spec also retains a separate CDA extension-field path.
   rows and three columns, source restored, reload preserved, trace validation
   pass. The registered native case instead checks the initial empty-key
   `COUNT_ROWS` value of 2, canonical ID-only persistence of both Patient IDs
-  with count 1 each, and source restoration; that route remains pending.
+  with count 1 each, and restoration of its three authored source columns with
+  exact list values; that route remains pending. Its ALL-projected family list
+  does not replace the legacy five-column flattened Basic source oracle.
 - `pivot-error` on a fresh synthetic fixture: red as designed, 11 authoring
   calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING` instead of a typed 4xx, no `commands` call,
   trace validation pass.
@@ -317,8 +320,12 @@ fixture values); `LOOM_CDA_SOURCE_ROOT` must resolve to the checkout running
 the command. `docs/verification/playwright/NATIVE_RUN_PLAN.md` records an owned
 stack example whose values must match the selected checkout and stack. The
 native fixture owns the fresh synthetic project. It checks the empty-key
-`COUNT_ROWS` preview, edits Group by `Patient.id`, then removes the Group and
-reloads the restored source rows. The legacy `--project`, `--generation`, and
+`COUNT_ROWS` preview, previews and cancels an ID-only edit, applies the
+ID-and-gender edit, then edits the same Group back to ID-only and reloads its
+exact rows. It previews and cancels removal, applies removal, and reloads the
+restored three-column authored source with exact ID, family-list, and gender
+values. The legacy five-column flattened Basic source oracle remains a
+separate retained branch. The legacy `--project`, `--generation`, and
 `--bootstrap` options do not apply to this mapped case.
 
 The pivot journey exits 1 while F-001 is open. That is the intended red result.

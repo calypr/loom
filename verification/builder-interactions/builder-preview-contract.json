@@ -329,7 +329,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-audit.json",
-      "sha256": "3ce8710c30615b6438f765599af0ce68d99704fc14467406eabce4a2ffeb0f71",
+      "sha256": "5f12cfc76129fd23e56c076feff56c20d772a80e859b3627d43e8a990302d435",
       "contract": "Journey selection and declared action manifest for the selected synthetic capture run."
     },
     {
@@ -359,13 +359,13 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "cdccf106d12ea08c9bc8dd2f59d21cdb802a913ea749d598ae9b2532e77e9663",
+      "sha256": "90c931a660fb336ca3dfdeffdf5e3b4a179a9270248df48bc8217c6dae71b6f5",
       "contract": "Registered native case, trace requirements, focused checks, and Group-entry behavioral assertions."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "4dbb3cdd34c36d94ce2731a20d4322efa9c01dd394c79e10f8af03669023f332",
-      "contract": "Registered native Group lifecycle with five-column raw Patient oracle, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
+      "sha256": "e66a59dfb87b5f5eb1b1d6870cbda920329f5e524d08553ff9855fc34d19fc16",
+      "contract": "Registered native Group lifecycle with exact three-column authored Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
     }
   ]
 }

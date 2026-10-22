@@ -218,7 +218,7 @@
         "RemoveGroup",
         "Reload"
       ],
-      "oracle": "Pending native route: Patient.ndjson matches five distinct source columns; the empty-key COUNT_ROWS result is 2; the ID-only preview then Cancel preserves the exact saved Group; the captured P1 abort/P2 ID-and-gender edit matches fixture IDs/genders and applies exactly two rows and three columns; the same Group identity is edited back to ID-only and both IDs/counts survive reload; removal Cancel preserves the exact saved draft; removal and reload restore all five source column identities/bindings and raw Patient values. Reload and concrete values are native checks; TLA models only the abstract request/apply owner chronology.",
+      "oracle": "Pending native rerun: the authored Patient source has three exact columns bound to id, name[].family with ALL projection, and gender; preview, removal, and reload must preserve their identities and exact Patient.ndjson values. The empty-key COUNT_ROWS result is 2; the ID-only preview then Cancel preserves the exact saved Group; the captured P1 abort/P2 ID-and-gender edit matches fixture IDs/genders and applies exactly two rows and three columns; the same Group identity is edited back to ID-only and both IDs/counts survive reload; removal Cancel preserves the exact saved draft. The legacy five-column flattened Basic source oracle remains a separate retained branch and is not claimed as replacement by the authored list-column workflow. Reload and concrete values are native checks; TLA models only the abstract request/apply owner chronology.",
       "model": "BuilderJourney",
       "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
       "evidence": {
