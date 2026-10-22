@@ -203,8 +203,10 @@
     {
       "id": "edit-remove-reload",
       "priority": "P1",
-      "status": "pending-native",
-      "legacyEvidenceStatus": "historical-28-call-basic-pass; legacy spec also retains an independent CDA extension grouping branch",
+      "status": "passing",
+      "nativeEvidenceStatus": "passed-authored-three-column-group-entry-on-tested-source-commit",
+      "nativeCallBudgetStatus": "79-authoring-backend-responses-exceed-historical-30-call-allowance",
+      "legacyEvidenceStatus": "retained-but-not-run-by-current-native-case: five-column flattened Basic oracle and independent CDA extension-grouping assertions remain in legacy spec",
       "legacySpec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "spec": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
       "nativeCase": {
@@ -218,7 +220,7 @@
         "RemoveGroup",
         "Reload"
       ],
-      "oracle": "Pending native rerun: the authored Patient source has three exact columns bound to id, name[].family with ALL projection, and gender; preview, removal, and reload must preserve their identities and exact Patient.ndjson values. The empty-key COUNT_ROWS result is 2; the ID-only preview then Cancel preserves the exact saved Group; the captured P1 abort/P2 ID-and-gender edit matches fixture IDs/genders and applies exactly two rows and three columns; the same Group identity is edited back to ID-only and both IDs/counts survive reload; removal Cancel preserves the exact saved draft. The legacy five-column flattened Basic source oracle remains a separate retained branch and is not claimed as replacement by the authored list-column workflow. Reload and concrete values are native checks; TLA models only the abstract request/apply owner chronology.",
+      "oracle": "The registered native Group-entry case passed on the source identity recorded in evidence.native. It authored the exact three-column Patient source (id, name[].family with ALL projection, gender), checked empty-key COUNT_ROWS = 2, preserved the saved Group on edit Cancel, checked the P1 abort/P2 ID-and-gender preview and two-row/three-column Apply against fixture IDs and genders, reapplied ID-only to the same Group identity and checked both IDs/counts after reload, then checked removal Cancel and exact source restoration after reload. The five-column flattened Basic oracle and CDA extension-field branch remain separate and are not replaced by this authored-three-column run. TLA models abstract request/apply owner chronology only; the two Cancel controls and two reloads are native-only checks.",
       "model": "BuilderJourney",
       "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
       "evidence": {
@@ -237,6 +239,89 @@
           "restoredColumnCount": 5,
           "trace": ".artifacts/builder-journey/edit-remove-reload-trace.json",
           "report": ".artifacts/builder-journey/edit-remove-reload-report.json"
+        },
+        "native": {
+          "result": "pass",
+          "recordedAt": {
+            "startedAt": "2026-10-22T22:54:15.440Z",
+            "finishedAt": "2026-10-22T22:55:08.098Z",
+            "durationMs": 52658,
+            "playwrightStartedAt": "2026-10-22T22:54:29.227Z",
+            "playwrightFinishedAt": "2026-10-22T22:54:59.363Z",
+            "playwrightDurationMs": 33910
+          },
+          "sourceIdentity": {
+            "commit": "0f16d0bf38c400313d640c7ca9c4585d25004714",
+            "proofSourceFingerprint": "280550af8774bbf3d661229d169e05ac2419125bf0fb101a4bc18ff56a9d6154",
+            "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+            "watchedTreeFingerprint": "0cacb087245167b703b7c01decc7df9347ae7c11016ef64e4199c181301e3c4e",
+            "watchedTreeFileCount": 2092
+          },
+          "target": {
+            "project": "loom_dev_verify_mvk51st3-9e45d23",
+            "generation": "fixture-v1",
+            "explorer": "verify-t3-9e45d23-group-entry",
+            "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41"
+          },
+          "counts": {
+            "nativeAssertionsPassed": 70,
+            "requiredChecksPassed": 17,
+            "missingRequiredChecks": 0,
+            "authoringBackendResponses": 79,
+            "traceCount": 1,
+            "uniqueTraceCount": 1,
+            "validatedTraceCount": 1,
+            "invalidTraceCount": 0,
+            "traceActionCount": 24,
+            "tlcGeneratedStates": 26,
+            "tlcDistinctStates": 25,
+            "tlcDepth": 25
+          },
+          "nativeReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/native-report.json",
+            "sha256": "332967e7d34a49fda9a45e574da28c83211fdc8aa3b56960f5de5074a70f0d09"
+          },
+          "bracketSummary": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/bracket-summary.json",
+            "sha256": "fab81b855d63ba381065ac2c2c55017e3d8ba90e33896332129a5ddba74d1c81"
+          },
+          "trace": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/trace.json",
+            "sha256": "1897d24d8154d74269574f02b277a8a6bbc6c08fca8b5cdcefb672b43a70274a"
+          },
+          "tlaReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/tla-report.json",
+            "sha256": "7527c016a65c9790bca61d6eb844183b0526e4a0f242c83b6e385b23f16c12f2"
+          },
+          "traceReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/trace-report.json",
+            "sha256": "80fb4b1940e5e07c080a8aa5515add7fccb27a3b8b4763890eacc0de8571c7ab"
+          },
+          "formalBoundary": {
+            "tlaStatus": "pass",
+            "model": "BuilderJourney",
+            "unsupportedNativeEvents": {
+              "groupEditCancel": 1,
+              "groupRemovalCancel": 1,
+              "reload": 2
+            },
+            "nativeChecks": "Both Cancel controls compare exact saved workspace and draft identity; both reload checks verify the displayed Group/source values. These user actions are recorded as unsupported by the model, not omitted."
+          },
+          "coverageBoundary": [
+            "This run exercises the authored three-column Patient source only.",
+            "The five-column flattened Basic-source oracle remains in the legacy Basic branch and is not replaced by this run.",
+            "The independent CDA extension-grouping branch remains separate and was not exercised by this run."
+          ],
+          "traceMutationControls": {
+            "result": "passed",
+            "expectedRejections": [
+              "wrong-owner EditGroupAgain trace mutation",
+              "missing EditGroupAgain action in the present native trace"
+            ],
+            "testedSourceCommit": "0f16d0bf38c400313d640c7ca9c4585d25004714",
+            "traceArtifact": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/trace.json",
+            "traceArtifactSha256": "1897d24d8154d74269574f02b277a8a6bbc6c08fca8b5cdcefb672b43a70274a"
+          }
         }
       },
       "minBackendCalls": 10
@@ -296,11 +381,11 @@
       "journey": "edit-remove-reload",
       "status": "not-reproducible",
       "request": "POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
-      "result": "Historical HTTP 500; a later historical field-based Group by id+gender run returned HTTP 200 with 2 rows and 3 columns. This does not establish the pending native route.",
+      "result": "Historical HTTP 500; a later historical field-based Group by id+gender run returned HTTP 200 with 2 rows and 3 columns. The registered native authored-three-column Group case also passed its ID-and-gender preview and Apply; the separate five-column Basic and CDA branches are not covered by that run.",
       "requestId": "construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff",
       "input": "Group by id and gender on a fresh synthetic Patient table.",
       "artifact": "docs/verification/playwright/runtime/builder-journey-F-003.json",
-      "next": "The error was not reproduced by the historical ID+gender rerun. Preserve that result as legacy evidence and await the registered native route before claiming current lifecycle coverage."
+      "next": "The historical error was not reproduced by the ID+gender rerun or the registered native authored-three-column case. Keep the five-column Basic and CDA extension-grouping checks as separate coverage until independently migrated or otherwise covered."
     },
     {
       "id": "F-004",
