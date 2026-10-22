@@ -256,6 +256,19 @@ test('builder journey edits and removes a group, then reloads the source', async
     .map(({ action }) => action));
   await expect(fastPage.getByTestId('construction-proposal-panel')).toContainText(
     cda ? `${sourceRows} rows and 3 columns` : '2 rows and 3 columns');
+  const renderedEditObservation = await captureBuilderObservation(fastPage);
+  const renderedEditProposalId = renderedEditObservation.proposalId;
+  const appliedEditSettlement = editProposalRows.find(({ action }) =>
+    action.label === 'PreviewComplete'
+      && action.response?.proposalId === renderedEditProposalId
+      && action.response?.proposalPreviewStatus === 'READY'
+      && Boolean(action.response.preview?.receiptId)
+      && typeof action.response.preview.rowsPresent === 'boolean');
+  if (renderedEditObservation.status !== 'ready'
+    || !renderedEditProposalId
+    || !appliedEditSettlement) {
+    throw new Error('Cannot identify the ready edit proposal settlement shown by the rendered panel');
+  }
 
   const editedColumns = editedPreview.columns ?? [];
   const editedRows = editedPreview.rows ?? [];
@@ -280,7 +293,7 @@ test('builder journey edits and removes a group, then reloads the source', async
   const editCommandAttempt = observeAuthoringAttempt(fastPage, {
     method: 'POST',
     path: 'commands',
-    owner: { kind: 'apply', attempt: 'P1' },
+    owner: { kind: 'apply', attempt: appliedEditSettlement.action.owner.attempt },
   });
   await fastPage.getByTestId('construction-apply-proposal').click();
   const editCommandStarted = await editCommandAttempt.started;
