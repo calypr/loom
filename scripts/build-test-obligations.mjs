@@ -212,6 +212,41 @@ function buildRegistryCaseIndex(registry) {
   return cases;
 }
 
+function buildJourneyAssemblyRows({ claimMappingsByCase, sourceFilesByClaim, scriptRowsByPath }) {
+  return [...claimMappingsByCase.entries()].map(([caseId, mappings]) => {
+    const claimsByRelation = {
+      direct: new Set(),
+      partial: new Set(),
+      supporting: new Set(),
+    };
+    const sourcePaths = new Set();
+    const checkRefs = new Set();
+    const candidateModels = new Set();
+    for (const mapping of mappings) {
+      claimsByRelation[mapping.relation]?.add(mapping.claimId);
+      for (const check of mapping.requiredChecks ?? []) checkRefs.add('required:' + check);
+      for (const checkId of mapping.focusedCheckIds ?? []) checkRefs.add('focused:' + checkId);
+      for (const source of sourceFilesByClaim.get(mapping.claimId) ?? []) {
+        sourcePaths.add(source.path);
+        const file = scriptRowsByPath.get(source.path);
+        if (file?.formalApplicability?.kind !== 'candidate') continue;
+        for (const binding of file.formalApplicability.bindings ?? []) {
+          if (nonEmptyString(binding.model)) candidateModels.add(binding.model);
+        }
+      }
+    }
+    return {
+      caseId,
+      sourceFileCount: sourcePaths.size,
+      directClaims: claimsByRelation.direct.size,
+      partialClaims: claimsByRelation.partial.size,
+      supportingClaims: claimsByRelation.supporting.size,
+      registeredCheckCount: checkRefs.size,
+      candidateFormalModels: uniqueSorted([...candidateModels]),
+    };
+  }).sort((left, right) => left.caseId.localeCompare(right.caseId));
+}
+
 function catalogErrors(catalog, {
   currentPaths,
   currentHashes,
@@ -576,6 +611,28 @@ function selfTestCatalogValidation() {
   assert(nestedRegistryCase.get('example:case')?.requiredChecks.has('shows source rows')
     && nestedRegistryCase.get('example:case')?.requiredChecks.has('shows custom rows'),
   'registry case index should include known owned/custom required-check variants');
+  const assemblyRows = buildJourneyAssemblyRows({
+    claimMappingsByCase: new Map([['example:case', [
+      { claimId: 'example.direct', relation: 'direct', requiredChecks: ['shows source rows'], focusedCheckIds: ['row-oracle'] },
+      { claimId: 'example.partial', relation: 'partial', requiredChecks: ['shows source rows', 'shows custom rows'], focusedCheckIds: ['row-oracle'] },
+      { claimId: 'example.supporting', relation: 'supporting', requiredChecks: [], focusedCheckIds: [] },
+    ]]]),
+    sourceFilesByClaim: new Map([
+      ['example.direct', [{ path: 'scripts/example.test.mjs' }]],
+      ['example.partial', [{ path: 'scripts/example.test.mjs' }, { path: 'scripts/other.test.mjs' }]],
+      ['example.supporting', [{ path: 'scripts/other.test.mjs' }]],
+    ]),
+    scriptRowsByPath: new Map([
+      ['scripts/example.test.mjs', { formalApplicability: { kind: 'candidate', bindings: [{ model: 'ExampleModel' }] } }],
+      ['scripts/other.test.mjs', { formalApplicability: { kind: 'not-applicable', bindings: [] } }],
+    ]),
+  });
+  assert(assemblyRows.length === 1 && assemblyRows[0].sourceFileCount === 2
+    && assemblyRows[0].directClaims === 1 && assemblyRows[0].partialClaims === 1
+    && assemblyRows[0].supportingClaims === 1 && assemblyRows[0].registeredCheckCount === 3
+    && assemblyRows[0].candidateFormalModels.join(',') === 'ExampleModel',
+  'journey assembly summary should deduplicate source files/check refs and count claims by relation');
+  console.log('PASS journey assembly summary self-test');
   const context = {
     currentPaths: new Set([sourcePath]),
     currentHashes: new Map([[sourcePath, sourceHash]]),
@@ -1353,6 +1410,14 @@ const { registry } = await import(pathToFileURL(resolve(ROOT, REGISTRY)).href);
 const scriptCatalog = scriptInventory(models, registry, traceContract, journeyAudit, semanticCatalog);
 const scripts = scriptCatalog.rows;
 const scriptRowsByPath = new Map(scripts.map((script) => [script.path, script]));
+const journeyAssemblyRows = buildJourneyAssemblyRows({
+  claimMappingsByCase: scriptCatalog.claimMappingsByCase,
+  sourceFilesByClaim: scriptCatalog.sourceFilesByClaim,
+  scriptRowsByPath,
+});
+const toolModuleFiles = scripts.filter((script) => script.role === 'tool-or-module');
+const unmappedJourneyFiles = scripts.filter((script) => script.journeyMappings.length === 0);
+const unmappedJourneyClaims = scriptCatalog.semanticClaims.filter((claim) => claim.journeys.length === 0);
 const semanticClaimsById = new Map(scriptCatalog.semanticClaims.map((claim) => [claim.id, claim]));
 const semanticClaimsForCase = (caseId) => (scriptCatalog.claimMappingsByCase.get(caseId) ?? []).map((mapping) => {
   const claim = semanticClaimsById.get(mapping.claimId);
@@ -1749,11 +1814,32 @@ lines.push(scripts.filter((script) => script.lifecycle === 'active').length + ' 
 lines.push(scriptCatalog.summary.semanticClaims + ' semantic claims are defined once; ' + scriptCatalog.summary.sourceAssertions + ' source occurrences are direct test assertions, out of ' + scriptCatalog.summary.sourceAssertionOccurrences + ' total labeled occurrences.');
 lines.push(scriptCatalog.summary.nonAssertionOccurrences + ' other source-evidence occurrences are labeled by kind and do not count as direct test assertions.');
 lines.push(scriptCatalog.summary.sourceReviewed + ' catalog records have source-review evidence; ' + scriptCatalog.summary.runtimeUnverified + ' MJS records remain runtime-unverified.');
+lines.push(toolModuleFiles.length + ' files are classified as independent tool/module purposes; ' + unmappedJourneyFiles.length + ' MJS files and ' + unmappedJourneyClaims.length + ' semantic claims have no canonical journey mapping.');
 lines.push('`role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.');
 lines.push('');
 lines.push('| Role | Files |');
 lines.push('| --- | ---: |');
 for (const role of uniqueSorted(scripts.map((script) => script.role))) lines.push('| ' + role + ' | ' + scripts.filter((script) => script.role === role).length + ' |');
+lines.push('');
+lines.push('### Journey assembly by canonical case');
+lines.push('');
+lines.push('| Canonical case | Source files | Direct claims | Partial claims | Supporting claims | Registered check refs | Candidate formal models |');
+lines.push('| --- | ---: | ---: | ---: | ---: | ---: | --- |');
+for (const row of journeyAssemblyRows) {
+  lines.push('| `' + row.caseId + '` | ' + row.sourceFileCount + ' | ' + row.directClaims + ' | ' + row.partialClaims + ' | ' + row.supportingClaims + ' | ' + row.registeredCheckCount + ' | ' + (row.candidateFormalModels.join(', ') || '—') + ' |');
+}
+lines.push('');
+lines.push('Counts deduplicate semantic claim IDs, source paths, and exact required/focused check references per case. Candidate models come only from files explicitly labeled `formalApplicability.kind: candidate`; these source associations do not establish execution or model refinement.');
+lines.push('');
+lines.push('### Independently scoped tools and unmapped source');
+lines.push('');
+lines.push('| Scope | Count |');
+lines.push('| --- | ---: |');
+lines.push('| Tool/module files | ' + toolModuleFiles.length + ' |');
+lines.push('| Tool/module files with a canonical case mapping | ' + toolModuleFiles.filter((script) => script.journeyMappings.length > 0).length + ' |');
+lines.push('| Tool/module files without a canonical case mapping | ' + toolModuleFiles.filter((script) => script.journeyMappings.length === 0).length + ' |');
+lines.push('| All MJS files without a canonical case mapping | ' + unmappedJourneyFiles.length + ' |');
+lines.push('| Semantic claims without a canonical case mapping | ' + unmappedJourneyClaims.length + ' |');
 lines.push('');
 lines.push('### Explicit formal links');
 lines.push('');
