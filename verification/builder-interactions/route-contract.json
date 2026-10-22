@@ -14,9 +14,9 @@
     "unaccountedAuthoringRoutes": [],
     "modeledAndTraced": 3,
     "traceTested": 1,
-    "modeledOnly": 32,
-    "contractTested": 0,
-    "unproven": 3
+    "modeledOnly": 17,
+    "contractTested": 16,
+    "unproven": 2
   },
   "excludedAuthoringRoutes": [
     {
@@ -154,8 +154,10 @@
           "StartCommand",
           "StartPreview"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "HydrateBuilder"
+        ],
+        "routeActionReason": "Builder hydration is the route-level transition.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -499,7 +501,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ApplyAck",
@@ -515,14 +517,14 @@
           "StartProposal"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
-        "uiTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -543,7 +545,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ApplyCandidate",
@@ -552,14 +554,14 @@
           "ReviewStale"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
-        "uiTest": null,
+        "goTest": "TestInterpretationPreviewRouteRejectsMissingBody",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -589,8 +591,14 @@
           "CreateFailed",
           "CreateRevision"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "BeginCreate",
+          "CancelCreate",
+          "CreateBlocked",
+          "CreateFailed",
+          "CreateRevision"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -625,8 +633,13 @@
           "CoverageStale",
           "RequestCoverage"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "CoverageComplete",
+          "CoverageIncomplete",
+          "CoverageStale",
+          "RequestCoverage"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -655,7 +668,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ApplyRemoval",
@@ -664,14 +677,14 @@
           "ReviewRemoval"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -705,7 +718,7 @@
           "RouteLookupFailed"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -843,14 +856,14 @@
         "model": null,
         "modelActions": [],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "No route-level TLA action exists for publication; keep the route unproven until publication is modeled.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
         "goTest": null,
         "uiTest": null,
         "browserCase": null,
-        "reason": "No model action is mapped to this route; assign a model or exclude the route."
+        "reason": "No model action or route test exists; keep the route unproven until modeled."
       }
     },
     {
@@ -979,8 +992,19 @@
           "PreviewUnavailable",
           "WorkspaceChanged"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "ApplyPreview",
+          "AssessmentBlocked",
+          "AssessmentNoChange",
+          "AssessmentReady",
+          "AssessmentStale",
+          "BeginChange",
+          "Cancel",
+          "PreviewReady",
+          "PreviewUnavailable",
+          "WorkspaceChanged"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1016,7 +1040,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ApplyAck",
@@ -1033,14 +1057,14 @@
           "StartProposal"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1064,7 +1088,7 @@
         "model": null,
         "modelActions": [],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1101,7 +1125,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AuthorStep"
@@ -1111,10 +1135,10 @@
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestOpenAPIDocumentsOperationSpecificFailureStatuses",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1157,7 +1181,7 @@
         "goTest": null,
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Model actions exist but no route action or contract test is assigned; keep the route modeled-only until one is chosen."
       }
     },
     {
@@ -1184,8 +1208,12 @@
           "ExcludeRouteFound",
           "ExcludeRouteMissing"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "ExcludeMember",
+          "ExcludeRouteFound",
+          "ExcludeRouteMissing"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1229,7 +1257,7 @@
           "SetFeatureFocus"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1271,7 +1299,7 @@
         "goTest": null,
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Model actions exist but no route action or contract test is assigned; keep the route modeled-only until one is chosen."
       }
     },
     {
@@ -1294,7 +1322,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "CreateExplorer",
@@ -1307,14 +1335,14 @@
           "SelectExplorer"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
         "uiTest": null,
-        "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1349,8 +1377,11 @@
           "Inv_DeleteKeepsFallback",
           "SelectExplorer"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "CreateExplorer",
+          "SelectExplorer"
+        ],
+        "routeActionReason": "Explorer creation and selection are the route-level transitions; hydration is not a create-route action.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1386,8 +1417,11 @@
           "DeleteExplorer",
           "SelectExplorer"
         ],
-        "routeActions": [],
-        "routeActionReason": null,
+        "routeActions": [
+          "DeleteExplorer",
+          "DeleteCapability"
+        ],
+        "routeActionReason": "Explorer deletion and capability invalidation are the route-level transitions.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1414,7 +1448,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ExplorerListComplete",
@@ -1423,14 +1457,14 @@
           "SelectExplorer"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
         "uiTest": null,
-        "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1460,7 +1494,7 @@
           "InspectSucceeded"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1487,18 +1521,18 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "unproven",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestConfiguredColumnContextRouteRejectsMissingBody",
         "uiTest": null,
-        "browserCase": null,
-        "reason": "No model action is mapped to this route; assign a model or exclude the route."
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1551,7 +1585,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ApplyAck",
@@ -1568,14 +1602,14 @@
           "StartProposal"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
-        "uiTest": null,
-        "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1601,7 +1635,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AuthorStep"
@@ -1612,9 +1646,9 @@
         "schedule": null,
         "contractTest": null,
         "goTest": null,
-        "uiTest": null,
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1636,7 +1670,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AuthorStep"
@@ -1646,10 +1680,10 @@
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1688,7 +1722,7 @@
           "ConfirmFrameChange"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1722,7 +1756,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AuthorStep"
@@ -1732,10 +1766,10 @@
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1762,7 +1796,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AuthorStep"
@@ -1772,10 +1806,10 @@
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1839,7 +1873,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "ApplyAck",
@@ -1856,14 +1890,14 @@
           "StartProposal"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
         "uiTest": null,
         "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1893,7 +1927,7 @@
           "RowSourcesUnavailable"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
@@ -1927,7 +1961,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AuthorStep"
@@ -1937,10 +1971,10 @@
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
-        "uiTest": null,
-        "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "goTest": "TestBrowseSemanticInventoryThroughPublicAPI",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {
@@ -1966,7 +2000,7 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "modeled-only",
+        "status": "contract-tested",
         "model": null,
         "modelActions": [
           "AddRoute",
@@ -1983,14 +2017,14 @@
           "StartProposal"
         ],
         "routeActions": [],
-        "routeActionReason": null,
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
         "traceEvent": null,
         "schedule": null,
         "contractTest": null,
-        "goTest": null,
+        "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
         "uiTest": null,
-        "browserCase": null,
-        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
       }
     },
     {

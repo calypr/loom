@@ -141,6 +141,38 @@ Run the main suite with:
 ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs
 ```
 
+Run the fast read-only preview lane with:
+
+```sh
+cd scripts
+npm run test:browser:fast
+```
+
+The fast lane seeds one disposable dataframe fixture on the first run of the day, caches that fixture under `.artifacts/playwright-fast/`, reuses the browser context per worker, and runs one preview operation per test. It is for read-only preview cases. Do not reuse its cached fixture for tests that mutate the draft. Set `LOOM_FAST_PROJECT` and `LOOM_FAST_GENERATION` to target an existing loaded dataset; the lane runs `check-loaded-dataset.mjs` before launching a browser.
+
+Run the composed Builder journey with:
+
+```sh
+node scripts/run-builder-journey.mjs
+```
+
+The runner creates a fresh verification fixture, opens its authored table, applies
+two Group row-definition changes, captures the second proposal preview, and
+asserts the applied table has exactly one grouped row. It records the real
+authoring calls and UI state to `.artifacts/builder-journey/trace.json`, then
+replays that trace through `BuilderJourney.tla` with
+`scripts/verify-builder-traces.mjs`. The journey is mutating, so it does not
+reuse the read-only fast fixture. Use `--trace` and `--report` to change the
+artifact paths. To run against an already loaded dataset instead of creating a
+fresh fixture, pass `--project <dataset> --generation <generation>` and,
+optionally, `--explorer`, `--ui-url`, or `--api-url`. Add `--bootstrap` when the
+loaded dataset has no Explorer or authored table; it creates the named Explorer,
+a Patient table (or the first eligible row root), and one scalar column before
+preflight.
+
+The journey inventory and completion criteria live in
+[`docs/BUILDER_JOURNEY_AUDIT_GOAL.md`](../docs/BUILDER_JOURNEY_AUDIT_GOAL.md).
+
 Run the static migration gates after installing the existing UI and scripts
 workspaces with `npm ci --prefix ui` and `npm ci --prefix scripts`:
 

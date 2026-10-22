@@ -52,6 +52,7 @@ const MODEL_RUNS = [
   { name: 'builder-supporting-surfaces', module: 'SupportingSurfaces', config: 'SupportingSurfaces.cfg' },
   { name: 'builder-lifecycle-entry', module: 'LifecycleEntry', config: 'LifecycleEntry.cfg' },
   { name: 'builder-reconcile-lifecycle', module: 'ReconcileLifecycle', config: 'ReconcileLifecycle.cfg' },
+  { name: 'builder-journey', module: 'BuilderJourney', config: 'BuilderJourney.cfg' },
 ];
 
 const FINDINGS = [];
@@ -701,6 +702,7 @@ async function main() {
   const supportingSurfaces = runTlc(jarPath, 'SupportingSurfaces', 'SupportingSurfaces.cfg');
   const lifecycleEntry = runTlc(jarPath, 'LifecycleEntry', 'LifecycleEntry.cfg');
   const reconcileLifecycle = runTlc(jarPath, 'ReconcileLifecycle', 'ReconcileLifecycle.cfg');
+  const builderJourney = runTlc(jarPath, 'BuilderJourney', 'BuilderJourney.cfg');
 
   if (!operations.passed) fail('BuilderOperations.cfg did not complete without an error.');
   if (!safety.passed) fail('BuilderPreviewSafety.cfg did not complete without an error.');
@@ -714,6 +716,7 @@ async function main() {
   if (!supportingSurfaces.passed) fail('SupportingSurfaces.cfg did not complete without an error.');
   if (!lifecycleEntry.passed) fail('LifecycleEntry.cfg did not complete without an error.');
   if (!reconcileLifecycle.passed) fail('ReconcileLifecycle.cfg did not complete without an error.');
+  if (!builderJourney.passed) fail('BuilderJourney.cfg did not complete without an error.');
 
   const scheduleRun = runFormalSchedules();
   const traceValidation = runTraceValidation(scheduleRun.tracePath);
@@ -731,6 +734,7 @@ async function main() {
     { name: 'builder-supporting-surfaces', status: 'pass', stateCount: supportingSurfaces.stateCount, distinctStateCount: supportingSurfaces.distinctStateCount, depth: supportingSurfaces.depth },
     { name: 'builder-lifecycle-entry', status: 'pass', stateCount: lifecycleEntry.stateCount, distinctStateCount: lifecycleEntry.distinctStateCount, depth: lifecycleEntry.depth },
     { name: 'builder-reconcile-lifecycle', status: 'pass', stateCount: reconcileLifecycle.stateCount, distinctStateCount: reconcileLifecycle.distinctStateCount, depth: reconcileLifecycle.depth },
+    { name: 'builder-journey', status: 'pass', stateCount: builderJourney.stateCount, distinctStateCount: builderJourney.distinctStateCount, depth: builderJourney.depth },
     scheduleRun,
     traceValidation,
     traceSelfTest,

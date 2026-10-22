@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T19:40:55.844Z",
+  "generatedAt": "2026-10-21T21:03:08.094Z",
   "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
   "tool": {
     "name": "TLC",
@@ -126,7 +126,7 @@
         "TestBuilderFullUIEmptyRootCreationDispatchUsesRealService",
         "TestBuilderFullUIGroupFilterDeriveAggregateEditReplaysLifecycle"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.442s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/explorer/lifecycle\t1.608s\n"
     },
     {
       "name": "go-internal-server",
@@ -136,7 +136,7 @@
         "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
         "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
       ],
-      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.705s\n"
+      "outputTail": "ok  \tgithub.com/calypr/loom/internal/server\t1.790s\n"
     },
     {
       "name": "ui-contract-inventory-source",
@@ -160,15 +160,15 @@
     "tier3": 0,
     "modeledAndTraced": 3,
     "traceTested": 1,
-    "modeledOnly": 32,
-    "contractTested": 0,
-    "unproven": 3,
+    "modeledOnly": 17,
+    "contractTested": 16,
+    "unproven": 2,
     "excluded": 4,
     "withBuilderEvidence": 39,
     "withModelActions": 36,
     "withTrace": 4,
-    "withTest": 4,
-    "withBrowserCase": 3
+    "withTest": 20,
+    "withBrowserCase": 9
   },
   "traceValidation": {
     "name": "builder-trace-validation",
@@ -753,7 +753,7 @@
         }
       ]
     },
-    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-pfNkf8/traces-report.json"
+    "reportPath": "/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-builder-formal-vitest-GtQVVa/traces-report.json"
   },
   "findings": [],
   "retiredFindings": [

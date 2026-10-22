@@ -3547,6 +3547,60 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('applies commands with the refreshed server draft identity after catalog recovery', async () => {
+    let resolveRefresh: (
+      value: { readonly data: typeof builderState },
+    ) => void = () => undefined;
+    const refresh = new Promise<{ readonly data: typeof builderState }>(
+      (resolve) => {
+        resolveRefresh = resolve;
+      },
+    );
+    const refetch = vi.fn(() => refresh);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: builderState,
+      isLoading: false,
+      refetch,
+    });
+    preview.mockReturnValueOnce(
+      rejectedRequest({
+        code: 'STALE_CATALOG_SNAPSHOT',
+        message: 'The catalog is stale.',
+        retryable: false,
+      }),
+    );
+
+    const refreshedState = {
+      ...builderState,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+    };
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    resolveRefresh({ data: refreshedState });
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: refreshedState,
+      isLoading: false,
+      refetch,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      expectedDraftVersion: 2,
+      expectedDraftDigest: 'sha256:draft-2',
+    }));
+  });
+
   it('does not automatically preview without a visible patient column', async () => {
     const hiddenWorkspace = {
       ...workspace,

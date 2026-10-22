@@ -11,6 +11,7 @@ import {
   type DraftTable,
 } from '../authoring/model';
 import { lossLabel } from './DataframeContractPanel';
+import { hasSingleScopedRowTable } from './datasetReviewSelection';
 
 type ResultShape =
   | { readonly kind: 'scalar' }
@@ -319,7 +320,7 @@ const diagnosticTarget = (
     };
   }
   const namesRowSetting = ['rows', 'rowdefinition', 'rootresourcetype'].some((token) => tokens.has(token));
-  if (namesRowSetting && scopedTables.length === 1) {
+  if (hasSingleScopedRowTable(namesRowSetting, scopedTables.length)) {
     const table = scopedTables[0];
     return {
       kind: 'row',

@@ -13,9 +13,26 @@ The checked promises are bounded:
 - Only the owner for the current request identity, with a matching proposal response and preview receipt/output with non-null rows, can become ready or begin Apply.
 - A completed Apply acknowledgment targets the owner that began Apply, not whichever proposal is current when the acknowledgment arrives. This is now implemented and covered by two regression schedules.
 - A Pivot discovery result is adopted only for the current key and generation. The former missing-category refusal finding is retired: the audited source and materialized paths do not reach `MISSING_UNSUPPORTED`. The remaining gap is that materialized outputs collapse an absent input to a present null.
-- A captured implementation trace projects to a legal `Next` path in the bounded model. The Phase 1 evidence covers the 61 formal lifecycle schedules.
+- A captured implementation trace projects to a legal `Next` path in the bounded model. The Phase 1 evidence covers the 70 formal lifecycle schedules.
 
 These are finite-state checks. They are not an unbounded refinement proof of React, Go, transport, persistence, or browser behavior.
+
+## Fast loop
+
+The inner loop is one source change, one focused test, and one mutation probe. Keep each command under 5 seconds. Do not run the integrated gate for a small change. Use it at a batch checkpoint.
+
+Run one mutation probe:
+
+    node scripts/run-builder-mutation-probe.mjs <probe-id> --force
+
+The runner applies Vitest mutants through a Vite overlay, so it does not copy the repository. Go probes run one named regression and reuse `ui/node_modules/.cache/loom-mutation-go`. Evidence is keyed by source, test, and probe hashes. A repeat run skips unchanged probes. Use `--jobs=N` only after individual probes are cheap. The current suite is 50 probes, 47 killed, 3 equivalent, 0 survived, and 94 unprobed actions. The strict allowlist is empty.
+
+Run one focused UI test:
+
+    cd ui/packages/loom-ui
+    node ../../node_modules/vitest/vitest.mjs run <test-file> -t "<test name>"
+
+If a focused check cannot finish in 5 seconds, run less. The integrated gate is not the inner loop.
 
 ## Integrated command
 
@@ -28,7 +45,7 @@ The runner:
 1. Verifies `verification/builder-interactions/builder-preview-contract.json`. Any changed fingerprinted production or model source fails the run until the source-to-model mapping is reviewed deliberately.
 2. Requires Java and TLC 1.7.4. It uses `TLA2TOOLS_JAR` when set; otherwise it downloads the official release into the operating-system temporary directory. The JAR SHA-256 is `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`.
 3. Runs the two safety models and the three retained finding models through TLC.
-4. Runs the real React hook schedule suite. It expects 61 tests: 61 schedules, including two Apply-acknowledgment regressions. The suite writes a trace corpus to a temporary file.
+4. Runs the real React hook schedule suite. It expects 70 tests: 70 schedules, including two Apply-acknowledgment regressions. The suite writes a trace corpus to a temporary file.
 5. Validates every captured trace with TLC through `scripts/verify-builder-traces.mjs`, using `builder-trace-contract.json` and the same TLC pin.
 6. Runs selected Go lifecycle replay tests and server boundary tests, then the inventory source-only check.
 7. Writes `verification/builder-interactions/report.json` and `report.md` with checks, findings, trace conformance, and coverage gaps.
@@ -78,9 +95,9 @@ Run the trace validator directly when iterating:
 
     node scripts/verify-builder-traces.mjs --traces /tmp/loom-formal-traces.json --output /tmp/trace-report.json
 
-The validator deduplicates identical traces, generates a TLA+ case module per unique trace, and checks each step against `BuilderPreview!Next` or `ConstructionLifecycle!Next` with `lastAction'` constrained to the captured label. It also checks required models, actions, events, and the 61-trace Phase 1 count. `--allow-partial` is for local iteration only.
+The validator deduplicates identical traces, generates a TLA+ case module per unique trace, and checks each step against `BuilderPreview!Next` or `ConstructionLifecycle!Next` with `lastAction'` constrained to the captured label. It also checks required models, actions, events, and the 70-trace Phase 1 count. `--allow-partial` is for local iteration only.
 
-Current Phase 1 result after the Apply fix: 61 traces, 12 unique, 61 validated, 0 invalid. Required models, actions, and events are all covered. The 54 unmodeled events are stale proposal/preview settlements and rejected old `beginApply` calls; they are reported by kind in `report.json`.
+Current Phase 1 result after the Apply fix: 70 traces, 21 unique, 70 validated, 0 invalid. Required models, actions, and events are all covered. The 55 unmodeled events are stale proposal/preview settlements and rejected old `beginApply` calls; they are reported by kind in `report.json`.
 
 Two abstraction limits are intentional:
 - A ready proposal with an embedded preview is split into `ProposalComplete`, `StartPreview`, and `PreviewComplete`. The middle observation is a synthetic abstract `previewing` observation because the React hook has no intermediate render. The note says `embedded proposal preview abstract split`.

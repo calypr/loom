@@ -67,12 +67,12 @@
     },
     {
       "id": "command-draft-version-guard",
-      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-      "find": "            snapshotToken: current.catalog.snapshotToken,\n            expectedDraftVersion: serverDraft.current.version,",
-      "replace": "            snapshotToken: current.catalog.snapshotToken,\n            expectedDraftVersion: current.draftVersion,",
-      "test": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
-      "testNamePattern": "automatically previews saved commands and publishes the resulting receipt",
-      "expectedFailure": "automatically previews saved commands",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.ts",
+      "find": "  const expectedDraftVersion = serverDraft.version > 0\n    ? serverDraft.version\n    : state.draftVersion;",
+      "replace": "  const expectedDraftVersion = state.draftVersion;",
+      "test": "src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts",
+      "testNamePattern": "uses the server draft when the UI state lags behind it",
+      "expectedFailure": "expectedDraftVersion",
       "modelAction": "LifecycleEntry.StartCommand"
     },
     {
@@ -98,6 +98,440 @@
       "expectedFailure": "cursor from a different draft version was accepted",
       "modelAction": "ReconcileLifecycle.DraftChange",
       "modelActionRationale": "The catalog cursor binds the draft identity; DraftChange is the model draft-identity transition."
+    },
+    {
+      "id": "proposal-needs-repair-guard",
+      "runner": "vitest",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "find": "        if (response.previewStatus !== 'READY') return { status: 'needs-repair', response };",
+      "replace": "        if (false) return { status: 'needs-repair', response };",
+      "test": "src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "testNamePattern": "replays proposal ordering schedule: start A; start B replaces A; old response first; A=ready; B=needs repair",
+      "expectedFailure": "expected 'resolved' to be 'rejected'",
+      "modelAction": "BuilderPreview.ProposalError"
+    },
+    {
+      "id": "proposal-cancel-local-action-guard",
+      "modelAction": "BuilderPreview.CancelProposal",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
+      "test": "src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "testNamePattern": "does not treat another local action as Cancel proposal",
+      "find": "  if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {",
+      "replace": "  if (input.requestStep === null) {",
+      "expectedFailure": "to not be called",
+      "modelActions": [
+        "BuilderPreview.CancelProposal",
+        "ConstructionLifecycle.CancelProposal",
+        "RootChange.Cancel",
+        "RowDefinitionLifecycle.CancelProposal",
+        "RowDefinitionLifecycle.RequestProposal"
+      ],
+      "modelActionRationale": "The shared core cancel adapter guard is exercised once and satisfies every model action that routes through it."
+    },
+    {
+      "id": "pivot-pair-guard",
+      "modelAction": "BuilderPreview.SetPivotPair",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+      "test": "src/features/ExplorerBuilder/components/TableShapeSettingsPanel.unit.test.tsx",
+      "testNamePattern": "rejects category discovery returned for a different pivot pair",
+      "find": "      if (discovery.catalogId !== session.catalogId || !pivotPairMatches(discovery, pair)) {",
+      "replace": "      if (discovery.catalogId !== session.catalogId) {",
+      "expectedFailure": "Unable to find role"
+    },
+    {
+      "id": "source-expand-stale-proposal-guard",
+      "modelAction": "BuilderPreview.LateProposalComplete",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
+      "test": "src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.unit.test.tsx",
+      "testNamePattern": "rejects a proposal with a stale draft identity while the panel identity is current",
+      "find": "      if (!latest || contextIdentity(latest) !== identity || !isCurrentProposal(proposal, latest)) {",
+      "replace": "      if (!latest || contextIdentity(latest) !== identity) {",
+      "expectedFailure": "Unable to find role",
+      "modelActions": [
+        "BuilderPreview.LateProposalComplete",
+        "ConstructionLifecycle.LateProposalSettlementIgnored"
+      ],
+      "modelActionRationale": "The stale panel-identity guard rejects late proposal settlement for both model actions."
+    },
+    {
+      "id": "replacement-preview-output-guard",
+      "modelAction": "Interpretation.ReviewCandidate",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+      "test": "src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx",
+      "testNamePattern": "fails closed when the replacement preview belongs to another table",
+      "find": "      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId) {",
+      "replace": "      if (preview.receiptId !== candidateReceiptId) {",
+      "expectedFailure": "Unable to find role"
+    },
+    {
+      "id": "row-lineage-capability-guard",
+      "modelAction": "SupportingSurfaces.RequestRowSources",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+      "test": "src/features/ExplorerBuilder/components/PreviewTable.unit.test.ts",
+      "testNamePattern": "shows a compound cohort identity without requesting unavailable lineage",
+      "find": "if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE' && preview.rowLineageCapability.status === 'AVAILABLE') {",
+      "replace": "if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE') {",
+      "expectedFailure": "to not be called at all"
+    },
+    {
+      "id": "population-repeated-cursor-guard",
+      "modelAction": "SupportingSurfaces.NextLineagePage",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+      "test": "src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
+      "testNamePattern": "rejects a repeated selection page cursor",
+      "find": "  if (page.nextCursor && (page.nextCursor === cursor || seenCursors.includes(page.nextCursor))) {",
+      "replace": "  if (page.nextCursor) {",
+      "expectedFailure": "repeated page cursor"
+    },
+    {
+      "id": "draft-restore-error-guard",
+      "modelAction": "DraftRestore.StaleDraft",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.ts",
+      "test": "src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts",
+      "testNamePattern": "treats draft conflicts and stale snapshots as restore errors",
+      "find": "  isDraftDesynchronized(code) || isStaleSnapshot(code);",
+      "replace": "  isDraftDesynchronized(code);",
+      "expectedFailure": "expected false to be true"
+    },
+    {
+      "id": "builder-load-error-helper-guard",
+      "modelAction": "WorkspaceLifecycle.ExplorerListError",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",
+      "test": "src/features/ExplorerBuilder/authoring/builderLoadError.unit.test.ts",
+      "find": "  explorersError || !hasBuilderData;",
+      "replace": "  explorersError;",
+      "expectedFailure": "expected false to be true"
+    },
+    {
+      "id": "construction-draft-identity-guard",
+      "modelAction": "ConstructionLifecycle.ChangeDraftIdentity",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+      "test": "src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts",
+      "testNamePattern": "treats a different request epoch as a different root-change identity",
+      "find": "  left.outputId === right.outputId && left.snapshotToken === right.snapshotToken &&\n  left.draftVersion === right.draftVersion && left.draftDigest === right.draftDigest;",
+      "replace": "  left.outputId === right.outputId && left.snapshotToken === right.snapshotToken &&\n  left.draftDigest === right.draftDigest;",
+      "expectedFailure": "expected true to be false"
+    },
+    {
+      "id": "server-draft-sync-guard",
+      "modelAction": "BuilderPreview.AcceptCurrentDraft",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/serverDraftSync.ts",
+      "test": "src/features/ExplorerBuilder/authoring/serverDraftSync.unit.test.ts",
+      "testNamePattern": "syncs only when builder data exists and the key changes",
+      "find": "  Boolean(builderData) && currentKey !== nextKey;",
+      "replace": "  Boolean(builderData);",
+      "expectedFailure": "expected true to be false"
+    },
+    {
+      "id": "shape-combine-row-policy-guard",
+      "modelAction": "ColumnPresentation.SetRowValuePolicy",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombinePolicy.ts",
+      "test": "src/features/ExplorerBuilder/builderContractAdapters/shapeCombinePolicy.unit.test.ts",
+      "find": "  typeof value === 'string' && value.length > 0;",
+      "replace": "  typeof value === 'string';",
+      "expectedFailure": "expected true to be false"
+    },
+    {
+      "id": "refresh-preview-catalog-guard",
+      "modelAction": "WorkspaceLifecycle.RefreshCatalog",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
+      "test": "src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "testNamePattern": "clicks the mounted preview refresh control for refresh_preview_catalog",
+      "find": "  if (action === 'retry_preview_once' || action === 'refresh_preview_catalog') {",
+      "replace": "  if (action === 'retry_preview_once') {",
+      "expectedFailure": "to be called once"
+    },
+    {
+      "id": "row-sources-unavailable-guard",
+      "modelAction": "SupportingSurfaces.RowSourcesUnavailable",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+      "test": "src/features/ExplorerBuilder/components/PreviewTable.unit.test.ts",
+      "testNamePattern": "shows a compound cohort identity without requesting unavailable lineage",
+      "find": "                {preview?.rowLineageCapability.status === 'AVAILABLE' && onRowLineage ? (",
+      "replace": "                {onRowLineage ? (",
+      "expectedFailure": "to contain text"
+    },
+    {
+      "id": "paired-preview-rows-guard",
+      "modelActions": [
+        "Interpretation.ReviewReady",
+        "RootChange.PreviewReady",
+        "Population.RemovalReviewReady"
+      ],
+      "modelActionRationale": "All three preview-ready actions share the paired-preview rows guard before reporting readiness.",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.ts",
+      "test": "src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "testNamePattern": "requires a ready preview with a candidate column and rows",
+      "find": "  return previewStatus === 'READY' && columnId !== undefined && rows != null;",
+      "replace": "  return previewStatus === 'READY' && columnId !== undefined;",
+      "expectedFailure": "expected true to be false"
+    },
+    {
+      "id": "select-table-command-guard",
+      "modelAction": "WorkspaceLifecycle.SelectTable",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.ts",
+      "test": "src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "testNamePattern": "remembers only a command-selected table with an output identity",
+      "find": "  return selectsTableThroughCommand && selectedOutputId != null;",
+      "replace": "  return selectsTableThroughCommand;",
+      "expectedFailure": "expected true to be false"
+    },
+    {
+      "id": "select-occurrence-navigation-guard",
+      "modelAction": "WorkspaceLifecycle.SelectOccurrence",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.ts",
+      "test": "src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "testNamePattern": "treats route and occurrence selections as compiler navigation",
+      "find": "  return selection.kind === 'compiler-route' || selection.kind === 'compiler-occurrence';",
+      "replace": "  return selection.kind === 'compiler-route';",
+      "expectedFailure": "expected false to be true"
+    },
+    {
+      "id": "construction-proposal-action-guard",
+      "modelAction": "RowDefinitionLifecycle.ApplyProposal",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.ts",
+      "test": "src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "testNamePattern": "routes every construction proposal action through the proposal path",
+      "find": "  return action === 'proposalEndpoint' || action === 'applyEndpoint' || action === 'apply';",
+      "replace": "  return action === 'proposalEndpoint' || action === 'applyEndpoint';",
+      "expectedFailure": "expected false to be true"
+    },
+    {
+      "id": "row-definition-action-guard",
+      "modelAction": "RowDefinitionLifecycle.SelectRow",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.ts",
+      "test": "src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "testNamePattern": "keeps row-definition selection and apply actions on the row-definition path",
+      "find": "  return action === 'select_row_shape_or_policy' || action === 'apply_row_definition';",
+      "replace": "  return action === 'select_row_shape_or_policy';",
+      "expectedFailure": "expected false to be true"
+    },
+    {
+      "id": "related-field-reduction-action-guard",
+      "modelAction": "ColumnPresentation.CreateRelatedAggregate",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.ts",
+      "test": "src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "testNamePattern": "treats aggregate and related-field reduction as column feature actions",
+      "find": "  return action === 'aggregate_operation' || action === 'related_field_reduction';",
+      "replace": "  return action === 'aggregate_operation';",
+      "expectedFailure": "expected false to be true"
+    },
+    {
+      "id": "dataset-review-single-scope-guard",
+      "modelAction": "ReconcileLifecycle.SetTablesRooted",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/datasetReviewSelection.ts",
+      "test": "src/features/ExplorerBuilder/components/datasetReviewSelection.unit.test.ts",
+      "testNamePattern": "resolves a row setting only when exactly one scoped table remains",
+      "find": "  return namesRowSetting && scopedTableCount === 1;",
+      "replace": "  return namesRowSetting;",
+      "expectedFailure": "expected true to be false"
+    },
+    {
+      "id": "preview-row-sources-ready-guard",
+      "modelAction": "SupportingSurfaces.RowSourcesReady",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+      "test": "src/features/ExplorerBuilder/components/PreviewTable.unit.test.ts",
+      "testNamePattern": "shows a compound cohort identity without requesting unavailable lineage",
+      "find": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE' && preview.rowLineageCapability.status === 'AVAILABLE') {",
+      "replace": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE') {",
+      "expectedFailure": "to not be called"
+    },
+    {
+      "id": "reconcile-empty-output-guard",
+      "runner": "go",
+      "file": "internal/explorer/lifecycle/authoring.go",
+      "find": "\tif request.OutputID == \"\" {",
+      "replace": "\tif false {",
+      "test": "./internal/server",
+      "testNamePattern": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
+      "expectedFailure": "reconcile status=",
+      "modelActions": [
+        "ReconcileLifecycle.RequestReconcile",
+        "ReconcileLifecycle.ReconcileSuccess"
+      ],
+      "modelActionRationale": "The reconcile request takes the empty-output branch and returns a receipt."
+    },
+    {
+      "id": "reconcile-draft-identity-guard",
+      "runner": "go",
+      "file": "internal/explorer/lifecycle/authoring.go",
+      "find": "\tif owner.DraftVersion != request.DraftVersion || owner.DraftDigest != request.DraftDigest {",
+      "replace": "\tif owner.DraftVersion != request.DraftVersion {",
+      "test": "./internal/server",
+      "testNamePattern": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
+      "expectedFailure": "stale reconcile status=",
+      "modelAction": "ReconcileLifecycle.ReconcileStale"
+    },
+    {
+      "id": "reconcile-output-whitespace-guard",
+      "runner": "go",
+      "file": "internal/explorer/lifecycle/authoring.go",
+      "find": "\tif strings.TrimSpace(request.OutputID) != request.OutputID {",
+      "replace": "\tif false {",
+      "test": "./internal/server",
+      "testNamePattern": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
+      "expectedFailure": "padded output status=",
+      "modelAction": "ReconcileLifecycle.ReconcileInvalid"
+    },
+    {
+      "id": "automatic-preview-settled-reuse-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts",
+      "test": "src/features/ExplorerBuilder/useAutomaticPreview.unit.test.tsx",
+      "testNamePattern": "lets an explicit reload bypass a settled result on the same key",
+      "find": "      if (!options?.reload && settledRef.current?.key === request.key) {",
+      "replace": "      if (settledRef.current?.key === request.key) {",
+      "expectedFailure": "toHaveBeenCalledTimes",
+      "modelActions": [
+        "WorkspaceLifecycle.AcceptPreview",
+        "WorkspaceLifecycle.RecompileReceipt"
+      ],
+      "modelActionRationale": "The settled-result guard decides whether a cached preview is accepted and whether an explicit reload recompiles it.",
+      "equivalent": "refetch clears settledRef.current before calling query.refetch, so an explicit reload bypasses the settled value even when the reload condition is removed."
+    },
+    {
+      "id": "graph-orphans-toggle-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+      "test": "src/features/ExplorerBuilder/components/GuidedGraphWorkspace.unit.test.tsx",
+      "testNamePattern": "shows the full graph and optionally includes orphans",
+      "find": "                onChange={(event) => setShowOrphans(event.target.checked)}",
+      "replace": "                onChange={() => setShowOrphans(true)}",
+      "expectedFailure": "data-node-count",
+      "modelAction": "SupportingSurfaces.ToggleGraphOrphans"
+    },
+    {
+      "id": "graph-expand-on-pane-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+      "test": "src/features/ExplorerBuilder/components/GuidedGraphWorkspace.unit.test.tsx",
+      "testNamePattern": "keeps node interaction inline, expands from the background, and directly adds one legal edge",
+      "find": "              if (!isExpanded) setIsExpanded(true);",
+      "replace": "              if (false) setIsExpanded(true);",
+      "expectedFailure": "expanded",
+      "modelAction": "SupportingSurfaces.ExpandGraph"
+    },
+    {
+      "id": "graph-inspect-node-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+      "test": "src/features/ExplorerBuilder/components/GuidedGraphWorkspace.unit.test.tsx",
+      "testNamePattern": "inspects an existing resource when another relationship can add a new occurrence",
+      "find": "    if (routeOccurrences.length > 0 && matchingEdges.length > 0) {",
+      "replace": "    if (routeOccurrences.length > 0) {",
+      "expectedFailure": "to not be called",
+      "modelAction": "SupportingSurfaces.InspectGraphNode",
+      "equivalent": "Route occurrences are derived from catalog edges, so a node with a route occurrence already has a matching legal next edge. The extra matchingEdges check is redundant."
+    },
+    {
+      "id": "population-clear-disabled-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+      "test": "src/features/ExplorerBuilder/components/PopulationPanel.unit.test.tsx",
+      "testNamePattern": "does not clear the attached selection while disabled",
+      "find": "              <button type=\"button\" disabled={disabled} onClick={onClear}",
+      "replace": "              <button type=\"button\" disabled={false} onClick={onClear}",
+      "expectedFailure": "to not be called",
+      "modelAction": "Population.ClearAttached"
+    },
+    {
+      "id": "dataset-review-focus-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx",
+      "test": "src/features/ExplorerBuilder/components/DatasetReviewPanel.unit.test.tsx",
+      "testNamePattern": "maps a blocking field diagnostic to its requested column action",
+      "find": "              onClick={() => onFocus(target)}",
+      "replace": "              onClick={() => undefined}",
+      "expectedFailure": "toHaveBeenCalledWith",
+      "modelAction": "SupportingSurfaces.FocusReview"
+    },
+    {
+      "id": "column-visibility-toggle-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "toggles configured visibility and filter from their row controls",
+      "find": "                visible: event.currentTarget.checked,\n                order: column.table?.order ?? order,",
+      "replace": "                visible: true,\n                order: column.table?.order ?? order,",
+      "expectedFailure": "toHaveBeenLastCalledWith",
+      "modelAction": "ColumnPresentation.ToggleVisibility"
+    },
+    {
+      "id": "column-filter-toggle-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "toggles configured visibility and filter from their row controls",
+      "find": "              filter: event.currentTarget.checked\n                ? { label: column.label }\n                : undefined,",
+      "replace": "              filter: { label: column.label },",
+      "expectedFailure": "toHaveBeenLastCalledWith",
+      "modelAction": "ColumnPresentation.SetFilterOffered"
+    },
+    {
+      "id": "column-search-query-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "filters columns by the local search query without a request",
+      "find": "          return value.toLowerCase().includes(normalizedQuery);",
+      "replace": "          return true;",
+      "expectedFailure": "No columns match this search",
+      "modelAction": "ColumnPresentation.SearchColumns"
+    },
+    {
+      "id": "column-remove-control-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "removes a configured column from its row control",
+      "find": "        onClick={onRemove}",
+      "replace": "        onClick={() => undefined}",
+      "expectedFailure": "toHaveBeenCalledWith",
+      "modelAction": "ColumnPresentation.RemoveConfiguredColumn"
+    },
+    {
+      "id": "column-inspect-control-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "shows the exact FHIR source and saved route, then hands the column to the graph",
+      "find": "          onClick={onInspect}",
+      "replace": "          onClick={() => undefined}",
+      "expectedFailure": "Source for Height",
+      "modelActions": [
+        "ColumnPresentation.InspectColumn",
+        "ColumnPresentation.InspectSucceeded"
+      ],
+      "modelActionRationale": "Clicking Column details and rendering the returned source covers both the request and successful inspection."
+    },
+    {
+      "id": "column-rename-fallback-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/columnLabel.ts",
+      "test": "src/features/ExplorerBuilder/components/columnLabel.unit.test.ts",
+      "testNamePattern": "trims a non-empty label and restores the saved label when empty",
+      "find": "  return next || fallback;",
+      "replace": "  return next;",
+      "expectedFailure": "expected",
+      "modelAction": "ColumnPresentation.RenameColumn"
+    },
+    {
+      "id": "column-move-end-branch-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "normalizes missing orders before moving a configured column to the end",
+      "find": "    if (visibleConfigured.every((item) => item.table?.order !== undefined)) {",
+      "replace": "    if (true) {",
+      "expectedFailure": "toHaveBeenCalledWith",
+      "modelAction": "ColumnPresentation.MoveColumn"
+    },
+    {
+      "id": "feature-policy-capability-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx",
+      "test": "src/features/ExplorerBuilder/components/FeaturePolicyEditor.unit.test.tsx",
+      "testNamePattern": "groups value settings separately from server-resolved time and unit settings",
+      "find": "  if (!capability?.available) {",
+      "replace": "  if (false) {",
+      "expectedFailure": "Category recoding is unavailable",
+      "modelAction": "ColumnPresentation.SetFeaturePolicy"
+    },
+    {
+      "id": "column-inspect-mismatch-guard",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+      "test": "src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "testNamePattern": "rejects source details returned for a different column",
+      "find": "      if (descriptor.column !== column.column) {",
+      "replace": "      if (false) {",
+      "expectedFailure": "Unable to find role=\"alert\"",
+      "modelAction": "ColumnPresentation.InspectRejected"
     }
   ]
 }

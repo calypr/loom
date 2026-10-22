@@ -71,7 +71,7 @@
       "tier": 1,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -120,7 +120,7 @@
       "tier": 1,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -142,7 +142,13 @@
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions",
       "status": "modeled-only",
       "routeMode": "stateful",
-      "routeActions": [],
+      "routeActions": [
+        "BeginCreate",
+        "CancelCreate",
+        "CreateBlocked",
+        "CreateFailed",
+        "CreateRevision"
+      ],
       "uiCallers": [
         "builder.interpretation.create_revision_from_column"
       ],
@@ -162,7 +168,12 @@
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping",
       "status": "modeled-only",
       "routeMode": "stateful",
-      "routeActions": [],
+      "routeActions": [
+        "CoverageComplete",
+        "CoverageIncomplete",
+        "CoverageStale",
+        "RequestCoverage"
+      ],
       "uiCallers": [
         "builder.population.selected_resource_coverage_check"
       ],
@@ -179,7 +190,7 @@
       "tier": 1,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -242,7 +253,18 @@
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change",
       "status": "modeled-only",
       "routeMode": "stateful",
-      "routeActions": [],
+      "routeActions": [
+        "ApplyPreview",
+        "AssessmentBlocked",
+        "AssessmentNoChange",
+        "AssessmentReady",
+        "AssessmentStale",
+        "BeginChange",
+        "Cancel",
+        "PreviewReady",
+        "PreviewUnavailable",
+        "WorkspaceChanged"
+      ],
       "uiCallers": [
         "builder.root.change_or_replace"
       ],
@@ -263,7 +285,7 @@
       "tier": 1,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -310,7 +332,7 @@
       "tier": 1,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -370,7 +392,11 @@
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections",
       "status": "modeled-only",
       "routeMode": "stateful",
-      "routeActions": [],
+      "routeActions": [
+        "ExcludeMember",
+        "ExcludeRouteFound",
+        "ExcludeRouteMissing"
+      ],
       "uiCallers": [
         "builder.population.exclude_unmapped_member"
       ],
@@ -432,7 +458,10 @@
       "path": "/api/v1/projects/{project}/explorers/{explorerId}",
       "status": "modeled-only",
       "routeMode": "stateful",
-      "routeActions": [],
+      "routeActions": [
+        "DeleteExplorer",
+        "DeleteCapability"
+      ],
       "uiCallers": [
         "builder.explorer_create_delete"
       ],
@@ -471,7 +500,7 @@
       "tier": 2,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -496,7 +525,7 @@
       "tier": 2,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -543,7 +572,7 @@
       "tier": 2,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -569,7 +598,7 @@
       "tier": 2,
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [
@@ -616,7 +645,7 @@
       "tier": 2,
       "method": "GET",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
-      "status": "modeled-only",
+      "status": "contract-tested",
       "routeMode": "read",
       "routeActions": [],
       "uiCallers": [

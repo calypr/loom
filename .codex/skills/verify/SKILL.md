@@ -8,6 +8,16 @@ description: Verify Loom Builder features in the real local browser, including b
 Use this skill for frontend and backend iterations against the development
 Compose project. It does not drive the canonical `loom-demo` deployment.
 
+## Fast inner loop
+
+One small change gets one focused test under 5 seconds. Run only the test or mutation probe for the edited behavior. Do not run a browser lifecycle or the integrated formal gate for a small change. Batch those at checkpoints.
+
+For the Builder formal loop, use `node scripts/run-builder-mutation-probe.mjs <probe-id> --force`. The `builder-interaction-formal-verification` skill documents the current probe set and cache behavior.
+
+## Development Compose identity
+
+Discover the running project with `docker compose ls --all`. Inspect it with `docker compose -f compose.dev.yaml -p <project> ps`. Always pass `-f compose.dev.yaml`. The default `compose.yaml` describes the canonical `loom-demo` deployment and will create the wrong containers under a development project name. Read the published ports from the running containers, not from a stale `dev-session.json`.
+
 ## Failure-loop discipline
 
 ### Batch scheduling
@@ -594,6 +604,33 @@ make dev-doctor
 Proceed only after `DEV_DOCTOR_PASSED`. The report records the validated
 Compose project, fixture project, fixture generation, API status, and UI
 status.
+
+Before any CDA-backed browser or fast-lane case, preflight the exact dataset and
+Explorer instead of discovering a missing generation through a test failure:
+
+```bash
+node scripts/verify-ui/check-loaded-dataset.mjs   --api "$LOOM_CDA_API_ORIGIN"   --project "$LOOM_CDA_PROJECT"   --generation "$LOOM_CDA_GENERATION"
+```
+
+Require `DATASET_READY`. The check requires a reusable generation, at least one
+Explorer, and a nonempty authored Builder document. `DATASET_NOT_READY` is an
+environment failure, not a product failure. The fast preview lane runs the same
+check when `LOOM_FAST_PROJECT` and `LOOM_FAST_GENERATION` are set.
+
+The composed Builder journey runs with:
+
+```bash
+node scripts/run-builder-journey.mjs
+```
+
+It creates a fresh fixture, applies two Group row changes through the real UI,
+asserts the exact applied preview row count, records every authoring call, and
+replays the observed trace through `BuilderJourney.tla`. It is a mutating
+journey; do not point it at the read-only fast fixture. Pass
+`--project <dataset> --generation <generation>` to run the same journey against
+an already loaded dataset. Add `--bootstrap` when that dataset has no Explorer
+or authored table; it creates the named Explorer, a Patient table (or the first
+eligible row root), and one scalar column, then runs the normal preflight.
 
 ## Drive
 

@@ -41,6 +41,12 @@ for (const entry of allowlist.survivors ?? []) {
 
 const results = probes.map((probe) => {
   const observed = evidenceById.get(probe.id);
+  const modelActions = [...new Set([
+    ...(probe.modelActions ?? []),
+    ...(probe.modelAction ? [probe.modelAction] : []),
+    ...(observed?.modelActions ?? []),
+    ...(observed?.modelAction ? [observed.modelAction] : []),
+  ])];
   const sourcePath = resolve(ROOT, probe.file);
   const currentHash = existsSync(sourcePath) ? sha256(readFileSync(sourcePath)) : null;
   const sourceHash = observed?.sourceHash ?? null;
@@ -52,7 +58,8 @@ const results = probes.map((probe) => {
   return {
     id: probe.id,
     runner: observed?.runner ?? probe.runner ?? 'vitest',
-    modelAction: probe.modelAction ?? observed?.modelAction ?? null,
+    modelAction: modelActions[0] ?? null,
+    modelActions,
     modelActionRationale: probe.modelActionRationale ?? observed?.modelActionRationale ?? null,
     source: probe.file,
     sourceHash,
@@ -77,9 +84,10 @@ const equivalent = results.filter((entry) => entry.status === 'equivalent');
 const actionObligations = (obligations.obligations ?? []).filter((entry) => entry.kind === 'action');
 const probesByAction = new Map();
 for (const entry of results) {
-  if (!entry.modelAction) continue;
-  if (!probesByAction.has(entry.modelAction)) probesByAction.set(entry.modelAction, []);
-  probesByAction.get(entry.modelAction).push(entry.id);
+  for (const modelAction of entry.modelActions) {
+    if (!probesByAction.has(modelAction)) probesByAction.set(modelAction, []);
+    probesByAction.get(modelAction).push(entry.id);
+  }
 }
 const actionCoverage = actionObligations.map((obligation) => {
   const probeIds = [...new Set(probesByAction.get(obligation.id) ?? [])].sort();
@@ -144,7 +152,7 @@ lines.push('| Probe | Runner | Model action | Status | Source hash | Expected fa
 lines.push('| --- | --- | --- | --- | --- | --- |');
 for (const entry of results) {
   const source = entry.sourceMatches === true ? 'current' : entry.sourceMatches === false ? 'stale' : 'missing';
-  lines.push('| `' + entry.id + '` | ' + entry.runner + ' | `' + (entry.modelAction ?? 'unmapped') + '` | ' + entry.status + ' | ' + source + ' | ' + entry.expectedFailure + ' |');
+  lines.push('| `' + entry.id + '` | ' + entry.runner + ' | ' + (entry.modelActions.length > 0 ? entry.modelActions.map((action) => '`' + action + '`').join(', ') : 'unmapped') + ' | ' + entry.status + ' | ' + source + ' | ' + entry.expectedFailure + ' |');
 }
 lines.push('');
 lines.push('## Allowlist');

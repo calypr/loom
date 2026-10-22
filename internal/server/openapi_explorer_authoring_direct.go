@@ -738,22 +738,31 @@ func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, proje
 func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) (int, loomapi.ErrorResponse) {
 	requestID := requestIDFromContext(ctx)
 	status := http.StatusInternalServerError
-	code, message, stage, path := "INTERNAL_ERROR", "internal server error", "internal", ""
+	code, message, stage, path := "INTERNAL_ERROR", "", "internal", ""
 	var details map[string]any
 	var cause error = err
+	typed := false
 	var lifecycleErr *lifecycle.Error
 	var authoringErr *explorer.AuthoringError
 	if errors.As(err, &lifecycleErr) {
+		typed = true
 		status = lifecycleErrorStatus(lifecycleErr.Class)
 		code, message, stage, path, details, cause = lifecycleErr.Code, lifecycleErr.Message, lifecycleErr.Stage, lifecycleErr.Path, lifecycleErr.Details, lifecycleErr.Cause
 	} else if errors.As(err, &authoringErr) {
+		typed = true
 		status = authoringErr.Status
 		code, message, stage, path, details = authoringErr.Diagnostic.Code, authoringErr.Diagnostic.Message, authoringErr.Diagnostic.Stage, authoringErr.Diagnostic.JSONPath, authoringErr.Diagnostic.Details
 		if authoringErr.Cause != nil {
 			cause = authoringErr.Cause
 		}
 	} else if errors.Is(err, explorer.ErrNotFound) {
+		typed = true
 		status, code, message = http.StatusNotFound, "NOT_FOUND", "Explorer resource not found"
+	}
+	if !typed {
+		stage = operation
+		message = fmt.Sprintf("an unexpected internal error occurred during %s", operation)
+		details = map[string]any{"operation": operation, "causeType": fmt.Sprintf("%T", err)}
 	}
 	if stage == "" {
 		stage = operation
@@ -762,7 +771,10 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 		code = "INTERNAL_ERROR"
 	}
 	if message == "" {
-		message = "internal server error"
+		message = fmt.Sprintf("an unexpected internal error occurred during %s", operation)
+		if details == nil {
+			details = map[string]any{"operation": operation, "causeType": fmt.Sprintf("%T", err)}
+		}
 	}
 	if cause != nil && status >= 500 {
 		slog.Error("Explorer authoring request failed", "request_id", requestID, "operation", operation, "status", status, "stage", stage, "code", code, "json_path", path, "cause", cause, "cause_type", fmt.Sprintf("%T", cause))

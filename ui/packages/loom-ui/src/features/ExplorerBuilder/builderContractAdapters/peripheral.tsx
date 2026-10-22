@@ -1,4 +1,5 @@
 import { fireEvent, screen, within } from '@testing-library/react';
+import { isColumnFeatureAction } from './actionGuards';
 
 type RequestStep = Readonly<{
   readonly flowId: string;
@@ -222,7 +223,7 @@ export const driveColumnFeaturePolicy = async (input: PeripheralDriveInput): Pro
     selectOption(row.getByRole('combobox', { name: `Repeated values for ${label}` }), mode);
     return;
   }
-  if (action === 'aggregate_operation' || action === 'related_field_reduction') {
+  if (isColumnFeatureAction(action)) {
     const operation = requiredString(values, action === 'aggregate_operation' ? 'aggregate_operation' : 'related_field_reduction');
     selectOption(featurePolicySelect(rowElement, label), operation);
     return;

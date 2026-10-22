@@ -14,7 +14,7 @@
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-      "sha256": "a2554743942975459e88cf5b1798e30c6f1e082d0db97634ea8b75c65f0a265c",
+      "sha256": "b98316952f7e154761d603ff35c8a93b1365c91bb4044902850574636cac72df",
       "contract": "Mounted operation availability and applyConstructionProposal -> finishApply wiring."
     },
     {

@@ -81,6 +81,316 @@
   ],
   "proofs": [
     {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": "builder-controls:recompile",
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers",
+      "proof": {
+        "routeActions": [
+          "CreateExplorer",
+          "SelectExplorer"
+        ],
+        "routeActionReason": "Explorer creation and selection are the route-level transitions; hydration is not a create-route action."
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}",
+      "proof": {
+        "routeActions": [
+          "DeleteExplorer",
+          "DeleteCapability"
+        ],
+        "routeActionReason": "Explorer deletion and capability invalidation are the route-level transitions."
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
+      "proof": {
+        "routeActions": [
+          "HydrateBuilder"
+        ],
+        "routeActionReason": "Builder hydration is the route-level transition."
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": "builder-controls:recompile",
+        "goTest": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "BuilderPreview.tla",
+        "traceEvent": "finish-apply",
+        "schedule": "apply-ownership",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Apply command slice. Apply ownership schedule, Go preview/apply contract test, and Recompile browser case command requests.",
+        "scope": "apply command slice",
+        "coveredActions": [
+          "BeginApply",
+          "ApplyAck"
+        ],
+        "routeActions": [
+          "BeginApply",
+          "ApplyAck"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": "builder-controls:recompile",
+        "goTest": "TestConfiguredColumnContextRouteRejectsMissingBody",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": "builder-controls:recompile",
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries",
+      "proof": {
+        "routeActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ],
+        "routeActionReason": "Read-only discovery with an asynchronous request lifecycle. BuilderPreview models the request and completion; the stale-response path is part of the route contract.",
+        "status": "trace-tested",
+        "model": "BuilderPreview.tla",
+        "traceEvent": "construction-discovery",
+        "schedule": "construction-discovery",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": null,
+        "browserGap": "The Recompile browser report does not request the construction-category-discoveries route. A new browser report is blocked by the Docker VM disk being full.",
+        "reason": "Discovery request, pivot mount, and completion schedule. Go HTTP contract test rejects a stale stage discovery before the category scan. Browser evidence is still missing.",
+        "scope": "category discovery request, stage identity, and completion lifecycle",
+        "coveredActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+      "proof": {
+        "routeActions": [
+          "StartProposal",
+          "ProposalComplete"
+        ],
+        "routeActionReason": "Proposal route creates a candidate receipt and preview. It does not mutate the saved draft, but it drives the UI proposal lifecycle."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": null,
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestInterpretationPreviewRouteRejectsMissingBody",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions",
+      "proof": {
+        "routeActions": [
+          "BeginCreate",
+          "CancelCreate",
+          "CreateBlocked",
+          "CreateFailed",
+          "CreateRevision"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping",
+      "proof": {
+        "routeActions": [
+          "CoverageComplete",
+          "CoverageIncomplete",
+          "CoverageStale",
+          "RequestCoverage"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "BuilderPreview.tla",
+        "traceEvent": "preview-response",
+        "schedule": "preview-ownership",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Fallback preview ownership schedules; Go preview contract test; Recompile browser case asserts preview rows.",
+        "scope": "preview request, ownership, and late-response lifecycle",
+        "coveredActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ],
+        "routeActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "No route-level TLA action exists for publication; keep the route unproven until publication is modeled.",
+        "status": "unproven",
+        "reason": "No model action or route test exists; keep the route unproven until modeled.",
+        "browserCase": null,
+        "goTest": null,
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
       "proof": {
@@ -123,137 +433,16 @@
     },
     {
       "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
-      "proof": {
-        "status": "modeled-and-traced",
-        "model": "BuilderPreview.tla",
-        "traceEvent": "preview-response",
-        "schedule": "preview-ownership",
-        "contractTest": null,
-        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-        "browserCase": "builder-controls:recompile",
-        "reason": "Fallback preview ownership schedules; Go preview contract test; Recompile browser case asserts preview rows.",
-        "scope": "preview request, ownership, and late-response lifecycle",
-        "coveredActions": [
-          "StartPreview",
-          "PreviewComplete"
-        ],
-        "routeActions": [
-          "StartPreview",
-          "PreviewComplete"
-        ],
-        "routeActionReason": "Proven route actions from the trace and schedule."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
-      "proof": {
-        "status": "modeled-and-traced",
-        "model": "BuilderPreview.tla",
-        "traceEvent": "finish-apply",
-        "schedule": "apply-ownership",
-        "contractTest": null,
-        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-        "browserCase": "builder-controls:recompile",
-        "reason": "Apply command slice. Apply ownership schedule, Go preview/apply contract test, and Recompile browser case command requests.",
-        "scope": "apply command slice",
-        "coveredActions": [
-          "BeginApply",
-          "ApplyAck"
-        ],
-        "routeActions": [
-          "BeginApply",
-          "ApplyAck"
-        ],
-        "routeActionReason": "Proven route actions from the trace and schedule."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries",
-      "proof": {
-        "routeActions": [
-          "ScheduleDiscovery",
-          "DiscoveryComplete"
-        ],
-        "routeActionReason": "Read-only discovery with an asynchronous request lifecycle. BuilderPreview models the request and completion; the stale-response path is part of the route contract.",
-        "status": "trace-tested",
-        "model": "BuilderPreview.tla",
-        "traceEvent": "construction-discovery",
-        "schedule": "construction-discovery",
-        "contractTest": null,
-        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-        "browserCase": null,
-        "browserGap": "The Recompile browser report does not request the construction-category-discoveries route. A new browser report is blocked by the Docker VM disk being full.",
-        "reason": "Discovery request, pivot mount, and completion schedule. Go HTTP contract test rejects a stale stage discovery before the category scan. Browser evidence is still missing.",
-        "scope": "category discovery request, stage identity, and completion lifecycle",
-        "coveredActions": [
-          "ScheduleDiscovery",
-          "DiscoveryComplete"
-        ]
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
-      "proof": {
-        "routeActions": [
-          "StartProposal",
-          "ProposalComplete"
-        ],
-        "routeActionReason": "Proposal route creates a candidate receipt and preview. It does not mutate the saved draft, but it drives the UI proposal lifecycle."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
-      "proof": {
-        "routeActions": [],
-        "routeActionReason": "Candidate receipt only. The lifecycle test asserts the saved draft does not change. Contract test is the correct proof."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions",
-      "proof": {
-        "routeActions": [],
-        "routeActionReason": "Pure table-shape resolution. Contract test is the correct proof."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups",
-      "proof": {
-        "routeActions": [],
-        "routeActionReason": "Write route creates an explicit-group selection revision. No existing Population action covers revision creation. It needs a new model action or a contract test."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
-      "proof": {
-        "routeActions": [],
-        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
-      }
-    },
-    {
-      "method": "POST",
-      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
-      "proof": {
-        "routeActions": [],
-        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
-      }
-    },
-    {
-      "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices",
       "proof": {
         "routeActions": [],
-        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
+        "uiTest": null,
+        "contractTest": null
       }
     },
     {
@@ -261,7 +450,13 @@
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors",
       "proof": {
         "routeActions": [],
-        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
+        "uiTest": null,
+        "contractTest": null
       }
     },
     {
@@ -274,10 +469,85 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change",
+      "proof": {
+        "routeActions": [
+          "ApplyPreview",
+          "AssessmentBlocked",
+          "AssessmentNoChange",
+          "AssessmentReady",
+          "AssessmentStale",
+          "BeginChange",
+          "Cancel",
+          "PreviewReady",
+          "PreviewUnavailable",
+          "WorkspaceChanged"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required."
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof."
+      }
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
       "proof": {
         "routeActions": [],
-        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": "builder-controls:recompile",
+        "goTest": "TestBrowseSemanticInventoryThroughPublicAPI",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": "builder-controls:recompile",
+        "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+        "uiTest": null,
+        "contractTest": null
       }
     },
     {
@@ -286,6 +556,76 @@
       "proof": {
         "routeActions": [],
         "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Candidate receipt only. The lifecycle test asserts the saved draft does not change. Contract test is the correct proof.",
+        "status": "contract-tested",
+        "reason": "Read-like route has mapped contract evidence.",
+        "browserCase": null,
+        "goTest": "TestOpenAPIDocumentsOperationSpecificFailureStatuses",
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Pure table-shape resolution. Contract test is the correct proof.",
+        "status": "modeled-only",
+        "reason": "Model actions exist but no route action or contract test is assigned; keep the route modeled-only until one is chosen.",
+        "browserCase": null,
+        "goTest": null,
+        "uiTest": null,
+        "contractTest": null
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections",
+      "proof": {
+        "routeActions": [
+          "ExcludeMember",
+          "ExcludeRouteFound",
+          "ExcludeRouteMissing"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required."
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups",
+      "proof": {
+        "routeActions": [],
+        "routeActionReason": "Write route creates an explicit-group selection revision. No existing Population action covers revision creation. It needs a new model action or a contract test.",
+        "status": "modeled-only",
+        "reason": "Model actions exist but no route action or contract test is assigned; keep the route modeled-only until one is chosen.",
+        "browserCase": null,
+        "goTest": null,
+        "uiTest": null,
+        "contractTest": null
       }
     }
   ]

@@ -2345,6 +2345,17 @@ func TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt(t *testing.T) {
 	if reconciled.StatusCode != http.StatusOK || !strings.Contains(reconciled.Body, `"kind":"ExplorerBuilderReceipt"`) {
 		t.Fatalf("reconcile status=%d body=%s", reconciled.StatusCode, reconciled.Body)
 	}
+	staleBody := strings.Replace(reconcileBody, secondResponse.DraftDigest, "stale-digest", 1)
+	stale := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/reconcile", staleBody)
+	if stale.StatusCode != http.StatusConflict || !strings.Contains(stale.Body, `"code":"DRAFT_CONFLICT"`) {
+		t.Fatalf("stale reconcile status=%d body=%s", stale.StatusCode, stale.Body)
+	}
+	paddedOutputID := secondResponse.Workspace.Documents[0].Output.ID
+	paddedBody := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":%d,"draftDigest":%q,"outputId":%q}`, snapshot.Token, secondResponse.DraftVersion, secondResponse.DraftDigest, " "+paddedOutputID+" ")
+	padded := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/custom/authoring/v2/reconcile", paddedBody)
+	if padded.StatusCode != http.StatusBadRequest || !strings.Contains(padded.Body, `"code":"MALFORMED_REQUEST"`) {
+		t.Fatalf("padded output status=%d body=%s", padded.StatusCode, padded.Body)
+	}
 }
 
 func TestCreateExplorerFromCurrentClonesWorkspaceOnServer(t *testing.T) {

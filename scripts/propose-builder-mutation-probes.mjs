@@ -15,7 +15,10 @@ const selfTest = args.includes('--self-test');
 const obligations = readJson(OBLIGATIONS);
 const probes = readJson(PROBES).probes ?? [];
 const ledger = readJson(LEDGER);
-const probedActions = new Set(probes.map((probe) => probe.modelAction).filter(Boolean));
+const probedActions = new Set(probes.flatMap((probe) => [
+  ...(probe.modelActions ?? []),
+  ...(probe.modelAction ? [probe.modelAction] : []),
+]));
 const tests = obligations.tests ?? [];
 const routesById = new Map((ledger.routes ?? []).map((route) => [route.id, route]));
 

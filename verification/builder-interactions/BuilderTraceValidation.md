@@ -27,6 +27,22 @@ Options:
 The exit status is 0 only when shape, contract, count, coverage, and every
 unique trace check pass.
 
+## Composed journey traces
+
+`builder-journey-contract.json` binds the composed `BuilderJourney.tla` model to
+traces produced by the real Builder UI. The first journey is
+`SelectRows -> Group -> GroupAgain -> Preview -> PreviewComplete`; it is emitted
+by `scripts/verify-ui/journey-specs/builder-journey.spec.mjs` and driven by
+`scripts/run-builder-journey.mjs`.
+
+The journey runner creates a fresh fixture, records every `/authoring/v2/` call,
+captures the applied proposal preview, and asserts an exact row count before it
+runs this validator with the journey contract. The trace's `backendCalls` and
+`outcome` fields are evidence for the runner; the TLA replay uses the model
+actions and observations. Pass `--project` and `--generation` to target a loaded
+dataset; add `--bootstrap` to create a missing Explorer, table, and scalar
+column before the run.
+
 ## Checks
 
 The runner validates:
@@ -43,8 +59,9 @@ The runner validates:
 
 For each unique trace, the runner writes a temporary module and config:
 
-- `EXTENDS BuilderPreview` or `EXTENDS ConstructionLifecycle`, plus `Naturals`,
-  `Sequences`, and `TLC`.
+- `EXTENDS` the selected model (`BuilderPreview`, `ConstructionLifecycle`,
+  `ReconcileLifecycle`, or `BuilderJourney`), plus `Naturals`, `Sequences`, and
+  `TLC`.
 - `TraceActions` is the action-label sequence with a leading `"Init"`.
   `TraceObservations` is the matching observation sequence, starting with the
   initial observation.

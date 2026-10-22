@@ -39,6 +39,10 @@ const STATUSES = new Set([
   'invalid',
   'failed',
 ]);
+const MODEL_STATUSES = new Map([
+  ['BuilderJourney', new Set(['idle', 'selected', 'reshaping', 'pivot-ready', 'previewing', 'ready', 'error'])],
+]);
+
 const OBSERVATION_BOOLEAN_FIELDS = [
   'canApply',
   'proposalIdPresent',
@@ -204,10 +208,11 @@ function normalizedActionLabel(model, label, actions) {
   return null;
 }
 
-function observationProblem(observation, where) {
+function observationProblem(observation, where, model) {
   if (!isPlainObject(observation)) return where + ' must be an object';
   if (typeof observation.status !== 'string') return where + '.status must be a string';
-  if (!STATUSES.has(observation.status)) return where + '.status "' + observation.status + '" has no model observation mapping';
+  const statuses = MODEL_STATUSES.get(model) ?? STATUSES;
+  if (!statuses.has(observation.status)) return where + '.status "' + observation.status + '" has no model observation mapping for ' + model;
   for (const field of OBSERVATION_BOOLEAN_FIELDS) {
     if (typeof observation[field] !== 'boolean') return where + '.' + field + ' must be a boolean';
   }
@@ -236,7 +241,7 @@ function traceShapeProblem(trace, index, contract, events) {
       }
     }
   }
-  const initialProblem = observationProblem(trace.initialObservation, where + '.initialObservation');
+  const initialProblem = observationProblem(trace.initialObservation, where + '.initialObservation', trace.model);
   if (initialProblem) return { message: initialProblem };
   for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
     const action = trace.actions[actionIndex];
@@ -261,7 +266,7 @@ function traceShapeProblem(trace, index, contract, events) {
         actionIndex,
       };
     }
-    const observation = observationProblem(action.observation, actionWhere + '.observation');
+    const observation = observationProblem(action.observation, actionWhere + '.observation', trace.model);
     if (observation) return { message: observation, actionIndex };
   }
   return null;
@@ -327,6 +332,30 @@ function builderPreviewObservationMapping(prime) {
 }
 
 
+function builderJourneyObservationMapping(prime) {
+  const phase = 'phase' + prime;
+  const reshapeCount = 'reshapeCount' + prime;
+  const pivotReady = 'pivotReady' + prime;
+  const preview = 'preview' + prime;
+  return [
+    '  /\\ (obs.status = "idle" => (' + phase + ' = "idle"))',
+    '  /\\ (obs.status = "selected" => (' + phase + ' = "selected"))',
+    '  /\\ (obs.status = "reshaping" => (' + phase + ' = "reshaping"))',
+    '  /\\ (obs.status = "pivot-ready" =>',
+    '       ((' + phase + ' \\in {"selected", "reshaping"}) /\\ ' + pivotReady + '))',
+    '  /\\ (obs.status = "previewing" => (' + preview + ' = "pending"))',
+    '  /\\ (obs.status = "ready" => (' + preview + ' = "ready"))',
+    '  /\\ (obs.status = "error" => (' + preview + ' = "error"))',
+    '  /\\ (obs.canApply =>',
+    '       ((' + phase + ' = "reshaping") /\\',
+    '        (' + reshapeCount + ' = 2) /\\',
+    '        (' + preview + ' = "none")))',
+    '  /\\ (obs.previewReceiptPresent => (' + preview + ' = "ready"))',
+    '  /\\ (obs.rowsPresent => (' + preview + ' = "ready"))',
+  ].join('\n');
+}
+
+
 function reconcileLifecycleObservationMapping(prime) {
   const state = prime ? "r'" : 'r';
   return [
@@ -387,7 +416,9 @@ function generateModule(trace, moduleName) {
     ? builderPreviewObservationMapping
     : trace.model === 'ReconcileLifecycle'
       ? reconcileLifecycleObservationMapping
-      : constructionLifecycleObservationMapping;
+      : trace.model === 'BuilderJourney'
+        ? builderJourneyObservationMapping
+        : constructionLifecycleObservationMapping;
   const nextApplicable = trace.model === 'ConstructionLifecycle'
     ? [
         'ResourceIsApplicableNext(attempt) ==',

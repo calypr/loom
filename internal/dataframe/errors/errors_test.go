@@ -102,7 +102,7 @@ func TestNormalizeUsesTypedAndContextConditionsOnly(t *testing.T) {
 	if got.Code() != string(CodeInternalError) {
 		t.Fatalf("unknown code = %q", got.Code())
 	}
-	if PublicMessage(unknown) != "internal server error" {
+	if PublicMessage(unknown) != "an unexpected internal error occurred while processing the data request" {
 		t.Fatalf("unknown message was exposed: %q", PublicMessage(unknown))
 	}
 }

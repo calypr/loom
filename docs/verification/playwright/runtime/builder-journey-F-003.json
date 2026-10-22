@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "finding": "F-003",
+  "journey": "edit-remove-reload",
+  "observedAt": "2026-10-21",
+  "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
+    "input": {
+      "groupBy": [
+        "id",
+        "gender"
+      ]
+    }
+  },
+  "response": {
+    "status": 500,
+    "code": "INTERNAL_ERROR",
+    "message": "internal server error",
+    "requestId": "construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff"
+  },
+  "capture": "Observed through the real Builder UI during exploration of the pivot journey. The response body was not retained as a raw file.",
+  "status": "not-reproducible",
+  "next": "Closed as not reproducible. Keep the field-based Group path in edit-remove-reload as regression coverage.",
+  "resolution": {
+    "observedAt": "2026-10-21",
+    "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+    "result": "HTTP 200 with 2 rows and 3 columns (id, gender, Row count)",
+    "trace": ".artifacts/builder-journey/edit-remove-reload-trace.json",
+    "report": ".artifacts/builder-journey/edit-remove-reload-report.json",
+    "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+    "note": "The field-based Group by id and gender now passes through the real Builder UI and is covered by the edit-remove-reload journey."
+  }
+}

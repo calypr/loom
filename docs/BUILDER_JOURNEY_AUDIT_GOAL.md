@@ -1,0 +1,292 @@
+# Builder journey audit goal
+
+## Status
+
+Complete: all eight requirements are satisfied as of 2026-10-21. F-001 and
+F-004 remain open product findings; their journey specs stay red as evidence.
+A failing journey is evidence about the product, not a blocked goal.
+
+Progress: all eight inventory rows have specs. `group-twice-preview`,
+`load-preview`, and `add-column-preview` pass on synthetic and CDA.
+`filter-preview` and `edit-remove-reload` pass on synthetic.
+`group-pivot-preview` and `pivot-error` are red and reproduce F-001.
+`unpivot-preview` is red and reproduces F-004. Three rows have terminal CDA
+runs: `group-twice-preview`, `load-preview`, and `add-column-preview`.
+
+## Goal contract
+
+Objective: create and maintain real Builder journey tests that drive the
+frontend UI and backend API together, assert exact outcomes or typed errors, and
+validate traces against the matching TLA model. The goal is coverage, not green
+tests. Product failures may remain red.
+
+Requirements:
+
+1. Every inventory row has a spec under
+   `scripts/verify-ui/journey-specs/` or a recorded reason it cannot exist.
+2. Every action spec starts from a fresh synthetic fixture or a preflighted CDA
+   generation, drives the real UI, and makes 10 to 20 `/authoring/v2/` calls.
+   A successful action changes the table at least once. A typed-error journey
+   must reach the product action and record the error; it may leave the table
+   unchanged. The multi-stage `edit-remove-reload` lifecycle may make up to 30
+   calls. The read-only `load-preview` baseline records at least 8 calls.
+3. Every terminal run records every authoring call and asserts an exact visible
+   outcome or a typed product error.
+4. Every modeled trace replays through the matching TLA model.
+5. Every product failure stays red and has a finding with a request ID, HTTP
+   status, and artifact path. No skip, fixme, or expected-failure annotation.
+6. At least three inventory rows have a terminal CDA run.
+7. The journey runner selects one row with `--journey <id>`.
+8. The read-only fast lane lists only read-only specs.
+
+Constraints:
+
+- Do not replace the obligation suite or the TLA+ safety checks.
+- A passing journey does not prove the whole Builder.
+- The journey suite is not a CI-blocking gate.
+- Do not count per-action probes as journeys.
+
+## Why this layer exists
+
+The existing suites cover per-action contracts, lifecycle schedules, and TLA+
+models. They do not show that a sequence of real user actions produces the right
+table or the right error through the real frontend and API. This goal adds that
+integration audit.
+
+## Non-goals
+
+- This goal does not replace the existing obligation suite or the TLA+ safety
+  checks.
+- A passing journey does not prove the whole Builder.
+- The journey suite is not a CI-blocking gate. Run it with
+  `npm run verify:builder-journey` or the CDA command below.
+- A journey is not a per-action probe. Single-operation journeys have 10 to 20
+  backend calls; `edit-remove-reload` may use up to 30. Every journey has at
+  least one visible outcome.
+
+## Test contract
+
+Every journey must:
+
+1. Start from a fresh synthetic fixture or a preflighted CDA generation.
+2. Open the Builder through the real UI. Do not seed the final table state and
+   call the assertion a UI test.
+3. Perform a user sequence that changes the table or preview. The read-only
+   `load-preview` baseline may skip the table change. A typed-error journey
+   must reach the product action and record the error; it may leave the table
+   unchanged.
+4. Record every `/authoring/v2/` request and response status.
+5. Assert the exact visible outcome or a typed product error.
+6. Write a trace with `backendCalls` and either `outcome` or `error`.
+7. Replay the trace through the matching TLA model when one exists.
+8. Leave a non-passing product result red. Do not use `test.skip()`,
+   `test.fixme()`, or `test.fail()` to hide it.
+
+## Failure classes
+
+Use one class per terminal run:
+
+- `pass`: the exact expected outcome appeared.
+- `product-failure`: the test reached the product action and recorded a wrong
+  result, a wrong status, or a typed server error.
+- `harness-failure`: the test could not reach the product action because the
+  test driver, fixture, or browser failed.
+- `blocked-dataset`: dataset preflight rejected the project or generation.
+
+Only `product-failure` is product evidence. A harness failure does not close a
+journey.
+
+## Journey inventory
+
+The machine-readable list is
+`verification/builder-interactions/builder-journey-audit.json`.
+
+| ID | User sequence | Exact oracle | Status |
+| --- | --- | --- | --- |
+| `load-preview` | Open the authored table and wait for the first preview. | Expected columns and row count from the fixture. | passing on synthetic and CDA |
+| `group-twice-preview` | Select rows, Group, Group again, preview. | One row, `row_count = 1`, preview receipt present. | passing on synthetic and CDA |
+| `group-pivot-preview` | Select rows, configure the pivot group key, category, and value, preview. | Pivot columns and cell values from the fixture. | product-failure; red spec exists, F-001 |
+| `add-column-preview` | Select rows, add a scalar column, preview. | Exact source columns and added values survive preview. | passing on synthetic and CDA |
+| `filter-preview` | Select rows, filter, preview, cancel. | Exact filtered rows, then the original rows after cancel. | passing on synthetic |
+| `unpivot-preview` | Select rows, stack columns, preview. | Exact field and value rows. | product-failure; red spec exists, F-004 |
+| `edit-remove-reload` | Apply a Group, edit it to Group by id and gender, remove it, reload. | Two rows and three columns, removal restores the source, reload preserves the result. | passing on synthetic |
+| `pivot-error` | Pivot with error policies. | Typed 4xx product error, no applied draft change. | product-failure; red spec exists, F-001 |
+
+## Completion check
+
+Completion requires all eight requirements above. All eight are met; the open
+product findings F-001 and F-004 do not block coverage because the goal
+requires real evidence, not green tests.
+
+## Requirement audit (2026-10-21)
+
+1. Specs: all eight manifest rows have an existing spec under
+   `scripts/verify-ui/journey-specs/`.
+2. Call counts: `load-preview` 8; `group-twice-preview` 17; `group-pivot-preview`
+   11; `add-column-preview` 13 synthetic and 14 CDA; `filter-preview` 14;
+   `unpivot-preview` 10; `edit-remove-reload` 28; `pivot-error` 11. The
+   lifecycle journey uses the documented 30-call allowance. Typed-error
+   journeys reach the product action and record the error; `pivot-error`
+   additionally asserts no draft command and an unchanged table.
+3. Terminal evidence: each green journey writes `outcome`; each red journey
+   writes `outcome` with `httpStatus`, `errorClass`, and `requestId`. The
+   `pivot-error` trace records `commandCount: 0`.
+4. TLA: every modeled latest run reports `tlaStatus: pass`; `load-preview` is
+   the unmodeled baseline. `BuilderJourney.cfg` passes safety with 227 generated
+   states and 53 distinct states.
+5. Findings: F-001 and F-004 are open with request IDs, HTTP status, finding
+   artifacts, and red specs. F-003 is not reproducible and is covered by the
+   passing `edit-remove-reload` journey. No journey spec uses `test.skip`,
+   `test.fixme`, or `test.fail`.
+6. CDA: `group-twice-preview`, `load-preview`, and `add-column-preview` have
+   terminal CDA runs with distinct `*-cda-trace.json` and `*-cda-report.json`
+   artifacts.
+7. Runner: every run above used `node scripts/run-builder-journey.mjs
+   --journey <id>`; the runner resolves exactly one manifest row.
+8. Fast lane: `scripts/verify-ui/fast-specs/` contains only
+   `builder-preview-read-only.spec.mjs`.
+
+## Findings
+
+### F-001 Pivot proposal returns HTTP 500
+
+- Journey: `group-pivot-preview`
+- Request: `POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals`
+- Input: group by `id`, category `gender`, values `name__count`, duplicate policy `ERROR`, missing cell policy `NULL`, unlisted category policy `ERROR`
+- Result: HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING`
+- The response names the missing construction input column and states that the authored construction and compiler schema disagree.
+- Request ID: `construction-proposal-8bc2c5fa-9767-4e3b-b43e-37229cf55622`
+- Latest red-run request ID: `construction-proposal-beb11c39-a416-4ae4-843e-05828a8a9afd`
+- Artifact: `docs/verification/playwright/runtime/builder-journey-F-001.json`
+- Red specs: `scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs` and `scripts/verify-ui/journey-specs/pivot-error.spec.mjs`
+- Latest red-run trace: `.artifacts/builder-journey/pivot-error-descriptive-trace.json`
+- Latest red-run report: `.artifacts/builder-journey/pivot-error-descriptive-report.json`
+- Status: open with a red spec
+- Next step: diagnose the server error. The red specs assert the desired
+  HTTP 200 and exact pivot output, plus a typed 4xx with no draft change for
+  `pivot-error`.
+
+### F-002 Full formal gate is blocked by source pin drift
+
+- Gate: `node scripts/verify-builder-formal.mjs --model builder-journey`
+- Result: the gate refuses to start because
+  `BuilderWorkspace.tsx` does not match the pinned source hash.
+- Status: pre-existing, unrelated to the journey runner
+- Workaround: the journey runner validates its trace with TLC directly.
+  Direct `BuilderJourney.cfg` model checking passes.
+
+### F-004 Unpivot proposal returns HTTP 500
+
+- Journey: `unpivot-preview`
+- Request: `POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals`
+- Input: stack `name[].family [0]` and `name[].family [1]` into key/value rows with `PRESERVE` for missing values
+- Result: HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING`
+- The response names the missing construction input column and states that the authored construction and compiler schema disagree.
+- Request ID: `construction-proposal-21f5a84e-4815-4e43-8d61-203db897bd0e`
+- Artifact: `docs/verification/playwright/runtime/builder-journey-F-004.json`
+- Red spec: `scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs`
+- Latest trace: `.artifacts/builder-journey/unpivot-preview-descriptive-trace.json`
+- Latest report: `.artifacts/builder-journey/unpivot-preview-descriptive-report.json`
+- Status: open with a red spec
+- Next step: diagnose the unpivot proposal server error. The red spec asserts
+  HTTP 200 and a four-row key/value preview.
+
+### F-003 Field-based Group proposal returns HTTP 500
+
+- Journey: `edit-remove-reload` (closing coverage)
+- Request: `POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals`
+- Input: group by `id` and `gender` on a fresh synthetic Patient table
+- Historical result: HTTP 500 `INTERNAL_ERROR`
+- Historical request ID: `construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff`
+- Current result: HTTP 200 with two rows and three columns (`id`, `gender`, `Row count`)
+- Artifact: `docs/verification/playwright/runtime/builder-journey-F-003.json`
+- Trace: `.artifacts/builder-journey/edit-remove-reload-trace.json`
+- Status: not reproducible; covered by the passing `edit-remove-reload` journey
+- Next step: none. Keep the field-based Group path as regression coverage.
+
+## Current evidence
+
+- `group-twice-preview` on a fresh synthetic fixture: 10.2 s, 17 authoring
+  calls, exact `{ row_count: 1 }`, trace validation pass.
+- `group-pivot-preview` on a fresh synthetic fixture: red as designed, 11
+  authoring calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING`, trace validation pass. The
+  runner reports `JOURNEY_PRODUCT_FAILURE` and exits 1.
+- `group-twice-preview` on `loom_dev_cda_fhir` generation
+  `repo-c0ec9689932caec424ad34a9` with a fresh `loom-cda-group-twice-2`
+  Explorer: 18.1 s, 17 authoring calls, exact `{ row_count: 1 }`, trace
+  validation pass.
+- `load-preview` on a fresh synthetic fixture: 12.7 s, 8 authoring calls,
+  exact two rows and five columns, unmodeled baseline.
+- `load-preview` on `loom_dev_cda_fhir` generation
+  `repo-c0ec9689932caec424ad34a9` with a fresh `loom-cda-load-preview-1`
+  Explorer: 12.8 s, 8 authoring calls, exact 25 sampled rows and the `id`
+  column, unmodeled baseline.
+- `add-column-preview` on a fresh synthetic fixture: 6.2 s, 13 authoring
+  calls, exact six columns including Birth Date, trace validation pass.
+- `add-column-preview` on the same CDA generation with a fresh
+  `loom-cda-add-column-3` Explorer: 11.1 s, 14 authoring calls, exact 25
+  sampled rows and the `id` plus `Identifier Value` columns, trace validation
+  pass.
+- `filter-preview` on a fresh synthetic fixture: 8.1 s, 14 authoring calls,
+  one-row female preview, cancel and reload restore both source rows, trace
+  validation pass.
+- `unpivot-preview` on a fresh synthetic fixture: red as designed, 10 authoring
+  calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING`, trace validation pass.
+- `edit-remove-reload` on a fresh synthetic fixture: 13.2 s, 28 authoring
+  calls, one default group row, Group by id+gender edited to two rows and three
+  columns, source restored, reload preserved, trace validation pass.
+- `pivot-error` on a fresh synthetic fixture: red as designed, 11 authoring
+  calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING` instead of a typed 4xx, no `commands` call,
+  trace validation pass.
+- `BuilderJourney.cfg`: 227 generated states, 53 distinct states, depth 7, no
+  error.
+
+Artifacts are under `.artifacts/builder-journey/`. The CDA runs use the
+`*-cda-trace.json` and `*-cda-report.json` paths so synthetic evidence is not
+overwritten.
+
+## Commands
+
+Run the implemented journey on a fresh synthetic fixture:
+
+```sh
+npm run verify:builder-journey
+```
+
+Run it against a loaded CDA dataset and create the Explorer, table, and scalar
+column if they are missing:
+
+```sh
+node scripts/run-builder-journey.mjs \
+  --project loom_dev_cda_fhir \
+  --generation repo-c0ec9689932caec424ad34a9 \
+  --explorer loom-cda-journey-bootstrap-test \
+  --bootstrap
+```
+
+Run one inventory row:
+
+```sh
+node scripts/run-builder-journey.mjs --journey group-twice-preview
+node scripts/run-builder-journey.mjs --journey group-pivot-preview
+```
+
+The pivot journey exits 1 while F-001 is open. That is the intended red result.
+
+## How to add a journey
+
+1. Add a spec under `scripts/verify-ui/journey-specs/`.
+2. Add one row to
+   `verification/builder-interactions/builder-journey-audit.json`.
+3. Run the spec on a fresh synthetic fixture.
+4. Run it on the CDA project when the dataset is ready.
+5. Record a pass or a finding. Leave product failures red.
+6. Replay the trace through the matching model.
+
+## Next work unit
+
+All eight inventory rows have specs, and three rows have terminal CDA runs:
+`group-twice-preview`, `load-preview`, and `add-column-preview`. F-003 is
+covered and not reproducible. Remaining work: keep F-001 and F-004 red until
+the product fixes the pivot and unpivot proposal errors, and finish the
+requirement-by-requirement completion audit.

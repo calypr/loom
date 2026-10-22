@@ -140,6 +140,21 @@ it('fails closed when the automatic preview belongs to another receipt', async (
   expect(onApplyMemberRemoval).not.toHaveBeenCalled();
 });
 
+it('rejects a repeated selection page cursor', async () => {
+  loomClient.getSelection
+    .mockResolvedValueOnce({ revision: selection, members: [member], nextCursor: 'cursor-1' })
+    .mockResolvedValueOnce({
+      revision: selection,
+      members: [{ ...member, memberKey: 'opaque-member-key-2', ref: { ...member.ref, id: 'doc-2' } }],
+      nextCursor: 'cursor-1',
+    });
+  renderPanel();
+  await screen.findByText('DocumentReference/doc-1');
+  fireEvent.click(screen.getByRole('button', { name: 'Load next member page' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/repeated page cursor/);
+});
+
 it('rejects a selection page with a forged project or member scope before offering removal', async () => {
   loomClient.getSelection.mockResolvedValueOnce({
     revision: selection,

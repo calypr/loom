@@ -321,6 +321,13 @@ it('withholds replacement when route lookup fails or finds no supported path', a
   expect(screen.queryByRole('button', { name: 'Replace current collection' })).toBeNull();
 });
 
+it('does not clear the attached selection while disabled', () => {
+  const onClear = vi.fn();
+  render(<PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={onClear} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Use all authorized rows' }));
+  expect(onClear).not.toHaveBeenCalled();
+});
+
 it('keeps an unselected table as an all-authorized-resource workflow', () => {
   render(<PopulationPanel table={table} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
   expect(screen.getByRole('region', { name: 'Starting collection' })).toBeInTheDocument();

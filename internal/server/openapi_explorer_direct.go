@@ -76,17 +76,26 @@ func lifecycleLegacyFailure(err error) error {
 func explorerLegacyResponse(err error) (int, loomapi.LegacyErrorResponse) {
 	var operation *explorerLegacyOperationError
 	if errors.As(err, &operation) {
+		code, message := operation.code, operation.message
+		if operation.status >= http.StatusInternalServerError {
+			if strings.TrimSpace(code) == "" {
+				code = "INTERNAL_ERROR"
+			}
+			if strings.TrimSpace(message) == "" {
+				message = "unexpected internal error in Explorer operation; inspect the server log for the request ID"
+			}
+		}
 		if operation.stringValue {
 			var response loomapi.LegacyErrorResponse
-			_ = response.Error.FromLegacyErrorResponseError0(operation.message)
+			_ = response.Error.FromLegacyErrorResponseError0(message)
 			return operation.status, response
 		}
 		var response loomapi.LegacyErrorResponse
-		_ = response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: operation.code, Message: operation.message})
+		_ = response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: code, Message: message})
 		return operation.status, response
 	}
 	var response loomapi.LegacyErrorResponse
-	_ = response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: "INTERNAL_ERROR", Message: "internal server error"})
+	_ = response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: "INTERNAL_ERROR", Message: "unexpected internal error in Explorer operation; inspect the server log for the request ID"})
 	return http.StatusInternalServerError, response
 }
 

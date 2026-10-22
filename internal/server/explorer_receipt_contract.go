@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"sort"
 	"strings"
@@ -65,6 +66,38 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 		return receiptConstructionStageFromDescriptor(descriptor)
 	}
 	return explorer.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
+}
+
+func receiptContractFailure(err error) error {
+	var missing *constructionInputMissingError
+	if errors.As(err, &missing) {
+		message := fmt.Sprintf("the compiled receipt references construction input column %q, but that column is absent from the prior stage; the authored construction and compiler schema disagree", missing.ColumnID)
+		if missing.StepID != "" || missing.OutputName != "" {
+			message = fmt.Sprintf("construction step %q output %q references input column %q, but that column is absent from the prior stage; the authored construction and compiler schema disagree", missing.StepID, missing.OutputName, missing.ColumnID)
+		}
+		return &explorer.AuthoringError{
+			Status: http.StatusInternalServerError,
+			Diagnostic: explorer.AuthoringDiagnostic{
+				Severity: "ERROR",
+				Stage:    "reconcile_receipt",
+				Code:     "CONSTRUCTION_RECEIPT_INPUT_MISSING",
+				Message:  message,
+				Details:  map[string]any{"inputColumnId": missing.ColumnID, "stepId": missing.StepID, "outputName": missing.OutputName},
+			},
+			Cause: err,
+		}
+	}
+	return &explorer.AuthoringError{
+		Status: http.StatusInternalServerError,
+		Diagnostic: explorer.AuthoringDiagnostic{
+			Severity: "ERROR",
+			Stage:    "reconcile_receipt",
+			Code:     "CONSTRUCTION_RECEIPT_CONTRACT_INVALID",
+			Message:  "the compiled receipt metadata is inconsistent with the authored construction; inspect the server log for the failing document, step, and output",
+			Details:  map[string]any{"causeType": fmt.Sprintf("%T", err)},
+		},
+		Cause: err,
+	}
 }
 
 func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver) (result *explorer.CompilationReceipt, retErr error) {
@@ -165,7 +198,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	contractBuildStarted := time.Now()
 	translated, err = reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas)
 	if err != nil {
-		return nil, fmt.Errorf("reconcile receipt output metadata: %w", err)
+		return nil, receiptContractFailure(err)
 	}
 	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
 	if err != nil {

@@ -18,17 +18,17 @@
     "covered": 15,
     "partial": 86,
     "missing": 138,
-    "missingRouteBound": 0,
-    "missingCandidate": 102,
-    "missingUnbound": 36,
-    "tests": 878,
+    "missingRouteBound": 20,
+    "missingCandidate": 68,
+    "missingUnbound": 50,
+    "tests": 906,
     "testsWithObligations": 12,
-    "testsWithoutObligations": 866,
+    "testsWithoutObligations": 894,
     "obligationsWithMultipleTests": 26,
     "duplicateTestNames": 0,
     "repeatedPlaywrightChecks": 231,
     "sharedProofs": 3,
-    "candidateRouteBindings": 194
+    "candidateRouteBindings": 154
   },
   "obligations": [
     {
@@ -462,7 +462,6 @@
       "action": "PreviewComplete",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
@@ -630,7 +629,6 @@
       "action": "StartPreview",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
@@ -730,7 +728,6 @@
       "action": null,
       "invariant": "Inv_ApplyAckTargetsInitiatingOwner",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -836,7 +833,6 @@
       "action": null,
       "invariant": "Inv_ApplyFailureTargetsInitiatingOwner",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -942,7 +938,6 @@
       "action": null,
       "invariant": "Inv_ApplyUsesReviewedPreview",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -1048,7 +1043,6 @@
       "action": null,
       "invariant": "Inv_DiscoveryOwnedByCurrentKey",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -1154,7 +1148,6 @@
       "action": null,
       "invariant": "Inv_DraftMonotonic",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -1260,7 +1253,6 @@
       "action": null,
       "invariant": "Inv_PreviewOwnedByCurrentProposal",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -1700,7 +1692,6 @@
       "action": "PreviewComplete",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
@@ -1800,7 +1791,6 @@
       "action": null,
       "invariant": "Inv_BeginApplyHasCurrentProposalOwner",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -1824,7 +1814,6 @@
       "action": null,
       "invariant": "Inv_ConstructionProposalIsApplicable",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -1848,7 +1837,6 @@
       "action": null,
       "invariant": "Inv_ExpectedProposalMatchesAppliedOwner",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -2006,7 +1994,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2020,7 +2008,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2034,7 +2022,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2048,7 +2036,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2062,7 +2050,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2233,12 +2221,11 @@
       "action": "AuthoredChange",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2247,12 +2234,10 @@
       "kind": "action",
       "action": "CommandStale",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2261,12 +2246,10 @@
       "kind": "action",
       "action": "CommandSuccess",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2275,12 +2258,10 @@
       "kind": "action",
       "action": "GateReconcile",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2303,12 +2284,10 @@
       "kind": "action",
       "action": "ReconcileNeedsRepair",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2317,12 +2296,10 @@
       "kind": "action",
       "action": "ReconcileReceiptBound",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2345,12 +2322,10 @@
       "kind": "action",
       "action": "RetryEntryReconcile",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2401,12 +2376,10 @@
       "kind": "action",
       "action": "StartCommand",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -2416,7 +2389,6 @@
       "action": null,
       "invariant": "Inv_AuthoredChangeInvalidatesReceipt",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2434,7 +2406,6 @@
       "action": null,
       "invariant": "Inv_CommandAdvancesServerIdentity",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2452,7 +2423,6 @@
       "action": null,
       "invariant": "Inv_CommandUsesCurrentDraft",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2470,7 +2440,6 @@
       "action": null,
       "invariant": "Inv_FocusRequiresBothParameters",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2488,7 +2457,6 @@
       "action": null,
       "invariant": "Inv_ReadySelectionMatchesGeneration",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2506,7 +2474,6 @@
       "action": null,
       "invariant": "Inv_ReceiptCurrentOnlyForFingerprintAndExplorer",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2524,7 +2491,6 @@
       "action": null,
       "invariant": "Inv_ReconcileRequiresRootedTables",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2542,7 +2508,6 @@
       "action": null,
       "invariant": "Inv_RetryBounded",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2560,7 +2525,6 @@
       "action": null,
       "invariant": "Inv_SelectionLoadedOnlyWithRevision",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2578,7 +2542,6 @@
       "action": null,
       "invariant": "Inv_StaleReloadsAuthoritative",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
@@ -2641,7 +2604,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2655,7 +2618,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2669,7 +2632,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -2786,7 +2749,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -3045,7 +3008,6 @@
       "action": "AuthoredChange",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3091,7 +3053,7 @@
         }
       ],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "covered"
     },
     {
@@ -3167,12 +3129,10 @@
       "kind": "action",
       "action": "DraftChange",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -3182,7 +3142,6 @@
       "action": "ReconcileConflict",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3228,7 +3187,7 @@
         }
       ],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "covered"
     },
     {
@@ -3237,9 +3196,7 @@
       "kind": "action",
       "action": "ReconcileFailure",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [
         {
           "id": "playwright:builder-controls:recompile",
@@ -3283,7 +3240,7 @@
         }
       ],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "covered"
     },
     {
@@ -3293,7 +3250,6 @@
       "action": "ReconcileInvalid",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3339,7 +3295,7 @@
         }
       ],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "covered"
     },
     {
@@ -3349,7 +3305,6 @@
       "action": "ReconcileStale",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3395,7 +3350,7 @@
         }
       ],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "covered"
     },
     {
@@ -3460,7 +3415,6 @@
       "action": "RequestReconcile",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3506,7 +3460,7 @@
         }
       ],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "covered"
     },
     {
@@ -3595,7 +3549,6 @@
       "action": null,
       "invariant": "Inv_DraftChangeInvalidatesReceipt",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3653,7 +3606,6 @@
       "action": null,
       "invariant": "Inv_FailureHasNoReceipt",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3711,7 +3663,6 @@
       "action": null,
       "invariant": "Inv_ReceiptOnlyWhenSucceeded",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3769,7 +3720,6 @@
       "action": null,
       "invariant": "Inv_ReconcileRequiresRootedTables",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3827,7 +3777,6 @@
       "action": null,
       "invariant": "Inv_RequestMatchesCurrent",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3885,7 +3834,6 @@
       "action": null,
       "invariant": "Inv_RetryBounded",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -3943,7 +3891,6 @@
       "action": null,
       "invariant": "Inv_SuccessReceiptMatchesCurrent",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
@@ -4005,7 +3952,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4019,7 +3966,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4033,7 +3980,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4047,7 +3994,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4061,7 +4008,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4075,7 +4022,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4089,7 +4036,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4103,7 +4050,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4117,7 +4064,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4131,7 +4078,7 @@
       ],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "status": "missing"
     },
     {
@@ -4741,12 +4688,10 @@
       "kind": "action",
       "action": "AbortPreview",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -4755,12 +4700,10 @@
       "kind": "action",
       "action": "AcceptPreview",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -4798,7 +4741,6 @@
       "action": "CreateExplorer",
       "invariant": null,
       "routes": [
-        "DELETE /api/v1/projects/{project}/explorers/{explorerId}",
         "GET /api/v1/projects/{project}/explorers",
         "POST /api/v1/projects/{project}/explorers"
       ],
@@ -4815,8 +4757,7 @@
       "invariant": null,
       "routes": [
         "DELETE /api/v1/projects/{project}/explorers/{explorerId}",
-        "GET /api/v1/projects/{project}/explorers",
-        "POST /api/v1/projects/{project}/explorers"
+        "GET /api/v1/projects/{project}/explorers"
       ],
       "tests": [],
       "suspectedModels": [],
@@ -4831,8 +4772,7 @@
       "invariant": null,
       "routes": [
         "DELETE /api/v1/projects/{project}/explorers/{explorerId}",
-        "GET /api/v1/projects/{project}/explorers",
-        "POST /api/v1/projects/{project}/explorers"
+        "GET /api/v1/projects/{project}/explorers"
       ],
       "tests": [],
       "suspectedModels": [],
@@ -4847,9 +4787,7 @@
       "invariant": null,
       "routes": [
         "GET /api/v1/projects/{project}/explorers",
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
-        "POST /api/v1/projects/{project}/explorers"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability"
       ],
       "tests": [],
       "suspectedModels": [],
@@ -4864,9 +4802,7 @@
       "invariant": null,
       "routes": [
         "GET /api/v1/projects/{project}/explorers",
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
-        "POST /api/v1/projects/{project}/explorers"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability"
       ],
       "tests": [],
       "suspectedModels": [],
@@ -4882,8 +4818,7 @@
       "routes": [
         "GET /api/v1/projects/{project}/explorers",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
-        "POST /api/v1/projects/{project}/explorers"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability"
       ],
       "tests": [],
       "suspectedModels": [],
@@ -4897,7 +4832,6 @@
       "action": "PreviewComplete",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
@@ -4916,12 +4850,10 @@
       "kind": "action",
       "action": "PreviewFailed",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -4930,12 +4862,10 @@
       "kind": "action",
       "action": "RecompileReceipt",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -4944,12 +4874,10 @@
       "kind": "action",
       "action": "RefreshCatalog",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -4972,12 +4900,10 @@
       "kind": "action",
       "action": "RetryTransient",
       "invariant": null,
-      "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -4987,9 +4913,7 @@
       "action": "SelectExplorer",
       "invariant": null,
       "routes": [
-        "DELETE /api/v1/projects/{project}/explorers/{explorerId}",
         "GET /api/v1/projects/{project}/explorers",
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
         "POST /api/v1/projects/{project}/explorers"
       ],
@@ -5033,7 +4957,6 @@
       "action": "StartPreview",
       "invariant": null,
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
@@ -5686,43 +5609,17 @@
       ],
       "obligations": [],
       "suspectedModels": [
-        "BuilderPreview",
-        "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "suspectedActions": [
-        "AbortPreview",
-        "AcceptPreview",
-        "AuthoredChange",
-        "CommandStale",
-        "CommandSuccess",
         "CreateExplorer",
         "DeleteCapability",
         "DeleteExplorer",
-        "DraftChange",
         "ExplorerListComplete",
         "ExplorerListError",
-        "GateReconcile",
         "HydrateBuilder",
         "Inv_DeleteKeepsFallback",
-        "PreviewComplete",
-        "PreviewFailed",
-        "RecompileReceipt",
-        "ReconcileConflict",
-        "ReconcileFailure",
-        "ReconcileInvalid",
-        "ReconcileNeedsRepair",
-        "ReconcileReceiptBound",
-        "ReconcileStale",
-        "RefreshCatalog",
-        "RequestReconcile",
-        "RetryEntryReconcile",
-        "RetryTransient",
-        "SelectExplorer",
-        "StartCommand",
-        "StartPreview"
+        "SelectExplorer"
       ],
       "mapping": "go-route",
       "evidence": "internal/server/explorer_capability_test.go",
@@ -6153,43 +6050,17 @@
       ],
       "obligations": [],
       "suspectedModels": [
-        "BuilderPreview",
-        "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "suspectedActions": [
-        "AbortPreview",
-        "AcceptPreview",
-        "AuthoredChange",
-        "CommandStale",
-        "CommandSuccess",
         "CreateExplorer",
         "DeleteCapability",
         "DeleteExplorer",
-        "DraftChange",
         "ExplorerListComplete",
         "ExplorerListError",
-        "GateReconcile",
         "HydrateBuilder",
         "Inv_DeleteKeepsFallback",
-        "PreviewComplete",
-        "PreviewFailed",
-        "RecompileReceipt",
-        "ReconcileConflict",
-        "ReconcileFailure",
-        "ReconcileInvalid",
-        "ReconcileNeedsRepair",
-        "ReconcileReceiptBound",
-        "ReconcileStale",
-        "RefreshCatalog",
-        "RequestReconcile",
-        "RetryEntryReconcile",
-        "RetryTransient",
-        "SelectExplorer",
-        "StartCommand",
-        "StartPreview"
+        "SelectExplorer"
       ],
       "mapping": "go-route",
       "evidence": "internal/acceptance/scenario_test.go",
@@ -6418,43 +6289,17 @@
       ],
       "obligations": [],
       "suspectedModels": [
-        "BuilderPreview",
-        "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "suspectedActions": [
-        "AbortPreview",
-        "AcceptPreview",
-        "AuthoredChange",
-        "CommandStale",
-        "CommandSuccess",
         "CreateExplorer",
         "DeleteCapability",
         "DeleteExplorer",
-        "DraftChange",
         "ExplorerListComplete",
         "ExplorerListError",
-        "GateReconcile",
         "HydrateBuilder",
         "Inv_DeleteKeepsFallback",
-        "PreviewComplete",
-        "PreviewFailed",
-        "RecompileReceipt",
-        "ReconcileConflict",
-        "ReconcileFailure",
-        "ReconcileInvalid",
-        "ReconcileNeedsRepair",
-        "ReconcileReceiptBound",
-        "ReconcileStale",
-        "RefreshCatalog",
-        "RequestReconcile",
-        "RetryEntryReconcile",
-        "RetryTransient",
-        "SelectExplorer",
-        "StartCommand",
-        "StartPreview"
+        "SelectExplorer"
       ],
       "mapping": "go-route",
       "evidence": "internal/server/explorer_config_route_test.go",
@@ -6480,8 +6325,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -6546,8 +6389,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -6893,9 +6734,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -6948,7 +6787,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -6999,7 +6837,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7088,8 +6925,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7181,9 +7016,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7343,8 +7176,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7405,8 +7236,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7461,9 +7290,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7621,10 +7448,6 @@
       ],
       "obligations": [],
       "suspectedModels": [
-        "BuilderPreview",
-        "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -7653,10 +7476,6 @@
       ],
       "obligations": [],
       "suspectedModels": [
-        "BuilderPreview",
-        "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -7744,9 +7563,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7796,9 +7613,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7849,9 +7664,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7905,9 +7718,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7949,9 +7760,7 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -7995,9 +7804,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -8040,7 +7847,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -8259,9 +8065,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -8347,9 +8151,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -8539,7 +8341,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -8613,9 +8414,7 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -8685,9 +8484,7 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -8878,9 +8675,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -8914,9 +8709,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -8971,9 +8764,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9032,7 +8823,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RootChange",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
@@ -9220,9 +9010,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9275,9 +9063,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9417,8 +9203,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9479,9 +9263,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9532,9 +9314,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9589,7 +9369,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9641,9 +9420,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9808,7 +9585,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -9875,7 +9651,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -10265,7 +10040,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -10355,7 +10129,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -10479,8 +10252,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "SupportingSurfaces",
         "WorkspaceLifecycle"
@@ -10613,8 +10384,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -10661,7 +10430,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -10748,7 +10516,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -10800,7 +10567,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -10897,7 +10663,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11009,7 +10774,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11133,7 +10897,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11179,9 +10942,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11229,9 +10990,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11272,9 +11031,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11319,8 +11076,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -11365,9 +11120,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11428,7 +11181,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11472,9 +11224,7 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -11732,7 +11482,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -11847,8 +11596,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RootChange",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
@@ -12057,9 +11804,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -12113,9 +11858,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -12171,9 +11914,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -12225,7 +11966,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -12272,7 +12012,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -12506,7 +12245,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -12555,7 +12293,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RootChange",
         "WorkspaceLifecycle"
       ],
@@ -12612,8 +12349,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -12660,7 +12395,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -12768,7 +12502,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RootChange",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
@@ -12877,7 +12610,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13006,7 +12738,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13056,7 +12787,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13107,9 +12837,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13151,9 +12879,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13196,9 +12922,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13257,9 +12981,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13329,9 +13051,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -13445,7 +13165,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -14464,6 +14183,24 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx::applies commands with the refreshed server draft identity after catalog recovery",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "applies commands with the refreshed server draft identity after catalog recovery",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "ReconcileLifecycle",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx::applies one compiler DEFAULT field form after one Add click",
       "kind": "vitest",
       "level": "unit",
@@ -15332,6 +15069,42 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx::clicks Cancel proposal only for the local cancel action",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "clicks Cancel proposal only for the local cancel action",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "ConstructionLifecycle",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx::clicks the mounted preview refresh control for refresh_preview_catalog",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "clicks the mounted preview refresh control for refresh_preview_catalog",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "SupportingSurfaces",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx::closes Define dataframe before removing an applied row change",
       "kind": "vitest",
       "level": "unit",
@@ -16084,6 +15857,24 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.unit.test.tsx::does not clear the attached selection while disabled",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "does not clear the attached selection while disabled",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "Population",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPreview.unit.test.tsx::does not describe a bounded preview as the full table",
       "kind": "vitest",
       "level": "unit",
@@ -16619,6 +16410,24 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionStages.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx::does not treat another local action as Cancel proposal",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "does not treat another local action as Cancel proposal",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "ConstructionLifecycle",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.formal.test.tsx",
       "suspectedActions": [],
       "checks": []
     },
@@ -17312,6 +17121,25 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx::fails closed when the replacement preview belongs to another table",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "fails closed when the replacement preview belongs to another table",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "RowDefinitionLifecycle",
+        "SupportingSurfaces",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.empty-project.unit.test.tsx::falls back from synthetic default to a listed Explorer in a populated project",
       "kind": "vitest",
       "level": "unit",
@@ -17344,6 +17172,23 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts::falls back to the UI state before the server draft is initialized",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "falls back to the UI state before the server draft is initialized",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx::fills a short direct-family page until scrollable, then loads another page on scroll",
       "kind": "vitest",
       "level": "unit",
@@ -17358,6 +17203,23 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx::filters columns by the local search query without a request",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "filters columns by the local search query without a request",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "ColumnPresentation",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
       "suspectedActions": [],
       "checks": []
     },
@@ -19268,6 +19130,27 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts::keeps row-definition selection and apply actions on the row-definition path",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "keeps row-definition selection and apply actions on the row-definition path",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "ConstructionLifecycle",
+        "LifecycleEntry",
+        "Population",
+        "RowDefinitionLifecycle",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.unit.test.tsx::keeps saved base operands invalid after grouped pivot until repaired",
       "kind": "vitest",
       "level": "unit",
@@ -19889,6 +19772,23 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts::leaves other errors alone",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "leaves other errors alone",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "DraftRestore",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts",
       "suspectedActions": [],
       "checks": []
     },
@@ -22373,6 +22273,43 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.unit.test.tsx::rejects a proposal with a stale draft identity while the panel identity is current",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "rejects a proposal with a stale draft identity while the panel identity is current",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderOperations",
+        "BuilderPreview",
+        "ConstructionLifecycle",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx::rejects a repeated selection page cursor",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "rejects a repeated selection page cursor",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "Population",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.unit.test.tsx::rejects a route issued for a different starting record",
       "kind": "vitest",
       "level": "unit",
@@ -22465,6 +22402,22 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.unit.test.tsx::rejects category discovery returned for a different pivot pair",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "rejects category discovery returned for a different pivot pair",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.unit.test.tsx::rejects duplicate output columns across frozen categories and derived columns",
       "kind": "vitest",
       "level": "unit",
@@ -22547,6 +22500,23 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx::rejects source details returned for a different column",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "rejects source details returned for a different column",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "ColumnPresentation",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
       "suspectedActions": [],
       "checks": []
     },
@@ -22636,6 +22606,40 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts::remembers only a command-selected table with an output identity",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "remembers only a command-selected table with an output identity",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx::removes a configured column from its row control",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "removes a configured column from its row control",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "ColumnPresentation",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
       "suspectedActions": [],
       "checks": []
     },
@@ -23567,6 +23571,25 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts::requires a ready preview with a candidate column and rows",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "requires a ready preview with a candidate column and rows",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "ColumnPresentation",
+        "SupportingSurfaces",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.unit.test.tsx::requires a separate confirmation to apply the proposal through the receipt command",
       "kind": "vitest",
       "level": "unit",
@@ -23671,6 +23694,22 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.unit.test.ts::requires either an explorer list error or missing Builder data",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "requires either an explorer list error or missing Builder data",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.unit.test.ts",
       "suspectedActions": [],
       "checks": []
     },
@@ -23796,6 +23835,25 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/datasetReviewSelection.unit.test.ts::resolves a row setting only when exactly one scoped table remains",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "resolves a row setting only when exactly one scoped table remains",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/datasetReviewSelection.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "Population",
+        "SupportingSurfaces",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/datasetReviewSelection.unit.test.ts",
       "suspectedActions": [],
       "checks": []
     },
@@ -24297,6 +24355,25 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts::routes every construction proposal action through the proposal path",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "routes every construction proposal action through the proposal path",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "BuilderPreview",
+        "ConstructionLifecycle",
+        "LifecycleEntry",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
       "suspectedActions": [],
       "checks": []
     },
@@ -25858,6 +25935,22 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/serverDraftSync.unit.test.ts::syncs only when builder data exists and the key changes",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "syncs only when builder data exists and the key changes",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/serverDraftSync.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/serverDraftSync.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx::takes implicit source fields inside Pivot without adding public columns",
       "kind": "vitest",
       "level": "unit",
@@ -25898,6 +25991,23 @@
       "kind": "vitest",
       "level": "unit",
       "name": "toggles all configured table columns off without removing their configuration",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "ColumnPresentation",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx::toggles configured visibility and filter from their row controls",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "toggles configured visibility and filter from their row controls",
       "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx",
       "routes": [],
       "obligations": [],
@@ -25983,6 +26093,23 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts::treats aggregate and related-field reduction as column feature actions",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "treats aggregate and related-field reduction as column feature actions",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "ColumnPresentation",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/actionGuards.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.unit.test.tsx::treats an unavailable response as a failure, retaining controls without an Apply action",
       "kind": "vitest",
       "level": "unit",
@@ -26002,6 +26129,57 @@
       "checks": []
     },
     {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts::treats draft conflicts and stale snapshots as restore errors",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "treats draft conflicts and stale snapshots as restore errors",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "DraftRestore",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/draftRestore.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombinePolicy.unit.test.ts::treats only a non-empty string dimension value as a row policy",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "treats only a non-empty string dimension value as a row policy",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombinePolicy.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombinePolicy.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts::treats route and occurrence selections as compiler navigation",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "treats route and occurrence selections as compiler navigation",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "Population",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/workspaceGuards.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.unit.test.ts::treats selecting the current table as a no-op and clears preview when switching tables",
       "kind": "vitest",
       "level": "unit",
@@ -26016,6 +26194,23 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/components/columnLabel.unit.test.ts::trims a non-empty label and restores the saved label when empty",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "trims a non-empty label and restores the saved label when empty",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/columnLabel.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "ColumnPresentation",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/columnLabel.unit.test.ts",
       "suspectedActions": [],
       "checks": []
     },
@@ -26472,6 +26667,23 @@
       ],
       "mapping": "keyword-model",
       "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.unit.test.ts",
+      "suspectedActions": [],
+      "checks": []
+    },
+    {
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts::uses the server draft when the UI state lags behind it",
+      "kind": "vitest",
+      "level": "unit",
+      "name": "uses the server draft when the UI state lags behind it",
+      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts",
+      "routes": [],
+      "obligations": [],
+      "suspectedModels": [
+        "LifecycleEntry",
+        "WorkspaceLifecycle"
+      ],
+      "mapping": "keyword-model",
+      "evidence": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/commandDraftIdentity.unit.test.ts",
       "suspectedActions": [],
       "checks": []
     },

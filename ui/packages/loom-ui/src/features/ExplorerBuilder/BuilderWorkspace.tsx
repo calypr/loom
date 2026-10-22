@@ -73,6 +73,11 @@ import {
   type BuilderAuthoringState,
 } from './authoring/model';
 import {
+  hasCommandSelectedTable,
+  hasPairedPreviewRows,
+  isCompilerNavigationSelection,
+} from './authoring/workspaceGuards';
+import {
   sameRootChangeRequestIdentity,
   type RootChangePickerState,
   type RootChangeRequestIdentity,
@@ -90,6 +95,10 @@ import {
   previewRecoveryAction,
   type PreviewLimit,
 } from './authoring/previewRecovery';
+import { commandDraftIdentity } from './authoring/commandDraftIdentity';
+import { isDraftRestoreError } from './authoring/draftRestore';
+import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
+import { shouldSyncServerDraft } from './authoring/serverDraftSync';
 import {
   isDraftDesynchronized,
   isStaleSnapshot,
@@ -660,7 +669,7 @@ const BuilderWorkspaceContent = ({
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
 
   const serverDraftKey = useRef('');
-  if (builder.data && serverDraftKey.current !== builderDataKey) {
+  if (shouldSyncServerDraft(builder.data, serverDraftKey.current, builderDataKey)) {
     serverDraft.current = {
       version: builder.data.draftVersion,
       digest: builder.data.draftDigest,
@@ -792,14 +801,14 @@ const BuilderWorkspaceContent = ({
           await queryOwner?.pauseAndDrain();
           const current = latestState.current;
           const commandId = proposedCommandId ?? window.crypto.randomUUID();
+          const draftIdentity = commandDraftIdentity(current, serverDraft.current);
           const value = await applyBuilderCommands({
             project: projectId,
             explorerId: current.explorerId,
             authResourcePath,
             commandId,
             snapshotToken: current.catalog.snapshotToken,
-            expectedDraftVersion: serverDraft.current.version,
-            expectedDraftDigest: serverDraft.current.digest || undefined,
+            ...draftIdentity,
             commands,
             requestId: `builder-command-${commandId}`,
           }).unwrap();
@@ -847,8 +856,9 @@ const BuilderWorkspaceContent = ({
             command.type === 'DUPLICATE_TABLE' ||
             (command.type === 'DELETE_TABLE' && command.outputId === current.selectedOutputId),
           );
-          if (selectsTableThroughCommand && next.selectedOutputId) {
-            rememberSelectedTable(next.selectedOutputId);
+          const selectedOutputId = next.selectedOutputId;
+          if (hasCommandSelectedTable(selectsTableThroughCommand, selectedOutputId)) {
+            rememberSelectedTable(selectedOutputId);
             setActiveConstructionSelection(undefined);
           }
           latestState.current = next;
@@ -1700,7 +1710,7 @@ const BuilderWorkspaceContent = ({
       ) throw new Error('The table changed while Loom checked paired values.');
       const columnId = response.candidateColumnIds[0];
       const rows = response.preview.rows;
-      if (response.previewStatus !== 'READY' || !columnId || !rows) {
+      if (!hasPairedPreviewRows(response.previewStatus, columnId, rows)) {
         throw new Error('Loom could not measure paired values in this preview.');
       }
       let empty = 0;
@@ -2137,7 +2147,7 @@ const BuilderWorkspaceContent = ({
                 : {}),
             }
           : undefined;
-        if (apiError && (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code))) {
+        if (apiError && isDraftRestoreError(apiError.code)) {
           const refreshed = await refetchBuilder({ reload: true });
           if (!isCurrentAttempt()) return;
           if (refreshed.data) syncBuilderData(refreshed.data, 'hydrate');
@@ -2169,7 +2179,7 @@ const BuilderWorkspaceContent = ({
       sameRootChangeRequestIdentity(active.identity, currentIdentity)
       ? active.resolution
       : {};
-    if (selection.kind === 'compiler-route' || selection.kind === 'compiler-occurrence') {
+    if (isCompilerNavigationSelection(selection)) {
       const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
         sameRootChangeRequestIdentity(active.identity, currentIdentity);
       const alternative = selection.kind === 'compiler-route'
@@ -3129,7 +3139,7 @@ const BuilderWorkspaceContent = ({
       </main>
     );
   }
-  if (explorers.error || !builder.data) {
+  if (shouldShowBuilderLoadError(Boolean(explorers.error), Boolean(builder.data))) {
     return (
       <main className="p-6" role="alert">
         <p>Couldn’t load this dataset.</p>

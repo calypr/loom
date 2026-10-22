@@ -84,7 +84,7 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 			name:      "untyped execution failure",
 			scanErr:   fmt.Errorf("execute category query with secret-bind-value: %w", categoryScanTestCause),
 			wantClass: ClassInternal,
-			wantCode:  "INTERNAL_ERROR",
+			wantCode:  "CATEGORY_DISCOVERY_FAILED",
 			wantCause: categoryScanTestCause,
 		},
 	}
@@ -116,7 +116,7 @@ func TestDiscoverConstructionCategoriesClassifiesScanFailures(t *testing.T) {
 			if strings.Contains(lifecycleErr.Message, "private") || strings.Contains(lifecycleErr.Message, "secret-bind-value") {
 				t.Fatalf("public lifecycle message contains scan internals: %q", lifecycleErr.Message)
 			}
-			if test.wantClass == ClassInternal && lifecycleErr.Message != "category discovery failed unexpectedly" {
+			if test.wantClass == ClassInternal && lifecycleErr.Message != "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID" {
 				t.Fatalf("internal error message = %q, want safe generic message", lifecycleErr.Message)
 			}
 		})

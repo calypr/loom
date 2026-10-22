@@ -244,6 +244,14 @@ describe('GuidedGraphWorkspace', () => {
       '4',
     );
     expect(screen.getByTestId('graph-node-node-orphan')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show orphans' }));
+    expect(screen.getByTestId('mock-react-flow')).toHaveAttribute(
+      'data-node-count',
+      '3',
+    );
+    expect(
+      screen.queryByTestId('graph-node-node-orphan'),
+    ).not.toBeInTheDocument();
 
     expect(
       screen.queryByRole('button', { name: 'Focus route' }),

@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
@@ -16,6 +18,41 @@ func TestLegacyErrorMessagePreservesStructuredLifecycleMessage(t *testing.T) {
 	}
 	if got := legacyErrorMessage(response); got != "catalog field is unavailable" {
 		t.Fatalf("legacy error message = %q", got)
+	}
+}
+
+func TestExplorerLegacyResponseUnknownErrorIsDescriptive(t *testing.T) {
+	private := errors.New("private socket detail")
+	status, response := explorerLegacyResponse(private)
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
+	}
+	body, err := response.Error.AsLegacyErrorBody()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "INTERNAL_ERROR" {
+		t.Fatalf("code = %q, want INTERNAL_ERROR", body.Code)
+	}
+	if !strings.Contains(body.Message, "unexpected internal error") || !strings.Contains(body.Message, "request ID") {
+		t.Fatalf("message = %q, want descriptive internal-error guidance", body.Message)
+	}
+	if strings.Contains(body.Message, private.Error()) {
+		t.Fatalf("response leaked private cause: %q", body.Message)
+	}
+}
+
+func TestExplorerLegacyResponseFillsEmptyInternalMessage(t *testing.T) {
+	status, response := explorerLegacyResponse(legacyOperationFailure(http.StatusInternalServerError, "", "", nil))
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", status, http.StatusInternalServerError)
+	}
+	body, err := response.Error.AsLegacyErrorBody()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "INTERNAL_ERROR" || !strings.Contains(body.Message, "unexpected internal error") {
+		t.Fatalf("body = %#v, want descriptive INTERNAL_ERROR", body)
 	}
 }
 

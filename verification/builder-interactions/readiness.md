@@ -11,11 +11,11 @@ End to end ready: no.
 | routes | 39 |
 | tier1 | 21 |
 | tier2 | 18 |
-| strictRouteBlockers | 36 |
-| routeActionAudited | 15 |
-| routeActionMissing | 24 |
-| routeActionEmpty | 10 |
-| routeActionCandidate | 1 |
+| strictRouteBlockers | 20 |
+| routeActionAudited | 39 |
+| routeActionMissing | 0 |
+| routeActionEmpty | 27 |
+| routeActionCandidate | 8 |
 | traceTested | 1 |
 | modeledAndTracedWithoutBrowser | 0 |
 | browserCases | 1 |
@@ -25,11 +25,11 @@ End to end ready: no.
 | covered | 15 |
 | partial | 86 |
 | missing | 138 |
-| missingRouteBound | 0 |
-| missingCandidate | 102 |
-| missingUnbound | 36 |
-| tests | 878 |
-| testsWithoutExactObligations | 866 |
+| missingRouteBound | 20 |
+| missingCandidate | 68 |
+| missingUnbound | 50 |
+| tests | 906 |
+| testsWithoutExactObligations | 894 |
 | models | 13 |
 | traceModels | 3 |
 | schedules | 4 |
@@ -43,9 +43,9 @@ End to end ready: no.
 | --- | ---: |
 | modeled-and-traced | 3 |
 | trace-tested | 1 |
-| modeled-only | 32 |
-| contract-tested | 0 |
-| unproven | 3 |
+| modeled-only | 17 |
+| contract-tested | 16 |
+| unproven | 2 |
 | excluded | 0 |
 
 ## Route action audit
@@ -54,37 +54,37 @@ End to end ready: no.
 | --- | ---: |
 | proven | 3 |
 | traced | 1 |
-| candidate | 1 |
-| empty | 10 |
-| missing | 24 |
+| candidate | 8 |
+| empty | 27 |
+| missing | 0 |
 
 ## Lever inputs
 
 | Measure | Count |
 | --- | ---: |
-| routeActionProposals | 24 |
-| routeActionProposalLow | 2 |
-| contractProofProposals | 34 |
-| contractProofProposalLow | 11 |
-| mutationProbes | 10 |
-| mutationKilled | 8 |
-| mutationSurvived | 1 |
-| mutationEquivalent | 1 |
-| mutationUnprobedActions | 144 |
+| routeActionProposals | 0 |
+| routeActionProposalLow | 0 |
+| contractProofProposals | 11 |
+| contractProofProposalLow | 10 |
+| mutationProbes | 50 |
+| mutationKilled | 47 |
+| mutationSurvived | 0 |
+| mutationEquivalent | 3 |
+| mutationUnprobedActions | 94 |
 | mutationStrictPass | yes |
-| mutationProbeCandidates | 144 |
-| mutationProbeCandidatesHigh | 76 |
-| mutationProbeCandidatesWithoutTests | 39 |
-| mutationGuardCandidates | 39 |
-| mutationActionsWithGuardCandidates | 28 |
+| mutationProbeCandidates | 94 |
+| mutationProbeCandidatesHigh | 46 |
+| mutationProbeCandidatesWithoutTests | 24 |
+| mutationGuardCandidates | 0 |
+| mutationActionsWithGuardCandidates | 0 |
 | browserCaseProposals | 28 |
 | browserCaseProposalsHigh | 7 |
-| routeActionDecisions | 24 |
-| contractProofDecisions | 34 |
-| proposalDecisionsPending | 58 |
-| proposalDecisionsAccepted | 0 |
-| proposalDecisionsRejected | 0 |
-| proposalReviewReady | no |
+| routeActionDecisions | 0 |
+| contractProofDecisions | 11 |
+| proposalDecisionsPending | 0 |
+| proposalDecisionsAccepted | 1 |
+| proposalDecisionsRejected | 10 |
+| proposalReviewReady | yes |
 | mutationCoverageReady | no |
 | proposalDecisionsValid | yes |
 
@@ -93,12 +93,12 @@ End to end ready: no.
 | Gate | Ready |
 | --- | --- |
 | endToEndReady | no |
-| routeActionAuditReady | no |
+| routeActionAuditReady | yes |
 | obligationAttributionReady | no |
 | browserEvidenceReady | no |
 | featureMapReady | yes |
 | bugDiscoveryReady | yes |
-| proposalReviewReady | no |
+| proposalReviewReady | yes |
 | mutationCoverageReady | no |
 | proposalDecisionsValid | yes |
 | leverReady | yes |
@@ -107,88 +107,56 @@ End to end ready: no.
 
 | Binding | Count |
 | --- | ---: |
-| route | 0 |
-| candidate | 102 |
-| unbound | 36 |
+| route | 20 |
+| candidate | 68 |
+| unbound | 50 |
 
 ## Next worklist
 
 | Tier | Route | Status | Route action | Next gap |
 | ---: | --- | --- | --- | --- |
-| 1 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/selections` | modeled-only | missing | audit route action |
-| 1 | `GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}` | modeled-only | missing | audit route action |
-| 2 | `GET /api/v1/projects/{project}/explorers` | modeled-only | missing | audit route action |
-| 2 | `POST /api/v1/projects/{project}/explorers` | modeled-only | missing | audit route action |
-| 2 | `DELETE /api/v1/projects/{project}/explorers/{explorerId}` | modeled-only | missing | audit route action |
-| 2 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability` | modeled-only | missing | audit route action |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source` | modeled-only | missing | audit route action |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities` | modeled-only | missing | audit route action |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options` | modeled-only | missing | audit route action |
-| 2 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices` | modeled-only | missing | audit route action |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage` | modeled-only | missing | audit route action |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions` | modeled-only | missing | audit route action |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals` | modeled-only | empty | choose contract-tested with a route test or unproven |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes` | modeled-only | empty | choose contract-tested with a route test or unproven |
 | 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions` | modeled-only | empty | choose contract-tested with a route test or unproven |
+| 1 | `GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}` | modeled-only | empty | choose contract-tested with a route test or unproven |
 | 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups` | modeled-only | empty | choose contract-tested with a route test or unproven |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices` | modeled-only | empty | choose contract-tested with a route test or unproven |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs` | modeled-only | empty | choose contract-tested with a route test or unproven |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices` | modeled-only | empty | choose contract-tested with a route test or unproven |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors` | modeled-only | empty | choose contract-tested with a route test or unproven |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source` | modeled-only | empty | choose contract-tested with a route test or unproven |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options` | modeled-only | empty | choose contract-tested with a route test or unproven |
 | 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices` | modeled-only | empty | choose contract-tested with a route test or unproven |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory` | modeled-only | empty | choose contract-tested with a route test or unproven |
+| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage` | modeled-only | empty | choose contract-tested with a route test or unproven |
 | 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities` | modeled-only | empty | choose contract-tested with a route test or unproven |
+| 1 | `GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder` | modeled-only | candidate | add trace, schedule, and executable test |
 | 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals` | modeled-only | candidate | add trace, schedule, and executable test |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish` | unproven | missing | assign a model action or exclude |
-| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries` | unproven | missing | assign a model action or exclude |
-| 2 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context` | unproven | missing | assign a model action or exclude |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions` | modeled-only | candidate | add trace, schedule, and executable test |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping` | modeled-only | candidate | add trace, schedule, and executable test |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change` | modeled-only | candidate | add trace, schedule, and executable test |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/selections` | modeled-only | candidate | add trace, schedule, and executable test |
+| 2 | `POST /api/v1/projects/{project}/explorers` | modeled-only | candidate | add trace, schedule, and executable test |
+| 2 | `DELETE /api/v1/projects/{project}/explorers/{explorerId}` | modeled-only | candidate | add trace, schedule, and executable test |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish` | unproven | empty | assign a model action or exclude |
+| 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries` | unproven | empty | assign a model action or exclude |
 | 1 | `POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries` | trace-tested | traced | add browser evidence |
 
 ## Blockers
 
-- `get:api-v1-projects-project-explorers-explorerId-authoring-v2-builder` is `modeled-only`. audit route action.
+- `get:api-v1-projects-project-explorers-explorerId-authoring-v2-builder` is `modeled-only`. add trace, schedule, and executable test.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-category-discoveries` is `trace-tested`. add browser evidence.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-choice-proposals` is `modeled-only`. add trace, schedule, and executable test.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-proposals` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-interpretation-preview` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-interpretation-revisions` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-mapping` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-member-proposals` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-routes` is `modeled-only`. audit route action.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-interpretation-revisions` is `modeled-only`. add trace, schedule, and executable test.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-mapping` is `modeled-only`. add trace, schedule, and executable test.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-routes` is `modeled-only`. choose contract-tested with a route test or unproven.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-publish` is `unproven`. assign a model action or exclude.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-change` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-definition-proposals` is `modeled-only`. audit route action.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-change` is `modeled-only`. add trace, schedule, and executable test.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-category-discoveries` is `unproven`. assign a model action or exclude.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-proposals` is `modeled-only`. choose contract-tested with a route test or unproven.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-resolutions` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `post:api-v1-projects-project-explorers-explorerId-selections` is `modeled-only`. audit route action.
-- `get:api-v1-projects-project-explorers-explorerId-selections-selectionRevision` is `modeled-only`. audit route action.
+- `post:api-v1-projects-project-explorers-explorerId-selections` is `modeled-only`. add trace, schedule, and executable test.
+- `get:api-v1-projects-project-explorers-explorerId-selections-selectionRevision` is `modeled-only`. choose contract-tested with a route test or unproven.
 - `post:api-v1-projects-project-explorers-explorerId-selections-selectionRevision-explicit-groups` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `get:api-v1-projects-project-explorers` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers` is `modeled-only`. audit route action.
-- `delete:api-v1-projects-project-explorers-explorerId` is `modeled-only`. audit route action.
-- `get:api-v1-projects-project-explorers-explorerId-authoring-v2-capability` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-column-source` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-configured-column-context` is `unproven`. assign a model action or exclude.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-capabilities` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-choices` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-inputs` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-frame-source-options` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-related-expand-choices` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-related-expand-contributors` is `modeled-only`. choose contract-tested with a route test or unproven.
+- `post:api-v1-projects-project-explorers` is `modeled-only`. add trace, schedule, and executable test.
+- `delete:api-v1-projects-project-explorers-explorerId` is `modeled-only`. add trace, schedule, and executable test.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-column-source` is `modeled-only`. choose contract-tested with a route test or unproven.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-frame-source-options` is `modeled-only`. choose contract-tested with a route test or unproven.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-related-field-choices` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `get:api-v1-projects-project-explorers-explorerId-authoring-v2-row-definition-choices` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-lineage` is `modeled-only`. audit route action.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-semantic-inventory` is `modeled-only`. choose contract-tested with a route test or unproven.
-- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-suggestions` is `modeled-only`. audit route action.
+- `post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-lineage` is `modeled-only`. choose contract-tested with a route test or unproven.
 - `post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-capabilities` is `modeled-only`. choose contract-tested with a route test or unproven.
 
 ## Bounds

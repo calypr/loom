@@ -1,11 +1,4 @@
 {
   "schemaVersion": 1,
-  "survivors": [
-    {
-      "id": "command-draft-version-guard",
-      "reason": "Known product gap: command draft identity is not yet covered by a targeted CAS test.",
-      "owner": "Builder formal verification",
-      "issue": "docs/verification/BUILDER_FORMAL_VERIFICATION_PLAN.md"
-    }
-  ]
+  "survivors": []
 }

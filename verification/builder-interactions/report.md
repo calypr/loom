@@ -32,10 +32,10 @@ The model is bounded to the state spaces in the checked-in `.cfg` files. A TLC p
 ## Route ledger
 
 - Builder routes: 39 (21 Tier 1, 18 Tier 2).
-- Proof: 3 modeled-and-traced, 32 modeled-only, 0 contract-tested, 3 unproven.
+- Proof: 3 modeled-and-traced, 17 modeled-only, 16 contract-tested, 2 unproven.
 - Excluded authoring routes: 4.
 - Builder evidence: 39/39 routes.
-- Route-level evidence: 4 traces, 4 tests, 3 browser cases.
+- Route-level evidence: 4 traces, 20 tests, 9 browser cases.
 
 ## Trace conformance
 

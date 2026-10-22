@@ -256,7 +256,7 @@ func PublicMessage(err error) string {
 	}
 	userErr := Normalize(err)
 	if userErr == nil {
-		return "internal server error"
+		return defaultMessage(CodeInternalError)
 	}
 	if userErr.Code() == string(CodeRecipeResolutionFailed) {
 		return userErr.Error()
@@ -400,6 +400,8 @@ func defaultMessage(code ErrorCode) string {
 		return "a measurement has no approved source unit identity"
 	case CodeUnitDimensionIncompatible:
 		return "a measurement unit is dimensionally incompatible with the feature target"
+	case CodeInternalError:
+		return "an unexpected internal error occurred while processing the data request"
 	case CodeConstructionExpansionEmpty:
 		return "At least one row has an empty list or no matching related records. Choose 'Drop the original row' or 'Keep the row with a missing item' for lists, or 'Leave that current row out' or 'Keep that current row once, with no related record ID' for related records."
 	case CodeExplicitGroupUnassignedMember:
@@ -411,7 +413,7 @@ func defaultMessage(code ErrorCode) string {
 	case CodeTablePivotUnlistedCategory:
 		return "Pivot found an unlisted category; select all discovered categories or filter rows before Pivot."
 	default:
-		return "internal server error"
+		return defaultMessage(CodeInternalError)
 	}
 }
 

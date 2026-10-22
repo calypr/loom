@@ -1,0 +1,66 @@
+name: Builder CDA Mini Journeys
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/builder-cda-mini.yml'
+      - 'compose.dev.yaml'
+      - 'scripts/fixtures/generate-cda-mini-fixture.mjs'
+      - 'scripts/loom-dev.mjs'
+      - 'scripts/run-builder-journey.mjs'
+      - 'scripts/run-cda-mini-journeys.sh'
+      - 'scripts/verify-ui/journey-specs/**'
+      - 'testdata/cda-mini-fixture/**'
+      - 'ui/packages/loom-ui/src/features/ExplorerBuilder/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cda-mini:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LOOM_DEV_COMPOSE_PROJECT: loom-dev-cda-mini-${{ github.run_id }}
+      LOOM_DEV_PROJECT: loom_dev_cda_mini_${{ github.run_id }}
+      LOOM_DEV_API_PORT: 8380
+      LOOM_DEV_UI_PORT: 3380
+      LOOM_DEV_ARTIFACTS: .artifacts/builder-cda-mini/${{ github.run_id }}
+      LOOM_CDA_MINI_ARTIFACTS: .artifacts/builder-journey/cda-mini
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Install scripts dependencies
+        working-directory: scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install Playwright Chrome
+        working-directory: scripts
+        run: npx playwright install --with-deps chrome
+      - name: Verify generated CDA mini fixture is current
+        run: |
+          node scripts/fixtures/generate-cda-mini-fixture.mjs
+          git diff --exit-code -- testdata/cda-mini-fixture
+      - name: Start the development stack
+        run: node scripts/loom-dev.mjs verify-fast
+      - name: Run CDA mini journeys
+        run: bash scripts/run-cda-mini-journeys.sh
+      - name: Clean up the development stack
+        if: always()
+        continue-on-error: true
+        run: node scripts/loom-dev.mjs dev-down --purge
+      - name: Upload CDA mini journey evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: builder-cda-mini-${{ github.run_id }}
+          path: |
+            .artifacts/builder-cda-mini
+            .artifacts/builder-journey/cda-mini
+          if-no-files-found: warn

@@ -145,4 +145,5 @@ it('treats a different request epoch as a different root-change identity', () =>
   };
   expect(sameRootChangeRequestIdentity(identity, { ...identity })).toBe(true);
   expect(sameRootChangeRequestIdentity(identity, { ...identity, epoch: 2 })).toBe(false);
+  expect(sameRootChangeRequestIdentity(identity, { ...identity, draftVersion: 4 })).toBe(false);
 });

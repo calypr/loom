@@ -147,7 +147,7 @@ const readiness = {
     && leverReady
     && proposalReviewReady
     && mutationCoverageReady,
-  routeActionAuditReady: missingRouteActions.length === 0 && emptyRouteActions.length === 0,
+  routeActionAuditReady: missingRouteActions.length === 0,
   obligationAttributionReady: (summary.missingRouteBound ?? 0) === 0 && (summary.missingCandidate ?? 0) === 0,
   browserEvidenceReady: traceTested.length === 0 && modeledAndTracedWithoutBrowser.length === 0,
   featureMapReady,

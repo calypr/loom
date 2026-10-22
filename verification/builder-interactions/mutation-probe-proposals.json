@@ -6,14 +6,14 @@
     "ledger": "verification/builder-interactions/route-contract.json"
   },
   "summary": {
-    "actions": 144,
-    "high": 76,
-    "medium": 29,
-    "low": 39,
-    "withCandidateTests": 105,
-    "withoutCandidateTests": 39,
-    "guardCandidates": 39,
-    "withGuardCandidates": 28
+    "actions": 94,
+    "high": 46,
+    "medium": 24,
+    "low": 24,
+    "withCandidateTests": 70,
+    "withoutCandidateTests": 24,
+    "guardCandidates": 0,
+    "withGuardCandidates": 0
   },
   "proposals": [
     {
@@ -170,123 +170,6 @@
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-builderpreview-beginapply",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "BuilderPreview.CancelProposal",
-      "model": "BuilderPreview",
-      "action": "CancelProposal",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 4,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 436,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "values.localAction === 'cancel_construction_proposal'",
-          "find": "  if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {",
-          "replace": "  if (input.requestStep === null) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-builderpreview-cancelproposal",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "BuilderPreview.ProposalError",
-      "model": "BuilderPreview",
-      "action": "ProposalError",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_construction_proposal_test.go::TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "kind": "go",
-          "name": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_construction_proposal_test.go::TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
-          "kind": "go",
-          "name": "TestConstructionProposalSemanticGroupChoiceReconcilesCompiledOutputMetadata",
-          "file": "internal/server/openapi_explorer_construction_proposal_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-builderpreview-proposalerror",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -447,7 +330,7 @@
       "action": "StartPreview",
       "status": "covered",
       "routeBinding": "candidate",
-      "routeCount": 7,
+      "routeCount": 6,
       "candidateTests": [
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestNativeV2RouteUsesAuthorizedPersistedReceipt",
@@ -481,12 +364,12 @@
       "candidateSourceFiles": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
       ],
       "guardCandidates": [],
       "priority": "high",
@@ -598,12 +481,12 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "ConstructionLifecycle.CancelProposal",
+      "modelAction": "ConstructionLifecycle.PreviewComplete",
       "model": "ConstructionLifecycle",
-      "action": "CancelProposal",
+      "action": "PreviewComplete",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 4,
+      "routeCount": 6,
       "candidateTests": [
         {
           "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
@@ -636,78 +519,13 @@
       ],
       "candidateSourceFiles": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 436,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "values.localAction === 'cancel_construction_proposal'",
-          "find": "  if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {",
-          "replace": "  if (input.requestStep === null) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-constructionlifecycle-cancelproposal",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ConstructionLifecycle.PreviewComplete",
-      "model": "ConstructionLifecycle",
-      "action": "PreviewComplete",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 7,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
       ],
       "guardCandidates": [],
       "priority": "high",
@@ -927,7 +745,7 @@
       "model": "Interpretation",
       "action": "BeginCreate",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -952,7 +770,7 @@
       "model": "Interpretation",
       "action": "CancelCreate",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -977,7 +795,7 @@
       "model": "Interpretation",
       "action": "CreateBlocked",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -1002,7 +820,7 @@
       "model": "Interpretation",
       "action": "CreateFailed",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -1027,7 +845,7 @@
       "model": "Interpretation",
       "action": "CreateRevision",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -1045,96 +863,6 @@
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-interpretation-createrevision",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "Interpretation.ReviewCandidate",
-      "model": "Interpretation",
-      "action": "ReviewCandidate",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/openapi_interpretation_routes_test.go::TestInterpretationPreviewRouteRejectsMissingBody",
-          "kind": "go",
-          "name": "TestInterpretationPreviewRouteRejectsMissingBody",
-          "file": "internal/server/openapi_interpretation_routes_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/openapi_interpretation_routes_test.go::TestInterpretationReadRoutesEnforceProjectReadAuthorization",
-          "kind": "go",
-          "name": "TestInterpretationReadRoutesEnforceProjectReadAuthorization",
-          "file": "internal/server/openapi_interpretation_routes_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-          "line": 660,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "preview.outputId !== table.outputId",
-          "find": "      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId) {",
-          "replace": "      if (preview.receiptId !== candidateReceiptId) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-interpretation-reviewcandidate",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "Interpretation.ReviewReady",
-      "model": "Interpretation",
-      "action": "ReviewReady",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/openapi_interpretation_routes_test.go::TestInterpretationPreviewRouteRejectsMissingBody",
-          "kind": "go",
-          "name": "TestInterpretationPreviewRouteRejectsMissingBody",
-          "file": "internal/server/openapi_interpretation_routes_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/openapi_interpretation_routes_test.go::TestInterpretationReadRoutesEnforceProjectReadAuthorization",
-          "kind": "go",
-          "name": "TestInterpretationReadRoutesEnforceProjectReadAuthorization",
-          "file": "internal/server/openapi_interpretation_routes_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1703,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!rows",
-          "find": "      if (response.previewStatus !== 'READY' || !columnId || !rows) {",
-          "replace": "      if (response.previewStatus !== 'READY' || !columnId) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-interpretation-reviewready",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -1174,36 +902,36 @@
       "model": "LifecycleEntry",
       "action": "AuthoredChange",
       "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 2,
+      "routeBinding": "route",
+      "routeCount": 1,
       "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "file": "internal/server/explorer_receipt_contract_test.go",
           "score": 2
+        },
+        {
+          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "kind": "go",
+          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+          "file": "internal/server/explorer_reconcile_scope_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
+          "kind": "go",
+          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
+          "file": "internal/server/openapi_explorer_write_scope_test.go",
+          "score": 2
+        },
+        {
+          "id": "playwright:basic-coded-pivot:integer-lifecycle",
+          "kind": "playwright",
+          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
+          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
+          "score": 1
         }
       ],
       "candidateSourceFiles": [
@@ -1221,306 +949,12 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "LifecycleEntry.CommandStale",
-      "model": "LifecycleEntry",
-      "action": "CommandStale",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-commandstale",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "LifecycleEntry.CommandSuccess",
-      "model": "LifecycleEntry",
-      "action": "CommandSuccess",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-commandsuccess",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "LifecycleEntry.GateReconcile",
-      "model": "LifecycleEntry",
-      "action": "GateReconcile",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-gatereconcile",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "LifecycleEntry.ReconcileNeedsRepair",
-      "model": "LifecycleEntry",
-      "action": "ReconcileNeedsRepair",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-reconcileneedsrepair",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "LifecycleEntry.ReconcileReceiptBound",
-      "model": "LifecycleEntry",
-      "action": "ReconcileReceiptBound",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-reconcilereceiptbound",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "LifecycleEntry.RetryEntryReconcile",
-      "model": "LifecycleEntry",
-      "action": "RetryEntryReconcile",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-retryentryreconcile",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
       "modelAction": "ReconcileLifecycle.AuthoredChange",
       "model": "ReconcileLifecycle",
       "action": "AuthoredChange",
       "status": "covered",
-      "routeBinding": "candidate",
-      "routeCount": 2,
+      "routeBinding": "route",
+      "routeCount": 1,
       "candidateTests": [
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
@@ -1621,8 +1055,8 @@
       "model": "ReconcileLifecycle",
       "action": "ReconcileConflict",
       "status": "covered",
-      "routeBinding": "candidate",
-      "routeCount": 2,
+      "routeBinding": "route",
+      "routeCount": 1,
       "candidateTests": [
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
@@ -1672,8 +1106,8 @@
       "model": "ReconcileLifecycle",
       "action": "ReconcileFailure",
       "status": "covered",
-      "routeBinding": "candidate",
-      "routeCount": 1,
+      "routeBinding": "unbound",
+      "routeCount": 0,
       "candidateTests": [
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
@@ -1704,220 +1138,10 @@
           "score": 3
         }
       ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
+      "candidateSourceFiles": [],
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-reconcilelifecycle-reconcilefailure",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.ReconcileInvalid",
-      "model": "ReconcileLifecycle",
-      "action": "ReconcileInvalid",
-      "status": "covered",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-reconcileinvalid",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.ReconcileStale",
-      "model": "ReconcileLifecycle",
-      "action": "ReconcileStale",
-      "status": "covered",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-reconcilestale",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.ReconcileSuccess",
-      "model": "ReconcileLifecycle",
-      "action": "ReconcileSuccess",
-      "status": "covered",
-      "routeBinding": "route",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-reconcilesuccess",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.RequestReconcile",
-      "model": "ReconcileLifecycle",
-      "action": "RequestReconcile",
-      "status": "covered",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-requestreconcile",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -1976,7 +1200,7 @@
       "model": "RootChange",
       "action": "ApplyPreview",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2025,7 +1249,7 @@
       "model": "RootChange",
       "action": "AssessmentBlocked",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2074,7 +1298,7 @@
       "model": "RootChange",
       "action": "AssessmentNoChange",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2123,7 +1347,7 @@
       "model": "RootChange",
       "action": "AssessmentReady",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2172,7 +1396,7 @@
       "model": "RootChange",
       "action": "AssessmentStale",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2221,7 +1445,7 @@
       "model": "RootChange",
       "action": "BeginChange",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2266,135 +1490,11 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "RootChange.Cancel",
-      "model": "RootChange",
-      "action": "Cancel",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
-          "kind": "go",
-          "name": "TestAssessAndApplyRowChangeThroughPublicAPI",
-          "file": "internal/server/explorer_row_change_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:builder-root-replacement:replace-current-setup",
-          "kind": "playwright",
-          "name": "Explicit row-root replacement previews a reset, cancels safely, applies, and survives reload$",
-          "file": "scripts/verify-ui/specs/basic-root-replacement.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:cda-plain-patient-root-selector:select-observation-directly-and-restore-patient",
-          "kind": "playwright",
-          "name": "select Observation directly from a plain Patient table and restore Patient$",
-          "file": "scripts/verify-ui/specs/standalone-cda-plain-patient-root-selector.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:cda-root-rebase:preserve-patient-values-through-observation-and-restore",
-          "kind": "playwright",
-          "name": "rebase Patient rows through Observation and restore the original route and values$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 436,
-          "score": 1,
-          "specific": true,
-          "occurrences": 1,
-          "confidence": "medium",
-          "operator": "&&",
-          "dropped": "values.localAction === 'cancel_construction_proposal'",
-          "find": "  if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {",
-          "replace": "  if (input.requestStep === null) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-rootchange-cancel",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "RootChange.PreviewReady",
-      "model": "RootChange",
-      "action": "PreviewReady",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
-          "kind": "go",
-          "name": "TestAssessAndApplyRowChangeThroughPublicAPI",
-          "file": "internal/server/explorer_row_change_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:builder-root-replacement:replace-current-setup",
-          "kind": "playwright",
-          "name": "Explicit row-root replacement previews a reset, cancels safely, applies, and survives reload$",
-          "file": "scripts/verify-ui/specs/basic-root-replacement.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:cda-plain-patient-root-selector:select-observation-directly-and-restore-patient",
-          "kind": "playwright",
-          "name": "select Observation directly from a plain Patient table and restore Patient$",
-          "file": "scripts/verify-ui/specs/standalone-cda-plain-patient-root-selector.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:cda-root-rebase:preserve-patient-values-through-observation-and-restore",
-          "kind": "playwright",
-          "name": "rebase Patient rows through Observation and restore the original route and values$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1703,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!rows",
-          "find": "      if (response.previewStatus !== 'READY' || !columnId || !rows) {",
-          "replace": "      if (response.previewStatus !== 'READY' || !columnId) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-rootchange-previewready",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
       "modelAction": "RootChange.PreviewUnavailable",
       "model": "RootChange",
       "action": "PreviewUnavailable",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -2436,134 +1536,6 @@
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-rootchange-previewunavailable",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "RowDefinitionLifecycle.ApplyProposal",
-      "model": "RowDefinitionLifecycle",
-      "action": "ApplyProposal",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/case008_row_definition_preview_route_test.go::TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
-          "kind": "go",
-          "name": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
-          "file": "internal/server/case008_row_definition_preview_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:cda-expanded-publication:component-row-expand-publish-clickhouse-viewer-reload",
-          "kind": "playwright",
-          "name": "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 269,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "action === 'apply'",
-          "find": "  if (action === 'proposalEndpoint' || action === 'applyEndpoint' || action === 'apply') {",
-          "replace": "  if (action === 'proposalEndpoint' || action === 'applyEndpoint') {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-rowdefinitionlifecycle-applyproposal",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "RowDefinitionLifecycle.CancelProposal",
-      "model": "RowDefinitionLifecycle",
-      "action": "CancelProposal",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 4,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 436,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "values.localAction === 'cancel_construction_proposal'",
-          "find": "  if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {",
-          "replace": "  if (input.requestStep === null) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-rowdefinitionlifecycle-cancelproposal",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -2666,266 +1638,6 @@
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-rowdefinitionlifecycle-proposalfailed",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "RowDefinitionLifecycle.RequestProposal",
-      "model": "RowDefinitionLifecycle",
-      "action": "RequestProposal",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/case008_row_definition_preview_route_test.go::TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
-          "kind": "go",
-          "name": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
-          "file": "internal/server/case008_row_definition_preview_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:cda-expanded-publication:component-row-expand-publish-clickhouse-viewer-reload",
-          "kind": "playwright",
-          "name": "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 436,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "values.localAction === 'cancel_construction_proposal'",
-          "find": "  if (input.requestStep === null && values.localAction === 'cancel_construction_proposal') {",
-          "replace": "  if (input.requestStep === null) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-          "line": 356,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "proposalOwnerRef.current?.requestKey === requestKey",
-          "find": "    if (candidateIntent.current && proposalOwnerRef.current?.requestKey === requestKey) {",
-          "replace": "    if (candidateIntent.current) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-rowdefinitionlifecycle-requestproposal",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "RowDefinitionLifecycle.SelectRow",
-      "model": "RowDefinitionLifecycle",
-      "action": "SelectRow",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "kind": "go",
-          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/case008_row_definition_preview_route_test.go::TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
-          "kind": "go",
-          "name": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
-          "file": "internal/server/case008_row_definition_preview_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:cda-expanded-publication:component-row-expand-publish-clickhouse-viewer-reload",
-          "kind": "playwright",
-          "name": "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 549,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "action !== 'apply_row_definition'",
-          "find": "  if (action !== 'select_row_shape_or_policy' && action !== 'apply_row_definition') {",
-          "replace": "  if (action !== 'select_row_shape_or_policy') {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1562,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!selectedStage.rowIdentityColumn",
-          "find": "    if (!support?.supported || !selectedStage.rowIdentityColumn) {",
-          "replace": "    if (!support?.supported) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-          "line": 540,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "selection.kind === 'EXPANDED'",
-          "find": "        if (rows.kind === 'EXPANDED' && selection.kind === 'EXPANDED') {",
-          "replace": "        if (rows.kind === 'EXPANDED') {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-rowdefinitionlifecycle-selectrow",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.AbortPreview",
-      "model": "WorkspaceLifecycle",
-      "action": "AbortPreview",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-abortpreview",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.AcceptPreview",
-      "model": "WorkspaceLifecycle",
-      "action": "AcceptPreview",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-acceptpreview",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -3034,7 +1746,7 @@
       "action": "CreateExplorer",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 3,
+      "routeCount": 2,
       "candidateTests": [
         {
           "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
@@ -3080,7 +1792,7 @@
       "action": "DeleteCapability",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 3,
+      "routeCount": 2,
       "candidateTests": [
         {
           "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
@@ -3126,7 +1838,7 @@
       "action": "DeleteExplorer",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 3,
+      "routeCount": 2,
       "candidateTests": [
         {
           "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
@@ -3172,7 +1884,7 @@
       "action": "ExplorerListComplete",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 4,
+      "routeCount": 2,
       "candidateTests": [
         {
           "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
@@ -3205,78 +1917,11 @@
       ],
       "candidateSourceFiles": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
       ],
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-workspacelifecycle-explorerlistcomplete",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.ExplorerListError",
-      "model": "WorkspaceLifecycle",
-      "action": "ExplorerListError",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 4,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForOldAPIPreservesExactBytes",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForOldAPIPreservesExactBytes",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "kind": "go",
-          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 3132,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!builder.data",
-          "find": "  if (explorers.error || !builder.data) {",
-          "replace": "  if (explorers.error) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-explorerlisterror",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -3285,7 +1930,7 @@
       "action": "HydrateBuilder",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 4,
+      "routeCount": 3,
       "candidateTests": [
         {
           "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
@@ -3335,15 +1980,8 @@
       "action": "PreviewComplete",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 7,
+      "routeCount": 6,
       "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
         {
           "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
           "kind": "go",
@@ -3364,181 +2002,28 @@
           "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
           "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "kind": "go",
+          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
         }
       ],
       "candidateSourceFiles": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
       ],
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-workspacelifecycle-previewcomplete",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.PreviewFailed",
-      "model": "WorkspaceLifecycle",
-      "action": "PreviewFailed",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-previewfailed",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.RecompileReceipt",
-      "model": "WorkspaceLifecycle",
-      "action": "RecompileReceipt",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-recompilereceipt",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.RefreshCatalog",
-      "model": "WorkspaceLifecycle",
-      "action": "RefreshCatalog",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 690,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "action === 'refresh_preview_catalog'",
-          "find": "  if (action === 'retry_preview_once' || action === 'refresh_preview_catalog') {",
-          "replace": "  if (action === 'retry_preview_once') {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-refreshcatalog",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -3592,61 +2077,12 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "WorkspaceLifecycle.RetryTransient",
-      "model": "WorkspaceLifecycle",
-      "action": "RetryTransient",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_capability_test.go::TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "kind": "go",
-          "name": "TestBuilderUnavailableResponseExplainsResourceInventoryRebuild",
-          "file": "internal/server/explorer_capability_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_config_route_test.go::TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "kind": "go",
-          "name": "TestRepositoryDeploymentPersistsExecutableDataframeSelectors",
-          "file": "internal/server/explorer_config_route_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-retrytransient",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
       "modelAction": "WorkspaceLifecycle.SelectExplorer",
       "model": "WorkspaceLifecycle",
       "action": "SelectExplorer",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 5,
+      "routeCount": 3,
       "candidateTests": [
         {
           "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
@@ -3679,141 +2115,11 @@
       ],
       "candidateSourceFiles": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
       ],
       "guardCandidates": [],
       "priority": "high",
       "proposedProbeId": "model-workspacelifecycle-selectexplorer",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.SelectOccurrence",
-      "model": "WorkspaceLifecycle",
-      "action": "SelectOccurrence",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:builder-authoring:authoring",
-          "kind": "playwright",
-          "name": "Builder authoring previews, changes an existing table root, and reloads$",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-expand",
-          "kind": "playwright",
-          "name": "cohort-expand",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-recode",
-          "kind": "playwright",
-          "name": "cohort-recode",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 2172,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "selection.kind === 'compiler-occurrence'",
-          "find": "    if (selection.kind === 'compiler-route' || selection.kind === 'compiler-occurrence') {",
-          "replace": "    if (selection.kind === 'compiler-route') {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-selectoccurrence",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "WorkspaceLifecycle.SelectTable",
-      "model": "WorkspaceLifecycle",
-      "action": "SelectTable",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "kind": "go",
-          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
-          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:builder-authoring:authoring",
-          "kind": "playwright",
-          "name": "Builder authoring previews, changes an existing table root, and reloads$",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-expand",
-          "kind": "playwright",
-          "name": "cohort-expand",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-recode",
-          "kind": "playwright",
-          "name": "cohort-recode",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 850,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "next.selectedOutputId",
-          "find": "          if (selectsTableThroughCommand && next.selectedOutputId) {",
-          "replace": "          if (selectsTableThroughCommand) {"
-        }
-      ],
-      "priority": "high",
-      "proposedProbeId": "model-workspacelifecycle-selecttable",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -3822,15 +2128,8 @@
       "action": "StartPreview",
       "status": "missing",
       "routeBinding": "candidate",
-      "routeCount": 7,
+      "routeCount": 6,
       "candidateTests": [
-        {
-          "id": "go:internal/acceptance/scenario_test.go::TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "kind": "go",
-          "name": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
-          "file": "internal/acceptance/scenario_test.go",
-          "score": 2
-        },
         {
           "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
           "kind": "go",
@@ -3851,17 +2150,24 @@
           "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
           "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
           "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "kind": "go",
+          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
         }
       ],
       "candidateSourceFiles": [
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
       ],
       "guardCandidates": [],
       "priority": "high",
@@ -3894,57 +2200,6 @@
       "guardCandidates": [],
       "priority": "low",
       "proposedProbeId": "model-builderoperations-undolaststep",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "BuilderPreview.AcceptCurrentDraft",
-      "model": "BuilderPreview",
-      "action": "AcceptCurrentDraft",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 663,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "serverDraftKey.current !== builderDataKey",
-          "find": "  if (builder.data && serverDraftKey.current !== builderDataKey) {",
-          "replace": "  if (builder.data) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1674,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!table",
-          "find": "      if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {",
-          "replace": "      if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1729,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!table",
-          "find": "    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {",
-          "replace": "    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-builderpreview-acceptcurrentdraft",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
@@ -4004,72 +2259,6 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "BuilderPreview.LateProposalComplete",
-      "model": "BuilderPreview",
-      "action": "LateProposalComplete",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
-          "line": 183,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!isCurrentProposal(proposal, latest)",
-          "find": "      if (!latest || contextIdentity(latest) !== identity || !isCurrentProposal(proposal, latest)) {",
-          "replace": "      if (!latest || contextIdentity(latest) !== identity) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-builderpreview-lateproposalcomplete",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "BuilderPreview.SetPivotPair",
-      "model": "BuilderPreview",
-      "action": "SetPivotPair",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
-          "line": 168,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!pivotPairMatches(discovery, pair)",
-          "find": "          if (discovery.catalogId !== capabilities.catalogId || !pivotPairMatches(discovery, pair)) {",
-          "replace": "          if (discovery.catalogId !== capabilities.catalogId) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
-          "line": 222,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!pivotPairMatches(discovery, pair)",
-          "find": "      if (discovery.catalogId !== session.catalogId || !pivotPairMatches(discovery, pair)) {",
-          "replace": "      if (discovery.catalogId !== session.catalogId) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-builderpreview-setpivotpair",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
       "modelAction": "BuilderPreview.UnmountEditor",
       "model": "BuilderPreview",
       "action": "UnmountEditor",
@@ -4084,263 +2273,6 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "ColumnPresentation.CreateRelatedAggregate",
-      "model": "ColumnPresentation",
-      "action": "CreateRelatedAggregate",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/peripheral.tsx",
-          "line": 225,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "action === 'related_field_reduction'",
-          "find": "  if (action === 'aggregate_operation' || action === 'related_field_reduction') {",
-          "replace": "  if (action === 'aggregate_operation') {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-createrelatedaggregate",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.InspectColumn",
-      "model": "ColumnPresentation",
-      "action": "InspectColumn",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx"
-      ],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-inspectcolumn",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.InspectRejected",
-      "model": "ColumnPresentation",
-      "action": "InspectRejected",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx"
-      ],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-inspectrejected",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.InspectSucceeded",
-      "model": "ColumnPresentation",
-      "action": "InspectSucceeded",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx"
-      ],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-inspectsucceeded",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.MoveColumn",
-      "model": "ColumnPresentation",
-      "action": "MoveColumn",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-movecolumn",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.RemoveConfiguredColumn",
-      "model": "ColumnPresentation",
-      "action": "RemoveConfiguredColumn",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-removeconfiguredcolumn",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.RenameColumn",
-      "model": "ColumnPresentation",
-      "action": "RenameColumn",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-renamecolumn",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.SearchColumns",
-      "model": "ColumnPresentation",
-      "action": "SearchColumns",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-searchcolumns",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.SetFeaturePolicy",
-      "model": "ColumnPresentation",
-      "action": "SetFeaturePolicy",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-setfeaturepolicy",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.SetFilterOffered",
-      "model": "ColumnPresentation",
-      "action": "SetFilterOffered",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-setfilteroffered",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.SetRowValuePolicy",
-      "model": "ColumnPresentation",
-      "action": "SetRowValuePolicy",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
-          "line": 549,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "action !== 'apply_row_definition'",
-          "find": "  if (action !== 'select_row_shape_or_policy' && action !== 'apply_row_definition') {",
-          "replace": "  if (action !== 'select_row_shape_or_policy') {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts",
-          "line": 720,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "rowPolicy !== undefined",
-          "find": "  if (rowPolicy !== null && rowPolicy !== undefined) {",
-          "replace": "  if (rowPolicy !== null) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx",
-          "line": 322,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "scopedTables.length === 1",
-          "find": "  if (namesRowSetting && scopedTables.length === 1) {",
-          "replace": "  if (namesRowSetting) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-setrowvaluepolicy",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ColumnPresentation.ToggleVisibility",
-      "model": "ColumnPresentation",
-      "action": "ToggleVisibility",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-columnpresentation-togglevisibility",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ConstructionLifecycle.ChangeDraftIdentity",
-      "model": "ConstructionLifecycle",
-      "action": "ChangeDraftIdentity",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 2257,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!sameRootChangeRequestIdentity(pending.identity, currentIdentity)",
-          "find": "    if (!currentIdentity || !sameRootChangeRequestIdentity(pending.identity, currentIdentity)) {",
-          "replace": "    if (!currentIdentity) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-constructionlifecycle-changedraftidentity",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
       "modelAction": "ConstructionLifecycle.LatePreviewSettlementIgnored",
       "model": "ConstructionLifecycle",
       "action": "LatePreviewSettlementIgnored",
@@ -4352,33 +2284,6 @@
       "guardCandidates": [],
       "priority": "low",
       "proposedProbeId": "model-constructionlifecycle-latepreviewsettlementignored",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "ConstructionLifecycle.LateProposalSettlementIgnored",
-      "model": "ConstructionLifecycle",
-      "action": "LateProposalSettlementIgnored",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
-          "line": 183,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!isCurrentProposal(proposal, latest)",
-          "find": "      if (!latest || contextIdentity(latest) !== identity || !isCurrentProposal(proposal, latest)) {",
-          "replace": "      if (!latest || contextIdentity(latest) !== identity) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-constructionlifecycle-lateproposalsettlementignored",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
@@ -4438,33 +2343,6 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "DraftRestore.StaleDraft",
-      "model": "DraftRestore",
-      "action": "StaleDraft",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 2140,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "(isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code))",
-          "find": "        if (apiError && (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code))) {",
-          "replace": "        if (apiError) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-draftrestore-staledraft",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
       "modelAction": "DraftRestore.StartRestore",
       "model": "DraftRestore",
       "action": "StartRestore",
@@ -4479,9 +2357,9 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "Population.ClearAttached",
-      "model": "Population",
-      "action": "ClearAttached",
+      "modelAction": "LifecycleEntry.CommandStale",
+      "model": "LifecycleEntry",
+      "action": "CommandStale",
       "status": "missing",
       "routeBinding": "unbound",
       "routeCount": 0,
@@ -4489,7 +2367,77 @@
       "candidateSourceFiles": [],
       "guardCandidates": [],
       "priority": "low",
-      "proposedProbeId": "model-population-clearattached",
+      "proposedProbeId": "model-lifecycleentry-commandstale",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "LifecycleEntry.CommandSuccess",
+      "model": "LifecycleEntry",
+      "action": "CommandSuccess",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-lifecycleentry-commandsuccess",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "LifecycleEntry.GateReconcile",
+      "model": "LifecycleEntry",
+      "action": "GateReconcile",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-lifecycleentry-gatereconcile",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "LifecycleEntry.ReconcileNeedsRepair",
+      "model": "LifecycleEntry",
+      "action": "ReconcileNeedsRepair",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-lifecycleentry-reconcileneedsrepair",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "LifecycleEntry.ReconcileReceiptBound",
+      "model": "LifecycleEntry",
+      "action": "ReconcileReceiptBound",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-lifecycleentry-reconcilereceiptbound",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "LifecycleEntry.RetryEntryReconcile",
+      "model": "LifecycleEntry",
+      "action": "RetryEntryReconcile",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-lifecycleentry-retryentryreconcile",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
@@ -4521,36 +2469,9 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "ReconcileLifecycle.SetTablesRooted",
-      "model": "ReconcileLifecycle",
-      "action": "SetTablesRooted",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DatasetReviewPanel.tsx",
-          "line": 322,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "scopedTables.length === 1",
-          "find": "  if (namesRowSetting && scopedTables.length === 1) {",
-          "replace": "  if (namesRowSetting) {"
-        }
-      ],
-      "priority": "low",
-      "proposedProbeId": "model-reconcilelifecycle-settablesrooted",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "SupportingSurfaces.ExpandGraph",
-      "model": "SupportingSurfaces",
-      "action": "ExpandGraph",
+      "modelAction": "WorkspaceLifecycle.AbortPreview",
+      "model": "WorkspaceLifecycle",
+      "action": "AbortPreview",
       "status": "missing",
       "routeBinding": "unbound",
       "routeCount": 0,
@@ -4558,13 +2479,13 @@
       "candidateSourceFiles": [],
       "guardCandidates": [],
       "priority": "low",
-      "proposedProbeId": "model-supportingsurfaces-expandgraph",
+      "proposedProbeId": "model-workspacelifecycle-abortpreview",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "SupportingSurfaces.FocusReview",
-      "model": "SupportingSurfaces",
-      "action": "FocusReview",
+      "modelAction": "WorkspaceLifecycle.PreviewFailed",
+      "model": "WorkspaceLifecycle",
+      "action": "PreviewFailed",
       "status": "missing",
       "routeBinding": "unbound",
       "routeCount": 0,
@@ -4572,13 +2493,13 @@
       "candidateSourceFiles": [],
       "guardCandidates": [],
       "priority": "low",
-      "proposedProbeId": "model-supportingsurfaces-focusreview",
+      "proposedProbeId": "model-workspacelifecycle-previewfailed",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "SupportingSurfaces.InspectGraphNode",
-      "model": "SupportingSurfaces",
-      "action": "InspectGraphNode",
+      "modelAction": "WorkspaceLifecycle.RetryTransient",
+      "model": "WorkspaceLifecycle",
+      "action": "RetryTransient",
       "status": "missing",
       "routeBinding": "unbound",
       "routeCount": 0,
@@ -4586,21 +2507,7 @@
       "candidateSourceFiles": [],
       "guardCandidates": [],
       "priority": "low",
-      "proposedProbeId": "model-supportingsurfaces-inspectgraphnode",
-      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
-    },
-    {
-      "modelAction": "SupportingSurfaces.ToggleGraphOrphans",
-      "model": "SupportingSurfaces",
-      "action": "ToggleGraphOrphans",
-      "status": "missing",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "low",
-      "proposedProbeId": "model-supportingsurfaces-togglegraphorphans",
+      "proposedProbeId": "model-workspacelifecycle-retrytransient",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
@@ -4889,7 +2796,7 @@
       "model": "Population",
       "action": "CoverageComplete",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -4934,7 +2841,7 @@
       "model": "Population",
       "action": "CoverageIncomplete",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -4979,7 +2886,7 @@
       "model": "Population",
       "action": "CoverageStale",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -5251,66 +3158,6 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "Population.RemovalReviewReady",
-      "model": "Population",
-      "action": "RemovalReviewReady",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 2,
-      "candidateTests": [
-        {
-          "id": "playwright:builder-population-member-removal:mapped-contributor-removal-preserves-group-counts",
-          "kind": "playwright",
-          "name": "removes one mapped contributor, preserves the lower nonempty GROUP, and restores the exact baseline$",
-          "file": "scripts/verify-ui/specs/population-member-removal.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-population-member-removal:mapped-plus-orphan-to-empty",
-          "kind": "playwright",
-          "name": "mapped-plus-orphan-to-empty",
-          "file": "scripts/verify-ui/specs/population-member-removal.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-root-replacement:replace-current-setup",
-          "kind": "playwright",
-          "name": "Explicit row-root replacement previews a reset, cancels safely, applies, and survives reload$",
-          "file": "scripts/verify-ui/specs/basic-root-replacement.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:cda-collection-repair-partial:partial-long-route-repair-and-reload",
-          "kind": "playwright",
-          "name": "remove an unmapped selected resource, verify the saved route, and reload$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1703,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!rows",
-          "find": "      if (response.previewStatus !== 'READY' || !columnId || !rows) {",
-          "replace": "      if (response.previewStatus !== 'READY' || !columnId) {"
-        }
-      ],
-      "priority": "medium",
-      "proposedProbeId": "model-population-removalreviewready",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
       "modelAction": "Population.ReplaceSelection",
       "model": "Population",
       "action": "ReplaceSelection",
@@ -5361,7 +3208,7 @@
       "model": "Population",
       "action": "RequestCoverage",
       "status": "missing",
-      "routeBinding": "candidate",
+      "routeBinding": "route",
       "routeCount": 1,
       "candidateTests": [
         {
@@ -5708,194 +3555,6 @@
       "guardCandidates": [],
       "priority": "medium",
       "proposedProbeId": "model-supportingsurfaces-confirmframechange",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "SupportingSurfaces.NextLineagePage",
-      "model": "SupportingSurfaces",
-      "action": "NextLineagePage",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "playwright:cda-upstream-related-edit-cascade:upstream-edit-cascade",
-          "kind": "playwright",
-          "name": "edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it",
-          "file": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
-          "line": 59,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "(page.nextCursor === cursor || seenCursors.includes(page.nextCursor))",
-          "find": "  if (page.nextCursor && (page.nextCursor === cursor || seenCursors.includes(page.nextCursor))) {",
-          "replace": "  if (page.nextCursor) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
-          "line": 76,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "total !== selection.memberCount)",
-          "find": "  if (total > selection.memberCount || (!page.nextCursor && total !== selection.memberCount)) {",
-          "replace": "  if (total > selection.memberCount || (!page.nextCursor) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
-          "line": 186,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "seenCursors.has(page.nextCursor)",
-          "find": "      if (page.nextCursor && seenCursors.has(page.nextCursor)) {",
-          "replace": "      if (page.nextCursor) {"
-        }
-      ],
-      "priority": "medium",
-      "proposedProbeId": "model-supportingsurfaces-nextlineagepage",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "SupportingSurfaces.RequestRowSources",
-      "model": "SupportingSurfaces",
-      "action": "RequestRowSources",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "playwright:cda-upstream-related-edit-cascade:upstream-edit-cascade",
-          "kind": "playwright",
-          "name": "edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it",
-          "file": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-          "line": 903,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "preview.rowLineageCapability.status === 'AVAILABLE'",
-          "find": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE' && preview.rowLineageCapability.status === 'AVAILABLE') {",
-          "replace": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE') {"
-        }
-      ],
-      "priority": "medium",
-      "proposedProbeId": "model-supportingsurfaces-requestrowsources",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "SupportingSurfaces.RowSourcesReady",
-      "model": "SupportingSurfaces",
-      "action": "RowSourcesReady",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "playwright:cda-upstream-related-edit-cascade:upstream-edit-cascade",
-          "kind": "playwright",
-          "name": "edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it",
-          "file": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1703,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "||",
-          "dropped": "!rows",
-          "find": "      if (response.previewStatus !== 'READY' || !columnId || !rows) {",
-          "replace": "      if (response.previewStatus !== 'READY' || !columnId) {"
-        },
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-          "line": 903,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "preview.rowLineageCapability.status === 'AVAILABLE'",
-          "find": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE' && preview.rowLineageCapability.status === 'AVAILABLE') {",
-          "replace": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE') {"
-        }
-      ],
-      "priority": "medium",
-      "proposedProbeId": "model-supportingsurfaces-rowsourcesready",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "SupportingSurfaces.RowSourcesUnavailable",
-      "model": "SupportingSurfaces",
-      "action": "RowSourcesUnavailable",
-      "status": "missing",
-      "routeBinding": "candidate",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "playwright:cda-upstream-related-edit-cascade:upstream-edit-cascade",
-          "kind": "playwright",
-          "name": "edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it",
-          "file": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
-      ],
-      "guardCandidates": [
-        {
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-          "line": 903,
-          "score": 2,
-          "specific": false,
-          "occurrences": 1,
-          "confidence": "low",
-          "operator": "&&",
-          "dropped": "preview.rowLineageCapability.status === 'AVAILABLE'",
-          "find": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE' && preview.rowLineageCapability.status === 'AVAILABLE') {",
-          "replace": "                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE') {"
-        }
-      ],
-      "priority": "medium",
-      "proposedProbeId": "model-supportingsurfaces-rowsourcesunavailable",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     }
   ]

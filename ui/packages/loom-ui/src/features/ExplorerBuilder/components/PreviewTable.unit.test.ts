@@ -920,6 +920,7 @@ describe('PreviewTable column controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
     expect(screen.getByRole('dialog', { name: 'Row 1 identity' })).toHaveTextContent('cohort-a');
     expect(screen.getByRole('dialog', { name: 'Row 1 identity' })).toHaveTextContent('revision-1');
+    expect(screen.getByRole('dialog', { name: 'Row 1 identity' })).toHaveTextContent('Source records cannot be listed for this table shape');
     expect(onRowLineage).not.toHaveBeenCalled();
   });
 
