@@ -267,13 +267,18 @@ export const captureBuilderObservation = async (page) => page.evaluate(() => {
   const rowOperationProposalPreview = rowOperationEditor?.querySelector('[data-testid="construction-proposal-preview"]');
   const proposalId = attribute(proposalPanel, 'data-proposal-id');
   const mainPreviewProposalId = attribute(sourcePreview, 'data-preview-proposal-id');
+  const mainPreviewReceiptId = attribute(sourcePreview, 'data-preview-receipt-id');
   const rowOperationSurface = Boolean(
     proposalId
     && rowOperationEditor
     && rowOperationPanel === proposalPanel
     && rowOperationProposalPreview,
   );
-  const mainTableSurface = Boolean(proposalId && mainPreviewProposalId === proposalId);
+  const mainTableSurface = Boolean(
+    proposalId
+    && mainPreviewProposalId === proposalId
+    && mainPreviewReceiptId === proposalId,
+  );
   const proposalPreviewSurface = rowOperationSurface === mainTableSurface
     ? 'unknown'
     : rowOperationSurface

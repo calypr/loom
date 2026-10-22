@@ -525,7 +525,26 @@ const runJourneyCrossEvidenceMutation = () => {
     },
     'traces[0].actions[1].observation.main-table sourceTablePreview.proposalId does not match displayed proposalId',
   );
-  if (!absentProposalId || !mismatchedProposalId) return false;
+  const mismatchedReceiptId = runJourneySurfaceMutation(
+    'journey-main-table-matching-proposal-with-stale-receipt',
+    (observation) => {
+      const stalePreview = {
+        ...observation.sourceTablePreview,
+        proposalId: observation.proposalId,
+        receiptId: 'stale-source-receipt-self-test',
+      };
+      observation.proposalPreviewSurface = 'main-table';
+      observation.sourceTablePreview = stalePreview;
+      observation.embeddedProposalPreview = { ...stalePreview };
+      observation.previewReceiptPresent = true;
+      observation.rowsPresent = stalePreview.rowsPresent;
+      observation.receiptPresent = true;
+      observation.previewReceiptId = stalePreview.receiptId;
+      observation.previewOutputId = stalePreview.outputId;
+    },
+    'traces[0].actions[1].observation.main-table sourceTablePreview.receiptId does not match displayed proposalId',
+  );
+  if (!absentProposalId || !mismatchedProposalId || !mismatchedReceiptId) return false;
   return true;
 };
 

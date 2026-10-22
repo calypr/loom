@@ -523,6 +523,13 @@ function observationProblem(observation, where, model) {
         if (rawMainProposalId !== observation.proposalId) {
           return where + '.main-table sourceTablePreview.proposalId does not match displayed proposalId';
         }
+        const rawMainReceiptId = rawMainPreview.receiptId;
+        if (typeof rawMainReceiptId !== 'string' || rawMainReceiptId.length === 0) {
+          return where + '.main-table proposal preview requires sourceTablePreview.receiptId';
+        }
+        if (rawMainReceiptId !== observation.proposalId) {
+          return where + '.main-table sourceTablePreview.receiptId does not match displayed proposalId';
+        }
         for (const field of ['status', 'receiptId', 'outputId', 'rowsPresent']) {
           if (!Object.hasOwn(rawMainPreview, field) || !Object.hasOwn(embedded, field) ||
               rawMainPreview[field] !== embedded[field]) {

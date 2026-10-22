@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "90e339662744ef99c24e2fe96e3fee8e9eef19b1b9aa5eb298f4bd884fcf0ae9",
+      "sha256": "ef4612fc51cfc4ccf377df2557fdf8c01735f68de6bb57958a9ed255e873716a",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
@@ -54,7 +54,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/fast-fixtures.mjs",
-      "sha256": "c3bb00c6a1c352abd35d538f6ed56323c24617e155f3e02bdb3e546e311dcbd5",
+      "sha256": "d13de8695d3a4bd9054cee42ae33729d116661a66c9fb845b57e8a2ab3f0b512",
       "contract": "Journey request/response capture, request-object correlation, and read-only DOM observation helpers."
     },
     {
