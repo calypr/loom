@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -633,6 +634,7 @@ func authoredConstructionOutputsWithCombineInputs(
 		sourceOnlyIDs[projection.ColumnID] = struct{}{}
 	}
 	prior := make(map[string]string, len(document.Columns))
+	priorIDsByName := make(map[string]string, len(document.Columns))
 	for _, column := range document.Columns {
 		if !requiredConstructionID(column.ColumnID) {
 			return fmt.Errorf("source column %q has no stable column ID", column.Column)
@@ -643,7 +645,39 @@ func authoredConstructionOutputsWithCombineInputs(
 		if _, duplicate := prior[column.ColumnID]; duplicate {
 			return fmt.Errorf("source schema duplicates column ID %q", column.ColumnID)
 		}
+		if existingID, duplicate := priorIDsByName[column.Column]; duplicate {
+			return fmt.Errorf("source schema maps public name %q to column IDs %q and %q", column.Column, existingID, column.ColumnID)
+		}
 		prior[column.ColumnID] = column.Column
+		priorIDsByName[column.Column] = column.ColumnID
+	}
+	if len(compiledOutput.Stages) > 0 && compiledOutput.Stages[0].ID == recipe.ConstructionSourceProjectionID {
+		seenSourceIDs := make(map[string]struct{}, len(compiledOutput.Stages[0].Columns))
+		seenSourceNames := make(map[string]string, len(compiledOutput.Stages[0].Columns))
+		for _, column := range compiledOutput.Stages[0].Columns {
+			if column.Internal || column.Identity {
+				continue
+			}
+			if !requiredConstructionID(column.ID) || strings.TrimSpace(column.Name) == "" {
+				return fmt.Errorf("compiled source stage contains a column with a missing stable ID or public name")
+			}
+			if _, duplicate := seenSourceIDs[column.ID]; duplicate {
+				return fmt.Errorf("compiled source stage duplicates column ID %q", column.ID)
+			}
+			seenSourceIDs[column.ID] = struct{}{}
+			if existingID, duplicate := seenSourceNames[column.Name]; duplicate && existingID != column.ID {
+				return fmt.Errorf("compiled source stage maps public name %q to column IDs %q and %q", column.Name, existingID, column.ID)
+			}
+			seenSourceNames[column.Name] = column.ID
+			if existingName, exists := prior[column.ID]; exists && existingName != column.Name {
+				return fmt.Errorf("compiled source column ID %q conflicts with authored public name %q", column.ID, existingName)
+			}
+			if existingID, exists := priorIDsByName[column.Name]; exists && existingID != column.ID {
+				return fmt.Errorf("compiled source public name %q conflicts with authored column ID %q", column.Name, existingID)
+			}
+			prior[column.ID] = column.Name
+			priorIDsByName[column.Name] = column.ID
+		}
 	}
 	for stepIndex, step := range document.Construction.Steps {
 		nextAuthored := make(map[string]authoredOutputColumn, len(step.Outputs))
