@@ -15,7 +15,7 @@ TablePreviewStates == {"ready", "error"}
 JourneyActions == {"Init", "Group", "GroupAgain", "AddColumn",
                    "CancelFilter", "EditGroup", "RemoveGroup", "Pivot", "Preview",
                    "PreviewComplete", "PreviewError", "LatePreviewCompleteIgnored",
-                   "LatePreviewErrorIgnored", "ChoicePreview", "ChoicePreviewComplete",
+                   "LatePreviewErrorIgnored", "PreviewRequestCancelled", "ChoicePreview", "ChoicePreviewComplete",
                    "ChoicePreviewError"}
 
 VARIABLES
@@ -159,6 +159,15 @@ PreviewError(attempt, hasProposalId) ==
                   tablePreview, sourceRowsPresent>>
   /\ lastAction' = "PreviewError"
 
+PreviewRequestCancelled(attempt) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ preview = "pending"
+  /\ proposalPreviewOwner = attempt
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+                  choicePreview, choicePreviewOwner, proposalIdPresent, rowsPresent,
+                  tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "PreviewRequestCancelled"
+
 ChoicePreview(attempt) ==
   /\ attempt \in {"P1", "P2"}
   /\ phase \in {"selected", "reshaping"}
@@ -217,6 +226,7 @@ Next ==
   \/ \E attempt \in {"P1", "P2"}: Preview(attempt)
   \/ \E attempt \in {"P1", "P2"}: PreviewComplete(attempt)
   \/ \E attempt \in {"P1", "P2"}, hasProposalId \in BOOLEAN: PreviewError(attempt, hasProposalId)
+  \/ \E attempt \in {"P1", "P2"}: PreviewRequestCancelled(attempt)
   \/ \E attempt \in {"P1", "P2"}: LatePreviewCompleteIgnored(attempt)
   \/ \E attempt \in {"P1", "P2"}: LatePreviewErrorIgnored(attempt)
   \/ \E attempt \in {"P1", "P2"}: ChoicePreview(attempt)

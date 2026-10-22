@@ -21,7 +21,8 @@
         "PreviewComplete",
         "PreviewError",
         "LatePreviewCompleteIgnored",
-        "LatePreviewErrorIgnored"
+        "LatePreviewErrorIgnored",
+        "PreviewRequestCancelled"
       ]
     }
   },
@@ -85,6 +86,10 @@
     "ChoicePreviewError": {
       "event": "choice-preview-response",
       "trigger": "choice preview request failed or returned an unusable preview before AddColumn could consume it"
+    },
+    "PreviewRequestCancelled": {
+      "event": "preview-request-cancelled",
+      "trigger": "a current pending proposal-preview request was cancelled by net::ERR_ABORTED without changing the public preview observation"
     }
   },
   "observationFields": [

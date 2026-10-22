@@ -169,6 +169,7 @@ test('builder journey edits and removes a group, then reloads the source', async
   await expect(idGroup).toBeVisible();
   await expect(genderGroup).toBeVisible();
   const beforeEdit = proposalBodies.length;
+  const editProposalAttempts = [];
   const editProposalSettlements = [];
   const editProposalRows = [];
   const observeEditSelection = async (checkbox) => {
@@ -181,6 +182,7 @@ test('builder journey edits and removes a group, then reloads the source', async
       path: 'construction-proposals',
       owner: { kind: 'proposal', attempt: editProposalSettlements.length === 0 ? 'P1' : 'P2' },
     });
+    editProposalAttempts.push(attempt);
     await checkbox.check();
     const started = await attempt.started;
     editProposalRows.push({
@@ -193,17 +195,20 @@ test('builder journey edits and removes a group, then reloads the source', async
         observation: started.requestObservation,
       },
     });
-    editProposalSettlements.push(attempt.settled.then((exchange) => {
+    editProposalSettlements.push(attempt.settled.then(async (exchange) => {
+      const startedAttempts = await Promise.all(editProposalAttempts.map((candidate) => candidate.started));
       const observation = exchange.responseObservation;
       const response = exchange.response;
       const responseMatchesPanel = Boolean(response?.proposalId)
         && response.proposalId === observation.proposalId;
-      const newerProposalStarted = editProposalRows.some((row) =>
-        row.action.label === 'Preview'
-        && row.sequence > started.sequence
-        && row.sequence < exchange.responseSequence);
+      const newerProposalStarted = startedAttempts.some((candidate) =>
+        candidate.sequence > started.sequence && candidate.sequence < exchange.responseSequence);
       const late = newerProposalStarted
         || Boolean(response?.proposalId && observation.proposalId && response.proposalId !== observation.proposalId);
+      const requestCancelled = !response
+        && exchange.settlement?.kind === 'request-failed'
+        && exchange.settlement.errorText === 'net::ERR_ABORTED';
+      const currentRequestCancelled = requestCancelled && !late;
       const typedError = !response
         || response.status < 200
         || response.status >= 300
@@ -220,19 +225,21 @@ test('builder journey edits and removes a group, then reloads the source', async
       if (!failed && !observedReady && !responseHasReadyPreview) {
         throw new Error(`Cannot classify edit proposal settlement for ${started.owner.attempt} from response and observed panel`);
       }
-      const label = late
-        ? (failed ? 'LatePreviewErrorIgnored' : 'LatePreviewCompleteIgnored')
-        : (failed ? 'PreviewError' : 'PreviewComplete');
+      const label = currentRequestCancelled
+        ? 'PreviewRequestCancelled'
+        : late
+          ? (failed ? 'LatePreviewErrorIgnored' : 'LatePreviewCompleteIgnored')
+          : (failed ? 'PreviewError' : 'PreviewComplete');
       editProposalRows.push({
         sequence: exchange.responseSequence,
         action: {
           label,
-          event: 'preview-response',
+          event: currentRequestCancelled ? 'preview-request-cancelled' : 'preview-response',
           owner: started.owner,
           request: exchange.request,
           response: exchange.response,
           settlement: exchange.settlement,
-          observation: late ? observation : combineAuthoringObservation(exchange, observation),
+          observation: late || currentRequestCancelled ? observation : combineAuthoringObservation(exchange, observation),
         },
       });
       return exchange;

@@ -302,7 +302,7 @@ function requiredOwnerForAction(model, label) {
     ]).has(label);
   }
   if (model === 'BuilderJourney') {
-    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return true;
+    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return true;
     return new Set([
       'Group', 'GroupAgain', 'AddColumn', 'EditGroup', 'RemoveGroup',
     ]).has(label);
@@ -323,7 +323,7 @@ function expectedOwnerKind(model, label) {
     if (/^(?:ScheduleDiscovery|DiscoveryComplete)/.test(label)) return 'discovery';
   }
   if (model === 'BuilderJourney') {
-    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return 'proposal';
+    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return 'proposal';
     if (/^(?:Group|GroupAgain|AddColumn|EditGroup|RemoveGroup)$/.test(label)) return 'apply';
   }
   return null;
@@ -836,7 +836,7 @@ function traceShapeProblem(trace, index, contract, events) {
       if (action.owner !== undefined && !requiredOwnerForAction(trace.model, action.label)) {
         return { message: actionWhere + '.owner is not valid for a local BuilderJourney event', actionIndex };
       }
-      const previewSettlement = ['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored'].includes(action.label);
+      const previewSettlement = ['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled'].includes(action.label);
       const choiceSettlement = ['ChoicePreviewComplete', 'ChoicePreviewError'].includes(action.label);
       const requestStart = ['Preview', 'ChoicePreview'].includes(action.label);
       if (action.owner && action.request === undefined) return { message: actionWhere + '.request is required for an owned BuilderJourney action', actionIndex };
@@ -860,8 +860,8 @@ function traceShapeProblem(trace, index, contract, events) {
         return { message: actionWhere + '.non-null wire requestIds do not match', actionIndex };
       }
       if (action.owner && !requestStart && action.response === null &&
-          (!['PreviewError', 'LatePreviewErrorIgnored', 'ChoicePreviewError'].includes(action.label) || action.settlement?.kind !== 'request-failed')) {
-        return { message: actionWhere + ' response:null is allowed only for a request-failed preview or choice-preview error settlement', actionIndex };
+          (!['PreviewError', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled', 'ChoicePreviewError'].includes(action.label) || action.settlement?.kind !== 'request-failed')) {
+        return { message: actionWhere + ' response:null is allowed only for a request-failed preview, cancellation, or choice-preview error settlement', actionIndex };
       }
       if (action.owner && !requestStart && action.response !== null && action.settlement?.kind !== 'http-response') {
         return { message: actionWhere + ' HTTP response requires settlement.kind http-response', actionIndex };
@@ -885,6 +885,29 @@ function traceShapeProblem(trace, index, contract, events) {
           action.request?.path !== 'construction-choice-proposals') {
         return { message: actionWhere + ' ChoicePreview actions require path construction-choice-proposals', actionIndex };
       }
+      if (action.label === 'PreviewRequestCancelled') {
+        const previous = trace.actions[actionIndex - 1];
+        const sameRequest = previous?.request && action.request &&
+          previous.request.method === 'POST' &&
+          previous.request.method === action.request.method &&
+          previous.request.path === action.request.path &&
+          previous.request.captureId === action.request.captureId;
+        if (!previous || previous.label !== 'Preview' ||
+            canonicalJson(previous.owner) !== canonicalJson(action.owner) || !sameRequest ||
+            action.request?.path !== 'construction-proposals') {
+          return {
+            message: actionWhere + ' PreviewRequestCancelled must match the immediately preceding Preview owner and request capture',
+            actionIndex,
+          };
+        }
+        if (action.response !== null || action.settlement?.kind !== 'request-failed' ||
+            action.settlement?.errorText !== 'net::ERR_ABORTED') {
+          return {
+            message: actionWhere + ' PreviewRequestCancelled requires response:null and settlement.errorText net::ERR_ABORTED',
+            actionIndex,
+          };
+        }
+      }
       if (action.label === 'AddColumn' && action.request?.path !== 'commands') {
         return { message: actionWhere + ' AddColumn requires the actual commands request', actionIndex };
       }
@@ -902,7 +925,7 @@ function traceShapeProblem(trace, index, contract, events) {
     const previewStartByCapture = new Map();
     const pairedPreviewCaptures = new Set();
     const previewSettlementLabels = new Set([
-      'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored',
+      'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
     ]);
     for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
       const action = trace.actions[actionIndex];
@@ -960,7 +983,7 @@ function traceShapeProblem(trace, index, contract, events) {
       const action = trace.actions[actionIndex];
       if (!action.owner || !action.request) continue;
       if ([
-        'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored',
+        'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
         'ChoicePreviewComplete', 'ChoicePreviewError',
       ].includes(action.label)) continue;
       const problem = registerCapture(action.request.captureId, where + '.actions[' + actionIndex + '].request');
@@ -1056,7 +1079,8 @@ function tlaObservation(observation) {
     ', proposalIdPresent |-> ' + tlaBool(observation.proposalIdPresent) +
     ', previewReceiptPresent |-> ' + tlaBool(observation.previewReceiptPresent) +
     ', rowsPresent |-> ' + tlaBool(observation.rowsPresent) +
-    ', receiptPresent |-> ' + tlaBool(observation.receiptPresent) + ']';
+    ', receiptPresent |-> ' + tlaBool(observation.receiptPresent) +
+    ', selectedObservation |-> ' + tlaString(Buffer.from(canonicalJson(observation)).toString('hex')) + ']';
 }
 
 function tlaSequence(items) {
@@ -1228,6 +1252,7 @@ function actionOwnerMatches(model) {
       '      attempt == TraceOwnerAttempts[index]',
       '  IN CASE label = "Preview" -> /\\ attempt \\in {"P1", "P2"} /\\ proposalPreviewOwner\' = attempt',
       '       [] label \\in {"PreviewComplete", "PreviewError"} -> proposalPreviewOwner = attempt',
+      '       [] label = "PreviewRequestCancelled" -> /\\ attempt \\in {"P1", "P2"} /\\ proposalPreviewOwner = attempt',
       '       [] label \\in {"LatePreviewCompleteIgnored", "LatePreviewErrorIgnored"} -> /\\ proposalPreviewOwner \\in {"P1", "P2"} /\\ proposalPreviewOwner # attempt',
       '       [] label = "ChoicePreview" -> /\\ attempt \\in {"P1", "P2"} /\\ choicePreviewOwner\' = attempt',
       '       [] label \\in {"ChoicePreviewComplete", "ChoicePreviewError"} -> choicePreviewOwner = attempt',
@@ -1270,15 +1295,18 @@ function actionIdentityPreserved(model) {
     '  LET label == TraceActions[index]',
     '      before == TraceObservations[index - 1]',
     '      after == TraceObservations[index]',
-    '  IN IF label \\in {' + labels.join(', ') + '}',
-    '     THEN ObservedIdentityUnchanged(before, after)',
+    '  IN IF label = "PreviewRequestCancelled"',
+    '     THEN /\\ ObservedIdentityUnchanged(before, after)',
+    '          /\\ before.selectedObservation = after.selectedObservation',
+    '     ELSE IF label \\in {' + labels.join(', ') + '}',
+    '          THEN ObservedIdentityUnchanged(before, after)',
     ...(model === 'BuilderPreview'
       ? [
-          '     ELSE IF label = "ApplyAck" /\\ applyOwner.generation # proposalOwner.generation',
-          '          THEN ObservedIdentityUnchanged(before, after)',
-          '          ELSE TRUE',
+          '          ELSE IF label = "ApplyAck" /\\ applyOwner.generation # proposalOwner.generation',
+          '               THEN ObservedIdentityUnchanged(before, after)',
+          '               ELSE TRUE',
         ]
-      : ['     ELSE TRUE']),
+      : ['          ELSE TRUE']),
   ].join('\n');
 }
 

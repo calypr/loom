@@ -795,6 +795,210 @@ const runJourneyChoiceProofMutations = () => {
   return wrongCommandPass && orderPass && publishedPass;
 };
 
+const runJourneyRequestCancellationMutation = () => {
+  const journeyContractPath = 'verification/builder-interactions/builder-journey-contract.json';
+  const journeyContract = JSON.parse(readFileSync(resolve(ROOT, journeyContractPath), 'utf8'));
+  const sourceTablePreview = {
+    status: 'ready',
+    receiptId: 'source-receipt-cancel-self-test',
+    outputId: 'source-output-cancel-self-test',
+    proposalId: null,
+    draftVersion: 1,
+    draftDigest: 'source-draft-cancel-self-test',
+    rowsPresent: true,
+    rowCount: 2,
+    renderedRowCount: 2,
+  };
+  const observation = (status) => ({
+    status,
+    proposalPanelPresent: status !== 'absent',
+    tablePreviewStatus: 'ready',
+    canApply: status === 'ready',
+    proposalIdPresent: status === 'ready',
+    proposalId: status === 'ready' ? 'proposal-cancel-p2-self-test' : null,
+    proposalOutputId: status === 'ready' ? 'output-cancel-p2-self-test' : null,
+    proposalSnapshotToken: status === 'ready' ? 'snapshot-cancel-p2-self-test' : null,
+    proposalDraftVersion: status === 'ready' ? 2 : null,
+    proposalDraftDigest: status === 'ready' ? 'draft-cancel-p2-self-test' : null,
+    proposalPreviewStatus: status === 'ready' ? 'READY' : null,
+    previewReceiptPresent: status === 'ready',
+    rowsPresent: status === 'ready',
+    receiptPresent: status === 'ready',
+    previewReceiptId: status === 'ready' ? 'proposal-cancel-p2-self-test' : null,
+    previewOutputId: status === 'ready' ? 'output-cancel-p2-self-test' : null,
+    proposalPreviewSurface: status === 'ready' ? 'row-operation' : 'unknown',
+    sourceTablePreview,
+    embeddedProposalPreview: status === 'ready' ? {
+      status: 'ready',
+      receiptId: 'proposal-cancel-p2-self-test',
+      outputId: 'output-cancel-p2-self-test',
+      proposalId: 'proposal-cancel-p2-self-test',
+      draftVersion: 2,
+      draftDigest: 'draft-cancel-p2-self-test',
+      rowsPresent: true,
+      rowCount: 2,
+      renderedRowCount: 2,
+    } : null,
+    apply: { available: status === 'ready', enabled: status === 'ready', applying: false },
+  });
+  const pendingObservation = observation('previewing');
+  const p1Owner = { kind: 'proposal', attempt: 'P1' };
+  const p2Owner = { kind: 'proposal', attempt: 'P2' };
+  const p1CaptureId = 'preview-cancel-p1-capture';
+  const p2CaptureId = 'preview-cancel-p2-capture';
+  const p1Request = {
+    method: 'POST',
+    path: 'construction-proposals',
+    requestId: 'preview-cancel-p1-wire',
+    captureId: p1CaptureId,
+  };
+  const p2Request = {
+    method: 'POST',
+    path: 'construction-proposals',
+    requestId: 'preview-cancel-p2-wire',
+    captureId: p2CaptureId,
+  };
+  const p2Response = {
+    status: 200,
+    requestId: p2Request.requestId,
+    captureId: p2CaptureId,
+    errorCode: null,
+    proposalId: 'proposal-cancel-p2-self-test',
+    proposalOutputId: 'output-cancel-p2-self-test',
+    proposalSnapshotToken: 'snapshot-cancel-p2-self-test',
+    proposalDraftVersion: 2,
+    proposalDraftDigest: 'draft-cancel-p2-self-test',
+    proposalPreviewStatus: 'READY',
+    preview: {
+      receiptId: 'proposal-cancel-p2-self-test',
+      outputId: 'output-cancel-p2-self-test',
+      rowsPresent: true,
+      rowCount: 2,
+    },
+  };
+  const trace = {
+    name: 'self-test-only BuilderJourney current-owner aborted preview before replacement',
+    model: 'BuilderJourney',
+    initialObservation: observation('absent'),
+    initialPreview: {
+      owner: { kind: 'preview', attempt: 'P1' },
+      request: {
+        method: 'POST',
+        path: 'preview',
+        requestId: 'preview-cancel-source-wire',
+        captureId: 'preview-cancel-source-capture',
+      },
+      response: {
+        status: 200,
+        requestId: 'preview-cancel-source-wire',
+        captureId: 'preview-cancel-source-capture',
+        errorCode: null,
+        preview: {
+          receiptId: sourceTablePreview.receiptId,
+          outputId: sourceTablePreview.outputId,
+          rowsPresent: true,
+          rowCount: sourceTablePreview.rowCount,
+        },
+      },
+      settlement: { kind: 'http-response', captureId: 'preview-cancel-source-capture' },
+    },
+    actions: [
+      {
+        label: 'Preview',
+        event: 'preview',
+        owner: p1Owner,
+        request: p1Request,
+        observation: pendingObservation,
+      },
+      {
+        label: 'PreviewRequestCancelled',
+        event: 'preview-request-cancelled',
+        owner: p1Owner,
+        request: p1Request,
+        response: null,
+        settlement: { kind: 'request-failed', captureId: p1CaptureId, errorText: 'net::ERR_ABORTED' },
+        observation: structuredClone(pendingObservation),
+      },
+      {
+        label: 'Preview',
+        event: 'preview',
+        owner: p2Owner,
+        request: p2Request,
+        observation: pendingObservation,
+      },
+      {
+        label: 'PreviewComplete',
+        event: 'preview-response',
+        owner: p2Owner,
+        request: p2Request,
+        response: p2Response,
+        settlement: { kind: 'http-response', captureId: p2CaptureId },
+        observation: observation('ready'),
+      },
+    ],
+  };
+  const cancellationPayload = {
+    ...payload,
+    sourceProfile: 'journey',
+    contractSourceCommit: journeyContract.sourceCommit,
+    traces: [trace],
+  };
+  const run = (label, candidate, reportPath) => {
+    const tracePath = join(workDirectory, label + '.json');
+    writeFileSync(tracePath, JSON.stringify(candidate, null, 2) + '\n');
+    const result = spawnSync(process.execPath, [
+      'scripts/verify-builder-traces.mjs',
+      '--traces', tracePath,
+      '--contract', journeyContractPath,
+      '--allow-partial',
+      '--quiet',
+      '--output', reportPath,
+    ], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    return { result, output: (result.stdout || '') + (result.stderr || '') };
+  };
+
+  const baselineReportPath = join(workDirectory, 'journey-request-cancel-positive.report.json');
+  const baseline = run('journey-request-cancel-positive', cancellationPayload, baselineReportPath);
+  if (baseline.result.status !== 0) {
+    console.error('FAIL journey request-cancellation positive baseline: validator rejected the current-owner abort stutter');
+    console.error(baseline.output.split('\n').slice(-18).join('\n'));
+    try {
+      console.error(JSON.stringify(JSON.parse(readFileSync(baselineReportPath, 'utf8')).traces?.[0] ?? null, null, 2));
+    } catch {}
+    return false;
+  }
+  console.log('PASS journey request-cancellation positive baseline: P1 abort stutter precedes P2 preview');
+
+  const mutation = JSON.parse(JSON.stringify(cancellationPayload));
+  mutation.traces[0].actions[1].observation.sourceTablePreview.receiptId = 'changed-source-receipt-cancel-self-test';
+  const mutationReportPath = join(workDirectory, 'journey-request-cancel-observation-mutation.report.json');
+  const mutated = run('journey-request-cancel-observation-mutation', mutation, mutationReportPath);
+  let report;
+  try {
+    report = JSON.parse(readFileSync(mutationReportPath, 'utf8'));
+  } catch (error) {
+    console.error('FAIL journey request-cancel-observation-mutation: verifier did not write a structured TLC report');
+    console.error(error instanceof Error ? error.message : 'unknown failure');
+    return false;
+  }
+  const failedTrace = report.traces?.[0];
+  if (mutated.result.status === 0 || failedTrace?.status !== 'fail' ||
+      failedTrace.failure?.actionLabel !== 'PreviewRequestCancelled' ||
+      failedTrace.failure?.message !== 'TLC did not complete the trace' ||
+      !(failedTrace.tlc?.stateCount > 0) || !(failedTrace.tlc?.distinctStateCount > 0)) {
+    console.error('FAIL journey request-cancel-observation-mutation: rejection did not come from the cancellation stutter guard');
+    console.error(JSON.stringify(failedTrace ?? null, null, 2));
+    return false;
+  }
+  console.log('PASS journey request-cancel-observation-mutation: ' + failedTrace.failure.message +
+    ' at ' + failedTrace.failure.actionLabel + ' (' + failedTrace.tlc.stateCount + ' states)');
+  return true;
+};
+
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const fingerprintFor = (sources, root) => sha256(JSON.stringify(sources
   .map(({ path }) => ({ path, sha256: sha256(readFileSync(resolve(root, path))) }))
@@ -965,9 +1169,10 @@ const runSourceProfileMutation = () => {
 if (journeyOnly) {
   const crossEvidencePassed = runJourneyCrossEvidenceMutation();
   const choiceProofPassed = runJourneyChoiceProofMutations();
+  const requestCancellationPassed = runJourneyRequestCancellationMutation();
   rmSync(workDirectory, { recursive: true, force: true });
-  if (!crossEvidencePassed || !choiceProofPassed) process.exit(1);
-  console.log('PASS BuilderJourney cross-evidence and choice-proof self-test');
+  if (!crossEvidencePassed || !choiceProofPassed || !requestCancellationPassed) process.exit(1);
+  console.log('PASS BuilderJourney cross-evidence, choice-proof, and request-cancellation self-test');
   process.exit(0);
 }
 
