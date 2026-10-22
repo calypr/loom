@@ -381,6 +381,8 @@ test('builder journey edits and removes a group, then reloads the source', async
   await expect(fastPage.getByTestId('preview-table-scroll').getByText(sourceIDs[1]).first()).toBeVisible();
   trace.traces[0].unmodeledEvents.push({
     kind: 'reload',
+    classification: 'unsupported',
+    reason: 'Reload remounts workspace; current model covers same-mount proposal/apply lifecycle; native reload assertion remains independent.',
     note: 'Reload after removing the group preserves the restored source table.',
   });
 

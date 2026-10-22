@@ -17,24 +17,24 @@ Status: generated from the TLA models and existing test metadata.
 
 ### Explicit formal links
 
-- `scripts/run-builder-journey.mjs`: journey-runner-consumes-manual-traces → BuilderJourney
+- `scripts/run-builder-journey.mjs`: journey-runner-consumes-captured-traces → BuilderJourney
 - `scripts/verify-builder-formal.mjs`: configured-model-runner → BuilderOperations, BuilderPreview, WorkspaceLifecycle, RowDefinitionLifecycle, DraftRestore, RootChange, ColumnPresentation, Population, Interpretation, SupportingSurfaces, LifecycleEntry, ReconcileLifecycle, BuilderJourney
 - `scripts/verify-builder-interactions.mjs`: configured-model-runner → ConstructionLifecycle
 - `scripts/verify-builder-traces.mjs`: trace-validator-not-producer → BuilderPreview, ConstructionLifecycle, ReconcileLifecycle
-- `scripts/verify-ui/journey-specs/add-column-preview.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/builder-journey.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/filter-preview.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/load-preview.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/pivot-error.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs`: declared-journey-model-manual-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/add-column-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/builder-journey.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/filter-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/load-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/pivot-error.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
 
-These are source associations, not passing runs. Journey observations are manually assembled; their independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.
+These are source associations, not passing runs. Journey traces capture DOM observations and correlated network request/response facts; they do not establish full UI/controller refinement. Independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.
 
 ### Cleanup review order
 
-1. Replace manually assembled journey observations with observed implementation state where a model applies; preserve independent data oracles.
+1. Close the remaining controller/reconcile and reload boundaries with runtime evidence where applicable; preserve independent data oracles.
 2. Review classified-but-unreplayed late/rejected runtime events before expanding the model claims.
 3. Consolidate duplicate test/route parsers and TLC acquisition only after proving equivalent behavior.
 4. Investigate `scripts/verify-ui/helpers/playwright-verification.mjs` and `scripts/local-preview-index-explain.mjs`; static audit found no current importer/invocation, but historical and manual use remain unresolved. Neither is approved for deletion.
@@ -46,15 +46,15 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 | Measure | Count |
 | --- | ---: |
 | models | 14 |
-| actions | 168 |
+| actions | 170 |
 | invariants | 89 |
-| obligations | 257 |
+| obligations | 259 |
 | covered | 6 |
 | partial | 89 |
-| missing | 162 |
+| missing | 164 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 73 |
+| missingUnbound | 75 |
 | tests | 905 |
 | testsWithObligations | 10 |
 | testsWithoutObligations | 895 |
@@ -67,8 +67,10 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 ## Obligations with no exact test
 
 - `BuilderJourney.AddColumn` (0 route(s))
-- `BuilderJourney.AddColumnAgain` (0 route(s))
 - `BuilderJourney.CancelFilter` (0 route(s))
+- `BuilderJourney.ChoicePreview` (0 route(s))
+- `BuilderJourney.ChoicePreviewComplete` (0 route(s))
+- `BuilderJourney.ChoicePreviewError` (0 route(s))
 - `BuilderJourney.EditGroup` (0 route(s))
 - `BuilderJourney.Group` (0 route(s))
 - `BuilderJourney.GroupAgain` (0 route(s))
@@ -144,9 +146,7 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 - `LifecycleEntry.ReconcileNeedsRepair` (0 route(s))
 - `LifecycleEntry.ReconcileReceiptBound` (0 route(s))
 - `LifecycleEntry.ReplaceExplorer` (1 route(s))
-- `LifecycleEntry.RetryEntryReconcile` (0 route(s))
-- `LifecycleEntry.SelectionFailed` (1 route(s))
-- 82 more in the JSON report.
+- 84 more in the JSON report.
 
 ## Obligations with exact tests
 

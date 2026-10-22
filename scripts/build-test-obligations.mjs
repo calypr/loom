@@ -109,9 +109,9 @@ function scriptInventory(modelDefinitions) {
   link('scripts/verify-builder-traces.mjs', 'trace-validator-not-producer', Object.keys(readJson(TRACE_CONTRACT).models), TRACE_CONTRACT);
   const journeyManifest = MODEL_DIR + '/builder-journey-audit.json';
   const journeyInventory = readJson(journeyManifest);
-  link(journeyInventory.runner, 'journey-runner-consumes-manual-traces', uniqueSorted(journeyInventory.journeys.map((journey) => journey.model).filter(Boolean)), journeyManifest);
+  link(journeyInventory.runner, 'journey-runner-consumes-captured-traces', uniqueSorted(journeyInventory.journeys.map((journey) => journey.model).filter(Boolean)), journeyManifest);
   for (const journey of journeyInventory.journeys) {
-    link(journey.spec, journey.model ? 'declared-journey-model-manual-observations' : 'unmodeled-browser-oracle',
+    link(journey.spec, journey.model ? 'declared-journey-model-runtime-observations' : 'unmodeled-browser-oracle',
       journey.model ? [journey.model] : [], journeyManifest + '#' + journey.id, journey.actions ?? []);
   }
   return [...rows.values()].map((row) => ({ ...row,
@@ -845,11 +845,11 @@ for (const script of scripts.filter((script) => script.formalEvidence.length)) {
   lines.push('- `' + script.path + '`: ' + script.formalEvidence.map((evidence) => evidence.kind + (evidence.models.length ? ' → ' + evidence.models.map((model) => model.name).join(', ') : '')).join('; '));
 }
 lines.push('');
-lines.push('These are source associations, not passing runs. Journey observations are manually assembled; their independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.');
+lines.push('These are source associations, not passing runs. Journey traces capture DOM observations and correlated network request/response facts; they do not establish full UI/controller refinement. Independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.');
 lines.push('');
 lines.push('### Cleanup review order');
 lines.push('');
-lines.push('1. Replace manually assembled journey observations with observed implementation state where a model applies; preserve independent data oracles.');
+lines.push('1. Close the remaining controller/reconcile and reload boundaries with runtime evidence where applicable; preserve independent data oracles.');
 lines.push('2. Review classified-but-unreplayed late/rejected runtime events before expanding the model claims.');
 lines.push('3. Consolidate duplicate test/route parsers and TLC acquisition only after proving equivalent behavior.');
 lines.push('4. Investigate `scripts/verify-ui/helpers/playwright-verification.mjs` and `scripts/local-preview-index-explain.mjs`; static audit found no current importer/invocation, but historical and manual use remain unresolved. Neither is approved for deletion.');

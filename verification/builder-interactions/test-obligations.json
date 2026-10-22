@@ -12,15 +12,15 @@
   },
   "summary": {
     "models": 14,
-    "actions": 168,
+    "actions": 170,
     "invariants": 89,
-    "obligations": 257,
+    "obligations": 259,
     "covered": 6,
     "partial": 89,
-    "missing": 162,
+    "missing": 164,
     "missingRouteBound": 19,
     "missingCandidate": 70,
-    "missingUnbound": 73,
+    "missingUnbound": 75,
     "tests": 905,
     "testsWithObligations": 10,
     "testsWithoutObligations": 895,
@@ -113,7 +113,7 @@
       "path": "scripts/build-test-obligations.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "8f22bbacc5868a7abf893bc08efe10cb5d153192dff79e8e2ec94d5f14123f6f",
+      "sha256": "b8b3f48bdbec74fbecced04db932e60784b1c6f75d4966dca36191055bb6a630",
       "references": [
         {
           "kind": "path-mention",
@@ -1240,7 +1240,7 @@
       ],
       "formalEvidence": [
         {
-          "kind": "journey-runner-consumes-manual-traces",
+          "kind": "journey-runner-consumes-captured-traces",
           "source": "verification/builder-interactions/builder-journey-audit.json",
           "declaredActions": [],
           "models": [
@@ -1249,8 +1249,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -1386,7 +1388,7 @@
       "path": "scripts/self-test-builder-traces.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "88eb014a99ea2a2b071ddc181e854e51bf7828b3ef20cb841b29b28f6ad8c881",
+      "sha256": "bdc1d6d080000132a8cb6a9ba69048d53ecffcc889009fb32679ea3094debfca",
       "references": [
         {
           "kind": "path-mention",
@@ -1935,8 +1937,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -2090,7 +2094,7 @@
       "path": "scripts/verify-builder-traces.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "f8ebdc7e387fc78c3d015b4bf53b43df4e744ae8f5a813a1ec88277a3f84b1ba",
+      "sha256": "5f35e0630bfd94f653b0d353a5cddc98f046452c625d054dc87111897af48e0b",
       "references": [
         {
           "kind": "path-mention",
@@ -4723,7 +4727,7 @@
       "path": "scripts/verify-ui/helpers/fast-fixtures.mjs",
       "role": "helper-or-oracle",
       "present": true,
-      "sha256": "ca7d7500ac485428939d0dc1018b8e7dc1099600b99fddb648ddd253c4d8046c",
+      "sha256": "784c59861110926c237f1dfdadfdf4146eb971f352fdfa1cc9053085de6fbf59",
       "references": [
         {
           "kind": "literal-import-candidate",
@@ -4733,7 +4737,7 @@
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
-          "line": 10
+          "line": 11
         },
         {
           "kind": "literal-import-candidate",
@@ -4743,7 +4747,7 @@
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
-          "line": 10
+          "line": 11
         },
         {
           "kind": "literal-import-candidate",
@@ -10317,11 +10321,11 @@
       "path": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "5ba89892be84c765d456a075f31f4df196c12688344ba2eae3285e550c825c29",
+      "sha256": "49de93846ba9e080b9648902aadf29c8fa84512c9087d328fd109f6344e72b96",
       "references": [],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#add-column-preview",
           "declaredActions": [
             "Preview",
@@ -10334,8 +10338,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10375,7 +10381,7 @@
       ],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#group-twice-preview",
           "declaredActions": [
             "Preview",
@@ -10389,8 +10395,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10420,7 +10428,7 @@
       "path": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "e533e1b5a68fec93bf136d7d28b766ffdce5f6b19cdc30725f03ef8c7268089a",
+      "sha256": "dc3845e8e29008172fa6e7c6553a0dc8f2c54b6d3f50b229ee18d668c4225f2c",
       "references": [],
       "formalEvidence": [],
       "decision": "keep-unproven",
@@ -10431,11 +10439,11 @@
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "a572d1f46081f3a33a55818312917145dc1016fa229b5dc2f76fc0739ff74e5d",
+      "sha256": "57220aec20b6d6b727b25383e31db55e4555f8954c9eaa40b98b49f427613aae",
       "references": [],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#edit-remove-reload",
           "declaredActions": [
             "Preview",
@@ -10453,8 +10461,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10484,11 +10494,11 @@
       "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "9e037edde498a04d74a6ccf6e268475a4e3bb302d24e6bf0602ed060f0b0c139",
+      "sha256": "cffefbdb23c7486a21b3f452cc6c314f11c318d92920e3fbe5ed4dcf99acf661",
       "references": [],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#filter-preview",
           "declaredActions": [
             "Preview",
@@ -10501,8 +10511,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10542,7 +10554,7 @@
       ],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#group-pivot-preview",
           "declaredActions": [
             "Preview",
@@ -10554,8 +10566,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10589,7 +10603,7 @@
       "references": [],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#load-preview",
           "declaredActions": [],
           "models": [
@@ -10598,8 +10612,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10639,7 +10655,7 @@
       ],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#pivot-error",
           "declaredActions": [
             "Preview",
@@ -10651,8 +10667,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -10692,7 +10710,7 @@
       ],
       "formalEvidence": [
         {
-          "kind": "declared-journey-model-manual-observations",
+          "kind": "declared-journey-model-runtime-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#unpivot-preview",
           "declaredActions": [
             "Preview",
@@ -10704,8 +10722,10 @@
               "config": "verification/builder-interactions/BuilderJourney.cfg",
               "modelActions": [
                 "AddColumn",
-                "AddColumnAgain",
                 "CancelFilter",
+                "ChoicePreview",
+                "ChoicePreviewComplete",
+                "ChoicePreviewError",
                 "EditGroup",
                 "Group",
                 "GroupAgain",
@@ -16602,10 +16622,10 @@
       "status": "missing"
     },
     {
-      "id": "BuilderJourney.AddColumnAgain",
+      "id": "BuilderJourney.CancelFilter",
       "model": "BuilderJourney",
       "kind": "action",
-      "action": "AddColumnAgain",
+      "action": "CancelFilter",
       "invariant": null,
       "routes": [],
       "tests": [],
@@ -16614,10 +16634,34 @@
       "status": "missing"
     },
     {
-      "id": "BuilderJourney.CancelFilter",
+      "id": "BuilderJourney.ChoicePreview",
       "model": "BuilderJourney",
       "kind": "action",
-      "action": "CancelFilter",
+      "action": "ChoicePreview",
+      "invariant": null,
+      "routes": [],
+      "tests": [],
+      "suspectedModels": [],
+      "routeBinding": "unbound",
+      "status": "missing"
+    },
+    {
+      "id": "BuilderJourney.ChoicePreviewComplete",
+      "model": "BuilderJourney",
+      "kind": "action",
+      "action": "ChoicePreviewComplete",
+      "invariant": null,
+      "routes": [],
+      "tests": [],
+      "suspectedModels": [],
+      "routeBinding": "unbound",
+      "status": "missing"
+    },
+    {
+      "id": "BuilderJourney.ChoicePreviewError",
+      "model": "BuilderJourney",
+      "kind": "action",
+      "action": "ChoicePreviewError",
       "invariant": null,
       "routes": [],
       "tests": [],
@@ -44852,8 +44896,10 @@
   },
   "gaps": [
     "BuilderJourney.AddColumn",
-    "BuilderJourney.AddColumnAgain",
     "BuilderJourney.CancelFilter",
+    "BuilderJourney.ChoicePreview",
+    "BuilderJourney.ChoicePreviewComplete",
+    "BuilderJourney.ChoicePreviewError",
     "BuilderJourney.EditGroup",
     "BuilderJourney.Group",
     "BuilderJourney.GroupAgain",

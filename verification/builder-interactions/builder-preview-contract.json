@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "ef4612fc51cfc4ccf377df2557fdf8c01735f68de6bb57958a9ed255e873716a",
+      "sha256": "5f35e0630bfd94f653b0d353a5cddc98f046452c625d054dc87111897af48e0b",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
@@ -54,12 +54,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/fast-fixtures.mjs",
-      "sha256": "d13de8695d3a4bd9054cee42ae33729d116661a66c9fb845b57e8a2ab3f0b512",
+      "sha256": "784c59861110926c237f1dfdadfdf4146eb971f352fdfa1cc9053085de6fbf59",
       "contract": "Journey request/response capture, request-object correlation, and read-only DOM observation helpers."
     },
     {
       "path": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
-      "sha256": "5ba89892be84c765d456a075f31f4df196c12688344ba2eae3285e550c825c29",
+      "sha256": "49de93846ba9e080b9648902aadf29c8fa84512c9087d328fd109f6344e72b96",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
@@ -68,13 +68,18 @@
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
+      "path": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
+      "contract": "CDA mini Journey trace producer for choice-preview capture, command binding, and rendered publication evidence.",
+      "sha256": "dc3845e8e29008172fa6e7c6553a0dc8f2c54b6d3f50b229ee18d668c4225f2c"
+    },
+    {
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-      "sha256": "a572d1f46081f3a33a55818312917145dc1016fa229b5dc2f76fc0739ff74e5d",
+      "sha256": "57220aec20b6d6b727b25383e31db55e4555f8954c9eaa40b98b49f427613aae",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
       "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
-      "sha256": "9e037edde498a04d74a6ccf6e268475a4e3bb302d24e6bf0602ed060f0b0c139",
+      "sha256": "cffefbdb23c7486a21b3f452cc6c314f11c318d92920e3fbe5ed4dcf99acf661",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
@@ -154,8 +159,8 @@
     },
     {
       "path": "verification/builder-interactions/BuilderJourney.tla",
-      "sha256": "d37a5ae38288dccb3cd638ad8e200c5e4a67ee922dae094a23da7c396694c392",
-      "contract": "BuilderJourney lifecycle model for source preview, candidate preview, apply, and stale settlements."
+      "sha256": "21f7f82fabbc6069f0f814ff6ae966d421ad0a3b3a08a2d6ad68a8a9f2ea3428",
+      "contract": "BuilderJourney lifecycle model for source preview, choice and proposal preview, AddColumn, apply, and stale settlements."
     },
     {
       "path": "verification/builder-interactions/BuilderOperations.cfg",
@@ -289,17 +294,17 @@
     },
     {
       "path": "verification/builder-interactions/builder-add-column-contract.json",
-      "sha256": "07da96cf5e926cc1db736e0ac82f073519bb97b23f836351d118f8ee6f6a4f8a",
+      "sha256": "2819c2c885a520e2b48f16ae413dc99a0108703296b4cf781bff1353a703811f",
       "contract": "Selected Add Column Journey actions and expected trace contract."
     },
     {
       "path": "verification/builder-interactions/builder-edit-remove-contract.json",
-      "sha256": "4c5872fce3d57c9b65af75bccf942c9f40c398789bd0e8b5499b5cdf79e820fd",
+      "sha256": "2d4313245f8af182a41d7d6c4356591d9ffe91b0a1c4df3974801cad434b1e8d",
       "contract": "Selected edit/remove Journey actions and expected trace contract."
     },
     {
       "path": "verification/builder-interactions/builder-filter-contract.json",
-      "sha256": "e7c47549376e8da9ea67b1d05e23e7aa3c9ce27f3e54ea00a4623a3519b12fc2",
+      "sha256": "195e7e968fcd00c4ded41b4c903a4168759576d329b003081fc3203b7cc97bd6",
       "contract": "Selected Filter Journey actions and expected trace contract."
     },
     {
@@ -309,17 +314,17 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-contract.json",
-      "sha256": "581d8cf62d6a2eb83196d47209b384761e84842326e5ff2f091273219cc48931",
+      "sha256": "33f35955eb7391a3a4995d50a872dc44172224f4b169f77034d38480fc080ae9",
       "contract": "BuilderJourney action bindings and selected contract baseline."
     },
     {
       "path": "verification/builder-interactions/builder-pivot-contract.json",
-      "sha256": "e0ba753e2540fca5fe399842000273368a5d7bae349a301f5c95220efcb1f219",
+      "sha256": "a317dccb3cf0cd57575489b958df668c3b8e4fd50e061f0d4b8614c01de31bc4",
       "contract": "Selected Pivot Journey actions and expected trace contract."
     },
     {
       "path": "verification/builder-interactions/builder-pivot-error-contract.json",
-      "sha256": "e0ba753e2540fca5fe399842000273368a5d7bae349a301f5c95220efcb1f219",
+      "sha256": "a317dccb3cf0cd57575489b958df668c3b8e4fd50e061f0d4b8614c01de31bc4",
       "contract": "Selected Pivot error Journey actions and expected trace contract."
     },
     {
@@ -329,7 +334,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-unpivot-contract.json",
-      "sha256": "e0ba753e2540fca5fe399842000273368a5d7bae349a301f5c95220efcb1f219",
+      "sha256": "a317dccb3cf0cd57575489b958df668c3b8e4fd50e061f0d4b8614c01de31bc4",
       "contract": "Selected Unpivot Journey actions and expected trace contract."
     }
   ]

@@ -189,6 +189,8 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
   await expect(fastPage.getByRole('columnheader')).toHaveCount(isCDAMini ? 1 : 5);
   trace.traces[0].unmodeledEvents.push({
     kind: 'reload',
+    classification: 'unsupported',
+    reason: 'Reload remounts workspace; current model covers same-mount proposal/apply lifecycle; native reload assertion remains independent.',
     note: 'Reload after cancelling the filter preserves the source table.',
   });
   persistTrace();

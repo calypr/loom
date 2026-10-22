@@ -21,13 +21,13 @@ End to end ready: no.
 | browserCases | 1 |
 | browserCoveredRoutes | 11 |
 | ledgerRoutesWithBrowserCoverage | 11 |
-| obligations | 257 |
+| obligations | 259 |
 | covered | 6 |
 | partial | 89 |
-| missing | 162 |
+| missing | 164 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 73 |
+| missingUnbound | 75 |
 | tests | 905 |
 | testsWithoutExactObligations | 895 |
 | models | 14 |
@@ -109,7 +109,7 @@ End to end ready: no.
 | --- | ---: |
 | route | 19 |
 | candidate | 70 |
-| unbound | 73 |
+| unbound | 75 |
 
 ## Next worklist
 
