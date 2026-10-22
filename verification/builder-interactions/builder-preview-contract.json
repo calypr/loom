@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "5f35e0630bfd94f653b0d353a5cddc98f046452c625d054dc87111897af48e0b",
+      "sha256": "676492d48a2b72f0a9c811d9524326f29551ac89f384ffe123897dfbefba1700",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
@@ -74,7 +74,7 @@
     },
     {
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-      "sha256": "57220aec20b6d6b727b25383e31db55e4555f8954c9eaa40b98b49f427613aae",
+      "sha256": "b65245edcb2523291571fb2146e476fe945eb0a7b13f0736ddb1aa63d1b9913f",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
@@ -159,7 +159,7 @@
     },
     {
       "path": "verification/builder-interactions/BuilderJourney.tla",
-      "sha256": "21f7f82fabbc6069f0f814ff6ae966d421ad0a3b3a08a2d6ad68a8a9f2ea3428",
+      "sha256": "f49ab398aefe536d84b90ba6c7ab2b7a6ad21156dc092234def5e5428a52c3f7",
       "contract": "BuilderJourney lifecycle model for source preview, choice and proposal preview, AddColumn, apply, and stale settlements."
     },
     {
@@ -299,7 +299,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-edit-remove-contract.json",
-      "sha256": "2d4313245f8af182a41d7d6c4356591d9ffe91b0a1c4df3974801cad434b1e8d",
+      "sha256": "8af1e8b8fed1590deb0327ef09f328119fd299c0d7d1a0341d7e139fa1d61fd5",
       "contract": "Selected edit/remove Journey actions and expected trace contract."
     },
     {
@@ -314,7 +314,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-contract.json",
-      "sha256": "33f35955eb7391a3a4995d50a872dc44172224f4b169f77034d38480fc080ae9",
+      "sha256": "5798d1c381bd99c31892e1ba886b7d69ada01b043f59aa605cdb2c8482aa7499",
       "contract": "BuilderJourney action bindings and selected contract baseline."
     },
     {
