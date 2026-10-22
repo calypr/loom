@@ -14,25 +14,25 @@ End to end ready: no.
 | strictRouteBlockers | 20 |
 | routeActionAudited | 39 |
 | routeActionMissing | 0 |
-| routeActionEmpty | 28 |
+| routeActionEmpty | 27 |
 | routeActionCandidate | 8 |
 | traceTested | 1 |
 | modeledAndTracedWithoutBrowser | 0 |
 | browserCases | 1 |
 | browserCoveredRoutes | 11 |
 | ledgerRoutesWithBrowserCoverage | 11 |
-| obligations | 260 |
-| covered | 6 |
-| partial | 89 |
-| missing | 165 |
+| obligations | 265 |
+| covered | 10 |
+| partial | 92 |
+| missing | 163 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 76 |
-| tests | 905 |
-| testsWithoutExactObligations | 895 |
+| missingUnbound | 74 |
+| tests | 906 |
+| testsWithoutExactObligations | 894 |
 | models | 14 |
 | traceModels | 3 |
-| schedules | 4 |
+| schedules | 5 |
 | affordances | 57 |
 | modeledAffordances | 57 |
 | testedAffordances | 57 |
@@ -41,10 +41,10 @@ End to end ready: no.
 
 | Status | Count |
 | --- | ---: |
-| modeled-and-traced | 2 |
+| modeled-and-traced | 3 |
 | trace-tested | 1 |
 | modeled-only | 17 |
-| contract-tested | 17 |
+| contract-tested | 16 |
 | unproven | 2 |
 | excluded | 0 |
 
@@ -52,10 +52,10 @@ End to end ready: no.
 
 | State | Count |
 | --- | ---: |
-| proven | 2 |
+| proven | 3 |
 | traced | 1 |
 | candidate | 8 |
-| empty | 28 |
+| empty | 27 |
 | missing | 0 |
 
 ## Lever inputs
@@ -109,7 +109,7 @@ End to end ready: no.
 | --- | ---: |
 | route | 19 |
 | candidate | 70 |
-| unbound | 76 |
+| unbound | 74 |
 
 ## Next worklist
 

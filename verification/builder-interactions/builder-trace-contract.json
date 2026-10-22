@@ -85,7 +85,9 @@
         "ChangeExplorer",
         "SetTablesRooted",
         "SetSnapshotPresent",
-        "ClearReceipt"
+        "ClearReceipt",
+        "WorkspaceChangeStartsReconcile",
+        "LateReconcileIgnored"
       ]
     }
   },
@@ -435,6 +437,16 @@
         "fatal failure",
         "identity rejection",
         "late result rejection"
+      ]
+    },
+    "mounted-reconcile-race": {
+      "test": "formal mounted reconcile race keeps B visible after late A settles",
+      "model": "ReconcileLifecycle",
+      "covers": [
+        "initial A reconcile request",
+        "workspace change starts B",
+        "B success",
+        "late A ignored while B remains visible"
       ]
     },
     "preview-ownership": {

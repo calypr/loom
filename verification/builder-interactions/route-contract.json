@@ -12,10 +12,10 @@
     "ledgerAuthoringRoutes": 33,
     "excludedAuthoringRoutes": 4,
     "unaccountedAuthoringRoutes": [],
-    "modeledAndTraced": 2,
+    "modeledAndTraced": 3,
     "traceTested": 1,
     "modeledOnly": 17,
-    "contractTested": 17,
+    "contractTested": 16,
     "unproven": 2
   },
   "excludedAuthoringRoutes": [
@@ -891,18 +891,39 @@
       "staleRule": "",
       "errorClasses": [],
       "proof": {
-        "status": "contract-tested",
-        "model": null,
-        "modelActions": [],
-        "routeActions": [],
-        "routeActionReason": "No runtime-bound Reconcile decision trace exists; the removed late-reconcile event came from pure predicate tests.",
-        "traceEvent": null,
-        "schedule": null,
+        "status": "modeled-and-traced",
+        "model": "ReconcileLifecycle.tla",
+        "modelActions": [
+          "RequestReconcile",
+          "WorkspaceChangeStartsReconcile",
+          "ReconcileSuccess",
+          "LateReconcileIgnored"
+        ],
+        "routeActions": [
+          "RequestReconcile",
+          "WorkspaceChangeStartsReconcile",
+          "ReconcileSuccess",
+          "LateReconcileIgnored",
+          "RequestReconcile(A)",
+          "WorkspaceChangeStartsReconcile(B)",
+          "ReconcileSuccess(B)",
+          "LateReconcileIgnored(A)"
+        ],
+        "routeActionReason": "routeActions bind both the canonical TLA operators and the exact labels observed in the mounted trace: initial A request, B start after a workspace edit, B success, and late A settlement. coveredActions name only those operators. Other lifecycle actions remain unbound.",
+        "traceEvent": "lateA",
+        "schedule": "mounted-reconcile-race",
         "contractTest": null,
         "goTest": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
         "browserCase": "builder-controls:recompile",
-        "reason": "Go receipt/preview and Recompile browser evidence remain. Eight Vitest cases test pure reconcile identity, receipt, and retry predicates; they do not sample the mounted controller. ReconcileLifecycle controller conformance is unproven."
+        "reason": "Real mounted BuilderWorkspace race through the real reconcile hook/client and deferred HTTP fetch. The selected trace binds initial A, B start, B success, and late A while the DOM retains B; the existing Recompile browser case also covers this route.",
+        "scope": "Mounted A/B reconcile request race: workspace edit, B receipt, and late A settlement.",
+        "coveredActions": [
+          "RequestReconcile",
+          "WorkspaceChangeStartsReconcile",
+          "ReconcileSuccess",
+          "LateReconcileIgnored"
+        ]
       }
     },
     {

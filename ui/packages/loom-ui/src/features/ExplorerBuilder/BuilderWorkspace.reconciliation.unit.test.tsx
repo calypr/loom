@@ -71,7 +71,7 @@ const mockLoomClient = vi.hoisted(() => ({
 const mockLoomClientReference = vi.hoisted(() => ({ current: undefined as unknown }));
 const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
 const mockUseActualReshapeEditor = vi.hoisted(() => ({ enabled: false }));
-const mockUseActualReconcile = vi.hoisted(() => ({ enabled: false }));
+const mockUseActualReconcile = vi.hoisted(() => ({ enabled: false, isLoading: false }));
 const mockReconcileMutation = vi.hoisted(() => vi.fn());
 const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   draftVersion: 1,
@@ -106,10 +106,12 @@ vi.mock('../../react', async (importOriginal) => {
     usePreviewExplorerAuthoringV2Mutation: vi.fn(),
     usePopulationMappingMutation: vi.fn(),
     usePublishExplorerAuthoringV2Mutation: vi.fn(),
-    useReconcileExplorerBuilderV2Mutation: (...args: Parameters<typeof actual.useReconcileExplorerBuilderV2Mutation>) =>
-      mockUseActualReconcile.enabled
-        ? actual.useReconcileExplorerBuilderV2Mutation(...args)
-        : mockReconcileMutation(...args),
+    useReconcileExplorerBuilderV2Mutation: (...args: Parameters<typeof actual.useReconcileExplorerBuilderV2Mutation>) => {
+      if (!mockUseActualReconcile.enabled) return mockReconcileMutation(...args);
+      const result = actual.useReconcileExplorerBuilderV2Mutation(...args);
+      mockUseActualReconcile.isLoading = result[1].isLoading;
+      return result;
+    },
     useResolveConfiguredColumnContextsQuery: mockLoomClient.configuredColumnContextsQuery,
   };
 });
@@ -862,6 +864,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockRelatedExpandOwnerState.enabled = false;
     mockUseActualReshapeEditor.enabled = false;
     mockUseActualReconcile.enabled = false;
+    mockUseActualReconcile.isLoading = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
     mockRelatedExpandQueryOwner.resume.mockReset();
     mockLoomClient.getSelection.mockReset();
@@ -4076,7 +4079,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const returnedB = { ...receipt, receiptId: 'receipt-B' } satisfies ExplorerBuilderCompileResult;
     const capturedReconciles: CapturedReconcile[] = [];
     const returnedReconciles: ReturnedReconcile[] = [];
-    const outputModelKeys = new Map<string, OutputModelKey>();
+    const outputModelKeys = new Map<string, OutputModelKey>([
+      ['specimens', 'O1'],
+      ['patients', 'O2'],
+    ]);
     const fetchReconcile = vi.fn<typeof globalThis.fetch>();
 
     const workspaceKeyFor = (draftVersion: number, draftDigest: string): WorkspaceKey => {
@@ -4096,10 +4102,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     };
     const outputModelKeyFor = (outputId: string): OutputModelKey => {
       const currentKey = outputModelKeys.get(outputId);
-      if (currentKey) return currentKey;
-      const modelKey: OutputModelKey = outputModelKeys.size === 0 ? 'O1' : 'O2';
-      outputModelKeys.set(outputId, modelKey);
-      return modelKey;
+      if (!currentKey) throw new Error(`unmapped reconcile output ${outputId}`);
+      return currentKey;
     };
     const requestSnapshot = (
       call: CapturedReconcile | null,
@@ -4267,6 +4271,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       await waitFor(() => expect(capturedReconciles).toHaveLength(1));
       const requestA = capturedReconciles[0];
       if (!requestA) throw new Error('initial reconcile request A was not captured');
+      expect(requestA.args).toMatchObject({
+        project: 'HTAN_INT/BForePC',
+        explorerId: 'test',
+        authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      });
       const requestASnapshot = mountedSnapshot({ eventCall: requestA });
       expect(requestASnapshot.current).toMatchObject({
         modelKey: 'W1',
@@ -4311,10 +4320,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         }],
       })));
       await waitFor(() => expect(capturedReconciles).toHaveLength(2));
+      await waitFor(() => expect(mockUseActualReconcile.isLoading).toBe(true));
       const requestB = capturedReconciles[1];
       if (!requestB) throw new Error('workspace edit did not start reconcile request B');
       expect(requestB.args).toMatchObject({
+        project: 'HTAN_INT/BForePC',
         explorerId: 'test',
+        authResourcePath: '/programs/HTAN_INT/projects/BForePC',
         snapshotToken: 'snapshot-1',
         draftVersion: 2,
         draftDigest: 'sha256:draft-2',
@@ -4359,6 +4371,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2');
         expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-digest', 'sha256:draft-2');
       });
+      expect(mockUseActualReconcile.isLoading).toBe(true);
       await waitFor(() => expect(returnedReconciles).toHaveLength(1));
       const visibleB = {
         draftVersion: screen.getByTestId('construction-workspace').getAttribute('data-draft-version'),
@@ -4411,6 +4424,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         }));
         await Promise.resolve();
       });
+      await waitFor(() => expect(mockUseActualReconcile.isLoading).toBe(false));
       await waitFor(() => expect(returnedReconciles).toHaveLength(2));
       const visibleAfterLateA = {
         draftVersion: screen.getByTestId('construction-workspace').getAttribute('data-draft-version'),

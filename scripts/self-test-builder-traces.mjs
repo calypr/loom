@@ -1200,7 +1200,7 @@ if (!runPositiveBaseline()) {
 
 let passed = true;
 try {
-  if (formalOnly) {
+  if (!journeyOnly) {
     passed = runMutation('initial-observation-mismatch', (mutated) => {
       const trace = mutated.traces.find((candidate) => candidate.model === 'BuilderPreview');
       if (trace?.initialObservation) {
