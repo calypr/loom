@@ -174,9 +174,11 @@ function diagnosticReporterSummary(lines) {
       if (statusIndex >= 0) recordCheckStatusIndex = statusIndex;
     }
   }
+  const directPassedReporter = /\b(?:const|let)\s+recordAssertion\s*=\s*\([^)]*\)\s*=>\s*report\.assertions\.push\s*\(\s*\{[^}]*\bstatus\s*:\s*['"]passed['"][^}]*\}\s*\)/.test(source);
+  const cdaPassedReporter = /\b(?:const|let)\s+recordAssertion\s*=\s*\([^)]*\)\s*=>\s*\{\s*cda\.check\s*\([^)]*,\s*true\s*,[^)]*\)\s*;\s*report\.assertions\.push\s*\(\s*\{[^}]*\bstatus\s*:\s*['"]passed['"][^}]*\}\s*\)\s*;\s*\}/.test(source);
   return {
     recordCheckStatusIndex,
-    unconditionalPassedRecordAssertion: /\b(?:const|let)\s+recordAssertion\s*=\s*\([^)]*\)\s*=>\s*report\.assertions\.push\s*\(\s*\{[^}]*\bstatus\s*:\s*['"]passed['"][^}]*\}\s*\)/.test(source),
+    unconditionalPassedRecordAssertion: directPassedReporter || cdaPassedReporter,
     unconditionalTrueRecordCheck: /\b(?:const|let)\s+recordCheck\s*=\s*\([^)]*\)\s*=>\s*cda\.check\s*\([^)]*,\s*true\s*,/.test(source),
   };
 }
@@ -763,6 +765,25 @@ function selfTestCatalogValidation() {
   };
   expectError('recordAssertion reporter is not a test assertion', diagnosticRecordAssertion, 'diagnostic check/recordCheck/recordAssertion reporter', recordAssertionContext);
 
+  const cdaRecordAssertionReporter = validCatalog();
+  cdaRecordAssertionReporter.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L5:recorded-assertion';
+  cdaRecordAssertionReporter.files[0].assertions[0].sourceLines = [5];
+  const cdaRecordAssertionContext = {
+    ...context,
+    reviewedBlobInfos: new Map([[sourcePath, {
+      ...context.reviewedBlobInfos.get(sourcePath),
+      lineCount: 5,
+      sourceLines: [
+        'const recordAssertion = (dimension, name, evidenceValue) => {',
+        '  cda.check(dimension, name, true, evidenceValue);',
+        '  report.assertions.push({ name, status: \'passed\', evidence: evidenceValue });',
+        '};',
+        'recordAssertion(\'domain property label\', evidence);',
+      ],
+    }]]),
+  };
+  expectError('cda completion wrapper is not a test assertion', cdaRecordAssertionReporter, 'diagnostic check/recordCheck/recordAssertion reporter', cdaRecordAssertionContext);
+
   const predicateRecordAssertion = validCatalog();
   predicateRecordAssertion.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L4:recorded-equality';
   predicateRecordAssertion.files[0].assertions[0].sourceLines = [4];
@@ -787,7 +808,7 @@ function selfTestCatalogValidation() {
   diagnosticCallThrough.files[0].assertions[0].evidenceKind = 'call-through';
   assert(errorsFor(diagnosticCallThrough).length === 0, 'literal-true diagnostic may be catalogued as a call-through');
 
-  console.log('PASS semantic catalog validation self-test: 26 positive and negative fixtures');
+  console.log('PASS semantic catalog validation self-test: 27 positive and negative fixtures');
 }
 
 function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog) {
