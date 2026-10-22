@@ -12,23 +12,23 @@
   },
   "summary": {
     "models": 14,
-    "actions": 169,
+    "actions": 168,
     "invariants": 89,
-    "obligations": 258,
-    "covered": 15,
+    "obligations": 257,
+    "covered": 6,
     "partial": 89,
-    "missing": 154,
-    "missingRouteBound": 20,
-    "missingCandidate": 69,
-    "missingUnbound": 65,
-    "tests": 906,
-    "testsWithObligations": 12,
-    "testsWithoutObligations": 894,
-    "obligationsWithMultipleTests": 26,
+    "missing": 162,
+    "missingRouteBound": 19,
+    "missingCandidate": 70,
+    "missingUnbound": 73,
+    "tests": 905,
+    "testsWithObligations": 10,
+    "testsWithoutObligations": 895,
+    "obligationsWithMultipleTests": 10,
     "duplicateTestNames": 0,
     "repeatedPlaywrightChecks": 231,
     "sharedProofs": 3,
-    "candidateRouteBindings": 158
+    "candidateRouteBindings": 152
   },
   "scripts": [
     {
@@ -84,7 +84,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 618
+          "line": 646
         }
       ],
       "formalEvidence": [],
@@ -101,7 +101,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 626
+          "line": 654
         }
       ],
       "formalEvidence": [],
@@ -123,7 +123,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 614
+          "line": 642
         }
       ],
       "formalEvidence": [],
@@ -199,7 +199,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 620
+          "line": 648
         }
       ],
       "formalEvidence": [],
@@ -226,7 +226,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 581
+          "line": 609
         }
       ],
       "formalEvidence": [],
@@ -1125,7 +1125,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 621
+          "line": 649
         }
       ],
       "formalEvidence": [],
@@ -1142,7 +1142,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 617
+          "line": 645
         }
       ],
       "formalEvidence": [],
@@ -1159,7 +1159,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 622
+          "line": 650
         }
       ],
       "formalEvidence": [],
@@ -1176,7 +1176,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 616
+          "line": 644
         }
       ],
       "formalEvidence": [],
@@ -1193,7 +1193,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 624
+          "line": 652
         }
       ],
       "formalEvidence": [],
@@ -1205,7 +1205,7 @@
       "path": "scripts/run-builder-journey.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "8fba00b55b4706e975f57d0a2beb666b2831bf1021849bfed1227b7347f50303",
+      "sha256": "bbb4bf64aa7002b5c214a5a8ad68122c5a769f68097976b6933e89abc0d7affd",
       "references": [
         {
           "kind": "path-mention",
@@ -1252,23 +1252,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -1388,7 +1386,7 @@
       "path": "scripts/self-test-builder-traces.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "7c4012dd94160812bc93f2bf64824c640cb89379d7332e23fd0e3263e015d52b",
+      "sha256": "88eb014a99ea2a2b071ddc181e854e51bf7828b3ef20cb841b29b28f6ad8c881",
       "references": [
         {
           "kind": "path-mention",
@@ -1398,7 +1396,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 351
+          "line": 373
         }
       ],
       "formalEvidence": [],
@@ -1567,7 +1565,7 @@
       "path": "scripts/verify-builder-formal.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "f0b48567c587ad917bddba529e448ce2966fccbbde2e80410d21bd705a37fb36",
+      "sha256": "4cede7c4d36036061826735f7393a7c9b3e2361a24fe98fa34de99d22a09122c",
       "references": [
         {
           "kind": "path-mention",
@@ -1940,23 +1938,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -2003,6 +1999,7 @@
                 "ProposalComplete",
                 "ProposalError",
                 "RetryProposal",
+                "StartPreview",
                 "StartProposal"
               ],
               "configuredInvariants": [
@@ -2081,7 +2078,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 595
+          "line": 623
         }
       ],
       "formalEvidence": [],
@@ -2093,7 +2090,7 @@
       "path": "scripts/verify-builder-traces.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "ec63e21489411b0f0f4c17c22c94b8a1c977217474c460fd503531bdb718e8b4",
+      "sha256": "f8ebdc7e387fc78c3d015b4bf53b43df4e744ae8f5a813a1ec88277a3f84b1ba",
       "references": [
         {
           "kind": "path-mention",
@@ -2118,12 +2115,12 @@
         {
           "kind": "path-mention",
           "source": "scripts/self-test-builder-traces.mjs",
-          "line": 45
+          "line": 54
         },
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
-          "line": 313
+          "line": 335
         },
         {
           "kind": "path-mention",
@@ -2185,6 +2182,7 @@
                 "ProposalComplete",
                 "ProposalError",
                 "RetryProposal",
+                "StartPreview",
                 "StartProposal"
               ],
               "configuredInvariants": [
@@ -3713,22 +3711,22 @@
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-          "line": 4
+          "line": 12
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
-          "line": 4
+          "line": 12
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/pivot-error.spec.mjs",
-          "line": 4
+          "line": 12
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
-          "line": 4
+          "line": 12
         }
       ],
       "formalEvidence": [],
@@ -4664,7 +4662,7 @@
         {
           "kind": "literal-import-candidate",
           "source": "scripts/run-builder-journey.mjs",
-          "line": 7
+          "line": 8
         },
         {
           "kind": "literal-import-candidate",
@@ -4725,7 +4723,7 @@
       "path": "scripts/verify-ui/helpers/fast-fixtures.mjs",
       "role": "helper-or-oracle",
       "present": true,
-      "sha256": "5b5ffb82f013f79ef48195fdc5da3cf03636a8cce1ef4ba59d46a0b428219f78",
+      "sha256": "ca7d7500ac485428939d0dc1018b8e7dc1099600b99fddb648ddd253c4d8046c",
       "references": [
         {
           "kind": "literal-import-candidate",
@@ -4735,37 +4733,37 @@
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
-          "line": 3
+          "line": 10
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
-          "line": 3
+          "line": 10
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
-          "line": 3
+          "line": 10
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-          "line": 3
+          "line": 11
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
-          "line": 3
+          "line": 10
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
-          "line": 3
+          "line": 11
         },
         {
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
-          "line": 3
+          "line": 9
         }
       ],
       "formalEvidence": [],
@@ -10319,17 +10317,16 @@
       "path": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "903ffd5e114f091cf890f2d684dc60435b2c753b5521dade7d71da50fe1a031d",
+      "sha256": "5ba89892be84c765d456a075f31f4df196c12688344ba2eae3285e550c825c29",
       "references": [],
       "formalEvidence": [
         {
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#add-column-preview",
           "declaredActions": [
-            "SelectRows",
-            "AddColumn",
             "Preview",
-            "PreviewComplete"
+            "PreviewComplete",
+            "AddColumn"
           ],
           "models": [
             {
@@ -10340,23 +10337,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -10370,7 +10365,7 @@
       "path": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "6de9bd07038ed37891fe14d818edd669b7a086411e4b7821d1b0fa366992ccde",
+      "sha256": "3784736f90f917cc1ca0f97028e8549a3046df79caf73da2572cf9da44e46432",
       "references": [
         {
           "kind": "path-mention",
@@ -10383,11 +10378,10 @@
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#group-twice-preview",
           "declaredActions": [
-            "SelectRows",
-            "Group",
-            "GroupAgain",
             "Preview",
-            "PreviewComplete"
+            "PreviewComplete",
+            "Group",
+            "GroupAgain"
           ],
           "models": [
             {
@@ -10398,23 +10392,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -10428,7 +10420,7 @@
       "path": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "c3a1a4621904eae930be058c916608de32fd8bd105e5cd7071e9efedf82af36a",
+      "sha256": "e533e1b5a68fec93bf136d7d28b766ffdce5f6b19cdc30725f03ef8c7268089a",
       "references": [],
       "formalEvidence": [],
       "decision": "keep-unproven",
@@ -10439,18 +10431,20 @@
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "95bc79ee4ff9ccf7e5b7e3e0d58a5da1876f13f171469f5376dac3d53ca71566",
+      "sha256": "a572d1f46081f3a33a55818312917145dc1016fa229b5dc2f76fc0739ff74e5d",
       "references": [],
       "formalEvidence": [
         {
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#edit-remove-reload",
           "declaredActions": [
-            "SelectRows",
-            "Group",
-            "EditGroup",
             "Preview",
             "PreviewComplete",
+            "PreviewError",
+            "LatePreviewCompleteIgnored",
+            "LatePreviewErrorIgnored",
+            "Group",
+            "EditGroup",
             "RemoveGroup"
           ],
           "models": [
@@ -10462,23 +10456,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -10492,15 +10484,13 @@
       "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "98051cfda8881479a67f10a024dadb05039b8bd1362a7ca08ad5497cda4a4670",
+      "sha256": "9e037edde498a04d74a6ccf6e268475a4e3bb302d24e6bf0602ed060f0b0c139",
       "references": [],
       "formalEvidence": [
         {
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#filter-preview",
           "declaredActions": [
-            "SelectRows",
-            "Filter",
             "Preview",
             "PreviewComplete",
             "CancelFilter"
@@ -10514,23 +10504,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -10544,7 +10532,7 @@
       "path": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "9705b4f913e85849a82e4bdb84b3973e35da2da1a43de341fe7a30ee5062848c",
+      "sha256": "5c1f3791939c6a5063da3b7d090a89dde5c7475fafa4d89e665c9d37c7d481d5",
       "references": [
         {
           "kind": "path-mention",
@@ -10557,10 +10545,8 @@
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#group-pivot-preview",
           "declaredActions": [
-            "SelectRows",
-            "PivotDirect",
             "Preview",
-            "PreviewError"
+            "PreviewComplete"
           ],
           "models": [
             {
@@ -10571,23 +10557,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -10601,18 +10585,40 @@
       "path": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "d29d9de7bf108f1f9203c67a672e6bdb5f30b211bf9fd7de0e26a5e92bf735ef",
+      "sha256": "53f8a2fe7d12245c2aa62d4f27567ca506c2b303fd9dc196f40657b9d20e89f1",
       "references": [],
       "formalEvidence": [
         {
-          "kind": "unmodeled-browser-oracle",
+          "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#load-preview",
-          "declaredActions": [
-            "SelectRows",
-            "Preview",
-            "PreviewComplete"
-          ],
-          "models": []
+          "declaredActions": [],
+          "models": [
+            {
+              "name": "BuilderJourney",
+              "config": "verification/builder-interactions/BuilderJourney.cfg",
+              "modelActions": [
+                "AddColumn",
+                "AddColumnAgain",
+                "CancelFilter",
+                "EditGroup",
+                "Group",
+                "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
+                "Pivot",
+                "Preview",
+                "PreviewComplete",
+                "PreviewError",
+                "RemoveGroup",
+                "Stutter"
+              ],
+              "configuredInvariants": [
+                "PivotRequiresReshapeOrDirect",
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
+              ]
+            }
+          ]
         }
       ],
       "decision": "keep-unproven",
@@ -10623,7 +10629,7 @@
       "path": "scripts/verify-ui/journey-specs/pivot-error.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "d832a7f5766fb24cdc26d4ae7a9ce2716cdfc2e68d3255f520c51c9fe05b8131",
+      "sha256": "f94463b584e151ab34d2155de12980d6d70f0f1d1c2bc35dfc0e9e2226d0d028",
       "references": [
         {
           "kind": "path-mention",
@@ -10636,10 +10642,8 @@
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#pivot-error",
           "declaredActions": [
-            "SelectRows",
-            "PivotDirect",
             "Preview",
-            "PreviewError"
+            "PreviewComplete"
           ],
           "models": [
             {
@@ -10650,23 +10654,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -10680,7 +10682,7 @@
       "path": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "993ade1716b921a07e8d63395421e98c95114ac0619c36d49028e8cc47cabb04",
+      "sha256": "a242669d0fca33ee1de587af7257be04e60bc9cd9a84827b1ae51a415bfe8706",
       "references": [
         {
           "kind": "path-mention",
@@ -10693,10 +10695,8 @@
           "kind": "declared-journey-model-manual-observations",
           "source": "verification/builder-interactions/builder-journey-audit.json#unpivot-preview",
           "declaredActions": [
-            "SelectRows",
-            "Unpivot",
             "Preview",
-            "PreviewError"
+            "PreviewComplete"
           ],
           "models": [
             {
@@ -10707,23 +10707,21 @@
                 "AddColumnAgain",
                 "CancelFilter",
                 "EditGroup",
-                "Filter",
                 "Group",
                 "GroupAgain",
+                "LatePreviewCompleteIgnored",
+                "LatePreviewErrorIgnored",
                 "Pivot",
-                "PivotDirect",
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
                 "RemoveGroup",
-                "SelectRows",
-                "Stutter",
-                "Unpivot"
+                "Stutter"
               ],
               "configuredInvariants": [
                 "PivotRequiresReshapeOrDirect",
-                "PreviewRequiresReshapeOrPivot",
-                "RowsOnlyAfterPreview"
+                "RowsOnlyAfterProposalPreview",
+                "SourceRowsRequireReadyTablePreview"
               ]
             }
           ]
@@ -16640,18 +16638,6 @@
       "status": "missing"
     },
     {
-      "id": "BuilderJourney.Filter",
-      "model": "BuilderJourney",
-      "kind": "action",
-      "action": "Filter",
-      "invariant": null,
-      "routes": [],
-      "tests": [],
-      "suspectedModels": [],
-      "routeBinding": "unbound",
-      "status": "missing"
-    },
-    {
       "id": "BuilderJourney.Group",
       "model": "BuilderJourney",
       "kind": "action",
@@ -16676,10 +16662,10 @@
       "status": "missing"
     },
     {
-      "id": "BuilderJourney.Pivot",
+      "id": "BuilderJourney.LatePreviewCompleteIgnored",
       "model": "BuilderJourney",
       "kind": "action",
-      "action": "Pivot",
+      "action": "LatePreviewCompleteIgnored",
       "invariant": null,
       "routes": [],
       "tests": [],
@@ -16688,10 +16674,22 @@
       "status": "missing"
     },
     {
-      "id": "BuilderJourney.PivotDirect",
+      "id": "BuilderJourney.LatePreviewErrorIgnored",
       "model": "BuilderJourney",
       "kind": "action",
-      "action": "PivotDirect",
+      "action": "LatePreviewErrorIgnored",
+      "invariant": null,
+      "routes": [],
+      "tests": [],
+      "suspectedModels": [],
+      "routeBinding": "unbound",
+      "status": "missing"
+    },
+    {
+      "id": "BuilderJourney.Pivot",
+      "model": "BuilderJourney",
+      "kind": "action",
+      "action": "Pivot",
       "invariant": null,
       "routes": [],
       "tests": [],
@@ -16755,34 +16753,10 @@
       "status": "missing"
     },
     {
-      "id": "BuilderJourney.SelectRows",
-      "model": "BuilderJourney",
-      "kind": "action",
-      "action": "SelectRows",
-      "invariant": null,
-      "routes": [],
-      "tests": [],
-      "suspectedModels": [],
-      "routeBinding": "unbound",
-      "status": "missing"
-    },
-    {
       "id": "BuilderJourney.Stutter",
       "model": "BuilderJourney",
       "kind": "action",
       "action": "Stutter",
-      "invariant": null,
-      "routes": [],
-      "tests": [],
-      "suspectedModels": [],
-      "routeBinding": "unbound",
-      "status": "missing"
-    },
-    {
-      "id": "BuilderJourney.Unpivot",
-      "model": "BuilderJourney",
-      "kind": "action",
-      "action": "Unpivot",
       "invariant": null,
       "routes": [],
       "tests": [],
@@ -16812,11 +16786,11 @@
       "status": "partial"
     },
     {
-      "id": "BuilderJourney.PreviewRequiresReshapeOrPivot",
+      "id": "BuilderJourney.RowsOnlyAfterProposalPreview",
       "model": "BuilderJourney",
       "kind": "invariant",
       "action": null,
-      "invariant": "PreviewRequiresReshapeOrPivot",
+      "invariant": "RowsOnlyAfterProposalPreview",
       "routes": [
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -16833,11 +16807,11 @@
       "status": "partial"
     },
     {
-      "id": "BuilderJourney.RowsOnlyAfterPreview",
+      "id": "BuilderJourney.SourceRowsRequireReadyTablePreview",
       "model": "BuilderJourney",
       "kind": "invariant",
       "action": null,
-      "invariant": "RowsOnlyAfterPreview",
+      "invariant": "SourceRowsRequireReadyTablePreview",
       "routes": [
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
@@ -18588,6 +18562,25 @@
       "status": "missing"
     },
     {
+      "id": "ConstructionLifecycle.StartPreview",
+      "model": "ConstructionLifecycle",
+      "kind": "action",
+      "action": "StartPreview",
+      "invariant": null,
+      "routes": [
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
+      ],
+      "tests": [],
+      "suspectedModels": [],
+      "routeBinding": "candidate",
+      "status": "missing"
+    },
+    {
       "id": "ConstructionLifecycle.StartProposal",
       "model": "ConstructionLifecycle",
       "kind": "action",
@@ -19042,12 +19035,10 @@
       "kind": "action",
       "action": "AuthoredChange",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
+      "routes": [],
       "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "status": "missing"
     },
     {
@@ -19211,8 +19202,7 @@
       "action": null,
       "invariant": "Inv_AuthoredChangeInvalidatesReceipt",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19228,8 +19218,7 @@
       "action": null,
       "invariant": "Inv_CommandAdvancesServerIdentity",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19245,8 +19234,7 @@
       "action": null,
       "invariant": "Inv_CommandUsesCurrentDraft",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19262,8 +19250,7 @@
       "action": null,
       "invariant": "Inv_FocusRequiresBothParameters",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19279,8 +19266,7 @@
       "action": null,
       "invariant": "Inv_ReadySelectionMatchesGeneration",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19296,8 +19282,7 @@
       "action": null,
       "invariant": "Inv_ReceiptCurrentOnlyForFingerprintAndExplorer",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19313,8 +19298,7 @@
       "action": null,
       "invariant": "Inv_ReconcileRequiresRootedTables",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19330,8 +19314,7 @@
       "action": null,
       "invariant": "Inv_RetryBounded",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19347,8 +19330,7 @@
       "action": null,
       "invariant": "Inv_SelectionLoadedOnlyWithRevision",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19364,8 +19346,7 @@
       "action": null,
       "invariant": "Inv_StaleReloadsAuthoritative",
       "routes": [
-        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}"
       ],
       "tests": [],
       "suspectedModels": [
@@ -19829,54 +19810,11 @@
       "kind": "action",
       "action": "AuthoredChange",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.ChangeExplorer",
@@ -19896,54 +19834,11 @@
       "kind": "action",
       "action": "ClearReceipt",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.DraftChange",
@@ -19963,54 +19858,11 @@
       "kind": "action",
       "action": "ReconcileConflict",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.ReconcileFailure",
@@ -20019,51 +19871,10 @@
       "action": "ReconcileFailure",
       "invariant": null,
       "routes": [],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "tests": [],
       "suspectedModels": [],
       "routeBinding": "unbound",
-      "status": "covered"
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.ReconcileInvalid",
@@ -20071,54 +19882,11 @@
       "kind": "action",
       "action": "ReconcileInvalid",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.ReconcileStale",
@@ -20126,54 +19894,11 @@
       "kind": "action",
       "action": "ReconcileStale",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.ReconcileSuccess",
@@ -20181,54 +19906,11 @@
       "kind": "action",
       "action": "ReconcileSuccess",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.RequestReconcile",
@@ -20236,54 +19918,11 @@
       "kind": "action",
       "action": "RequestReconcile",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.RetryReconcile",
@@ -20291,54 +19930,11 @@
       "kind": "action",
       "action": "RetryReconcile",
       "invariant": null,
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "go-route"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "route-proof"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "route-proof"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [],
-      "routeBinding": "route",
-      "status": "covered"
+      "routeBinding": "unbound",
+      "status": "missing"
     },
     {
       "id": "ReconcileLifecycle.SetSnapshotPresent",
@@ -20370,55 +19966,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_DraftChangeInvalidatesReceipt",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -20427,55 +19980,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_FailureHasNoReceipt",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -20484,55 +19994,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_ReceiptOnlyWhenSucceeded",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -20541,55 +20008,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_ReconcileRequiresRootedTables",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -20598,55 +20022,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_RequestMatchesCurrent",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -20655,55 +20036,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_RetryBounded",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -20712,55 +20050,12 @@
       "kind": "invariant",
       "action": null,
       "invariant": "Inv_SuccessReceiptMatchesCurrent",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "level": "server",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "level": "server",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "level": "server",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "mapping": "model-action"
-        },
-        {
-          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-          "kind": "vitest",
-          "level": "unit",
-          "name": "reconcile recovery formal schedule",
-          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-          "mapping": "model-action"
-        }
-      ],
+      "routes": [],
+      "tests": [],
       "suspectedModels": [
         "ReconcileLifecycle"
       ],
-      "routeBinding": "candidate",
+      "routeBinding": "unbound",
       "status": "partial"
     },
     {
@@ -22155,29 +21450,16 @@
       ],
       "obligations": [
         "BuilderPreview.ApplyAck",
-        "BuilderPreview.BeginApply",
-        "ReconcileLifecycle.AuthoredChange",
-        "ReconcileLifecycle.ClearReceipt",
-        "ReconcileLifecycle.ReconcileConflict",
-        "ReconcileLifecycle.ReconcileFailure",
-        "ReconcileLifecycle.ReconcileInvalid",
-        "ReconcileLifecycle.ReconcileStale",
-        "ReconcileLifecycle.ReconcileSuccess",
-        "ReconcileLifecycle.RequestReconcile",
-        "ReconcileLifecycle.RetryReconcile"
+        "BuilderPreview.BeginApply"
       ],
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "suspectedActions": [
         "ApplyAck",
-        "AuthoredChange",
         "BeginApply",
-        "ClearReceipt",
         "CreateExplorer",
         "DeleteCapability",
         "DeleteExplorer",
@@ -22185,14 +21467,6 @@
         "ExplorerListError",
         "HydrateBuilder",
         "Inv_DeleteKeepsFallback",
-        "ReconcileConflict",
-        "ReconcileFailure(fatal)",
-        "ReconcileFailure(retryable)",
-        "ReconcileInvalid",
-        "ReconcileStale",
-        "ReconcileSuccess",
-        "RequestReconcile",
-        "RetryReconcile",
         "SelectExplorer"
       ],
       "mapping": "go-route",
@@ -22744,32 +22018,19 @@
       ],
       "obligations": [
         "BuilderPreview.ApplyAck",
-        "BuilderPreview.BeginApply",
-        "ReconcileLifecycle.AuthoredChange",
-        "ReconcileLifecycle.ClearReceipt",
-        "ReconcileLifecycle.ReconcileConflict",
-        "ReconcileLifecycle.ReconcileFailure",
-        "ReconcileLifecycle.ReconcileInvalid",
-        "ReconcileLifecycle.ReconcileStale",
-        "ReconcileLifecycle.ReconcileSuccess",
-        "ReconcileLifecycle.RequestReconcile",
-        "ReconcileLifecycle.RetryReconcile"
+        "BuilderPreview.BeginApply"
       ],
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
         "Interpretation",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "suspectedActions": [
         "ApplyAck",
-        "AuthoredChange",
         "BeginApply",
         "BeginCreate",
         "CancelCreate",
-        "ClearReceipt",
         "CreateBlocked",
         "CreateExplorer",
         "CreateFailed",
@@ -22780,14 +22041,6 @@
         "ExplorerListError",
         "HydrateBuilder",
         "Inv_DeleteKeepsFallback",
-        "ReconcileConflict",
-        "ReconcileFailure(fatal)",
-        "ReconcileFailure(retryable)",
-        "ReconcileInvalid",
-        "ReconcileStale",
-        "ReconcileSuccess",
-        "RequestReconcile",
-        "RetryReconcile",
         "SelectExplorer"
       ],
       "mapping": "go-route",
@@ -23067,25 +22320,11 @@
         "POST /api/v1/projects/{project}/explorers",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
-      "obligations": [
-        "ReconcileLifecycle.AuthoredChange",
-        "ReconcileLifecycle.ClearReceipt",
-        "ReconcileLifecycle.ReconcileConflict",
-        "ReconcileLifecycle.ReconcileFailure",
-        "ReconcileLifecycle.ReconcileInvalid",
-        "ReconcileLifecycle.ReconcileStale",
-        "ReconcileLifecycle.ReconcileSuccess",
-        "ReconcileLifecycle.RequestReconcile",
-        "ReconcileLifecycle.RetryReconcile"
-      ],
+      "obligations": [],
       "suspectedModels": [
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "suspectedActions": [
-        "AuthoredChange",
-        "ClearReceipt",
         "CreateExplorer",
         "DeleteCapability",
         "DeleteExplorer",
@@ -23093,18 +22332,10 @@
         "ExplorerListError",
         "HydrateBuilder",
         "Inv_DeleteKeepsFallback",
-        "ReconcileConflict",
-        "ReconcileFailure(fatal)",
-        "ReconcileFailure(retryable)",
-        "ReconcileInvalid",
-        "ReconcileStale",
-        "ReconcileSuccess",
-        "RequestReconcile",
-        "RetryReconcile",
         "SelectExplorer"
       ],
-      "mapping": "route-proof",
-      "evidence": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+      "mapping": "go-route",
+      "evidence": "internal/server/explorer_reconcile_scope_test.go",
       "checks": []
     },
     {
@@ -23310,8 +22541,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -23354,8 +22583,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -23412,8 +22639,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -23490,8 +22715,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -23725,8 +22948,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -23811,8 +23032,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -23922,8 +23141,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -23974,8 +23191,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -24247,9 +23462,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -24365,9 +23578,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -24749,9 +23960,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -24788,9 +23997,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -24875,9 +24082,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -25060,9 +24265,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -25114,8 +24317,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -25160,8 +24361,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -25398,8 +24597,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -25446,9 +24643,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "SupportingSurfaces",
         "WorkspaceLifecycle"
@@ -25497,9 +24692,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -25745,8 +24938,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -25792,8 +24983,6 @@
       "suspectedModels": [
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -25838,9 +25027,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -25997,8 +25184,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26046,8 +25231,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26349,8 +25532,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26403,8 +25584,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26583,8 +25762,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26645,8 +25822,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26719,9 +25894,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26770,9 +25943,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26833,8 +26004,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -26978,8 +26147,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -27068,8 +26235,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -27235,8 +26400,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -27620,9 +26783,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -27726,9 +26887,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -28180,7 +27339,6 @@
         "ConstructionLifecycle",
         "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -28245,8 +27403,6 @@
         "BuilderJourney",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "WorkspaceLifecycle"
       ],
       "checks": [
@@ -28472,9 +27628,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -28559,9 +27713,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -28606,24 +27758,13 @@
         "BuilderPreview.ApplyAck",
         "BuilderPreview.BeginApply",
         "BuilderPreview.PreviewComplete",
-        "BuilderPreview.StartPreview",
-        "ReconcileLifecycle.AuthoredChange",
-        "ReconcileLifecycle.ClearReceipt",
-        "ReconcileLifecycle.ReconcileConflict",
-        "ReconcileLifecycle.ReconcileFailure",
-        "ReconcileLifecycle.ReconcileInvalid",
-        "ReconcileLifecycle.ReconcileStale",
-        "ReconcileLifecycle.ReconcileSuccess",
-        "ReconcileLifecycle.RequestReconcile",
-        "ReconcileLifecycle.RetryReconcile"
+        "BuilderPreview.StartPreview"
       ],
       "suspectedModels": [
         "BuilderJourney",
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -28680,8 +27821,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -28981,8 +28120,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -29033,9 +28170,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -29082,9 +28217,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -29379,8 +28512,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -29482,9 +28613,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -29608,8 +28737,6 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "SupportingSurfaces",
         "WorkspaceLifecycle"
@@ -30058,9 +29185,7 @@
         "BuilderOperations",
         "BuilderPreview",
         "ConstructionLifecycle",
-        "LifecycleEntry",
         "Population",
-        "ReconcileLifecycle",
         "RowDefinitionLifecycle",
         "WorkspaceLifecycle"
       ],
@@ -38850,32 +37975,6 @@
       "checks": []
     },
     {
-      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile recovery formal schedule",
-      "kind": "vitest",
-      "level": "unit",
-      "name": "reconcile recovery formal schedule",
-      "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
-      "routes": [
-        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
-      ],
-      "obligations": [
-        "ReconcileLifecycle.AuthoredChange",
-        "ReconcileLifecycle.ClearReceipt",
-        "ReconcileLifecycle.ReconcileConflict",
-        "ReconcileLifecycle.ReconcileFailure",
-        "ReconcileLifecycle.ReconcileInvalid",
-        "ReconcileLifecycle.ReconcileStale",
-        "ReconcileLifecycle.ReconcileSuccess",
-        "ReconcileLifecycle.RequestReconcile",
-        "ReconcileLifecycle.RetryReconcile"
-      ],
-      "mapping": "route-proof",
-      "evidence": "reconcile-recovery",
-      "suspectedModels": [],
-      "suspectedActions": [],
-      "checks": []
-    },
-    {
       "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx::reconcile rejects stale results and mismatched receipts",
       "kind": "vitest",
       "level": "unit",
@@ -43972,166 +43071,6 @@
             "go:internal/server/openapi_route_inventory_test.go::TestOpenAPIDocumentsOperationSpecificFailureStatuses"
           ]
         }
-      },
-      {
-        "obligation": "ReconcileLifecycle.AuthoredChange",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.ClearReceipt",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.ReconcileConflict",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.ReconcileFailure",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.ReconcileInvalid",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.ReconcileStale",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.ReconcileSuccess",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.RequestReconcile",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.RetryReconcile",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_DraftChangeInvalidatesReceipt",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_FailureHasNoReceipt",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_ReceiptOnlyWhenSucceeded",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_ReconcileRequiresRootedTables",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_RequestMatchesCurrent",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_RetryBounded",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
-      },
-      {
-        "obligation": "ReconcileLifecycle.Inv_SuccessReceiptMatchesCurrent",
-        "byLevel": {
-          "server": [
-            "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-            "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-            "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer"
-          ]
-        }
       }
     ],
     "testNames": [],
@@ -45892,8 +44831,7 @@
         "test": "uiTest:ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
         "routes": [
           "post:api-v1-projects-project-explorers-explorerId-authoring-v2-commands",
-          "post:api-v1-projects-project-explorers-explorerId-authoring-v2-preview",
-          "post:api-v1-projects-project-explorers-explorerId-authoring-v2-reconcile"
+          "post:api-v1-projects-project-explorers-explorerId-authoring-v2-preview"
         ]
       },
       {
@@ -45907,8 +44845,7 @@
         "test": "browserCase:builder-controls:recompile",
         "routes": [
           "post:api-v1-projects-project-explorers-explorerId-authoring-v2-commands",
-          "post:api-v1-projects-project-explorers-explorerId-authoring-v2-preview",
-          "post:api-v1-projects-project-explorers-explorerId-authoring-v2-reconcile"
+          "post:api-v1-projects-project-explorers-explorerId-authoring-v2-preview"
         ]
       }
     ]
@@ -45918,18 +44855,16 @@
     "BuilderJourney.AddColumnAgain",
     "BuilderJourney.CancelFilter",
     "BuilderJourney.EditGroup",
-    "BuilderJourney.Filter",
     "BuilderJourney.Group",
     "BuilderJourney.GroupAgain",
+    "BuilderJourney.LatePreviewCompleteIgnored",
+    "BuilderJourney.LatePreviewErrorIgnored",
     "BuilderJourney.Pivot",
-    "BuilderJourney.PivotDirect",
     "BuilderJourney.Preview",
     "BuilderJourney.PreviewComplete",
     "BuilderJourney.PreviewError",
     "BuilderJourney.RemoveGroup",
-    "BuilderJourney.SelectRows",
     "BuilderJourney.Stutter",
-    "BuilderJourney.Unpivot",
     "BuilderOperations.AuthorStep",
     "BuilderOperations.ResetWorkspace",
     "BuilderOperations.RouteSavedStep",
@@ -45970,6 +44905,7 @@
     "ConstructionLifecycle.ProposalComplete",
     "ConstructionLifecycle.ProposalError",
     "ConstructionLifecycle.RetryProposal",
+    "ConstructionLifecycle.StartPreview",
     "ConstructionLifecycle.StartProposal",
     "DraftRestore.CancelRestore",
     "DraftRestore.RestoreComplete",
@@ -46014,8 +44950,17 @@
     "Population.RequestCoverage",
     "Population.ReviewRemoval",
     "Population.RouteLookupFailed",
+    "ReconcileLifecycle.AuthoredChange",
     "ReconcileLifecycle.ChangeExplorer",
+    "ReconcileLifecycle.ClearReceipt",
     "ReconcileLifecycle.DraftChange",
+    "ReconcileLifecycle.ReconcileConflict",
+    "ReconcileLifecycle.ReconcileFailure",
+    "ReconcileLifecycle.ReconcileInvalid",
+    "ReconcileLifecycle.ReconcileStale",
+    "ReconcileLifecycle.ReconcileSuccess",
+    "ReconcileLifecycle.RequestReconcile",
+    "ReconcileLifecycle.RetryReconcile",
     "ReconcileLifecycle.SetSnapshotPresent",
     "ReconcileLifecycle.SetTablesRooted",
     "RootChange.ApplyPreview",
@@ -46071,8 +45016,8 @@
   ],
   "partial": [
     "BuilderJourney.PivotRequiresReshapeOrDirect",
-    "BuilderJourney.PreviewRequiresReshapeOrPivot",
-    "BuilderJourney.RowsOnlyAfterPreview",
+    "BuilderJourney.RowsOnlyAfterProposalPreview",
+    "BuilderJourney.SourceRowsRequireReadyTablePreview",
     "BuilderOperations.Inv_NoUiOfferedUnsupportedOperation",
     "BuilderOperations.Inv_RoutedEditorMatchesSavedOperation",
     "BuilderOperations.Inv_StepsWellFormed",

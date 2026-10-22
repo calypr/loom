@@ -9,14 +9,10 @@
       "priority": "P0",
       "status": "passing",
       "spec": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
-      "actions": [
-        "SelectRows",
-        "Preview",
-        "PreviewComplete"
-      ],
+      "actions": [],
       "oracle": "The authored table previews with the expected columns and row count.",
       "contract": null,
-      "model": null,
+      "model": "BuilderJourney",
       "minBackendCalls": 8,
       "evidence": {
         "synthetic": {
@@ -50,11 +46,10 @@
       "spec": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
       "model": "BuilderJourney",
       "actions": [
-        "SelectRows",
-        "Group",
-        "GroupAgain",
         "Preview",
-        "PreviewComplete"
+        "PreviewComplete",
+        "Group",
+        "GroupAgain"
       ],
       "oracle": "One grouped row, row_count = 1, preview receipt present.",
       "evidence": {
@@ -85,10 +80,8 @@
       "spec": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
       "model": "BuilderJourney",
       "actions": [
-        "SelectRows",
-        "PivotDirect",
         "Preview",
-        "PreviewError"
+        "PreviewComplete"
       ],
       "oracle": "Pivot columns and cell values match the fixture oracle.",
       "knownFailure": "F-001",
@@ -113,10 +106,9 @@
       "status": "passing",
       "spec": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
       "actions": [
-        "SelectRows",
-        "AddColumn",
         "Preview",
-        "PreviewComplete"
+        "PreviewComplete",
+        "AddColumn"
       ],
       "oracle": "Exact source columns plus Birth Date, rowCount 2, Birth Date values 1980-01-02 and 1985-03-04.",
       "model": "BuilderJourney",
@@ -156,8 +148,6 @@
       "status": "passing",
       "spec": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
       "actions": [
-        "SelectRows",
-        "Filter",
         "Preview",
         "PreviewComplete",
         "CancelFilter"
@@ -190,12 +180,10 @@
       "status": "product-failure",
       "spec": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
       "actions": [
-        "SelectRows",
-        "Unpivot",
         "Preview",
-        "PreviewError"
+        "PreviewComplete"
       ],
-      "oracle": "Stacked family columns produce four rows with key and value columns; current product returns HTTP 500.",
+      "oracle": "Stacked family columns produce four rows with key and value columns.",
       "model": "BuilderJourney",
       "contract": "verification/builder-interactions/builder-unpivot-contract.json",
       "evidence": {
@@ -218,11 +206,13 @@
       "status": "passing",
       "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "actions": [
-        "SelectRows",
-        "Group",
-        "EditGroup",
         "Preview",
         "PreviewComplete",
+        "PreviewError",
+        "LatePreviewCompleteIgnored",
+        "LatePreviewErrorIgnored",
+        "Group",
+        "EditGroup",
         "RemoveGroup"
       ],
       "oracle": "Group by id and gender yields two rows and three columns; removal and reload restore both source rows.",
@@ -252,10 +242,8 @@
       "status": "product-failure",
       "spec": "scripts/verify-ui/journey-specs/pivot-error.spec.mjs",
       "actions": [
-        "SelectRows",
-        "PivotDirect",
         "Preview",
-        "PreviewError"
+        "PreviewComplete"
       ],
       "oracle": "Pivot with ERROR policies returns a typed 4xx validation error and leaves the source table unchanged.",
       "model": "BuilderJourney",

@@ -7,29 +7,23 @@
       "module": "BuilderJourney.tla",
       "safetyConfig": "BuilderJourney.cfg",
       "actions": [
-        "SelectRows",
         "Group",
         "GroupAgain",
         "AddColumn",
         "AddColumnAgain",
-        "Filter",
         "CancelFilter",
-        "Unpivot",
         "EditGroup",
         "RemoveGroup",
         "Pivot",
-        "PivotDirect",
         "Preview",
         "PreviewComplete",
-        "PreviewError"
+        "PreviewError",
+        "LatePreviewCompleteIgnored",
+        "LatePreviewErrorIgnored"
       ]
     }
   },
   "actionBindings": {
-    "SelectRows": {
-      "event": "select-rows",
-      "trigger": "the authored table becomes the selected journey source"
-    },
     "Group": {
       "event": "group",
       "trigger": "first group-and-summarize proposal applied"
@@ -42,13 +36,9 @@
       "event": "pivot",
       "trigger": "pivot categories into columns applied after two reshapes"
     },
-    "PivotDirect": {
-      "event": "pivot",
-      "trigger": "pivot categories into columns configured directly on the selected table"
-    },
     "Preview": {
       "event": "preview",
-      "trigger": "preview requested for the applied row definition"
+      "trigger": "candidate proposal preview requested before the corresponding Apply command"
     },
     "PreviewComplete": {
       "event": "preview-response",
@@ -58,6 +48,14 @@
       "event": "preview-response",
       "trigger": "preview response rejected or transport error"
     },
+    "LatePreviewCompleteIgnored": {
+      "event": "preview-response",
+      "trigger": "stale preview response arrived after a newer proposal preview owner became current and was ignored"
+    },
+    "LatePreviewErrorIgnored": {
+      "event": "preview-response",
+      "trigger": "stale preview transport failure arrived after a newer proposal preview owner became current and was ignored"
+    },
     "AddColumn": {
       "event": "add-column",
       "trigger": "first add-column selection applied"
@@ -66,17 +64,9 @@
       "event": "add-column",
       "trigger": "second add-column selection applied"
     },
-    "Filter": {
-      "event": "filter",
-      "trigger": "filter proposal preview shown"
-    },
     "CancelFilter": {
       "event": "cancel-filter",
       "trigger": "filter proposal cancelled"
-    },
-    "Unpivot": {
-      "event": "unpivot",
-      "trigger": "unpivot columns applied"
     },
     "EditGroup": {
       "event": "edit-group",
@@ -103,14 +93,11 @@
       "BuilderJourney"
     ],
     "requiredActions": [
-      "SelectRows",
-      "PivotDirect",
       "Preview"
     ],
     "requiredEvents": [
-      "select-rows",
-      "pivot",
-      "preview"
+      "preview",
+      "preview-response"
     ]
   },
   "unmodeledEventPolicy": {

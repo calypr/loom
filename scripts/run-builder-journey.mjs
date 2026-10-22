@@ -342,14 +342,17 @@ const main = async () => {
 
   const journey = inspectJourney(tracePath, selectedJourney?.entry.minBackendCalls ?? 10);
   const tlaReportPath = reportPath.replace(/\.json$/, '.tla.json');
-  const unmodeled = selectedJourney?.entry.contract === null;
-  const contractPath = selectedJourney?.entry.contract === null
+  const hasDeclaredModel = Boolean(selectedJourney?.entry.model);
+  const unmodeled = Boolean(selectedJourney && selectedJourney.entry.contract === null && !hasDeclaredModel);
+  const contractPath = unmodeled
     ? null
     : (selectedJourney?.entry.contract ?? CONTRACT);
-  const allowPartial = Boolean(selectedJourney && !unmodeled && !selectedJourney.entry.contract);
+  const allowPartial = Boolean(selectedJourney && selectedJourney.entry.contract === null && hasDeclaredModel);
   const validationStatus = unmodeled ? 0 : validateTrace(tracePath, tlaReportPath, contractPath, allowPartial);
   const tla = !unmodeled && existsSync(tlaReportPath) ? JSON.parse(readFileSync(tlaReportPath, 'utf8')) : null;
-  const tlaStatus = unmodeled ? 'not-modeled' : (validationStatus === 0 ? 'pass' : 'fail');
+  const tlaStatus = unmodeled ? 'not-modeled'
+    : allowPartial ? (validationStatus === 0 ? 'partial' : 'fail')
+      : (validationStatus === 0 ? 'pass' : 'fail');
   const result = journey.result === 'product-failure' || playwrightStatus !== 0
     ? 'product-failure'
     : 'pass';

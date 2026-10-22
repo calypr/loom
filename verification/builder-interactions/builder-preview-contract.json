@@ -3,28 +3,13 @@
   "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
   "sources": [
     {
-      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-      "sha256": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
-      "contract": "Request identity, owner gating, preview receipt checks, Pivot discovery generation/key/adoption, beginApply, and finishApply."
-    },
-    {
-      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-      "sha256": "c50c4f9c7210d70be7760d282659264690eb6f9073b70152efff74520906380e",
-      "contract": "Pivot discovery request identity, debounce, unmount cancellation, adoption callback, and discovery result classes."
-    },
-    {
-      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-      "sha256": "b98316952f7e154761d603ff35c8a93b1365c91bb4044902850574636cac72df",
-      "contract": "Mounted operation availability and applyConstructionProposal -> finishApply wiring."
-    },
-    {
-      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
-      "sha256": "94732bb01636d04ca1223093915a10511ce1cda62898bcf30b303d8bd4cba8eb",
-      "contract": "constructionProposalIsApplicable response/preview/rows gate."
+      "path": "internal/explorer/authoringv2/construction_validation.go",
+      "sha256": "f78efd6fb5d151939126865d868020b7f9c21b2324f068bf45432eb92ac2bdd1",
+      "contract": "Construction step input/output, Pivot, Unpivot, Group, Expand, and Combine validation."
     },
     {
       "path": "internal/explorer/lifecycle/construction_category_discovery.go",
-      "sha256": "1ce9dc6ad03be22fa1ab6b3dba8dbbb8722320d375ba5fb0160f70dfe9df6aa6",
+      "sha256": "ed788312d414014f5bc767e7184fc0c2962598790054f215385cbe4c88e22b96",
       "contract": "Category scan outcomes, including MISSING_UNSUPPORTED and completeness requirements."
     },
     {
@@ -33,14 +18,144 @@
       "contract": "Proposal validation and operation support boundaries."
     },
     {
-      "path": "internal/explorer/authoringv2/construction_validation.go",
-      "sha256": "f78efd6fb5d151939126865d868020b7f9c21b2324f068bf45432eb92ac2bdd1",
-      "contract": "Construction step input/output, Pivot, Unpivot, Group, Expand, and Combine validation."
+      "path": "scripts/loom-dev.mjs",
+      "sha256": "ecbf2777ce115a25dc1597a925e3e43d1003d91daf1fb8f82d14d51e88cd08a9",
+      "contract": "Owned development session and fresh synthetic fixture producer used by the Journey runner."
     },
     {
-      "path": "verification/builder-interactions/BuilderOperations.tla",
-      "sha256": "47a87fc36d8fae98e74a620586e7c61cff1fd531e29b9538c8129e39b2452e04",
-      "contract": "Operation/data-shape TLA+ model."
+      "path": "scripts/playwright.journey.config.mjs",
+      "sha256": "c74649b7540b54c691594532a29d6c47941bda0b764e07cdf053181518003f6c",
+      "contract": "Browser runner configuration used by the selected Journey specs."
+    },
+    {
+      "path": "scripts/run-builder-journey.mjs",
+      "sha256": "bbb4bf64aa7002b5c214a5a8ad68122c5a769f68097976b6933e89abc0d7affd",
+      "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
+    },
+    {
+      "path": "scripts/verify-builder-formal.mjs",
+      "sha256": "4cede7c4d36036061826735f7393a7c9b3e2361a24fe98fa34de99d22a09122c",
+      "contract": "Formal test-corpus producer and runner that stamps actual HEAD and the formal proof-source fingerprint."
+    },
+    {
+      "path": "scripts/verify-builder-traces.mjs",
+      "sha256": "f8ebdc7e387fc78c3d015b4bf53b43df4e744ae8f5a813a1ec88277a3f84b1ba",
+      "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-journey-fields.mjs",
+      "sha256": "fa0ffa7e9860487fb6e2a98cc41431b9061cd20d250d397492ab21b59e71ad15",
+      "contract": "Field-selection helper imported by selected Pivot, Unpivot, and edit journeys."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/dataset-preflight.mjs",
+      "sha256": "f496758c9683558febc1f9c3ac2ce0107a7a09c83cd06e2941410b19d679b94d",
+      "contract": "Runner preflight for the selected loaded dataset and project generation."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fast-fixtures.mjs",
+      "sha256": "ca7d7500ac485428939d0dc1018b8e7dc1099600b99fddb648ddd253c4d8046c",
+      "contract": "Journey request/response capture, request-object correlation, and read-only DOM observation helpers."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
+      "sha256": "5ba89892be84c765d456a075f31f4df196c12688344ba2eae3285e550c825c29",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
+      "sha256": "3784736f90f917cc1ca0f97028e8549a3046df79caf73da2572cf9da44e46432",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "sha256": "a572d1f46081f3a33a55818312917145dc1016fa229b5dc2f76fc0739ff74e5d",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
+      "sha256": "9e037edde498a04d74a6ccf6e268475a4e3bb302d24e6bf0602ed060f0b0c139",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
+      "sha256": "5c1f3791939c6a5063da3b7d090a89dde5c7475fafa4d89e665c9d37c7d481d5",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
+      "sha256": "53f8a2fe7d12245c2aa62d4f27567ca506c2b303fd9dc196f40657b9d20e89f1",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/pivot-error.spec.mjs",
+      "sha256": "f94463b584e151ab34d2155de12980d6d70f0f1d1c2bc35dfc0e9e2226d0d028",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
+      "sha256": "a242669d0fca33ee1de587af7257be04e60bc9cd9a84827b1ae51a415bfe8706",
+      "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+      "sha256": "bc17ed3e49f74cf70d94bf9708ac4f8baf506fb579dc2fd23f14bd9cb9c6a557",
+      "contract": "Mounted operation availability and applyConstructionProposal -> finishApply wiring."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts",
+      "sha256": "282c4f8dba2d795bbdfb59ed41d88a203600fb50599c715dfa225ad84b822a88",
+      "contract": "Reconcile stale, conflict, retry, and repair decisions plus receipt and result identity acceptance."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+      "sha256": "b7c22dfceff422198b9278e5315565b0bcb55348cc5498e88609db2cdb871ebc",
+      "contract": "Rendered preview-table row/column count used by Journey observation."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+      "sha256": "c50c4f9c7210d70be7760d282659264690eb6f9073b70152efff74520906380e",
+      "contract": "Pivot discovery request identity, debounce, unmount cancellation, adoption callback, and discovery result classes."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+      "sha256": "f3f22dc79a9c41414f98fe5844b2f2787ed953b1b5ff15052c2c2039638921ec",
+      "contract": "constructionProposalIsApplicable response/preview/rows gate."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPreview.tsx",
+      "sha256": "7c4f168ab8723fcb9abf36ccb0346f8f2b023b2ccd67946deb74bbeacce753ae",
+      "contract": "Rendered embedded proposal preview receipt/output attributes and row availability."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+      "sha256": "881bff86191e4bfe64c614a0d59c55c959ffc6d7e12998f6584b1c1ad1aa51f6",
+      "contract": "Rendered source-table preview status, receipt, output, and draft attributes observed by Journey traces."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+      "sha256": "f797f89c70075cfe5dd4c64041919e218e656e1d5424344db1c3d5aae7509bf8",
+      "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+      "sha256": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "contract": "Request identity, owner gating, preview receipt checks, Pivot discovery generation/key/adoption, beginApply, and finishApply."
+    },
+    {
+      "path": "ui/packages/loom-ui/testSupport/formalTrace.ts",
+      "sha256": "5da048de89c796e9354b47e8d84f7b18d1f727d4c1d645a174c13ef8190e50a4",
+      "contract": "Test-only trace recorder used by the real-controller formal suite."
+    },
+    {
+      "path": "verification/builder-interactions/BuilderJourney.cfg",
+      "sha256": "f16b8c5fe17a3d1cc99c3f45c0d942e8c805dcb7ac481fb41dc81f16ecee4932",
+      "contract": "BuilderJourney TLC bounds and invariants."
+    },
+    {
+      "path": "verification/builder-interactions/BuilderJourney.tla",
+      "sha256": "d37a5ae38288dccb3cd638ad8e200c5e4a67ee922dae094a23da7c396694c392",
+      "contract": "BuilderJourney lifecycle model for source preview, candidate preview, apply, and stale settlements."
     },
     {
       "path": "verification/builder-interactions/BuilderOperations.cfg",
@@ -48,8 +163,13 @@
       "contract": "Operation model bounds and safety invariants."
     },
     {
+      "path": "verification/builder-interactions/BuilderOperations.tla",
+      "sha256": "47a87fc36d8fae98e74a620586e7c61cff1fd531e29b9538c8129e39b2452e04",
+      "contract": "Operation/data-shape TLA+ model."
+    },
+    {
       "path": "verification/builder-interactions/BuilderPreview.tla",
-      "sha256": "039f776b8c0c14cf1fdabda83b09e165974f9bec3b948892a0b3c3b24877fc6d",
+      "sha256": "964d3561bcc53dab613506ef46bd4f6b27f0d25f478a78e5ec674e8e6aa3daf7",
       "contract": "Async proposal/preview/apply/discovery TLA+ model."
     },
     {
@@ -58,54 +178,9 @@
       "contract": "Async safety invariants."
     },
     {
-      "path": "verification/builder-interactions/builder-trace-contract.json",
-      "sha256": "cfee4c8b8b1a20acfcb9465cdd7424281fc3aea89d00c2b42a8248bd53bfee9d",
-      "contract": "Phase 1 abstract action, event, and observation vocabulary for implementation traces."
-    },
-    {
-      "path": "ui/packages/loom-ui/testSupport/formalTrace.ts",
-      "sha256": "d6f00432395fdcc9e07368bfc7c531681af186241aa55992e8b824ea08934abc",
-      "contract": "Test-only trace recorder used by the real-controller formal suite."
-    },
-    {
-      "path": "verification/builder-interactions/WorkspaceLifecycle.tla",
-      "sha256": "06e8b01d3ee714f2b46a7feecac648bad448bbf7a0c4f082a3dadd0996fa3e78",
-      "contract": "Workspace hydration, explorer selection/create/delete, table/occurrence routing, and automatic preview recovery model."
-    },
-    {
-      "path": "verification/builder-interactions/WorkspaceLifecycle.cfg",
-      "sha256": "6ee11af93f7834af33c2e49340fa19d8ef6293263e7f51b3fc88c0d456dc2378",
-      "contract": "Workspace hydration, explorer selection/create/delete, table/occurrence routing model."
-    },
-    {
-      "path": "verification/builder-interactions/RowDefinitionLifecycle.tla",
-      "sha256": "951ae024c087f018e2f2399223ab9f12f2426803c10faca4eea036a3c67691d5",
-      "contract": "Row-definition selection, proposal lifecycle, cancellation, and apply model."
-    },
-    {
-      "path": "verification/builder-interactions/RowDefinitionLifecycle.cfg",
-      "sha256": "2850e8a83e85a215256a81a4de8ab3b527ee7079692b04551cc08a54ed13b552",
-      "contract": "Row-definition model bounds and safety invariants."
-    },
-    {
-      "path": "verification/builder-interactions/DraftRestore.tla",
-      "sha256": "fd93b40e11a4df8e0c377889918a1be89e9c24796924d0943430ad94d13c6b04",
-      "contract": "Saved-draft restore, immediate-predecessor request, completion, cancellation, and stale-draft model."
-    },
-    {
-      "path": "verification/builder-interactions/DraftRestore.cfg",
-      "sha256": "a95c6ce8fc203a57c875c67e5900b312609c4888c2801e1c9cb8dde4ca5f16b1",
-      "contract": "Draft-restore model bounds and safety invariants."
-    },
-    {
-      "path": "verification/builder-interactions/RootChange.tla",
-      "sha256": "dde204fd22eeb8a0d8a94a1c01bec7a8cbf56235059ea8b4777edec67e140462",
-      "contract": "Table-root assessment, blocked resolutions, preview identity, apply, cancellation, and stale-epoch model."
-    },
-    {
-      "path": "verification/builder-interactions/RootChange.cfg",
-      "sha256": "ffe7837260403c579f32c8000f75f75a938f4bd2fc4e573395816baaf393e5c9",
-      "contract": "Root-change model bounds and safety invariants."
+      "path": "verification/builder-interactions/ColumnPresentation.cfg",
+      "sha256": "aa3f63b33711a7749fc6196e1dfbf9d9b2861cf121a51e40ed78de648f90f159",
+      "contract": "ColumnPresentation model bounds and safety invariants."
     },
     {
       "path": "verification/builder-interactions/ColumnPresentation.tla",
@@ -113,24 +188,24 @@
       "contract": "Column rename, visibility, order, filter offer, feature policy, local search, related aggregate source, row-value policy, and source inspection model."
     },
     {
-      "path": "verification/builder-interactions/ColumnPresentation.cfg",
-      "sha256": "aa3f63b33711a7749fc6196e1dfbf9d9b2861cf121a51e40ed78de648f90f159",
-      "contract": "ColumnPresentation model bounds and safety invariants."
+      "path": "verification/builder-interactions/ConstructionLifecycle.cfg",
+      "sha256": "a77284f6e23ab92aa2724dc1d0c34a08c2e223d60c1893185737e9ab71a0a1c1",
+      "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
-      "path": "verification/builder-interactions/Population.tla",
-      "sha256": "4da312ec8f2d624f59584df4fbe785fc57165fdeade401122bb7dc07ece4eb4b",
-      "contract": "Population attach/replace, clear, coverage, exclusion, and member-removal proposal model."
+      "path": "verification/builder-interactions/ConstructionLifecycle.tla",
+      "sha256": "ce664ca3ccfefcf0058d1d9b512eb962d02b39fe2e751fbf476c2730739e13d5",
+      "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
-      "path": "verification/builder-interactions/Population.cfg",
-      "sha256": "d3d16fefa3a436a9709999e43fbc2947c01d46a7a8c2b1b7e682f4aaf05e4d6d",
-      "contract": "Population model bounds and safety invariants."
+      "path": "verification/builder-interactions/DraftRestore.cfg",
+      "sha256": "a95c6ce8fc203a57c875c67e5900b312609c4888c2801e1c9cb8dde4ca5f16b1",
+      "contract": "Draft-restore model bounds and safety invariants."
     },
     {
-      "path": "verification/builder-interactions/Interpretation.tla",
-      "sha256": "4a74b9e0c1661039da222e7415ae95f3311e9943116023a0520a4c27d614807a",
-      "contract": "Interpretation revision creation, review, stale cancellation, and exact-receipt Apply model."
+      "path": "verification/builder-interactions/DraftRestore.tla",
+      "sha256": "fd93b40e11a4df8e0c377889918a1be89e9c24796924d0943430ad94d13c6b04",
+      "contract": "Saved-draft restore, immediate-predecessor request, completion, cancellation, and stale-draft model."
     },
     {
       "path": "verification/builder-interactions/Interpretation.cfg",
@@ -138,19 +213,9 @@
       "contract": "Interpretation model bounds and safety invariants."
     },
     {
-      "path": "verification/builder-interactions/SupportingSurfaces.tla",
-      "sha256": "1fd99b6aaa27c545f59b9fe94f2f2565bfaf333654115cd2b42b065a27e52b70",
-      "contract": "Dataset review navigation, guided graph view state, frame-source management, and row-source inspection model."
-    },
-    {
-      "path": "verification/builder-interactions/SupportingSurfaces.cfg",
-      "sha256": "28db816afd5eddce8a015d1f9e2a8023906d2c672a7f8eeb63dc19a5fedd8f3b",
-      "contract": "SupportingSurfaces model bounds and safety invariants."
-    },
-    {
-      "path": "verification/builder-interactions/LifecycleEntry.tla",
-      "sha256": "ad2a1f7068ab2c12876f8a1960ba251b395f7634a9674576ca882954a4b9bc5b",
-      "contract": "Demo entry routing and server draft command/reconcile lifecycle model."
+      "path": "verification/builder-interactions/Interpretation.tla",
+      "sha256": "4a74b9e0c1661039da222e7415ae95f3311e9943116023a0520a4c27d614807a",
+      "contract": "Interpretation revision creation, review, stale cancellation, and exact-receipt Apply model."
     },
     {
       "path": "verification/builder-interactions/LifecycleEntry.cfg",
@@ -158,9 +223,19 @@
       "contract": "LifecycleEntry model bounds and safety invariants."
     },
     {
-      "path": "verification/builder-interactions/ReconcileLifecycle.tla",
-      "sha256": "e818588a8cda911252823578c86824a40497d9e522afc7d6a5386e6479ebea89",
-      "contract": "Reconcile request identity, receipt binding, stale and conflict outcomes, draft invalidation, and bounded retry model."
+      "path": "verification/builder-interactions/LifecycleEntry.tla",
+      "sha256": "ad2a1f7068ab2c12876f8a1960ba251b395f7634a9674576ca882954a4b9bc5b",
+      "contract": "Demo entry routing and server draft command/reconcile lifecycle model."
+    },
+    {
+      "path": "verification/builder-interactions/Population.cfg",
+      "sha256": "d3d16fefa3a436a9709999e43fbc2947c01d46a7a8c2b1b7e682f4aaf05e4d6d",
+      "contract": "Population model bounds and safety invariants."
+    },
+    {
+      "path": "verification/builder-interactions/Population.tla",
+      "sha256": "4da312ec8f2d624f59584df4fbe785fc57165fdeade401122bb7dc07ece4eb4b",
+      "contract": "Population attach/replace, clear, coverage, exclusion, and member-removal proposal model."
     },
     {
       "path": "verification/builder-interactions/ReconcileLifecycle.cfg",
@@ -168,9 +243,94 @@
       "contract": "Reconcile model bounds and safety invariants."
     },
     {
-      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts",
-      "sha256": "282c4f8dba2d795bbdfb59ed41d88a203600fb50599c715dfa225ad84b822a88",
-      "contract": "Reconcile stale, conflict, retry, and repair decisions plus receipt and result identity acceptance."
+      "path": "verification/builder-interactions/ReconcileLifecycle.tla",
+      "sha256": "e818588a8cda911252823578c86824a40497d9e522afc7d6a5386e6479ebea89",
+      "contract": "Reconcile request identity, receipt binding, stale and conflict outcomes, draft invalidation, and bounded retry model."
+    },
+    {
+      "path": "verification/builder-interactions/RootChange.cfg",
+      "sha256": "ffe7837260403c579f32c8000f75f75a938f4bd2fc4e573395816baaf393e5c9",
+      "contract": "Root-change model bounds and safety invariants."
+    },
+    {
+      "path": "verification/builder-interactions/RootChange.tla",
+      "sha256": "dde204fd22eeb8a0d8a94a1c01bec7a8cbf56235059ea8b4777edec67e140462",
+      "contract": "Table-root assessment, blocked resolutions, preview identity, apply, cancellation, and stale-epoch model."
+    },
+    {
+      "path": "verification/builder-interactions/RowDefinitionLifecycle.cfg",
+      "sha256": "2850e8a83e85a215256a81a4de8ab3b527ee7079692b04551cc08a54ed13b552",
+      "contract": "Row-definition model bounds and safety invariants."
+    },
+    {
+      "path": "verification/builder-interactions/RowDefinitionLifecycle.tla",
+      "sha256": "951ae024c087f018e2f2399223ab9f12f2426803c10faca4eea036a3c67691d5",
+      "contract": "Row-definition selection, proposal lifecycle, cancellation, and apply model."
+    },
+    {
+      "path": "verification/builder-interactions/SupportingSurfaces.cfg",
+      "sha256": "28db816afd5eddce8a015d1f9e2a8023906d2c672a7f8eeb63dc19a5fedd8f3b",
+      "contract": "SupportingSurfaces model bounds and safety invariants."
+    },
+    {
+      "path": "verification/builder-interactions/SupportingSurfaces.tla",
+      "sha256": "1fd99b6aaa27c545f59b9fe94f2f2565bfaf333654115cd2b42b065a27e52b70",
+      "contract": "Dataset review navigation, guided graph view state, frame-source management, and row-source inspection model."
+    },
+    {
+      "path": "verification/builder-interactions/WorkspaceLifecycle.cfg",
+      "sha256": "6ee11af93f7834af33c2e49340fa19d8ef6293263e7f51b3fc88c0d456dc2378",
+      "contract": "Workspace hydration, explorer selection/create/delete, table/occurrence routing model."
+    },
+    {
+      "path": "verification/builder-interactions/WorkspaceLifecycle.tla",
+      "sha256": "06e8b01d3ee714f2b46a7feecac648bad448bbf7a0c4f082a3dadd0996fa3e78",
+      "contract": "Workspace hydration, explorer selection/create/delete, table/occurrence routing, and automatic preview recovery model."
+    },
+    {
+      "path": "verification/builder-interactions/builder-add-column-contract.json",
+      "sha256": "07da96cf5e926cc1db736e0ac82f073519bb97b23f836351d118f8ee6f6a4f8a",
+      "contract": "Selected Add Column Journey actions and expected trace contract."
+    },
+    {
+      "path": "verification/builder-interactions/builder-edit-remove-contract.json",
+      "sha256": "4c5872fce3d57c9b65af75bccf942c9f40c398789bd0e8b5499b5cdf79e820fd",
+      "contract": "Selected edit/remove Journey actions and expected trace contract."
+    },
+    {
+      "path": "verification/builder-interactions/builder-filter-contract.json",
+      "sha256": "e7c47549376e8da9ea67b1d05e23e7aa3c9ce27f3e54ea00a4623a3519b12fc2",
+      "contract": "Selected Filter Journey actions and expected trace contract."
+    },
+    {
+      "path": "verification/builder-interactions/builder-journey-audit.json",
+      "sha256": "bf8720e087705ba99fb6a59b4724980ee86e0f91cce5c658196d2eb1e436b135",
+      "contract": "Journey selection and declared action manifest for the selected synthetic capture run."
+    },
+    {
+      "path": "verification/builder-interactions/builder-journey-contract.json",
+      "sha256": "581d8cf62d6a2eb83196d47209b384761e84842326e5ff2f091273219cc48931",
+      "contract": "BuilderJourney action bindings and selected contract baseline."
+    },
+    {
+      "path": "verification/builder-interactions/builder-pivot-contract.json",
+      "sha256": "e0ba753e2540fca5fe399842000273368a5d7bae349a301f5c95220efcb1f219",
+      "contract": "Selected Pivot Journey actions and expected trace contract."
+    },
+    {
+      "path": "verification/builder-interactions/builder-pivot-error-contract.json",
+      "sha256": "e0ba753e2540fca5fe399842000273368a5d7bae349a301f5c95220efcb1f219",
+      "contract": "Selected Pivot error Journey actions and expected trace contract."
+    },
+    {
+      "path": "verification/builder-interactions/builder-trace-contract.json",
+      "sha256": "b4002894b31be7378b564a6fad48204c2276ef647503188a233aa99d21b54bde",
+      "contract": "Phase 1 abstract action, event, and observation vocabulary for implementation traces."
+    },
+    {
+      "path": "verification/builder-interactions/builder-unpivot-contract.json",
+      "sha256": "e0ba753e2540fca5fe399842000273368a5d7bae349a301f5c95220efcb1f219",
+      "contract": "Selected Unpivot Journey actions and expected trace contract."
     }
   ]
 }

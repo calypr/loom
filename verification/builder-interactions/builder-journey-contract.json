@@ -38,7 +38,7 @@
     },
     "Preview": {
       "event": "preview",
-      "trigger": "preview requested for the applied row definition"
+      "trigger": "candidate proposal preview requested before the corresponding Apply command"
     },
     "PreviewComplete": {
       "event": "preview-response",

@@ -394,41 +394,18 @@
       "method": "POST",
       "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
       "proof": {
-        "status": "modeled-and-traced",
-        "model": "ReconcileLifecycle.tla",
-        "traceEvent": "reconcile-response",
-        "schedule": "reconcile-recovery",
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": "No runtime-bound Reconcile decision trace exists; the removed late-reconcile event came from pure predicate tests.",
+        "traceEvent": null,
+        "schedule": null,
         "contractTest": null,
         "goTest": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
         "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
         "browserCase": "builder-controls:recompile",
-        "reason": "Reconcile success, stale retry, conflict, invalid, retryable, fatal, identity rejection, and late result schedules. Go receipt test and Recompile browser case.",
-        "scope": "reconcile request, recovery, and late-result lifecycle",
-        "coveredActions": [
-          "RequestReconcile",
-          "RetryReconcile",
-          "ReconcileSuccess",
-          "ReconcileStale",
-          "ReconcileConflict",
-          "ReconcileInvalid",
-          "ReconcileFailure(retryable)",
-          "ReconcileFailure(fatal)",
-          "ClearReceipt",
-          "AuthoredChange"
-        ],
-        "routeActions": [
-          "RequestReconcile",
-          "RetryReconcile",
-          "ReconcileSuccess",
-          "ReconcileStale",
-          "ReconcileConflict",
-          "ReconcileInvalid",
-          "ReconcileFailure(retryable)",
-          "ReconcileFailure(fatal)",
-          "ClearReceipt",
-          "AuthoredChange"
-        ],
-        "routeActionReason": "Proven route actions from the trace and schedule."
+        "reason": "Go receipt/preview and Recompile browser evidence remain. Eight Vitest cases test pure reconcile identity, receipt, and retry predicates; they do not sample the mounted controller. ReconcileLifecycle controller conformance is unproven."
       }
     },
     {
