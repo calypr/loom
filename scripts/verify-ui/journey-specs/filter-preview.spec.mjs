@@ -1,21 +1,18 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '../helpers/fast-fixtures.mjs';
+import {
+  captureBuilderObservation,
+  captureJourneyProvenance,
+  expect,
+  recordAuthoringAttempt,
+  observeAuthoringAttempt,
+  test,
+} from '../helpers/fast-fixtures.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
 const SOURCE_LABELS = ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
 const CDA_MINI_LABELS = ['id'];
-
-const observation = (overrides = {}) => ({
-  status: 'idle',
-  canApply: false,
-  proposalIdPresent: false,
-  previewReceiptPresent: false,
-  rowsPresent: false,
-  receiptPresent: false,
-  ...overrides,
-});
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -41,8 +38,8 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
 
   const tracePath = process.env.LOOM_JOURNEY_TRACE;
   expect(tracePath, 'LOOM_JOURNEY_TRACE must be set by run-builder-journey.mjs').toBeTruthy();
-  const sourceCommit = String(process.env.LOOM_JOURNEY_SOURCE_COMMIT ?? '').trim();
-  expect(sourceCommit, 'LOOM_JOURNEY_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
+  const provenance = captureJourneyProvenance();
+  expect(provenance.sourceCommit, 'LOOM_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
 
   const isCDAMini = process.env.LOOM_CDA_MINI_FIXTURE === '1';
   const sourceLabels = isCDAMini ? CDA_MINI_LABELS : SOURCE_LABELS;
@@ -59,21 +56,31 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
   });
 
   console.log('[journey] navigation');
+  const initialPreviewAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'preview',
+    owner: { kind: 'preview', attempt: 'P1' },
+    timeout: 45_000,
+  });
   await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
   await waitForPreviewReady(fastPage);
+  const initialPreviewExchange = await initialPreviewAttempt.settled;
+  const initialObservation = await captureBuilderObservation(fastPage);
 
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
-    sourceCommit,
+    ...provenance,
     traces: [{
       name: 'journey/filter-preview',
       model: 'BuilderJourney',
-      initialObservation: observation(),
-      actions: [{
-        label: 'SelectRows',
-        event: 'select-rows',
-        observation: observation({ status: 'selected' }),
-      }],
+      initialObservation,
+      initialPreview: {
+        owner: initialPreviewExchange.owner,
+        request: initialPreviewExchange.request,
+        response: initialPreviewExchange.response,
+        settlement: initialPreviewExchange.settlement,
+      },
+      actions: [],
       unmodeledEvents: [],
     }],
   };
@@ -101,7 +108,21 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
     const valueInput = editor.getByRole('textbox', { name: 'Value', exact: true });
     await expect(valueInput).toBeVisible();
     const before = proposalBodies.length;
+    const proposalAttempt = observeAuthoringAttempt(fastPage, {
+      method: 'POST',
+      path: 'construction-proposals',
+      owner: { kind: 'proposal', attempt: 'P1' },
+    });
+    const proposalTrace = recordAuthoringAttempt(fastPage, trace.traces[0].actions, proposalAttempt, {
+      requestLabel: 'Preview',
+      requestEvent: 'preview',
+      responseLabel: 'PreviewComplete',
+      responseErrorLabel: 'PreviewError',
+      responseEvent: 'preview-response',
+    });
     await valueInput.fill(value);
+    const proposalStarted = await proposalTrace.started;
+    await proposalTrace.settled;
     const matchingPreview = () => [...proposalBodies.slice(before)].reverse()
       .find((body) => body?.preview?.rows?.some((row) => Object.values(row).includes(expectedId)))?.preview;
     await expect.poll(() => Boolean(matchingPreview())).toBe(true);
@@ -109,31 +130,7 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
 
     const panel = fastPage.getByTestId('construction-proposal-panel');
     await expect(panel).toContainText(isCDAMini ? '1 row and 1 column' : '1 row and 5 columns');
-    const proposalId = await panel.getAttribute('data-proposal-id');
     const preview = matchingPreview();
-    trace.traces[0].actions.push(
-      {
-        label: 'Filter',
-        event: 'filter',
-        observation: observation({ status: 'reshaping', proposalIdPresent: Boolean(proposalId) }),
-      },
-      {
-        label: 'Preview',
-        event: 'preview',
-        observation: observation({ status: 'previewing', proposalIdPresent: Boolean(proposalId) }),
-      },
-      {
-        label: 'PreviewComplete',
-        event: 'preview-response',
-        observation: observation({
-          status: 'ready',
-          proposalIdPresent: Boolean(proposalId),
-          previewReceiptPresent: true,
-          rowsPresent: true,
-        }),
-      },
-    );
-
     const columns = preview.columns ?? [];
     const rows = preview.rows ?? [];
     const labels = columns.map((column) => column.label);
@@ -173,7 +170,8 @@ test('builder journey filters, previews exact rows, and cancels', async ({ fastP
     trace.traces[0].actions.push({
       label: 'CancelFilter',
       event: 'cancel-filter',
-      observation: observation({ status: 'selected' }),
+      owner: proposalStarted.owner,
+      observation: await captureBuilderObservation(fastPage),
     });
     persistTrace();
   };

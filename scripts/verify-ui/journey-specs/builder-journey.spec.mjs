@@ -1,19 +1,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '../helpers/fast-fixtures.mjs';
+import {
+  captureBuilderObservation,
+  captureJourneyProvenance,
+  combineAuthoringObservation,
+  expect,
+  observeAuthoringAttempt,
+  test,
+} from '../helpers/fast-fixtures.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
-
-const observation = (overrides = {}) => ({
-  status: 'idle',
-  canApply: false,
-  proposalIdPresent: false,
-  previewReceiptPresent: false,
-  rowsPresent: false,
-  receiptPresent: false,
-  ...overrides,
-});
 
 const isAuthoringResponse = (response) => {
   const url = new URL(response.url());
@@ -40,30 +37,61 @@ const waitForProposalGone = async (page) => {
   await page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'), undefined, { timeout: 20_000 });
 };
 
-const applyGroup = async (page, trace, label) => {
+const applyGroup = async (page, trace, label, attempt) => {
   const proposal = page.getByTestId('construction-proposal-panel');
+  const proposalAttempt = observeAuthoringAttempt(page, {
+    method: 'POST',
+    path: 'construction-proposals',
+    owner: { kind: 'proposal', attempt },
+    timeout: 20_000,
+  });
   await page.getByTestId('construction-action-group-rows').click();
+  const proposalStarted = await proposalAttempt.started;
+  trace.actions.push({
+    label: 'Preview',
+    event: 'preview',
+    owner: proposalStarted.owner,
+    request: proposalStarted.request,
+    observation: proposalStarted.requestObservation,
+  });
   await waitForProposalReady(page);
   const proposalStatus = await proposal.getAttribute('data-proposal-status');
-  expect(proposalStatus, `${label} proposal status`).toBe('ready');
-  const proposalId = await proposal.getAttribute('data-proposal-id');
-  const commands = page.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'commands';
-  }, { timeout: 20_000 });
+  if (label === 'GroupAgain') expect(proposalStatus).toBe('ready');
+  else expect(proposalStatus, `${label} proposal status`).toBe('ready');
+  const proposalExchange = await proposalAttempt.settled;
+  if (label === 'GroupAgain') expect(proposalExchange.rawResponse.ok(), 'second group proposal preview').toBe(true);
+  const proposalObservation = await captureBuilderObservation(page);
+  trace.actions.push({
+    label: 'PreviewComplete',
+    event: 'preview-response',
+    owner: proposalStarted.owner,
+    request: proposalExchange.request,
+    response: proposalExchange.response,
+    settlement: proposalExchange.settlement,
+    observation: combineAuthoringObservation(proposalExchange, proposalObservation),
+  });
+  const commandAttempt = observeAuthoringAttempt(page, {
+    method: 'POST',
+    path: 'commands',
+    owner: { kind: 'apply', attempt },
+    timeout: 20_000,
+  });
   await page.getByTestId('construction-apply-proposal').click();
-  const commandsResponse = await commands;
-  expect(commandsResponse.ok(), `${label} command persistence`).toBe(true);
+  const commandStarted = await commandAttempt.started;
+  const commandExchange = await commandAttempt.settled;
+  if (label === 'GroupAgain') expect(commandExchange.rawResponse.ok()).toBe(true);
+  else expect(commandExchange.rawResponse.ok(), `${label} command persistence`).toBe(true);
   await waitForProposalGone(page);
   trace.actions.push({
     label,
     event: 'group',
-    observation: observation({
-      status: 'reshaping',
-      proposalIdPresent: Boolean(proposalId),
-      rowsPresent: false,
-    }),
+    owner: commandStarted.owner,
+    request: commandExchange.request,
+    response: commandExchange.response,
+    settlement: commandExchange.settlement,
+    observation: await captureBuilderObservation(page),
   });
+  return { proposalPreview: proposalExchange.payload.preview ?? proposalExchange.payload };
 };
 
 test('builder journey groups twice and previews the applied table', async ({ fastPage, fastUrl }) => {
@@ -73,8 +101,8 @@ test('builder journey groups twice and previews the applied table', async ({ fas
 
   const tracePath = process.env.LOOM_JOURNEY_TRACE;
   expect(tracePath, 'LOOM_JOURNEY_TRACE must be set by run-builder-journey.mjs').toBeTruthy();
-  const sourceCommit = String(process.env.LOOM_JOURNEY_SOURCE_COMMIT ?? '').trim();
-  expect(sourceCommit, 'LOOM_JOURNEY_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
+  const provenance = captureJourneyProvenance();
+  expect(provenance.sourceCommit, 'LOOM_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
 
   const backendCalls = [];
   fastPage.on('response', (response) => {
@@ -87,74 +115,44 @@ test('builder journey groups twice and previews the applied table', async ({ fas
   });
 
   console.log('[journey] navigation');
+  const initialPreviewAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'preview',
+    owner: { kind: 'preview', attempt: 'P1' },
+    timeout: 45_000,
+  });
   await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
   console.log('[journey] initial preview');
   await waitForPreviewReady(fastPage);
+  const initialPreviewExchange = await initialPreviewAttempt.settled;
+  const initialObservation = await captureBuilderObservation(fastPage);
   console.log('[journey] initial preview ready');
 
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
-    sourceCommit,
+    ...provenance,
     traces: [{
       name: 'journey/group-twice-preview',
       model: 'BuilderJourney',
-      initialObservation: observation(),
-      actions: [{
-        label: 'SelectRows',
-        event: 'select-rows',
-        observation: observation({ status: 'selected' }),
-      }],
+      initialObservation,
+      initialPreview: {
+        owner: initialPreviewExchange.owner,
+        request: initialPreviewExchange.request,
+        response: initialPreviewExchange.response,
+        settlement: initialPreviewExchange.settlement,
+      },
+      actions: [],
       unmodeledEvents: [],
     }],
   };
 
   console.log('[journey] first group');
   await fastPage.getByTestId('construction-rows-settings-trigger').click();
-  await applyGroup(fastPage, trace.traces[0], 'Group');
+  await applyGroup(fastPage, trace.traces[0], 'Group', 'P1');
   console.log('[journey] first group applied');
 
   console.log('[journey] second group');
-  const secondProposal = fastPage.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'construction-proposals';
-  }, { timeout: 20_000 });
-  const secondCommands = fastPage.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'commands';
-  }, { timeout: 20_000 });
-  await fastPage.getByTestId('construction-action-group-rows').click();
-  await waitForProposalReady(fastPage);
-  const secondProposalId = await fastPage.getByTestId('construction-proposal-panel').getAttribute('data-proposal-id');
-  expect(await fastPage.getByTestId('construction-proposal-panel').getAttribute('data-proposal-status')).toBe('ready');
-  const secondProposalResponse = await secondProposal;
-  expect(secondProposalResponse.ok(), 'second group proposal preview').toBe(true);
-  const previewPayload = await secondProposalResponse.json();
-  await fastPage.getByTestId('construction-apply-proposal').click();
-  expect((await secondCommands).ok()).toBe(true);
-  await waitForProposalGone(fastPage);
-  trace.traces[0].actions.push({
-    label: 'GroupAgain',
-    event: 'group',
-    observation: observation({
-      status: 'reshaping',
-      proposalIdPresent: Boolean(secondProposalId),
-      rowsPresent: false,
-    }),
-  });
-  trace.traces[0].actions.push({
-    label: 'Preview',
-    event: 'preview',
-    observation: observation({ status: 'previewing' }),
-  });
-  trace.traces[0].actions.push({
-    label: 'PreviewComplete',
-    event: 'preview-response',
-    observation: observation({
-      status: 'ready',
-      previewReceiptPresent: true,
-      rowsPresent: true,
-    }),
-  });
+  const secondGroup = await applyGroup(fastPage, trace.traces[0], 'GroupAgain', 'P2');
   console.log('[journey] second group applied; second proposal preview captured');
 
 
@@ -164,7 +162,7 @@ test('builder journey groups twice and previews the applied table', async ({ fas
   await expect(fastPage.getByTestId('preview-table-content')).toBeVisible();
   await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row').first()).toBeVisible();
 
-  const observedPreview = previewPayload.preview ?? previewPayload;
+  const observedPreview = secondGroup.proposalPreview;
   const rowCount = Number(observedPreview.rowCount ?? observedPreview.rows?.length ?? 0);
   expect(rowCount, 'the applied table preview must contain exactly one grouped row').toBe(1);
   expect(Array.isArray(observedPreview.rows) ? observedPreview.rows.length : 0).toBe(1);

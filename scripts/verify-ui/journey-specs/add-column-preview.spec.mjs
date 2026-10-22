@@ -1,19 +1,16 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '../helpers/fast-fixtures.mjs';
+import {
+  captureBuilderObservation,
+  captureJourneyProvenance,
+  expect,
+  recordAuthoringAttempt,
+  observeAuthoringAttempt,
+  test,
+} from '../helpers/fast-fixtures.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
-
-const observation = (overrides = {}) => ({
-  status: 'idle',
-  canApply: false,
-  proposalIdPresent: false,
-  previewReceiptPresent: false,
-  rowsPresent: false,
-  receiptPresent: false,
-  ...overrides,
-});
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -25,21 +22,39 @@ const waitForPreviewReady = async (page) => {
   }, undefined, { timeout: 45_000 });
 };
 
-const addSelectedFeature = async (page) => {
-  const proposal = page.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'construction-choice-proposals';
-  }, { timeout: 30_000 });
-  const commands = page.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'commands';
-  }, { timeout: 30_000 });
+const addSelectedFeature = async (page, actions) => {
+  const proposalAttempt = observeAuthoringAttempt(page, {
+    method: 'POST',
+    path: 'construction-choice-proposals',
+    owner: { kind: 'proposal', attempt: 'P1' },
+  });
+  const commandAttempt = observeAuthoringAttempt(page, {
+    method: 'POST',
+    path: 'commands',
+    owner: { kind: 'apply', attempt: 'P1' },
+  });
+  const proposalTrace = recordAuthoringAttempt(page, actions, proposalAttempt, {
+    requestLabel: 'Preview',
+    requestEvent: 'preview',
+    responseLabel: 'PreviewComplete',
+    responseErrorLabel: 'PreviewError',
+    responseEvent: 'preview-response',
+  });
   await page.getByRole('button', { name: /^Add \d+ selected feature$/ }).click();
-  const proposalResponse = await proposal;
-  const commandsResponse = await commands;
-  expect(proposalResponse.ok(), 'add-column proposal preview').toBe(true);
-  expect(commandsResponse.ok(), 'add-column command persistence').toBe(true);
-  return (await proposalResponse.json()).preview;
+  const proposalExchange = await proposalAttempt.settled;
+  await proposalTrace.settled;
+  expect(proposalExchange.rawResponse.ok(), 'add-column proposal preview').toBe(true);
+  const commandStarted = await commandAttempt.started;
+  const commandExchange = await commandAttempt.settled;
+  expect(commandExchange.rawResponse.ok(), 'add-column command persistence').toBe(true);
+  return {
+    preview: proposalExchange.payload.preview,
+    command: {
+      ...commandStarted,
+      response: commandExchange.response,
+      settlement: commandExchange.settlement,
+    },
+  };
 };
 
 test('builder journey adds a column and previews exact values', async ({ fastPage, fastUrl }) => {
@@ -49,8 +64,8 @@ test('builder journey adds a column and previews exact values', async ({ fastPag
 
   const tracePath = process.env.LOOM_JOURNEY_TRACE;
   expect(tracePath, 'LOOM_JOURNEY_TRACE must be set by run-builder-journey.mjs').toBeTruthy();
-  const sourceCommit = String(process.env.LOOM_JOURNEY_SOURCE_COMMIT ?? '').trim();
-  expect(sourceCommit, 'LOOM_JOURNEY_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
+  const provenance = captureJourneyProvenance();
+  expect(provenance.sourceCommit, 'LOOM_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
 
   const backendCalls = [];
   fastPage.on('response', (response) => {
@@ -63,21 +78,31 @@ test('builder journey adds a column and previews exact values', async ({ fastPag
   });
 
   console.log('[journey] navigation');
+  const initialPreviewAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'preview',
+    owner: { kind: 'preview', attempt: 'P1' },
+    timeout: 45_000,
+  });
   await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
   await waitForPreviewReady(fastPage);
+  const initialPreviewExchange = await initialPreviewAttempt.settled;
+  const initialObservation = await captureBuilderObservation(fastPage);
 
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
-    sourceCommit,
+    ...provenance,
     traces: [{
       name: 'journey/add-column-preview',
       model: 'BuilderJourney',
-      initialObservation: observation(),
-      actions: [{
-        label: 'SelectRows',
-        event: 'select-rows',
-        observation: observation({ status: 'selected' }),
-      }],
+      initialObservation,
+      initialPreview: {
+        owner: initialPreviewExchange.owner,
+        request: initialPreviewExchange.request,
+        response: initialPreviewExchange.response,
+        settlement: initialPreviewExchange.settlement,
+      },
+      actions: [],
       unmodeledEvents: [],
     }],
   };
@@ -90,30 +115,21 @@ test('builder journey adds a column and previews exact values', async ({ fastPag
   await fastPage.getByTestId('construction-action-add-columns').click();
   await fastPage.getByRole('tab', { name: 'Other fields' }).click();
   await fastPage.getByRole('button', { name: fieldButton, exact: true }).click();
-  const proposalPreview = await addSelectedFeature(fastPage);
+  const addition = await addSelectedFeature(fastPage, trace.traces[0].actions);
   const backToTable = fastPage.getByRole('button', { name: 'Back to table' });
   if (await backToTable.isVisible().catch(() => false)) await backToTable.click();
   await expect(fastPage.getByRole('columnheader', { name: addedLabel, exact: true })).toBeVisible();
   trace.traces[0].actions.push({
     label: 'AddColumn',
     event: 'add-column',
-    observation: observation({ status: 'reshaping' }),
-  });
-  trace.traces[0].actions.push({
-    label: 'Preview',
-    event: 'preview',
-    observation: observation({ status: 'previewing' }),
-  });
-  trace.traces[0].actions.push({
-    label: 'PreviewComplete',
-    event: 'preview-response',
-    observation: observation({
-      status: 'ready',
-      previewReceiptPresent: true,
-      rowsPresent: true,
-    }),
+    owner: addition.command.owner,
+    request: addition.command.request,
+    response: addition.command.response,
+    settlement: addition.command.settlement,
+    observation: await captureBuilderObservation(fastPage),
   });
 
+  const proposalPreview = addition.preview;
   const columns = proposalPreview.columns ?? [];
   const rows = proposalPreview.rows ?? [];
   const rowCount = Number(proposalPreview.rowCount ?? rows.length);

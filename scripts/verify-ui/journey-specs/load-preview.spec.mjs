@@ -1,19 +1,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '../helpers/fast-fixtures.mjs';
+import {
+  captureBuilderObservation,
+  captureJourneyProvenance,
+  expect,
+  observeAuthoringAttempt,
+  test,
+} from '../helpers/fast-fixtures.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
-
-const observation = (overrides = {}) => ({
-  status: 'idle',
-  canApply: false,
-  proposalIdPresent: false,
-  previewReceiptPresent: false,
-  rowsPresent: false,
-  receiptPresent: false,
-  ...overrides,
-});
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -32,8 +28,8 @@ test('builder journey loads the authored table and previews exact rows', async (
 
   const tracePath = process.env.LOOM_JOURNEY_TRACE;
   expect(tracePath, 'LOOM_JOURNEY_TRACE must be set by run-builder-journey.mjs').toBeTruthy();
-  const sourceCommit = String(process.env.LOOM_JOURNEY_SOURCE_COMMIT ?? '').trim();
-  expect(sourceCommit, 'LOOM_JOURNEY_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
+  const provenance = captureJourneyProvenance();
+  expect(provenance.sourceCommit, 'LOOM_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
 
   const backendCalls = [];
   fastPage.on('response', (response) => {
@@ -45,10 +41,12 @@ test('builder journey loads the authored table and previews exact rows', async (
     });
   });
 
-  const initialPreview = fastPage.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'preview';
-  }, { timeout: 45_000 });
+  const initialPreviewAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'preview',
+    owner: { kind: 'preview', attempt: 'P1' },
+    timeout: 45_000,
+  });
   const rowChoices = fastPage.waitForResponse((response) => {
     if (response.request().method() !== 'GET' || !isAuthoringResponse(response)) return false;
     return authoringPath(response) === 'row-definition-choices';
@@ -56,10 +54,17 @@ test('builder journey loads the authored table and previews exact rows', async (
 
   console.log('[journey] navigation');
   await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
-  const previewResponse = await initialPreview;
-  expect(previewResponse.ok(), 'initial table preview').toBe(true);
-  const previewPayload = await previewResponse.json();
+  const initialPreviewExchange = await initialPreviewAttempt.settled;
+  expect(initialPreviewExchange.rawResponse.ok(), 'initial table preview').toBe(true);
+  const previewPayload = initialPreviewExchange.payload;
   await waitForPreviewReady(fastPage);
+  const initialObservation = await captureBuilderObservation(fastPage);
+  const initialPreview = {
+    owner: initialPreviewExchange.owner,
+    request: initialPreviewExchange.request,
+    response: initialPreviewExchange.response,
+    settlement: initialPreviewExchange.settlement,
+  };
   await rowChoices;
   console.log('[journey] initial preview ready');
 
@@ -69,32 +74,15 @@ test('builder journey loads the authored table and previews exact rows', async (
   const rowCount = Number(previewPayload.rowCount ?? rows.length);
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
-    sourceCommit,
+    ...provenance,
     traces: [{
       name: 'journey/load-preview',
-      model: 'UnmodeledJourney',
-      initialObservation: observation(),
-      actions: [
-        {
-          label: 'SelectRows',
-          event: 'select-rows',
-          observation: observation({ status: 'selected' }),
-        },
-        {
-          label: 'Preview',
-          event: 'preview',
-          observation: observation({ status: 'previewing' }),
-        },
-        {
-          label: 'PreviewComplete',
-          event: 'preview-response',
-          observation: observation({
-            status: 'ready',
-            previewReceiptPresent: true,
-            rowsPresent: true,
-          }),
-        },
-      ],
+      model: 'BuilderJourney',
+      initialObservation,
+      initialPreview: {
+        ...initialPreview,
+      },
+      actions: [],
       unmodeledEvents: [],
       backendCalls,
       outcome: {

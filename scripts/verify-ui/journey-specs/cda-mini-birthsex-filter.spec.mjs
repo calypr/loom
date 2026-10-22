@@ -1,20 +1,17 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '../helpers/fast-fixtures.mjs';
+import {
+  captureBuilderObservation,
+  captureJourneyProvenance,
+  expect,
+  recordAuthoringAttempt,
+  observeAuthoringAttempt,
+  test,
+} from '../helpers/fast-fixtures.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
 const ADDED_LABEL = 'Extension Value Code';
-
-const observation = (overrides = {}) => ({
-  status: 'idle',
-  canApply: false,
-  proposalIdPresent: false,
-  previewReceiptPresent: false,
-  rowsPresent: false,
-  receiptPresent: false,
-  ...overrides,
-});
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -43,8 +40,8 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
 
   const tracePath = process.env.LOOM_JOURNEY_TRACE;
   expect(tracePath, 'LOOM_JOURNEY_TRACE must be set by run-builder-journey.mjs').toBeTruthy();
-  const sourceCommit = String(process.env.LOOM_JOURNEY_SOURCE_COMMIT ?? '').trim();
-  expect(sourceCommit, 'LOOM_JOURNEY_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
+  const provenance = captureJourneyProvenance();
+  expect(provenance.sourceCommit, 'LOOM_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
 
   const backendCalls = [];
   fastPage.on('response', (response) => {
@@ -56,18 +53,31 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
     });
   });
 
+  console.log('[journey] navigation');
+  const initialPreviewAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'preview',
+    owner: { kind: 'preview', attempt: 'P1' },
+    timeout: 45_000,
+  });
+  await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
+  await waitForPreviewReady(fastPage);
+  const initialPreviewExchange = await initialPreviewAttempt.settled;
+  const initialObservation = await captureBuilderObservation(fastPage);
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
-    sourceCommit,
+    ...provenance,
     traces: [{
       name: 'journey/cda-mini-birthsex-filter',
-      model: 'UnmodeledJourney',
-      initialObservation: observation(),
-      actions: [{
-        label: 'SelectRows',
-        event: 'select-rows',
-        observation: observation({ status: 'selected' }),
-      }],
+      model: 'BuilderJourney',
+      initialObservation,
+      initialPreview: {
+        owner: initialPreviewExchange.owner,
+        request: initialPreviewExchange.request,
+        response: initialPreviewExchange.response,
+        settlement: initialPreviewExchange.settlement,
+      },
+      actions: [],
       unmodeledEvents: [],
     }],
   };
@@ -78,25 +88,34 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
     writeFileSync(tracePath, `${JSON.stringify(trace, null, 2)}\n`);
   };
 
-  console.log('[journey] navigation');
-  await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
-  await waitForPreviewReady(fastPage);
-
   console.log('[journey] add birthsex extension column');
   await fastPage.getByTestId('construction-action-add-columns').click();
   await fastPage.getByRole('tab', { name: 'Other fields' }).click();
   await fastPage.getByRole('button', { name: 'Select Patient.extension[].valueCode', exact: true }).click();
-  const addProposalResponse = fastPage.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'construction-choice-proposals';
-  }, { timeout: 30_000 });
-  const addCommandsResponse = fastPage.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    return authoringPath(response) === 'commands';
-  }, { timeout: 30_000 });
+  const addProposalAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'construction-choice-proposals',
+    owner: { kind: 'proposal', attempt: 'P1' },
+  });
+  const addCommandAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'commands',
+    owner: { kind: 'apply', attempt: 'P1' },
+  });
+  const addProposalTrace = recordAuthoringAttempt(fastPage, trace.traces[0].actions, addProposalAttempt, {
+    requestLabel: 'Preview',
+    requestEvent: 'preview',
+    responseLabel: 'PreviewComplete',
+    responseErrorLabel: 'PreviewError',
+    responseEvent: 'preview-response',
+  });
   await fastPage.getByRole('button', { name: /^Add \d+ selected feature$/ }).click();
-  const addProposal = await (await addProposalResponse).json();
-  expect((await addCommandsResponse).ok(), 'birthsex column persistence').toBe(true);
+  const addProposalExchange = await addProposalAttempt.settled;
+  await addProposalTrace.settled;
+  const addProposal = addProposalExchange.payload;
+  const addCommandStarted = await addCommandAttempt.started;
+  const addCommandExchange = await addCommandAttempt.settled;
+  expect(addCommandExchange.rawResponse.ok(), 'birthsex column persistence').toBe(true);
   const backToTable = fastPage.getByRole('button', { name: 'Back to table' });
   if (await backToTable.isVisible().catch(() => false)) await backToTable.click();
   await waitForPreviewReady(fastPage);
@@ -115,7 +134,11 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
   trace.traces[0].actions.push({
     label: 'AddColumn',
     event: 'add-column',
-    observation: observation({ status: 'reshaping' }),
+    owner: addCommandStarted.owner,
+    request: addCommandExchange.request,
+    response: addCommandExchange.response,
+    settlement: addCommandExchange.settlement,
+    observation: await captureBuilderObservation(fastPage),
   });
 
   console.log('[journey] filter female birthsex');
@@ -132,13 +155,23 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
   await condition.selectOption('CONTAINS_TEXT');
   const valueInput = editor.getByRole('textbox', { name: 'Value', exact: true });
   await expect(valueInput).toBeVisible();
-  const filterProposalResponse = fastPage.waitForResponse((response) => {
-    if (response.request().method() !== 'POST' || !isAuthoringResponse(response)) return false;
-    if (authoringPath(response) !== 'construction-proposals') return false;
-    return true;
-  }, { timeout: 30_000 });
+  const filterProposalAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'construction-proposals',
+    owner: { kind: 'proposal', attempt: 'P1' },
+  });
+  const filterProposalTrace = recordAuthoringAttempt(fastPage, trace.traces[0].actions, filterProposalAttempt, {
+    requestLabel: 'Preview',
+    requestEvent: 'preview',
+    responseLabel: 'PreviewComplete',
+    responseErrorLabel: 'PreviewError',
+    responseEvent: 'preview-response',
+  });
   await valueInput.fill('F');
-  const filterPreview = (await (await filterProposalResponse).json()).preview;
+  const filterProposalStarted = await filterProposalTrace.started;
+  const filterProposalExchange = await filterProposalAttempt.settled;
+  await filterProposalTrace.settled;
+  const filterPreview = filterProposalExchange.payload.preview;
   await waitForProposalReady(fastPage);
 
   const panel = fastPage.getByTestId('construction-proposal-panel');
@@ -158,29 +191,6 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
     .toEqual(new Set(['cda-mini-patient-001', 'cda-mini-patient-003', 'cda-mini-patient-005']));
   expect(filterRows.every((row) => (row[filterExtension] ?? []).includes('F')), 'filtered rows carry F birthsex').toBe(true);
 
-  trace.traces[0].actions.push(
-    {
-      label: 'Filter',
-      event: 'filter',
-      observation: observation({ status: 'reshaping', proposalIdPresent: true }),
-    },
-    {
-      label: 'Preview',
-      event: 'preview',
-      observation: observation({ status: 'previewing', proposalIdPresent: true }),
-    },
-    {
-      label: 'PreviewComplete',
-      event: 'preview-response',
-      observation: observation({
-        status: 'ready',
-        proposalIdPresent: true,
-        previewReceiptPresent: true,
-        rowsPresent: true,
-      }),
-    },
-  );
-
   console.log('[journey] cancel birthsex filter');
   await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(panel).toHaveCount(0);
@@ -190,7 +200,8 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
   trace.traces[0].actions.push({
     label: 'CancelFilter',
     event: 'cancel-filter',
-    observation: observation({ status: 'selected' }),
+    owner: filterProposalStarted.owner,
+    observation: await captureBuilderObservation(fastPage),
   });
 
   console.log('[journey] reload after cancel');

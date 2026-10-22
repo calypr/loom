@@ -1,20 +1,18 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { expect, test } from '../helpers/fast-fixtures.mjs';
+import {
+  addFieldWithCommandTrace,
+  captureBuilderObservation,
+  captureJourneyProvenance,
+  combineAuthoringObservation,
+  expect,
+  observeAuthoringAttempt,
+  test,
+} from '../helpers/fast-fixtures.mjs';
 import { addField, isCdaDataset } from '../helpers/cda-journey-fields.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
-
-const observation = (overrides = {}) => ({
-  status: 'idle',
-  canApply: false,
-  proposalIdPresent: false,
-  previewReceiptPresent: false,
-  rowsPresent: false,
-  receiptPresent: false,
-  ...overrides,
-});
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -45,11 +43,10 @@ test('builder journey stacks columns into rows and previews exact values', async
 
   const tracePath = process.env.LOOM_JOURNEY_TRACE;
   expect(tracePath, 'LOOM_JOURNEY_TRACE must be set by run-builder-journey.mjs').toBeTruthy();
-  const sourceCommit = String(process.env.LOOM_JOURNEY_SOURCE_COMMIT ?? '').trim();
-  expect(sourceCommit, 'LOOM_JOURNEY_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
+  const provenance = captureJourneyProvenance();
+  expect(provenance.sourceCommit, 'LOOM_SOURCE_COMMIT must be the tested Git commit').toMatch(/^[0-9a-f]{40}$/);
 
   const backendCalls = [];
-  const proposalResponses = [];
   fastPage.on('response', (response) => {
     if (!isAuthoringResponse(response)) return;
     backendCalls.push({
@@ -57,47 +54,54 @@ test('builder journey stacks columns into rows and previews exact values', async
       path: authoringPath(response),
       status: response.status(),
     });
-    if (response.request().method() === 'POST' && authoringPath(response) === 'construction-proposals') {
-      proposalResponses.push(response);
-    }
   });
 
   console.log('[journey] navigation');
+  const initialPreviewAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'preview',
+    owner: { kind: 'preview', attempt: 'P1' },
+    timeout: 45_000,
+  });
   await fastPage.goto(fastUrl, { waitUntil: 'domcontentloaded' });
   await waitForPreviewReady(fastPage);
+  const initialPreviewExchange = await initialPreviewAttempt.settled;
+  const initialObservation = await captureBuilderObservation(fastPage);
   const cda = isCdaDataset();
+  const setupActions = [];
   let cdaRowCount = 0;
   if (cda) {
-    await addField(fastPage, 'Select Observation.status');
-    const added = await addField(fastPage, 'Select Observation.valueString');
+    await addFieldWithCommandTrace(fastPage, 'Select Observation.status', setupActions, addField);
+    const added = await addFieldWithCommandTrace(fastPage, 'Select Observation.valueString', setupActions, addField);
     cdaRowCount = Number(added.rowCount ?? added.rows?.length ?? 0);
     expect(cdaRowCount, 'CDA unpivot source rows').toBeGreaterThan(0);
   }
 
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
-    sourceCommit,
+    ...provenance,
     traces: [{
       name: 'journey/unpivot-preview',
       model: 'BuilderJourney',
-      initialObservation: observation(),
-      actions: [{
-        label: 'SelectRows',
-        event: 'select-rows',
-        observation: observation({ status: 'selected' }),
-      }],
+      initialObservation,
+      initialPreview: {
+        owner: initialPreviewExchange.owner,
+        request: initialPreviewExchange.request,
+        response: initialPreviewExchange.response,
+        settlement: initialPreviewExchange.settlement,
+      },
+      actions: setupActions,
       unmodeledEvents: [],
     }],
   };
 
-  if (cda) {
-    trace.traces[0].actions.push(
-      { label: 'AddColumn', event: 'add-column', observation: observation({ status: 'reshaping' }) },
-      { label: 'AddColumnAgain', event: 'add-column', observation: observation({ status: 'reshaping' }) },
-    );
-  }
-
   console.log('[journey] configure unpivot');
+  const proposalAttempt = observeAuthoringAttempt(fastPage, {
+    method: 'POST',
+    path: 'construction-proposals',
+    owner: { kind: 'proposal', attempt: 'P1' },
+    timeout: 30_000,
+  });
   await fastPage.getByTestId('construction-rows-settings-trigger').click();
   await fastPage.getByTestId('construction-row-intent-reshape').click();
   await fastPage.getByTestId('construction-action-unpivot-rows').click();
@@ -110,36 +114,49 @@ test('builder journey stacks columns into rows and previews exact values', async
     await editor.getByRole('checkbox', { name: 'Unpivot name[].family [0]', exact: true }).check();
     await editor.getByRole('checkbox', { name: 'Unpivot name[].family [1]', exact: true }).check();
   }
-  await waitForProposalSettled(fastPage);
-
-  const proposalResponse = proposalResponses.at(-1);
-  expect(proposalResponse, 'unpivot must produce a construction-proposals response').toBeTruthy();
-  const proposalStatus = proposalResponse.status();
-  const proposalBody = await proposalResponse.json().catch(() => null);
-  const proposalPreview = proposalBody?.preview ?? proposalBody;
-
-  trace.traces[0].actions.push({
-    label: 'Unpivot',
-    event: 'unpivot',
-    observation: observation({ status: 'reshaping' }),
-  });
+  const proposalStarted = await proposalAttempt.started;
   trace.traces[0].actions.push({
     label: 'Preview',
     event: 'preview',
-    observation: observation({ status: 'previewing' }),
+    owner: proposalStarted.owner,
+    request: proposalStarted.request,
+    observation: proposalStarted.requestObservation,
   });
+  await waitForProposalSettled(fastPage);
 
-  if (proposalStatus >= 400) {
+  const proposalExchange = await proposalAttempt.settled;
+  const proposalResponse = proposalExchange.rawResponse;
+  expect(proposalResponse, 'unpivot must produce a construction-proposals response').toBeTruthy();
+  const proposalStatus = proposalExchange.response.status;
+  const proposalBody = proposalExchange.payload;
+  const proposalPreview = proposalBody?.preview ?? proposalBody;
+  const proposalObservation = await captureBuilderObservation(fastPage);
+  const typedPreviewError = Boolean(proposalExchange.response.errorCode)
+    || proposalExchange.response.proposalPreviewStatus === 'NEEDS_REPAIR';
+  const observedPreviewError = ['error', 'needs-repair'].includes(proposalObservation.status) || typedPreviewError;
+  const observedPreviewReady = proposalObservation.status === 'ready'
+    && proposalExchange.response.proposalPreviewStatus !== 'NEEDS_REPAIR'
+    && !proposalExchange.response.errorCode;
+  if (proposalStatus < 400 && !observedPreviewError && !observedPreviewReady) {
+    throw new Error(`Cannot classify unpivot preview settlement from observed panel status ${proposalObservation.status}`);
+  }
+
+  const previewStatus = proposalStatus >= 400 || observedPreviewError ? 'error' : 'ready';
+  if (previewStatus === 'error') {
     const errorClass = proposalBody?.error?.code
       ?? proposalBody?.diagnostics?.[0]?.code
-      ?? `HTTP_${proposalStatus}`;
+      ?? (proposalStatus >= 400 ? `HTTP_${proposalStatus}` : null);
     const requestId = proposalBody?.error?.requestId
       ?? proposalBody?.diagnostics?.[0]?.requestId
-      ?? null;
+      ?? proposalExchange.response.requestId;
     trace.traces[0].actions.push({
       label: 'PreviewError',
       event: 'preview-response',
-      observation: observation({ status: 'error' }),
+      owner: proposalStarted.owner,
+      request: proposalExchange.request,
+      response: proposalExchange.response,
+      settlement: proposalExchange.settlement,
+      observation: combineAuthoringObservation(proposalExchange, proposalObservation),
     });
     trace.traces[0].backendCalls = backendCalls;
     trace.traces[0].outcome = {
@@ -149,31 +166,34 @@ test('builder journey stacks columns into rows and previews exact values', async
       errorClass,
       requestId,
     };
-    writeTrace(tracePath, trace);
+  } else {
+    const rowCount = Number(proposalPreview?.rowCount ?? proposalPreview?.rows?.length ?? 0);
+    trace.traces[0].actions.push({
+      label: 'PreviewComplete',
+      event: 'preview-response',
+      owner: proposalStarted.owner,
+      request: proposalExchange.request,
+      response: proposalExchange.response,
+      settlement: proposalExchange.settlement,
+      observation: combineAuthoringObservation(proposalExchange, proposalObservation),
+    });
+    trace.traces[0].outcome = {
+      kind: 'unpivot-preview',
+      status: 'ready',
+      rowCount,
+      previewReceiptId: proposalPreview?.receiptId ?? null,
+      columns: proposalPreview?.columns?.map((column) => column.label) ?? [],
+    };
+  }
+  trace.traces[0].backendCalls = backendCalls;
+  writeTrace(tracePath, trace);
+
+  if (proposalStatus >= 400) {
     expect(proposalStatus, 'unpivot preview must return HTTP 200').toBe(200);
     return;
   }
 
   const rowCount = Number(proposalPreview?.rowCount ?? proposalPreview?.rows?.length ?? 0);
-  trace.traces[0].actions.push({
-    label: 'PreviewComplete',
-    event: 'preview-response',
-    observation: observation({
-      status: 'ready',
-      previewReceiptPresent: true,
-      rowsPresent: true,
-    }),
-  });
-  trace.traces[0].backendCalls = backendCalls;
-  trace.traces[0].outcome = {
-    kind: 'unpivot-preview',
-    status: 'ready',
-    rowCount,
-    previewReceiptId: proposalPreview?.receiptId ?? null,
-    columns: proposalPreview?.columns?.map((column) => column.label) ?? [],
-  };
-  writeTrace(tracePath, trace);
-
   if (cda) {
     expect(rowCount, 'CDA unpivot preview row count').toBe(2 * cdaRowCount);
     expect(proposalPreview?.columns?.map((column) => column.label), 'CDA unpivot preview columns')

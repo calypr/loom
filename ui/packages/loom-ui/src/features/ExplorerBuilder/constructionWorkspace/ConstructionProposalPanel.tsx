@@ -231,6 +231,11 @@ export const ConstructionProposalPanel = ({
       data-testid="construction-proposal-panel"
       data-proposal-status={state.status}
       data-proposal-id={response?.proposalId ?? ''}
+      data-proposal-output-id={response?.outputId ?? ''}
+      data-proposal-snapshot-token={response?.snapshotToken ?? ''}
+      data-proposal-draft-version={response?.draftVersion ?? ''}
+      data-proposal-draft-digest={response?.draftDigest ?? ''}
+      data-proposal-preview-status={response?.previewStatus ?? ''}
       className="mt-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm"
     >
       {state.status === 'previewing' ? (
