@@ -46,15 +46,15 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 | Measure | Count |
 | --- | ---: |
 | models | 14 |
-| actions | 170 |
+| actions | 171 |
 | invariants | 89 |
-| obligations | 259 |
+| obligations | 260 |
 | covered | 6 |
 | partial | 89 |
-| missing | 164 |
+| missing | 165 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 75 |
+| missingUnbound | 76 |
 | tests | 905 |
 | testsWithObligations | 10 |
 | testsWithoutObligations | 895 |
@@ -80,6 +80,7 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 - `BuilderJourney.Preview` (0 route(s))
 - `BuilderJourney.PreviewComplete` (6 route(s))
 - `BuilderJourney.PreviewError` (0 route(s))
+- `BuilderJourney.PreviewRequestCancelled` (0 route(s))
 - `BuilderJourney.RemoveGroup` (0 route(s))
 - `BuilderJourney.Stutter` (0 route(s))
 - `BuilderOperations.AuthorStep` (16 route(s))
@@ -145,8 +146,7 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 - `LifecycleEntry.ParseRoute` (1 route(s))
 - `LifecycleEntry.ReconcileNeedsRepair` (0 route(s))
 - `LifecycleEntry.ReconcileReceiptBound` (0 route(s))
-- `LifecycleEntry.ReplaceExplorer` (1 route(s))
-- 84 more in the JSON report.
+- 85 more in the JSON report.
 
 ## Obligations with exact tests
 

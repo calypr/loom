@@ -211,6 +211,7 @@
         "PreviewError",
         "LatePreviewCompleteIgnored",
         "LatePreviewErrorIgnored",
+        "PreviewRequestCancelled",
         "Group",
         "EditGroup",
         "RemoveGroup"

@@ -12,15 +12,15 @@
   },
   "summary": {
     "models": 14,
-    "actions": 170,
+    "actions": 171,
     "invariants": 89,
-    "obligations": 259,
+    "obligations": 260,
     "covered": 6,
     "partial": 89,
-    "missing": 164,
+    "missing": 165,
     "missingRouteBound": 19,
     "missingCandidate": 70,
-    "missingUnbound": 75,
+    "missingUnbound": 76,
     "tests": 905,
     "testsWithObligations": 10,
     "testsWithoutObligations": 895,
@@ -1262,6 +1262,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -1388,7 +1389,7 @@
       "path": "scripts/self-test-builder-traces.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "bdc1d6d080000132a8cb6a9ba69048d53ecffcc889009fb32679ea3094debfca",
+      "sha256": "3028aa3eaed586f170e48a89f4b148e4b046912907f69af7cda3d8981434b2f4",
       "references": [
         {
           "kind": "path-mention",
@@ -1950,6 +1951,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -2094,7 +2096,7 @@
       "path": "scripts/verify-builder-traces.mjs",
       "role": "tool-or-module",
       "present": true,
-      "sha256": "5f35e0630bfd94f653b0d353a5cddc98f046452c625d054dc87111897af48e0b",
+      "sha256": "676492d48a2b72f0a9c811d9524326f29551ac89f384ffe123897dfbefba1700",
       "references": [
         {
           "kind": "path-mention",
@@ -10351,6 +10353,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10408,6 +10411,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10428,7 +10432,7 @@
       "path": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "dc3845e8e29008172fa6e7c6553a0dc8f2c54b6d3f50b229ee18d668c4225f2c",
+      "sha256": "eb8e06a4e15e832cbe36d2908bee32f454a4e573ab0c7171ae98bbb297bd9ea9",
       "references": [],
       "formalEvidence": [],
       "decision": "keep-unproven",
@@ -10439,7 +10443,7 @@
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "57220aec20b6d6b727b25383e31db55e4555f8954c9eaa40b98b49f427613aae",
+      "sha256": "b65245edcb2523291571fb2146e476fe945eb0a7b13f0736ddb1aa63d1b9913f",
       "references": [],
       "formalEvidence": [
         {
@@ -10451,6 +10455,7 @@
             "PreviewError",
             "LatePreviewCompleteIgnored",
             "LatePreviewErrorIgnored",
+            "PreviewRequestCancelled",
             "Group",
             "EditGroup",
             "RemoveGroup"
@@ -10474,6 +10479,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10494,7 +10500,7 @@
       "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
       "role": "browser-spec",
       "present": true,
-      "sha256": "cffefbdb23c7486a21b3f452cc6c314f11c318d92920e3fbe5ed4dcf99acf661",
+      "sha256": "8c43d8dd849c48e6f34516caa6995ff52f185a9acdc27e68bd190c18f45f9056",
       "references": [],
       "formalEvidence": [
         {
@@ -10524,6 +10530,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10579,6 +10586,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10625,6 +10633,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10680,6 +10689,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -10735,6 +10745,7 @@
                 "Preview",
                 "PreviewComplete",
                 "PreviewError",
+                "PreviewRequestCancelled",
                 "RemoveGroup",
                 "Stutter"
               ],
@@ -16777,6 +16788,18 @@
       "model": "BuilderJourney",
       "kind": "action",
       "action": "PreviewError",
+      "invariant": null,
+      "routes": [],
+      "tests": [],
+      "suspectedModels": [],
+      "routeBinding": "unbound",
+      "status": "missing"
+    },
+    {
+      "id": "BuilderJourney.PreviewRequestCancelled",
+      "model": "BuilderJourney",
+      "kind": "action",
+      "action": "PreviewRequestCancelled",
       "invariant": null,
       "routes": [],
       "tests": [],
@@ -44909,6 +44932,7 @@
     "BuilderJourney.Preview",
     "BuilderJourney.PreviewComplete",
     "BuilderJourney.PreviewError",
+    "BuilderJourney.PreviewRequestCancelled",
     "BuilderJourney.RemoveGroup",
     "BuilderJourney.Stutter",
     "BuilderOperations.AuthorStep",
