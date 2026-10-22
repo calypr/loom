@@ -27,6 +27,8 @@ const TLC_VERSION = '1.7.4';
 const TLC_SHA256 = '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88';
 const TLC_URL = 'https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar';
 const FORMAL_TEST = 'src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx';
+const FORMAL_MOUNTED_RECONCILE_TEST = 'src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx';
+const FORMAL_MOUNTED_RECONCILE_TITLE = 'formal mounted reconcile race keeps B visible after late A settles';
 const GO_LIFECYCLE_TESTS = [
   'TestBuilderFullUIRegisteredGroupFilterDeriveFixtureCompiles',
   'TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService',
@@ -280,14 +282,17 @@ function traceContractCounts() {
     traceCount: contract.phase1?.expectedTraceCount,
     scheduleCount: contract.phase1?.expectedScheduleCount,
     testCount: contract.phase1?.expectedTestCount ?? contract.phase1?.expectedTraceCount,
+    mountedReconcileTestCount: contract.phase1?.expectedMountedReconcileTestCount ?? 0,
   };
 }
 
 function runFormalSchedules() {
   const expected = traceContractCounts().testCount;
+  const expectedHookTraces = traceContractCounts().traceCount - traceContractCounts().mountedReconcileTestCount;
+  const expectedMounted = traceContractCounts().mountedReconcileTestCount;
   const reportDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-formal-vitest-'));
   const reportPath = join(reportDirectory, 'vitest.json');
-  const tracePath = join(reportDirectory, 'traces.json');
+  const tracePath = join(reportDirectory, 'hook-traces.json');
   const result = runCommand(
     'Real controller schedules and retained findings',
     process.execPath,
@@ -316,13 +321,67 @@ function runFormalSchedules() {
     fail('the real-controller schedule suite failed. Expected ' + expected + '/' + expected + ' passing tests including retained expected-failure cases. See ' + reportPath);
   }
   if (!existsSync(tracePath)) fail('the formal suite did not write its trace corpus to ' + tracePath);
+  const mountedReportPath = join(reportDirectory, 'mounted-reconcile-vitest.json');
+  const mountedTracePath = join(reportDirectory, 'mounted-reconcile-traces.json');
+  const mountedResult = runCommand(
+    'Mounted BuilderWorkspace reconcile race',
+    process.execPath,
+    [
+      vitestBinary(), 'run', '--reporter=json', '--outputFile=' + mountedReportPath,
+      FORMAL_MOUNTED_RECONCILE_TEST, '-t', FORMAL_MOUNTED_RECONCILE_TITLE,
+    ],
+    resolve(ROOT, 'ui/packages/loom-ui'),
+    { ...process.env, LOOM_BUILDER_TRACE_OUTPUT: mountedTracePath },
+  );
+  let mountedReport;
+  try {
+    mountedReport = JSON.parse(readFileSync(mountedReportPath, 'utf8'));
+  } catch {
+    fail('Vitest did not produce its mounted race JSON report at ' + mountedReportPath);
+  }
+  const mountedAssertions = mountedReport.testResults.flatMap((suite) => suite.assertionResults);
+  const selectedMountedAssertions = mountedAssertions.filter((assertion) =>
+    assertion.fullName.includes(FORMAL_MOUNTED_RECONCILE_TITLE),
+  );
+  const mountedPassed = mountedResult.status === 0 &&
+    mountedReport.success === true &&
+    mountedReport.numPassedTests === expectedMounted &&
+    mountedReport.numFailedTests === 0 &&
+    selectedMountedAssertions.length === expectedMounted &&
+    selectedMountedAssertions.every((assertion) => assertion.status === 'passed') &&
+    mountedAssertions.every((assertion) => assertion.status === 'passed' || assertion.status === 'skipped');
+  if (!mountedPassed) {
+    fail('the selected mounted BuilderWorkspace reconcile race failed. Expected ' + expectedMounted + ' passing test(s) and no failures. See ' + mountedReportPath);
+  }
+  if (!existsSync(mountedTracePath)) fail('the mounted reconcile test did not write its trace corpus to ' + mountedTracePath);
+  let hookTraces;
+  let mountedTraces;
+  try {
+    hookTraces = JSON.parse(readFileSync(tracePath, 'utf8'));
+    mountedTraces = JSON.parse(readFileSync(mountedTracePath, 'utf8'));
+  } catch {
+    fail('a formal trace producer emitted invalid JSON');
+  }
+  for (const field of ['schemaVersion', 'sourceProfile', 'sourceCommit', 'contractSourceCommit', 'sourceFingerprint']) {
+    if (hookTraces[field] !== mountedTraces[field]) {
+      fail('hook and mounted trace provenance differ at ' + field);
+    }
+  }
+  if (hookTraces.traces.length !== expectedHookTraces || mountedTraces.traces.length !== expectedMounted) {
+    fail('formal trace producers emitted an unexpected trace count: hook=' + hookTraces.traces.length + ' (expected ' + expectedHookTraces + '), mounted=' + mountedTraces.traces.length + ' (expected ' + expectedMounted + ')');
+  }
+  const combinedPath = join(reportDirectory, 'traces.json');
+  writeFileSync(combinedPath, JSON.stringify({ ...hookTraces, traces: [...hookTraces.traces, ...mountedTraces.traces] }, null, 2) + '\n');
   return {
     name: 'real-controller-schedules',
     status: 'pass',
     tests: report.numTotalTests,
+    mountedReconcileTests: mountedReport.numPassedTests,
     regressionTests,
     reportPath,
-    tracePath,
+    mountedReportPath,
+    mountedTracePath,
+    tracePath: combinedPath,
   };
 }
 

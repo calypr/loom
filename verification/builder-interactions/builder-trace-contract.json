@@ -64,8 +64,17 @@
       "module": "ReconcileLifecycle.tla",
       "actions": [
         "RequestReconcile",
+        "RequestReconcile(A)",
+        "RequestReconcile(B)",
         "RetryReconcile",
+        "RetryReconcile(A)",
+        "RetryReconcile(B)",
         "ReconcileSuccess",
+        "ReconcileSuccess(A)",
+        "ReconcileSuccess(B)",
+        "LateReconcileIgnored(A)",
+        "LateReconcileIgnored(B)",
+        "WorkspaceChangeStartsReconcile(B)",
         "ReconcileStale",
         "ReconcileConflict",
         "ReconcileInvalid",
@@ -148,6 +157,22 @@
     "RequestReconcile": {
       "event": "reconcile-request",
       "trigger": "reconcile controller starts an attempt"
+    },
+    "RequestReconcile(A)": {
+      "event": "requestA",
+      "trigger": "mounted BuilderWorkspace initial reconcile mutation call"
+    },
+    "WorkspaceChangeStartsReconcile(B)": {
+      "event": "workspaceChangeB",
+      "trigger": "mounted relationship edit updates the draft and starts reconcile B"
+    },
+    "ReconcileSuccess(B)": {
+      "event": "successB",
+      "trigger": "mounted reconcile B response is rendered as the current receipt and output"
+    },
+    "LateReconcileIgnored(A)": {
+      "event": "lateA",
+      "trigger": "mounted late A response settles without replacing B receipt or output"
     },
     "RetryReconcile": {
       "event": "reconcile-retry",
@@ -335,12 +360,13 @@
     "receiptPresent"
   ],
   "phase1": {
-    "expectedTraceCount": 62,
-    "expectedScheduleCount": 62,
+    "expectedTraceCount": 63,
+    "expectedScheduleCount": 63,
     "expectedFindingCount": 0,
     "requiredModels": [
       "BuilderPreview",
-      "ConstructionLifecycle"
+      "ConstructionLifecycle",
+      "ReconcileLifecycle"
     ],
     "requiredActions": [
       "ApplyAck",
@@ -369,7 +395,11 @@
       "StartPreview(P1)",
       "StartPreview(P2)",
       "StartProposal",
-      "StartProposal(P1)"
+      "StartProposal(P1)",
+      "RequestReconcile(A)",
+      "WorkspaceChangeStartsReconcile(B)",
+      "ReconcileSuccess(B)",
+      "LateReconcileIgnored(A)"
     ],
     "requiredEvents": [
       "propose-construction",
@@ -382,9 +412,14 @@
       "finish-apply",
       "identity-change",
       "pivot-mounted",
-      "construction-discovery"
+      "construction-discovery",
+      "requestA",
+      "workspaceChangeB",
+      "successB",
+      "lateA"
     ],
-    "expectedTestCount": 70
+    "expectedTestCount": 70,
+    "expectedMountedReconcileTestCount": 1
   },
   "unmodeledEventPolicy": {},
   "schedules": {

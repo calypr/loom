@@ -42,6 +42,7 @@ const STATUSES = new Set([
 ]);
 const MODEL_STATUSES = new Map([
   ['BuilderJourney', new Set(['idle', 'selected', 'reshaping', 'pivot-ready', 'previewing', 'ready', 'error'])],
+  ['ReconcileLifecycle', new Set(['empty', 'ready', 'stale', 'error', 'previewing', 'needs-repair'])],
 ]);
 
 const OBSERVATION_BOOLEAN_FIELDS = [
@@ -590,6 +591,9 @@ function observationProblem(observation, where, model) {
   if (observation.tablePreviewStatus !== undefined && typeof observation.tablePreviewStatus !== 'string') {
     return where + '.tablePreviewStatus must be a string when present';
   }
+  if (model === 'ReconcileLifecycle') {
+    return reconcileObservationProblem(observation.reconcile, where + '.reconcile');
+  }
   for (const field of OBSERVATION_BOOLEAN_FIELDS) {
     if (typeof observation[field] !== 'boolean') return where + '.' + field + ' must be a boolean';
   }
@@ -696,6 +700,238 @@ function observationProblem(observation, where, model) {
   return null;
 }
 
+function reconcileWorkspaceProblem(workspaceKey, identity, where, checkOutput = true) {
+  const expected = workspaceKey === 'W1'
+    ? { draftVersion: 1, draftDigest: 'sha256:draft-1' }
+    : { draftVersion: 2, draftDigest: 'sha256:draft-2' };
+  if (workspaceKey !== 'W1' && workspaceKey !== 'W2') return where + '.workspaceKey must be W1 or W2';
+  if (identity.draftVersion !== expected.draftVersion || identity.draftDigest !== expected.draftDigest ||
+      identity.snapshotToken !== 'snapshot-1' || (checkOutput && identity.outputId !== 'specimens') || identity.explorerId !== 'test') {
+    return where + ' raw request/workspace identity does not match ' + workspaceKey;
+  }
+  return null;
+}
+
+function reconcileOutputModelKey(outputId) {
+  if (outputId === 'specimens') return 'O1';
+  if (outputId === 'patients') return 'O2';
+  return null;
+}
+
+function reconcileDigestModelKey(digest) {
+  if (digest === 'sha256:draft-1') return 'D1';
+  if (digest === 'sha256:draft-2') return 'D2';
+  return null;
+}
+
+function reconcileSnapshotModelKey(snapshotToken) {
+  return snapshotToken === 'snapshot-1' ? 'S1' : null;
+}
+
+function reconcileExplorerModelKey(explorerId) {
+  if (explorerId === 'test') return 'E1';
+  if (explorerId === 'other-explorer') return 'E2';
+  return null;
+}
+
+function reconcileIdentityProblem(trace, where) {
+  const expectedLabels = [
+    'WorkspaceChangeStartsReconcile(B)',
+    'ReconcileSuccess(B)',
+    'LateReconcileIgnored(A)',
+  ];
+  if (trace.name.split(' > ').at(-1) !== 'formal mounted reconcile race keeps B visible after late A settles') {
+    return { message: where + ' ReconcileLifecycle traces must be captured by the named mounted race test' };
+  }
+  if (!trace.initialObservation?.reconcile || trace.actions.length !== expectedLabels.length ||
+      trace.initialAction?.label !== 'RequestReconcile(A)' || trace.initialAction.event !== 'requestA') {
+    return { message: where + ' must contain the captured initial A request and three subsequent mounted observations' };
+  }
+  const initial = trace.initialObservation.reconcile;
+  if (initial.current.modelKey !== 'W1' || initial.activeRequestKey !== 'A' ||
+      initial.request?.modelKey !== 'A' || initial.receipt !== null || initial.returned !== null) {
+    return { message: where + '.initialObservation must capture pending A against mounted workspace W1' };
+  }
+  const initialWorkspaceProblem = reconcileWorkspaceProblem('W1', initial.current, where + '.initialObservation.reconcile.current', false);
+  if (initialWorkspaceProblem) return { message: initialWorkspaceProblem };
+  const calls = new Map();
+  const requestIds = new Set();
+  const initialRequest = initial.request;
+  if (!initialRequest) return { message: where + '.initialObservation must capture request A arguments' };
+  const initialRequestProblem = reconcileWorkspaceProblem('W1', initialRequest, where + '.initialObservation.reconcile.request');
+  if (initialRequestProblem) return { message: initialRequestProblem };
+  calls.set('A', initialRequest);
+  requestIds.add(initialRequest.rawRequestId);
+  for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
+    const action = trace.actions[actionIndex];
+    const actionWhere = where + '.actions[' + actionIndex + ']';
+    if (action.label !== expectedLabels[actionIndex]) {
+      return { message: actionWhere + ' must be ' + expectedLabels[actionIndex], actionIndex };
+    }
+    const observation = action.observation.reconcile;
+    const expectedRequestKey = action.label.endsWith('(A)') ? 'A' : 'B';
+    const request = observation.request;
+    if (!request || request.modelKey !== expectedRequestKey) {
+      return { message: actionWhere + ' must carry the actual ' + expectedRequestKey + ' reconcile request', actionIndex };
+    }
+    const expectedWorkspace = expectedRequestKey === 'A' ? 'W1' : 'W2';
+    const workspaceProblem = reconcileWorkspaceProblem(expectedWorkspace, request, actionWhere + '.observation.reconcile.request');
+    if (workspaceProblem) return { message: workspaceProblem, actionIndex };
+    const priorCall = calls.get(expectedRequestKey);
+    if (priorCall && canonicalJson(priorCall) !== canonicalJson(request)) {
+      return { message: actionWhere + ' request identity differs from the original ' + expectedRequestKey + ' request', actionIndex };
+    }
+    if (!priorCall) {
+      if (requestIds.has(request.rawRequestId)) {
+        return { message: actionWhere + ' raw requestId is shared by distinct reconciliation owners', actionIndex };
+      }
+      requestIds.add(request.rawRequestId);
+      calls.set(expectedRequestKey, request);
+    }
+
+    const current = observation.current;
+    const currentProblem = reconcileWorkspaceProblem(current.modelKey, current, actionWhere + '.observation.reconcile.current', false);
+    if (currentProblem) return { message: currentProblem, actionIndex };
+    const expectedActive = 'B';
+    if (observation.activeRequestKey !== expectedActive) {
+      return { message: actionWhere + ' active request owner does not match the mounted lifecycle', actionIndex };
+    }
+    const returned = observation.returned;
+    if (actionIndex === 0) {
+      if (returned !== null) return { message: actionWhere + ' cannot claim a response before it settles', actionIndex };
+      continue;
+    }
+    const returnedKey = actionIndex === 1 ? 'B' : 'A';
+    const expectedReceiptId = returnedKey === 'A' ? 'receipt-A' : 'receipt-B';
+    const expectedReceiptModelKey = returnedKey === 'A' ? 'R1' : 'R2';
+    if (!returned || returned.requestKey !== returnedKey || returned.receiptId !== expectedReceiptId ||
+        returned.receiptModelKey !== expectedReceiptModelKey || returned.workspaceKey !== expectedWorkspaceFor(returnedKey) ||
+        returned.outputId !== 'specimens' || returned.outputModelKey !== 'O1' ||
+        !returned.outputIds.includes(returned.outputId)) {
+      return { message: actionWhere + ' returned response does not match the actual ' + returnedKey + ' request/receipt/output identity', actionIndex };
+    }
+    const receipt = observation.receipt;
+    if (actionIndex === 1) {
+      if (!receipt || receipt.modelKey !== 'R2' || receipt.receiptId !== 'receipt-B' ||
+          receipt.requestKey !== 'B' || receipt.workspaceKey !== 'W2' ||
+          receipt.outputModelKey !== 'O1' || receipt.outputId !== 'specimens' || current.modelKey !== 'W2') {
+        return { message: actionWhere + ' mounted success must display B receipt/output for current workspace W2', actionIndex };
+      }
+    } else if (!receipt || current.modelKey !== 'W2' ||
+        observation.status !== trace.actions[actionIndex - 1].observation.status) {
+      return { message: actionWhere + ' late A settlement must retain the mounted status and current workspace', actionIndex };
+    }
+  }
+  if (calls.size !== 2) return { message: where + ' must bind two distinct actual reconcile request IDs' };
+  return null;
+}
+
+function expectedWorkspaceFor(requestKey) {
+  return requestKey === 'A' ? 'W1' : 'W2';
+}
+
+function reconcileObservationProblem(reconcile, where) {
+  if (!isPlainObject(reconcile)) return where + ' must be an object for ReconcileLifecycle observations';
+  if (![null, 'A', 'B'].includes(reconcile.activeRequestKey)) return where + '.activeRequestKey must be null, A, or B';
+  const identity = (value, field, allowed = null) => {
+    if (typeof value !== 'string' || value.length === 0) return where + '.' + field + ' must be a non-empty string';
+    if (allowed && !allowed.includes(value)) return where + '.' + field + ' has an unsupported model key';
+    return null;
+  };
+  const integer = (value, field) => Number.isInteger(value) && value > 0
+    ? null : where + '.' + field + ' must be a positive integer';
+  const workspace = (value, field) => identity(value, field, ['W1', 'W2']);
+  const outputKey = (value, field) => identity(value, field, ['O1', 'O2']);
+  const current = reconcile.current;
+  if (!isPlainObject(current)) return where + '.current must be an object';
+  let problem = workspace(current.modelKey, 'current.modelKey');
+  if (problem) return problem;
+  for (const [field, value] of [
+    ['draftVersion', current.draftVersion],
+    ['draftDigest', current.draftDigest],
+    ['snapshotToken', current.snapshotToken],
+    ['outputId', current.outputId],
+    ['explorerId', current.explorerId],
+  ]) {
+    problem = field === 'draftVersion' ? integer(value, 'current.' + field) : identity(value, 'current.' + field);
+    if (problem) return problem;
+  }
+  if (!reconcileOutputModelKey(current.outputId)) return where + '.current.outputId has no output model identity';
+  const provenance = current.provenance;
+  if (!isPlainObject(provenance) || provenance.draftIdentity !== 'rendered-dom' || provenance.outputId !== 'rendered-dom' ||
+      provenance.snapshotToken !== 'matching-reconcile-request' || provenance.explorerId !== 'matching-reconcile-request') {
+    return where + '.current.provenance must distinguish rendered DOM values from captured request identity';
+  }
+  if (reconcile.request !== null) {
+    const request = reconcile.request;
+    if (!isPlainObject(request)) return where + '.request must be an object or null';
+    problem = identity(request.modelKey, 'request.modelKey', ['A', 'B']);
+    if (problem) return problem;
+    problem = identity(request.rawRequestId, 'request.rawRequestId');
+    if (problem) return problem;
+    problem = workspace(request.workspaceKey, 'request.workspaceKey');
+    if (problem) return problem;
+    if (request.workspaceKey !== expectedWorkspaceFor(request.modelKey)) {
+      return where + '.request.workspaceKey does not match its request owner';
+    }
+    for (const field of ['draftVersion', 'draftDigest', 'snapshotToken', 'outputId', 'explorerId']) {
+      problem = field === 'draftVersion' ? integer(request[field], 'request.' + field) : identity(request[field], 'request.' + field);
+      if (problem) return problem;
+    }
+    if (!reconcileOutputModelKey(request.outputId)) return where + '.request.outputId has no output model identity';
+  }
+  if (reconcile.receipt !== null) {
+    const receipt = reconcile.receipt;
+    if (!isPlainObject(receipt)) return where + '.receipt must be an object or null';
+    problem = identity(receipt.modelKey, 'receipt.modelKey', ['R1', 'R2']);
+    if (problem) return problem;
+    for (const field of ['receiptId', 'requestKey', 'workspaceKey', 'outputModelKey', 'outputId']) {
+      const allowed = field === 'requestKey' ? ['A', 'B'] :
+        field === 'workspaceKey' ? ['W1', 'W2'] :
+          field === 'outputModelKey' ? ['O1', 'O2'] : null;
+      problem = field === 'workspaceKey' ? workspace(receipt[field], 'receipt.' + field) :
+        field === 'outputModelKey' ? outputKey(receipt[field], 'receipt.' + field) :
+          identity(receipt[field], 'receipt.' + field, allowed);
+      if (problem) return problem;
+    }
+    const expectedRequestKey = receipt.modelKey === 'R1' ? 'A' : 'B';
+    const expectedReceiptId = expectedRequestKey === 'A' ? 'receipt-A' : 'receipt-B';
+    if (receipt.requestKey !== expectedRequestKey || receipt.workspaceKey !== expectedWorkspaceFor(expectedRequestKey) ||
+        receipt.receiptId !== expectedReceiptId || reconcileOutputModelKey(receipt.outputId) !== receipt.outputModelKey) {
+      return where + '.receipt raw identity does not match its model receipt/request/output keys';
+    }
+  }
+  if (reconcile.returned !== null) {
+    const returned = reconcile.returned;
+    if (!isPlainObject(returned)) return where + '.returned must be an object or null';
+    for (const [field, allowed] of [
+      ['requestKey', ['A', 'B']],
+      ['receiptModelKey', ['R1', 'R2']],
+      ['receiptId', null],
+      ['workspaceKey', ['W1', 'W2']],
+      ['outputModelKey', ['O1', 'O2']],
+      ['outputId', null],
+    ]) {
+      problem = field === 'workspaceKey' ? workspace(returned[field], 'returned.' + field) :
+        field === 'outputModelKey' ? outputKey(returned[field], 'returned.' + field) :
+          identity(returned[field], 'returned.' + field, allowed);
+      if (problem) return problem;
+    }
+    if (!Array.isArray(returned.outputIds) || returned.outputIds.length === 0 ||
+        returned.outputIds.some((outputId) => typeof outputId !== 'string' || outputId.length === 0)) {
+      return where + '.returned.outputIds must contain non-empty output IDs';
+    }
+    const expectedReceiptKey = returned.requestKey === 'A' ? 'R1' : 'R2';
+    const expectedReceiptId = returned.requestKey === 'A' ? 'receipt-A' : 'receipt-B';
+    if (returned.receiptModelKey !== expectedReceiptKey || returned.receiptId !== expectedReceiptId ||
+        returned.workspaceKey !== expectedWorkspaceFor(returned.requestKey) ||
+        reconcileOutputModelKey(returned.outputId) !== returned.outputModelKey) {
+      return where + '.returned raw identity does not match its request/receipt/output model keys';
+    }
+  }
+  return null;
+}
+
 function traceShapeProblem(trace, index, contract, events) {
   const where = 'traces[' + index + ']';
   if (!isPlainObject(trace)) return { message: where + ' must be an object' };
@@ -720,6 +956,21 @@ function traceShapeProblem(trace, index, contract, events) {
   }
   const initialProblem = observationProblem(trace.initialObservation, where + '.initialObservation', trace.model);
   if (initialProblem) return { message: initialProblem };
+  if (trace.model === 'ReconcileLifecycle') {
+    const action = trace.initialAction;
+    if (!isPlainObject(action) || action.label !== 'RequestReconcile(A)' || action.event !== 'requestA') {
+      return { message: where + '.initialAction must record the captured RequestReconcile(A) event' };
+    }
+    const binding = contract.actionBindings[action.label];
+    if (!binding || binding.event !== action.event) {
+      return { message: where + '.initialAction label/event does not match the selected trace contract' };
+    }
+    if (action.note !== undefined && typeof action.note !== 'string') {
+      return { message: where + '.initialAction.note must be a string when present' };
+    }
+  } else if (trace.initialAction !== undefined) {
+    return { message: where + '.initialAction is supported only for the mounted ReconcileLifecycle trace' };
+  }
   if (trace.initialPreview !== undefined) {
     if (!isPlainObject(trace.initialPreview)) return { message: where + '.initialPreview must be an object' };
     const ownerProblemText = ownerProblem(trace.initialPreview.owner, where + '.initialPreview.owner', 'preview');
@@ -919,6 +1170,10 @@ function traceShapeProblem(trace, index, contract, events) {
       if (evidenceProblem) return { message: evidenceProblem, actionIndex };
     }
   }
+  if (trace.model === 'ReconcileLifecycle') {
+    const problem = reconcileIdentityProblem(trace, where);
+    if (problem) return problem;
+  }
   if (trace.model === 'BuilderJourney') {
     const choiceProblem = journeyChoiceTraceProblem(trace, where);
     if (choiceProblem) return choiceProblem;
@@ -996,6 +1251,7 @@ function traceShapeProblem(trace, index, contract, events) {
 function traceKey(trace) {
   return canonicalJson({
     model: trace.model,
+    initialAction: trace.initialAction ?? null,
     initialObservation: trace.initialObservation,
     initialPreview: trace.initialPreview ?? null,
     actions: trace.actions.map((action) => ({
@@ -1044,6 +1300,22 @@ function nestedObservedValue(observation, objectField, field) {
   return isPlainObject(nested) ? nested[field] : undefined;
 }
 
+function reconcileObservedValue(observation, objectField, field) {
+  const reconcile = observation.reconcile;
+  const nested = isPlainObject(reconcile) ? reconcile[objectField] : undefined;
+  return isPlainObject(nested) ? nested[field] : undefined;
+}
+
+function reconcileOutputKey(observation, objectField) {
+  const outputId = reconcileObservedValue(observation, objectField, 'outputId');
+  return reconcileOutputModelKey(outputId);
+}
+
+function reconcileModelValue(observation, objectField, field, mapper) {
+  const value = reconcileObservedValue(observation, objectField, field);
+  return typeof value === 'string' ? mapper(value) : undefined;
+}
+
 function tlaObservation(observation) {
   return '[status |-> ' + tlaObservedValue(observation.status) +
     ', tablePreviewStatus |-> ' + tlaObservedValue(observation.tablePreviewStatus) +
@@ -1080,6 +1352,36 @@ function tlaObservation(observation) {
     ', previewReceiptPresent |-> ' + tlaBool(observation.previewReceiptPresent) +
     ', rowsPresent |-> ' + tlaBool(observation.rowsPresent) +
     ', receiptPresent |-> ' + tlaBool(observation.receiptPresent) +
+    ', reconcileActiveRequestKey |-> ' + tlaObservedValue(nestedObservedValue(observation, 'reconcile', 'activeRequestKey')) +
+    ', reconcileCurrentKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'current', 'modelKey')) +
+    ', reconcileCurrentDraftVersion |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'current', 'draftVersion')) +
+    ', reconcileCurrentDraftDigest |-> ' + tlaObservedValue(reconcileModelValue(observation, 'current', 'draftDigest', reconcileDigestModelKey)) +
+    ', reconcileCurrentSnapshotToken |-> ' + tlaObservedValue(reconcileModelValue(observation, 'current', 'snapshotToken', reconcileSnapshotModelKey)) +
+    ', reconcileCurrentOutputModelKey |-> ' + tlaObservedValue(reconcileOutputKey(observation, 'current')) +
+    ', reconcileCurrentOutputId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'current', 'outputId')) +
+    ', reconcileCurrentExplorerId |-> ' + tlaObservedValue(reconcileModelValue(observation, 'current', 'explorerId', reconcileExplorerModelKey)) +
+    ', reconcileRequestModelKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'request', 'modelKey')) +
+    ', reconcileRequestRawId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'request', 'rawRequestId')) +
+    ', reconcileRequestWorkspaceKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'request', 'workspaceKey')) +
+    ', reconcileRequestDraftVersion |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'request', 'draftVersion')) +
+    ', reconcileRequestDraftDigest |-> ' + tlaObservedValue(reconcileModelValue(observation, 'request', 'draftDigest', reconcileDigestModelKey)) +
+    ', reconcileRequestSnapshotToken |-> ' + tlaObservedValue(reconcileModelValue(observation, 'request', 'snapshotToken', reconcileSnapshotModelKey)) +
+    ', reconcileRequestOutputModelKey |-> ' + tlaObservedValue(reconcileOutputKey(observation, 'request')) +
+    ', reconcileRequestOutputId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'request', 'outputId')) +
+    ', reconcileRequestExplorerId |-> ' + tlaObservedValue(reconcileModelValue(observation, 'request', 'explorerId', reconcileExplorerModelKey)) +
+    ', reconcileReceiptModelKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'receipt', 'modelKey')) +
+    ', reconcileReceiptId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'receipt', 'receiptId')) +
+    ', reconcileReceiptRequestKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'receipt', 'requestKey')) +
+    ', reconcileReceiptWorkspaceKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'receipt', 'workspaceKey')) +
+    ', reconcileReceiptOutputModelKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'receipt', 'outputModelKey')) +
+    ', reconcileReceiptOutputId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'receipt', 'outputId')) +
+    ', reconcileReturnedRequestKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'returned', 'requestKey')) +
+    ', reconcileReturnedReceiptModelKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'returned', 'receiptModelKey')) +
+    ', reconcileReturnedReceiptId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'returned', 'receiptId')) +
+    ', reconcileReturnedWorkspaceKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'returned', 'workspaceKey')) +
+    ', reconcileReturnedOutputModelKey |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'returned', 'outputModelKey')) +
+    ', reconcileReturnedOutputId |-> ' + tlaObservedValue(reconcileObservedValue(observation, 'returned', 'outputId')) +
+    ', reconcileReturnedOutputIds |-> ' + tlaString(Buffer.from(canonicalJson(reconcileObservedValue(observation, 'returned', 'outputIds') ?? [])).toString('hex')) +
     ', selectedObservation |-> ' + tlaString(Buffer.from(canonicalJson(observation)).toString('hex')) + ']';
 }
 
@@ -1142,16 +1444,40 @@ function builderJourneyObservationMapping(prime) {
 
 function reconcileLifecycleObservationMapping(prime) {
   const state = prime ? "r'" : 'r';
+  const requestIds = prime ? "traceRequestIds'" : 'traceRequestIds';
   return [
-    '  /\\ (obs.status = "idle" => (' + state + '.phase = "idle"))',
-    '  /\\ (obs.status = "requesting" => (' + state + '.phase = "requesting"))',
-    '  /\\ (obs.status = "succeeded" => (' + state + '.phase = "succeeded"))',
-    '  /\\ (obs.status = "stale" => (' + state + '.phase = "stale"))',
-    '  /\\ (obs.status = "conflict" => (' + state + '.phase = "conflict"))',
-    '  /\\ (obs.status = "invalid" => (' + state + '.phase = "invalid"))',
-    '  /\\ (obs.status = "failed" => (' + state + '.phase = "failed"))',
-    '  /\\ (obs.receiptPresent => (' + state + '.receipt.id # "NONE"))',
-    '  /\\ (~obs.receiptPresent => (' + state + '.receipt.id = "NONE"))',
+    '  /\\ (obs.status = "empty" => (' + state + '.phase \in {"idle", "requesting"}))',
+    '  /\\ (obs.status = "ready" => (' + state + '.phase = "succeeded"))',
+    '  /\\ obs.reconcileActiveRequestKey = IF ' + state + '.activeRequest = "NONE" THEN "NoObservedValue" ELSE ' + state + '.activeRequest',
+    '  /\\ obs.reconcileCurrentKey = ' + state + '.currentWorkspace',
+    '  /\\ obs.reconcileCurrentDraftVersion = WorkspaceFor(' + state + '.currentWorkspace).draft',
+    '  /\\ obs.reconcileCurrentDraftDigest = WorkspaceFor(' + state + '.currentWorkspace).digest',
+    '  /\\ obs.reconcileCurrentSnapshotToken = WorkspaceFor(' + state + '.currentWorkspace).snapshot',
+    '  /\\ obs.reconcileCurrentOutputModelKey = WorkspaceFor(' + state + '.currentWorkspace).outputKey',
+    '  /\\ obs.reconcileCurrentExplorerId = WorkspaceFor(' + state + '.currentWorkspace).explorer',
+    '  /\\ (obs.reconcileRequestModelKey = "NoObservedValue" =>',
+    '       /\\ obs.reconcileRequestRawId = "NoObservedValue"',
+    '       /\\ obs.reconcileRequestWorkspaceKey = "NoObservedValue")',
+    ...['A', 'B'].flatMap((key) => [
+      '  /\\ (obs.reconcileRequestModelKey = "' + key + '" =>',
+      '       /\\ ' + state + '.requests["' + key + '"].workspace = obs.reconcileRequestWorkspaceKey',
+      '       /\\ obs.reconcileRequestRawId = ' + requestIds + '["' + key + '"]',
+      '       /\\ obs.reconcileRequestDraftVersion = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).draft',
+      '       /\\ obs.reconcileRequestDraftDigest = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).digest',
+      '       /\\ obs.reconcileRequestSnapshotToken = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).snapshot',
+      '       /\\ obs.reconcileRequestOutputModelKey = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).outputKey',
+      '       /\\ obs.reconcileRequestExplorerId = WorkspaceFor(' + state + '.requests["' + key + '"].workspace).explorer)',
+    ]),
+    '  /\\ obs.reconcileReceiptModelKey = IF ' + state + '.receipt.id = "NONE" THEN "NoObservedValue" ELSE ' + state + '.receipt.id',
+    '  /\\ obs.reconcileReceiptRequestKey = IF ' + state + '.receipt.id = "NONE" THEN "NoObservedValue" ELSE ' + state + '.receipt.requestKey',
+    '  /\\ obs.reconcileReceiptWorkspaceKey = IF ' + state + '.receipt.id = "NONE" THEN "NoObservedValue" ELSE ' + state + '.receipt.workspace',
+    '  /\\ obs.reconcileReceiptOutputModelKey = IF ' + state + '.receipt.id = "NONE" THEN "NoObservedValue" ELSE ' + state + '.receipt.outputKey',
+    '  /\\ obs.reconcileReturnedRequestKey = IF ' + state + '.lastReturned.requestKey = "NONE" THEN "NoObservedValue" ELSE ' + state + '.lastReturned.requestKey',
+    '  /\\ obs.reconcileReturnedReceiptModelKey = IF ' + state + '.lastReturned.requestKey = "NONE" THEN "NoObservedValue" ELSE ' + state + '.lastReturned.id',
+    '  /\\ obs.reconcileReturnedWorkspaceKey = IF ' + state + '.lastReturned.requestKey = "NONE" THEN "NoObservedValue" ELSE ' + state + '.lastReturned.workspace',
+    '  /\\ obs.reconcileReturnedOutputModelKey = IF ' + state + '.lastReturned.requestKey = "NONE" THEN "NoObservedValue" ELSE ' + state + '.lastReturned.outputKey',
+    '  /\\ (obs.reconcileReturnedRequestKey = "NoObservedValue" => obs.reconcileReturnedOutputIds = "5b5d")',
+    '  /\\ (obs.receiptPresent <=> (' + state + '.receipt.id # "NONE"))',
   ].join('\n');
 }
 
@@ -1287,6 +1613,15 @@ function actionIdentityPreserved(model) {
   const equalities = fields.map((field) =>
     '       /\\ before.' + field + ' = after.' + field,
   );
+  const reconcileFields = [
+    'status', 'reconcileActiveRequestKey', 'reconcileCurrentKey', 'reconcileCurrentDraftVersion',
+    'reconcileCurrentDraftDigest', 'reconcileCurrentSnapshotToken', 'reconcileCurrentOutputModelKey',
+    'reconcileCurrentExplorerId', 'reconcileReceiptModelKey', 'reconcileReceiptRequestKey',
+    'reconcileReceiptWorkspaceKey', 'reconcileReceiptOutputModelKey',
+  ];
+  const reconcileEqualities = reconcileFields.map((field) =>
+    '       /\\ before.' + field + ' = after.' + field,
+  );
   return [
     'ObservedIdentityUnchanged(before, after) ==',
     ...equalities,
@@ -1300,6 +1635,13 @@ function actionIdentityPreserved(model) {
     '          /\\ before.selectedObservation = after.selectedObservation',
     '     ELSE IF label \\in {' + labels.join(', ') + '}',
     '          THEN ObservedIdentityUnchanged(before, after)',
+    ...(model === 'ReconcileLifecycle'
+      ? [
+          '          ELSE IF label = "LateReconcileIgnored(A)"',
+          '               THEN /\\ before.status = after.status',
+          ...reconcileEqualities,
+        ]
+      : []),
     ...(model === 'BuilderPreview'
       ? [
           '          ELSE IF label = "ApplyAck" /\\ applyOwner.generation # proposalOwner.generation',
@@ -1325,6 +1667,46 @@ function generateModule(trace, moduleName) {
       : trace.model === 'BuilderJourney'
         ? builderJourneyObservationMapping
         : constructionLifecycleObservationMapping;
+  const reconcileTrace = trace.model === 'ReconcileLifecycle';
+  const traceVariables = reconcileTrace ? 'VARIABLES traceIndex, traceRequestIds' : 'VARIABLES traceIndex';
+  const traceTuple = reconcileTrace ? '<<vars, traceIndex, traceRequestIds>>' : '<<vars, traceIndex>>';
+  const traceInitIdentity = reconcileTrace
+    ? [
+        '  /\\ traceIndex = 0',
+        '  /\\ traceRequestIds = [key \\in RequestKeys |-> "NoObservedValue"]',
+      ]
+    : ['  /\\ traceIndex = 1'];
+  const reconcileTraceNext = reconcileTrace
+    ? [
+        '  IF traceIndex = 0',
+        '  THEN /\\ RequestReconcile("A")',
+        '       /\\ ActionLabelMatches("RequestReconcile(A)")',
+        '       /\\ traceRequestIds\' = [key \\in RequestKeys |-> IF key = "A" THEN TraceObservations[1].reconcileRequestRawId ELSE "NoObservedValue"]',
+        '       /\\ ObsMatchesNext(TraceObservations[1])',
+        '       /\\ traceIndex\' = 1',
+        '  ELSE IF traceIndex < Len(TraceActions)',
+        '       THEN /\\ Next',
+        "            /\\ ActionLabelMatches(TraceActions[traceIndex + 1])",
+        '            /\\ ActionOwnerMatches(traceIndex + 1)',
+        '            /\\ ActionIdentityPreserved(traceIndex + 1)',
+        '            /\\ traceRequestIds\' = [key \\in RequestKeys |-> IF traceRequestIds[key] = "NoObservedValue" /\\ TraceObservations[traceIndex + 1].reconcileRequestModelKey = key THEN TraceObservations[traceIndex + 1].reconcileRequestRawId ELSE traceRequestIds[key]]',
+        '            /\\ ObsMatchesNext(TraceObservations[traceIndex + 1])',
+        "            /\\ traceIndex' = traceIndex + 1",
+        '       ELSE /\\ UNCHANGED vars',
+        '            /\\ UNCHANGED traceIndex',
+        '            /\\ UNCHANGED traceRequestIds',
+      ]
+    : [
+        '  IF traceIndex < Len(TraceActions)',
+        '  THEN /\\ Next',
+        "       /\\ ActionLabelMatches(TraceActions[traceIndex + 1])",
+        '       /\\ ActionOwnerMatches(traceIndex + 1)',
+        '       /\\ ActionIdentityPreserved(traceIndex + 1)',
+        '       /\\ ObsMatchesNext(TraceObservations[traceIndex + 1])',
+        "       /\\ traceIndex' = traceIndex + 1",
+        '  ELSE /\\ UNCHANGED vars',
+        '       /\\ UNCHANGED traceIndex',
+      ];
   const nextApplicable = trace.model === 'ConstructionLifecycle'
     ? [
         'ResourceIsApplicableNext(attempt) ==',
@@ -1345,7 +1727,7 @@ function generateModule(trace, moduleName) {
     '---------------- MODULE ' + moduleName + ' ----------------',
     'EXTENDS ' + trace.model + ', Naturals, Sequences, TLC',
     '',
-    'VARIABLES traceIndex',
+    traceVariables,
     '',
     'TraceActions == ' + tlaSequence(actions),
     '',
@@ -1370,19 +1752,10 @@ function generateModule(trace, moduleName) {
     '',
     'TraceInit ==',
     '  /\\ Init',
-    '  /\\ traceIndex = 1',
-    '  /\\ ObsMatches(TraceObservations[1])',
+    ...traceInitIdentity,
     '',
     'TraceNext ==',
-    '  IF traceIndex < Len(TraceActions)',
-    '  THEN /\\ Next',
-    "       /\\ ActionLabelMatches(TraceActions[traceIndex + 1])",
-    '       /\\ ActionOwnerMatches(traceIndex + 1)',
-    '       /\\ ActionIdentityPreserved(traceIndex + 1)',
-    '       /\\ ObsMatchesNext(TraceObservations[traceIndex + 1])',
-    "       /\\ traceIndex' = traceIndex + 1",
-    '  ELSE /\\ UNCHANGED vars',
-    '       /\\ UNCHANGED traceIndex',
+    ...reconcileTraceNext,
     '',
     '(* The usual [][TraceNext]_<<vars, traceIndex>> spec accepts stuttering at any state.',
     '   TraceProgress makes a short stutter before the last action a',
@@ -1392,7 +1765,7 @@ function generateModule(trace, moduleName) {
     '  \\/ traceIndex = Len(TraceActions)',
     '  \\/ ENABLED TraceNext',
     '',
-    'TraceSpec == TraceInit /\\ [][TraceNext]_<<vars, traceIndex>>',
+    'TraceSpec == TraceInit /\\ [][TraceNext]_' + traceTuple,
     '',
     '====',
     '',
@@ -1546,6 +1919,10 @@ async function main() {
   const eventSet = new Set();
   for (const trace of traces) {
     const modelActions = new Set(contract.models[trace.model].actions);
+    if (trace.initialAction) {
+      actionSet.add(normalizedActionLabel(trace.model, trace.initialAction.label, modelActions) ?? trace.initialAction.label);
+      eventSet.add(trace.initialAction.event);
+    }
     for (const action of trace.actions) {
       actionSet.add(normalizedActionLabel(trace.model, action.label, modelActions) ?? action.label);
       eventSet.add(action.event);

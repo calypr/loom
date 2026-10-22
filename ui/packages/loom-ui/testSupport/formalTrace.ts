@@ -43,6 +43,12 @@ export type ReconcileTraceSnapshot = {
     readonly snapshotToken: string;
     readonly outputId: string;
     readonly explorerId: string;
+    readonly provenance: {
+      readonly draftIdentity: 'rendered-dom';
+      readonly outputId: 'rendered-dom';
+      readonly snapshotToken: 'matching-reconcile-request';
+      readonly explorerId: 'matching-reconcile-request';
+    };
   };
   readonly request: {
     readonly modelKey: 'A' | 'B';
@@ -101,6 +107,7 @@ export type FormalTrace = {
   readonly expectedFailure: boolean;
   readonly model: FormalTraceModel;
   initialObservation: FormalObservation | undefined;
+  initialAction?: { readonly label: string; readonly event: string; readonly note?: string };
   readonly actions: FormalTraceAction[];
   readonly unmodeledEvents: FormalTraceUnmodeledEvent[];
 };
@@ -168,9 +175,15 @@ export const traceInitialObservation = (lifecycle: LifecycleHandle): void => {
   activeTrace.initialObservation = observationFor(lifecycle);
 };
 
-export const traceInitialReconcileObservation = (snapshot: ReconcileTraceSnapshot): void => {
+export const traceInitialReconcileObservation = (
+  snapshot: ReconcileTraceSnapshot,
+  label: string,
+  event: string,
+  note?: string,
+): void => {
   if (!activeTrace || activeTrace.model !== 'ReconcileLifecycle') return;
   activeTrace.initialObservation = reconcileObservationFor(snapshot);
+  activeTrace.initialAction = { label, event, ...(note ? { note } : {}) };
 };
 
 const traceActionWithObservation = (

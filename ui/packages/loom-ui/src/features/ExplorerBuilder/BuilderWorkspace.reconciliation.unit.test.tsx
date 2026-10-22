@@ -672,6 +672,7 @@ const deferredRequest = <T,>() => {
   });
   return {
     request: { unwrap: vi.fn(() => promise), abort: vi.fn() },
+    promise,
     resolve,
   };
 };
@@ -4126,17 +4127,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         outputIds,
       };
     };
-    const mountedSnapshot = ({
-      currentCall,
-      eventCall,
-      activeRequestKey,
-      returnedCall = null,
-    }: {
-      readonly currentCall: CapturedReconcile;
-      readonly eventCall: CapturedReconcile | null;
-      readonly activeRequestKey: ReconcileKey | null;
-      readonly returnedCall?: ReturnedReconcile | null;
-    }): ReconcileTraceSnapshot => {
+    const latestSettledReconcile = (): ReturnedReconcile | null => returnedReconciles.at(-1) ?? null;
+    const mountedSnapshot = ({ eventCall }: { readonly eventCall: CapturedReconcile | null }): ReconcileTraceSnapshot => {
       const constructionWorkspace = screen.getByTestId('construction-workspace');
       const constructionPreview = screen.getByTestId('construction-preview');
       const rawDraftVersion = constructionWorkspace.getAttribute('data-draft-version');
@@ -4154,17 +4146,23 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       }
       const workspaceKey = workspaceKeyFor(draftVersion, draftDigest);
       const visibleOutputId = constructionPreview.getAttribute('data-preview-output-id') ?? '';
-      const currentOutputId = visibleOutputId || currentCall.args.outputId;
-      if (!currentOutputId) throw new Error('mounted BuilderWorkspace omitted its selected output identity');
+      if (!visibleOutputId) throw new Error('mounted BuilderWorkspace omitted its selected output identity');
       const currentReceiptId = constructionPreview.getAttribute('data-preview-receipt-id') ?? '';
       const surfacedReceipt = currentReceiptId ? returnedReconcileFor(currentReceiptId) : null;
-      const surfacedOutputId = visibleOutputId || currentOutputId;
-      const currentRequestId = currentCall.args.requestId;
+      const pendingCalls = capturedReconciles.filter((call) =>
+        !returnedReconciles.some((returnedCall) => returnedCall.modelKey === call.modelKey),
+      );
+      const activeRequestKey = surfacedReceipt?.modelKey ?? pendingCalls.at(-1)?.modelKey ?? null;
+      const currentCall = [...capturedReconciles].reverse().find((call) =>
+        call.args.draftVersion === draftVersion && call.args.draftDigest === draftDigest,
+      );
+      if (!currentCall) throw new Error(`mounted draft ${draftVersion}/${draftDigest} has no matching reconcile request`);
       const currentSnapshotToken = currentCall.args.snapshotToken;
       const currentExplorerId = currentCall.args.explorerId;
-      if (!currentRequestId || !currentSnapshotToken || !currentExplorerId) {
+      if (!currentSnapshotToken || !currentExplorerId) {
         throw new Error('captured current reconcile request omitted its workspace identity');
       }
+      const returnedCall = latestSettledReconcile();
       return {
         status,
         activeRequestKey,
@@ -4173,8 +4171,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
           draftVersion,
           draftDigest,
           snapshotToken: currentSnapshotToken,
-          outputId: currentOutputId,
+          outputId: visibleOutputId,
           explorerId: currentExplorerId,
+          provenance: {
+            draftIdentity: 'rendered-dom',
+            outputId: 'rendered-dom',
+            snapshotToken: 'matching-reconcile-request',
+            explorerId: 'matching-reconcile-request',
+          },
         },
         request: requestSnapshot(eventCall),
         receipt: surfacedReceipt
@@ -4186,8 +4190,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
                 surfacedReceipt.args.draftVersion,
                 surfacedReceipt.args.draftDigest,
               ),
-              outputModelKey: outputModelKeyFor(surfacedOutputId),
-              outputId: surfacedOutputId,
+              outputModelKey: outputModelKeyFor(visibleOutputId),
+              outputId: visibleOutputId,
             }
           : null,
         returned: returnedSnapshot(returnedCall),
@@ -4196,8 +4200,12 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     reconcile.mockImplementation((args: ReconcileExplorerBuilderArgs) => {
       const modelKey: ReconcileKey = capturedReconciles.length === 0 ? 'A' : 'B';
-      capturedReconciles.push({ modelKey, args });
-      return modelKey === 'A' ? pendingA.request : pendingB.request;
+      const call = { modelKey, args };
+      capturedReconciles.push(call);
+      const pending = modelKey === 'A' ? pendingA : pendingB;
+      void pending.promise.then((result) => returnedReconciles.push({ ...call, result }));
+      const request = pending.request;
+      return request;
     });
     preview.mockImplementation((args: PreviewExplorerBuilderArgs) => resolvedRequest({
       apiVersion,
@@ -4224,16 +4232,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       await waitFor(() => expect(capturedReconciles).toHaveLength(1));
       const requestA = capturedReconciles[0];
       if (!requestA) throw new Error('initial reconcile request A was not captured');
-      traceInitialReconcileObservation(mountedSnapshot({
-        currentCall: requestA,
-        eventCall: null,
-        activeRequestKey: null,
-      }));
-      const requestASnapshot = mountedSnapshot({
-        currentCall: requestA,
-        eventCall: requestA,
-        activeRequestKey: 'A',
-      });
+      const requestASnapshot = mountedSnapshot({ eventCall: requestA });
       expect(requestASnapshot.current).toMatchObject({
         modelKey: 'W1',
         explorerId: 'test',
@@ -4247,10 +4246,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         rawRequestId: requestA.args.requestId,
         workspaceKey: 'W1',
       });
-      traceReconcileAction(
+      traceInitialReconcileObservation(
+        requestASnapshot,
         'RequestReconcile(A)',
         'requestA',
-        requestASnapshot,
+        'actual reconcile mutation call captured during initial mount',
       );
       expect(requestA.args).toMatchObject({
         explorerId: 'test',
@@ -4288,9 +4288,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect(requestB.args.requestId).toBeTruthy();
       expect(requestB.args.requestId).not.toBe(requestA.args.requestId);
       const requestBSnapshot = mountedSnapshot({
-        currentCall: requestB,
         eventCall: requestB,
-        activeRequestKey: 'B',
       });
       expect(requestBSnapshot.current).toMatchObject({
         modelKey: 'W2',
@@ -4322,6 +4320,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2');
         expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-digest', 'sha256:draft-2');
       });
+      await waitFor(() => expect(returnedReconciles).toHaveLength(1));
       const visibleB = {
         draftVersion: screen.getByTestId('construction-workspace').getAttribute('data-draft-version'),
         draftDigest: screen.getByTestId('construction-workspace').getAttribute('data-draft-digest'),
@@ -4329,13 +4328,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         receiptId: screen.getByTestId('construction-preview').getAttribute('data-preview-receipt-id'),
         outputId: screen.getByTestId('construction-preview').getAttribute('data-preview-output-id'),
       };
-      const returnedCallB: ReturnedReconcile = { ...requestB, result: returnedB };
-      returnedReconciles.push(returnedCallB);
+      const returnedCallB = returnedReconciles[0];
+      if (!returnedCallB) throw new Error('reconcile response B was not observed by the settlement ledger');
       const successSnapshot = mountedSnapshot({
-        currentCall: requestB,
         eventCall: requestB,
-        activeRequestKey: null,
-        returnedCall: returnedCallB,
       });
       expect(successSnapshot.current).toMatchObject({
         modelKey: 'W2',
@@ -4372,6 +4368,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         pendingA.resolve(returnedA);
         await Promise.resolve();
       });
+      await waitFor(() => expect(returnedReconciles).toHaveLength(2));
       const visibleAfterLateA = {
         draftVersion: screen.getByTestId('construction-workspace').getAttribute('data-draft-version'),
         draftDigest: screen.getByTestId('construction-workspace').getAttribute('data-draft-digest'),
@@ -4383,13 +4380,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect(reconcile).toHaveBeenCalledTimes(2);
       expect(preview).toHaveBeenCalledTimes(1);
 
-      const returnedCallA: ReturnedReconcile = { ...requestA, result: returnedA };
-      returnedReconciles.push(returnedCallA);
+      const returnedCallA = returnedReconciles[1];
+      if (!returnedCallA) throw new Error('reconcile response A was not observed by the settlement ledger');
       const lateASnapshot = mountedSnapshot({
-        currentCall: requestB,
         eventCall: requestA,
-        activeRequestKey: null,
-        returnedCall: returnedCallA,
       });
       expect(lateASnapshot.current).toEqual(successSnapshot.current);
       expect(lateASnapshot.receipt).toEqual(successSnapshot.receipt);

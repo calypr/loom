@@ -1183,6 +1183,56 @@ if (!runPositiveBaseline()) {
 
 let passed = true;
 try {
+  if (formalOnly) {
+    const retainMountedReconcile = (mutated) => {
+      const trace = mutated.traces.find((candidate) => candidate.model === 'ReconcileLifecycle');
+      if (trace) mutated.traces = [trace];
+      return trace;
+    };
+    const lateReconcile = 'LateReconcileIgnored(A)';
+
+    passed = runMutation('reconcile-late-receipt-takeover', (mutated) => {
+      const trace = retainMountedReconcile(mutated);
+      const late = trace?.actions.find((action) => action.label === lateReconcile);
+      if (late?.observation?.reconcile?.receipt) {
+        late.observation.reconcile.receipt = {
+          modelKey: 'R1',
+          receiptId: 'receipt-A',
+          requestKey: 'A',
+          workspaceKey: 'W1',
+          outputModelKey: 'O1',
+          outputId: 'specimens',
+        };
+      }
+    }, semanticFailureFor(lateReconcile), { allowPartial: true }) && passed;
+
+    passed = runMutation('reconcile-late-output-takeover', (mutated) => {
+      const trace = retainMountedReconcile(mutated);
+      const late = trace?.actions.find((action) => action.label === lateReconcile);
+      if (late?.observation?.reconcile?.current) late.observation.reconcile.current.outputId = 'patients';
+    }, semanticFailureFor(lateReconcile), { allowPartial: true }) && passed;
+
+    passed = runMutation('reconcile-late-request-owner-mismatch', (mutated) => {
+      const trace = retainMountedReconcile(mutated);
+      const late = trace?.actions.find((action) => action.label === lateReconcile);
+      const requestB = trace?.actions.find((action) => action.label === 'WorkspaceChangeStartsReconcile(B)')?.observation?.reconcile?.request;
+      if (late?.observation?.reconcile?.request && requestB) {
+        late.observation.reconcile.request.rawRequestId = requestB.rawRequestId;
+      }
+    }, 'request identity differs from the original A request', { allowPartial: true }) && passed;
+
+    passed = runMutation('reconcile-late-response-owner-mismatch', (mutated) => {
+      const trace = retainMountedReconcile(mutated);
+      const late = trace?.actions.find((action) => action.label === lateReconcile);
+      if (late?.observation?.reconcile?.returned) late.observation.reconcile.returned.requestKey = 'B';
+    }, 'returned raw identity does not match its request/receipt/output model keys', { allowPartial: true }) && passed;
+
+    passed = runMutation('reconcile-settlement-order', (mutated) => {
+      const trace = retainMountedReconcile(mutated);
+      if (trace) [trace.actions[1], trace.actions[2]] = [trace.actions[2], trace.actions[1]];
+    }, 'must be ReconcileSuccess(B)', { allowPartial: true }) && passed;
+  }
+
   passed = runMutation('observation-mismatch', (mutated) => {
     for (const trace of mutated.traces) {
       for (const action of trace.actions ?? []) {

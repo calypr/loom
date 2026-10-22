@@ -34,13 +34,18 @@
     },
     {
       "path": "scripts/verify-builder-formal.mjs",
-      "sha256": "4cede7c4d36036061826735f7393a7c9b3e2361a24fe98fa34de99d22a09122c",
+      "sha256": "0cd7aaafefcfadc74fcfa01b934b7647af400f12c0218c34c5f773075fbb4f76",
       "contract": "Formal test-corpus producer and runner that stamps actual HEAD and the formal proof-source fingerprint."
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "676492d48a2b72f0a9c811d9524326f29551ac89f384ffe123897dfbefba1700",
+      "sha256": "69288671abc05316c9413a0ac085152577730e00e3eaf3a381977ae5f8bcb545",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
+    },
+    {
+      "path": "scripts/self-test-builder-traces.mjs",
+      "sha256": "216a1a640cd3893ada73079e264dab58909a4ec35ff1bc494f58eea9b9301fbf",
+      "contract": "Trace mutation controls for reconcile stale receipt/output takeover, request ownership, response binding, and settlement order."
     },
     {
       "path": "scripts/verify-ui/helpers/cda-journey-fields.mjs",
@@ -105,7 +110,12 @@
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
       "sha256": "bc17ed3e49f74cf70d94bf9708ac4f8baf506fb579dc2fd23f14bd9cb9c6a557",
-      "contract": "Mounted operation availability and applyConstructionProposal -> finishApply wiring."
+      "contract": "Mounted reconcileCurrent request identity guard, current workspace checks, and compiled reducer dispatch path replayed by the real BuilderWorkspace race."
+    },
+    {
+      "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
+      "sha256": "6b4daec679abcd9eb6273f87c42b1b20ffd0fcc622c816777b9db125e109a95e",
+      "contract": "Mounted BuilderWorkspace A/B reconcile race, captured request/settlement identities, and rendered receipt/output oracle."
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts",
@@ -149,7 +159,7 @@
     },
     {
       "path": "ui/packages/loom-ui/testSupport/formalTrace.ts",
-      "sha256": "5da048de89c796e9354b47e8d84f7b18d1f727d4c1d645a174c13ef8190e50a4",
+      "sha256": "070bb4aeb39ff178437111af19ee4b4332b31d6eab5153c45f051eca36c1cf75",
       "contract": "Test-only trace recorder used by the real-controller formal suite."
     },
     {
@@ -244,12 +254,12 @@
     },
     {
       "path": "verification/builder-interactions/ReconcileLifecycle.cfg",
-      "sha256": "09c6dae6fcf6347da2a50c86746b167d58b6ee2afeaa6453cc33fc91d4f31035",
+      "sha256": "2279c2b9135830f5e1e7140cb5dcbb03f396081217c715f20f867a117f0131ed",
       "contract": "Reconcile model bounds and safety invariants."
     },
     {
       "path": "verification/builder-interactions/ReconcileLifecycle.tla",
-      "sha256": "e818588a8cda911252823578c86824a40497d9e522afc7d6a5386e6479ebea89",
+      "sha256": "280a58c9b1c8052b4a4ff474656a25b7463de2ffa6d6edb4cf68ef37d760658e",
       "contract": "Reconcile request identity, receipt binding, stale and conflict outcomes, draft invalidation, and bounded retry model."
     },
     {
@@ -329,7 +339,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-trace-contract.json",
-      "sha256": "b4002894b31be7378b564a6fad48204c2276ef647503188a233aa99d21b54bde",
+      "sha256": "f10b312974982cbf15c70e485e88952e576f052b87095cd036ce2e0aadb88de7",
       "contract": "Phase 1 abstract action, event, and observation vocabulary for implementation traces."
     },
     {
