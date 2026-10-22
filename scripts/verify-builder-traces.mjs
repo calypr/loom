@@ -302,7 +302,7 @@ function requiredOwnerForAction(model, label) {
     ]).has(label);
   }
   if (model === 'BuilderJourney') {
-    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored)$/.test(label)) return true;
+    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return true;
     return new Set([
       'Group', 'GroupAgain', 'AddColumn', 'EditGroup', 'RemoveGroup',
     ]).has(label);
@@ -323,7 +323,7 @@ function expectedOwnerKind(model, label) {
     if (/^(?:ScheduleDiscovery|DiscoveryComplete)/.test(label)) return 'discovery';
   }
   if (model === 'BuilderJourney') {
-    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored)$/.test(label)) return 'proposal';
+    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return 'proposal';
     if (/^(?:Group|GroupAgain|AddColumn|EditGroup|RemoveGroup)$/.test(label)) return 'apply';
   }
   return null;
@@ -338,6 +338,7 @@ function requestProblem(request, where) {
     return where + '.requestId must be a string or null when present';
   }
   if (request.captureId !== undefined && typeof request.captureId !== 'string') return where + '.captureId must be a string when present';
+  if (request.commandId !== undefined && request.commandId !== null && typeof request.commandId !== 'string') return where + '.commandId must be a string or null when present';
   return null;
 }
 
@@ -348,6 +349,7 @@ function responseProblem(response, where) {
   }
   if (response.requestId !== undefined && response.requestId !== null && typeof response.requestId !== 'string') return where + '.requestId must be a string or null when present';
   if (response.captureId !== undefined && typeof response.captureId !== 'string') return where + '.captureId must be a string when present';
+  if (response.commandId !== undefined && response.commandId !== null && typeof response.commandId !== 'string') return where + '.commandId must be a string or null when present';
   if (response.proposalId !== undefined && response.proposalId !== null && typeof response.proposalId !== 'string') {
     return where + '.proposalId must be a string or null when present';
   }
@@ -421,6 +423,144 @@ function journeyPreviewEvidenceProblem(action, where) {
     if (typeof response.preview.rowsPresent === 'boolean' &&
         (typeof renderedRows !== 'boolean' || response.preview.rowsPresent !== renderedRows)) {
       return where + ' response.preview.rowsPresent does not match displayed observation.embeddedProposalPreview.rowsPresent';
+    }
+  }
+  return null;
+}
+
+function journeyChoiceTraceProblem(trace, where) {
+  const startsByCapture = new Map();
+  const settlementsByCapture = new Map();
+  const completedByCommandId = new Map();
+  const addColumnsByCommandId = new Map();
+  const choiceSettlementLabels = new Set(['ChoicePreviewComplete', 'ChoicePreviewError']);
+
+  for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
+    const action = trace.actions[actionIndex];
+    const actionWhere = where + '.actions[' + actionIndex + ']';
+    if (action.label === 'ChoicePreview') {
+      const captureId = action.request?.captureId;
+      if (startsByCapture.has(captureId)) {
+        return { message: actionWhere + '.request.captureId duplicates another ChoicePreview request', actionIndex };
+      }
+      startsByCapture.set(captureId, { action, actionIndex });
+    } else if (choiceSettlementLabels.has(action.label)) {
+      const captureId = action.request?.captureId;
+      if (settlementsByCapture.has(captureId)) {
+        return { message: actionWhere + ' duplicates a ChoicePreview settlement for the same captureId', actionIndex };
+      }
+      settlementsByCapture.set(captureId, { action, actionIndex });
+    } else if (action.label === 'AddColumn') {
+      const commandId = action.request?.commandId;
+      if (typeof commandId !== 'string' || commandId.trim().length === 0) {
+        return { message: actionWhere + '.request.commandId must be a non-empty string for AddColumn', actionIndex };
+      }
+      if (addColumnsByCommandId.has(commandId)) {
+        return { message: actionWhere + '.request.commandId duplicates another AddColumn command', actionIndex };
+      }
+      addColumnsByCommandId.set(commandId, { action, actionIndex });
+    }
+  }
+
+  for (const [captureId, start] of startsByCapture) {
+    const settlement = settlementsByCapture.get(captureId);
+    if (!settlement) {
+      return {
+        message: where + '.actions[' + start.actionIndex + '] ChoicePreview request has no matching ChoicePreviewComplete/Error with the same captureId',
+        actionIndex: start.actionIndex,
+      };
+    }
+    const request = start.action.request;
+    const resultRequest = settlement.action.request;
+    if (canonicalJson(start.action.owner) !== canonicalJson(settlement.action.owner) ||
+        request.method !== resultRequest.method || request.path !== resultRequest.path ||
+        request.path !== 'construction-choice-proposals' || resultRequest.captureId !== captureId) {
+      return {
+        message: where + '.actions[' + settlement.actionIndex + '] ChoicePreview settlement must match its request owner, method, path, and captureId',
+        actionIndex: settlement.actionIndex,
+      };
+    }
+    if (settlement.action.label === 'ChoicePreviewError') continue;
+
+    const choiceCommandId = request.commandId;
+    const choiceResponse = settlement.action.response;
+    if (typeof choiceCommandId !== 'string' || choiceCommandId.trim().length === 0 ||
+        resultRequest.commandId !== choiceCommandId || choiceResponse?.commandId !== choiceCommandId) {
+      return {
+        message: where + '.actions[' + settlement.actionIndex + '] ChoicePreviewComplete request/response commandId values must match the ChoicePreview request commandId',
+        actionIndex: settlement.actionIndex,
+      };
+    }
+    if (typeof choiceResponse.status !== 'number' || choiceResponse.status < 200 || choiceResponse.status >= 300 ||
+        choiceResponse.proposalPreviewStatus !== 'READY') {
+      return {
+        message: where + '.actions[' + settlement.actionIndex + '] ChoicePreviewComplete must carry a successful 2xx response with previewStatus READY',
+        actionIndex: settlement.actionIndex,
+      };
+    }
+    if (completedByCommandId.has(choiceCommandId)) {
+      return {
+        message: where + '.actions[' + settlement.actionIndex + '] ChoicePreviewComplete commandId duplicates another choice preview',
+        actionIndex: settlement.actionIndex,
+      };
+    }
+    const preview = settlement.action.response?.preview;
+    if (!isPlainObject(preview) || typeof preview.receiptId !== 'string' || preview.receiptId.trim().length === 0 ||
+        typeof preview.outputId !== 'string' || preview.outputId.trim().length === 0 ||
+        preview.rowsPresent !== true || typeof preview.rowCount !== 'number' || !Number.isFinite(preview.rowCount) || preview.rowCount < 0) {
+      return {
+        message: where + '.actions[' + settlement.actionIndex + '] ChoicePreviewComplete response.preview must include non-empty receipt/output IDs, rowsPresent true, and typed rowCount',
+        actionIndex: settlement.actionIndex,
+      };
+    }
+    completedByCommandId.set(choiceCommandId, { action: settlement.action, actionIndex: settlement.actionIndex, preview });
+  }
+
+  for (const [captureId, settlement] of settlementsByCapture) {
+    if (!startsByCapture.has(captureId)) {
+      return {
+        message: where + '.actions[' + settlement.actionIndex + '] ChoicePreview settlement has no ChoicePreview request with the same captureId',
+        actionIndex: settlement.actionIndex,
+      };
+    }
+  }
+
+  const consumedChoiceCommandIds = new Set();
+  for (const [commandId, addColumn] of addColumnsByCommandId) {
+    const action = addColumn.action;
+    const actionWhere = where + '.actions[' + addColumn.actionIndex + ']';
+    const responseCommandId = action.response?.commandId;
+    if (typeof action.response?.status !== 'number' || action.response.status < 200 || action.response.status >= 300) {
+      return { message: actionWhere + ' AddColumn response.status must be a successful 2xx status', actionIndex: addColumn.actionIndex };
+    }
+    if (responseCommandId !== commandId) {
+      return { message: actionWhere + ' AddColumn response.commandId does not match request.commandId', actionIndex: addColumn.actionIndex };
+    }
+    const choice = completedByCommandId.get(commandId);
+    if (!choice) {
+      return { message: actionWhere + ' AddColumn commandId has no matching completed ChoicePreview proof', actionIndex: addColumn.actionIndex };
+    }
+    if (consumedChoiceCommandIds.has(commandId)) {
+      return { message: actionWhere + ' AddColumn consumes a ChoicePreview commandId more than once', actionIndex: addColumn.actionIndex };
+    }
+    consumedChoiceCommandIds.add(commandId);
+    const sourcePreview = action.observation?.sourceTablePreview;
+    if (!isPlainObject(sourcePreview) || sourcePreview.status !== 'ready' || sourcePreview.rowsPresent !== true ||
+        typeof sourcePreview.renderedRowCount !== 'number' || !Number.isFinite(sourcePreview.renderedRowCount) ||
+        sourcePreview.renderedRowCount < 0) {
+      return { message: actionWhere + ' AddColumn must capture a ready rendered sourceTablePreview with typed row count after command settlement', actionIndex: addColumn.actionIndex };
+    }
+    if (sourcePreview.receiptId !== choice.preview.receiptId || sourcePreview.outputId !== choice.preview.outputId) {
+      return { message: actionWhere + ' AddColumn sourceTablePreview receipt/output does not match the ChoicePreviewComplete response.preview', actionIndex: addColumn.actionIndex };
+    }
+  }
+
+  for (const [commandId, choice] of completedByCommandId) {
+    if (!consumedChoiceCommandIds.has(commandId)) {
+      return {
+        message: where + '.actions[' + choice.actionIndex + '] ChoicePreviewComplete commandId was not consumed by an AddColumn command',
+        actionIndex: choice.actionIndex,
+      };
     }
   }
   return null;
@@ -697,43 +837,56 @@ function traceShapeProblem(trace, index, contract, events) {
         return { message: actionWhere + '.owner is not valid for a local BuilderJourney event', actionIndex };
       }
       const previewSettlement = ['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored'].includes(action.label);
+      const choiceSettlement = ['ChoicePreviewComplete', 'ChoicePreviewError'].includes(action.label);
+      const requestStart = ['Preview', 'ChoicePreview'].includes(action.label);
       if (action.owner && action.request === undefined) return { message: actionWhere + '.request is required for an owned BuilderJourney action', actionIndex };
-      if (action.label !== 'Preview' && action.owner && action.response === undefined) {
+      if (!requestStart && action.owner && action.response === undefined) {
         return { message: actionWhere + '.response is required for a BuilderJourney settlement action', actionIndex };
       }
-      if (action.label !== 'Preview' && action.owner && action.settlement === undefined) {
+      if (!requestStart && action.owner && action.settlement === undefined) {
         return { message: actionWhere + '.settlement is required for a BuilderJourney settlement action', actionIndex };
       }
       if (action.owner && (typeof action.request?.captureId !== 'string' || action.request.captureId.length === 0)) {
         return { message: actionWhere + '.request.captureId is required for an owned BuilderJourney action', actionIndex };
       }
-      if (action.owner && action.label !== 'Preview' && action.request?.captureId !== action.settlement?.captureId) {
+      if (action.owner && !requestStart && action.request?.captureId !== action.settlement?.captureId) {
         return { message: actionWhere + '.request.captureId does not match settlement.captureId', actionIndex };
       }
-      if (action.owner && action.label !== 'Preview' && action.response !== null && action.request?.captureId !== action.response?.captureId) {
+      if (action.owner && !requestStart && action.response !== null && action.request?.captureId !== action.response?.captureId) {
         return { message: actionWhere + '.request.captureId does not match response.captureId', actionIndex };
       }
-      if (action.owner && action.label !== 'Preview' && action.response !== null && action.request?.requestId !== null && action.response?.requestId !== null &&
+      if (action.owner && !requestStart && action.response !== null && action.request?.requestId != null && action.response?.requestId != null &&
           action.request?.requestId !== action.response?.requestId) {
         return { message: actionWhere + '.non-null wire requestIds do not match', actionIndex };
       }
-      if (action.owner && action.label !== 'Preview' && action.response === null &&
-          (!['PreviewError', 'LatePreviewErrorIgnored'].includes(action.label) || action.settlement?.kind !== 'request-failed')) {
-        return { message: actionWhere + ' response:null is allowed only for a request-failed preview error settlement', actionIndex };
+      if (action.owner && !requestStart && action.response === null &&
+          (!['PreviewError', 'LatePreviewErrorIgnored', 'ChoicePreviewError'].includes(action.label) || action.settlement?.kind !== 'request-failed')) {
+        return { message: actionWhere + ' response:null is allowed only for a request-failed preview or choice-preview error settlement', actionIndex };
       }
-      if (action.owner && action.label !== 'Preview' && action.response !== null && action.settlement?.kind !== 'http-response') {
+      if (action.owner && !requestStart && action.response !== null && action.settlement?.kind !== 'http-response') {
         return { message: actionWhere + ' HTTP response requires settlement.kind http-response', actionIndex };
       }
-      if (action.owner && action.label !== 'Preview' && action.response === null && action.settlement?.kind !== 'request-failed') {
+      if (action.owner && !requestStart && action.response === null && action.settlement?.kind !== 'request-failed') {
         return { message: actionWhere + ' response:null requires settlement.kind request-failed', actionIndex };
       }
-      if (previewSettlement) {
+      if (previewSettlement || choiceSettlement) {
         const captureId = action.request?.captureId;
         if (typeof captureId !== 'string' || captureId.length === 0 ||
             action.settlement?.captureId !== captureId ||
             (action.response !== null && action.response?.captureId !== captureId)) {
           return { message: actionWhere + ' request/response captureId must be present and identical', actionIndex };
         }
+      }
+      if (['Preview', 'PreviewComplete', 'PreviewError'].includes(action.label) &&
+          action.request?.path === 'construction-choice-proposals') {
+        return { message: actionWhere + ' construction-choice-proposals must use ChoicePreview actions, not proposal-panel Preview actions', actionIndex };
+      }
+      if (['ChoicePreview', 'ChoicePreviewComplete', 'ChoicePreviewError'].includes(action.label) &&
+          action.request?.path !== 'construction-choice-proposals') {
+        return { message: actionWhere + ' ChoicePreview actions require path construction-choice-proposals', actionIndex };
+      }
+      if (action.label === 'AddColumn' && action.request?.path !== 'commands') {
+        return { message: actionWhere + ' AddColumn requires the actual commands request', actionIndex };
       }
     }
     const observation = observationProblem(action.observation, actionWhere + '.observation', trace.model);
@@ -744,6 +897,8 @@ function traceShapeProblem(trace, index, contract, events) {
     }
   }
   if (trace.model === 'BuilderJourney') {
+    const choiceProblem = journeyChoiceTraceProblem(trace, where);
+    if (choiceProblem) return choiceProblem;
     const previewStartByCapture = new Map();
     const pairedPreviewCaptures = new Set();
     const previewSettlementLabels = new Set([
@@ -804,7 +959,10 @@ function traceShapeProblem(trace, index, contract, events) {
     for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
       const action = trace.actions[actionIndex];
       if (!action.owner || !action.request) continue;
-      if (['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored'].includes(action.label)) continue;
+      if ([
+        'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored',
+        'ChoicePreviewComplete', 'ChoicePreviewError',
+      ].includes(action.label)) continue;
       const problem = registerCapture(action.request.captureId, where + '.actions[' + actionIndex + '].request');
       if (problem) return { message: problem, actionIndex };
     }
@@ -1071,7 +1229,10 @@ function actionOwnerMatches(model) {
       '  IN CASE label = "Preview" -> /\\ attempt \\in {"P1", "P2"} /\\ proposalPreviewOwner\' = attempt',
       '       [] label \\in {"PreviewComplete", "PreviewError"} -> proposalPreviewOwner = attempt',
       '       [] label \\in {"LatePreviewCompleteIgnored", "LatePreviewErrorIgnored"} -> /\\ proposalPreviewOwner \\in {"P1", "P2"} /\\ proposalPreviewOwner # attempt',
-      '       [] label \\in {"Group", "GroupAgain", "AddColumn", "EditGroup", "RemoveGroup"} -> attempt = proposalPreviewOwner',
+      '       [] label = "ChoicePreview" -> /\\ attempt \\in {"P1", "P2"} /\\ choicePreviewOwner\' = attempt',
+      '       [] label \\in {"ChoicePreviewComplete", "ChoicePreviewError"} -> choicePreviewOwner = attempt',
+      '       [] label = "AddColumn" -> /\\ attempt = choicePreviewOwner /\\ choicePreview = "ready"',
+      '       [] label \\in {"Group", "GroupAgain", "EditGroup", "RemoveGroup"} -> attempt = proposalPreviewOwner',
       '       [] OTHER -> TRUE',
     ].join('\n');
   }

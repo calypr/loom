@@ -6,6 +6,7 @@ import {
   expect,
   recordAuthoringAttempt,
   observeAuthoringAttempt,
+  waitForPublishedSourcePreview,
   test,
 } from '../helpers/fast-fixtures.mjs';
 
@@ -118,7 +119,7 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
   expect(addCommandExchange.rawResponse.ok(), 'birthsex column persistence').toBe(true);
   const backToTable = fastPage.getByRole('button', { name: 'Back to table' });
   if (await backToTable.isVisible().catch(() => false)) await backToTable.click();
-  await waitForPreviewReady(fastPage);
+  await waitForPublishedSourcePreview(fastPage, addProposalExchange.response.preview);
 
   const addedPreview = addProposal.preview ?? addProposal;
   const addedColumns = addedPreview.columns ?? [];
@@ -211,6 +212,8 @@ test('CDA mini journey adds the birthsex extension and filters to female patient
   await expect(fastPage.getByRole('columnheader')).toHaveCount(2);
   trace.traces[0].unmodeledEvents.push({
     kind: 'reload',
+    classification: 'unsupported',
+    reason: 'Reload remounts workspace; current model covers same-mount proposal/apply lifecycle; native reload assertion remains independent.',
     note: 'Reload after cancelling the birthsex filter preserves the source table.',
   });
 

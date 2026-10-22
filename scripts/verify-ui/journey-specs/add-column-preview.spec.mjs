@@ -6,6 +6,7 @@ import {
   expect,
   recordAuthoringAttempt,
   observeAuthoringAttempt,
+  waitForPublishedSourcePreview,
   test,
 } from '../helpers/fast-fixtures.mjs';
 
@@ -47,8 +48,27 @@ const addSelectedFeature = async (page, actions) => {
   const commandStarted = await commandAttempt.started;
   const commandExchange = await commandAttempt.settled;
   expect(commandExchange.rawResponse.ok(), 'add-column command persistence').toBe(true);
+  const commandIds = [
+    proposalExchange.request.commandId,
+    proposalExchange.response.commandId,
+    commandExchange.request.commandId,
+    commandExchange.response.commandId,
+  ];
+  expect(commandIds.every((commandId) => typeof commandId === 'string' && commandId.trim().length > 0),
+    'choice preview and apply must carry command IDs in their wire request and response').toBe(true);
+  expect(new Set(commandIds).size, 'choice preview and apply must use the same command ID').toBe(1);
+  const choicePreview = proposalExchange.response.preview;
+  expect(typeof choicePreview?.receiptId === 'string' && choicePreview.receiptId.length > 0,
+    'choice preview receipt identity').toBe(true);
+  expect(typeof choicePreview?.outputId === 'string' && choicePreview.outputId.length > 0,
+    'choice preview output identity').toBe(true);
+  expect(choicePreview?.rowsPresent, 'choice preview rows are present even when the rendered result is empty').toBe(true);
+  expect(typeof choicePreview?.rowCount === 'number' && Number.isFinite(choicePreview.rowCount) && choicePreview.rowCount >= 0,
+    'choice preview row count is typed').toBe(true);
+  expect(proposalExchange.response.proposalPreviewStatus, 'choice proposal preview status').toBe('READY');
   return {
     preview: proposalExchange.payload.preview,
+    choicePreview,
     command: {
       ...commandStarted,
       response: commandExchange.response,
@@ -118,6 +138,7 @@ test('builder journey adds a column and previews exact values', async ({ fastPag
   const addition = await addSelectedFeature(fastPage, trace.traces[0].actions);
   const backToTable = fastPage.getByRole('button', { name: 'Back to table' });
   if (await backToTable.isVisible().catch(() => false)) await backToTable.click();
+  await waitForPublishedSourcePreview(fastPage, addition.choicePreview);
   await expect(fastPage.getByRole('columnheader', { name: addedLabel, exact: true })).toBeVisible();
   trace.traces[0].actions.push({
     label: 'AddColumn',

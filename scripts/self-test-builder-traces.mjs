@@ -548,6 +548,253 @@ const runJourneyCrossEvidenceMutation = () => {
   return true;
 };
 
+const runJourneyChoiceProofMutations = () => {
+  const addColumnContractPath = 'verification/builder-interactions/builder-add-column-contract.json';
+  const addColumnContract = JSON.parse(readFileSync(resolve(ROOT, addColumnContractPath), 'utf8'));
+  const commandId = 'choice-command-self-test';
+  const choiceCaptureId = 'choice-capture-self-test';
+  const commandCaptureId = 'command-capture-self-test';
+  const choicePreview = {
+    receiptId: 'choice-receipt-self-test',
+    outputId: 'choice-output-self-test',
+    rowsPresent: true,
+    rowCount: 2,
+  };
+  const sourcePreview = {
+    status: 'ready',
+    receiptId: 'source-receipt-before-choice-self-test',
+    outputId: 'source-output-before-choice-self-test',
+    proposalId: null,
+    draftVersion: 1,
+    draftDigest: 'source-draft-self-test',
+    rowsPresent: true,
+    rowCount: 2,
+    renderedRowCount: 2,
+  };
+  const observed = (published) => ({
+    status: 'absent',
+    tablePreviewStatus: 'ready',
+    canApply: false,
+    proposalIdPresent: false,
+    proposalId: null,
+    proposalOutputId: null,
+    proposalSnapshotToken: null,
+    proposalDraftVersion: null,
+    proposalDraftDigest: null,
+    previewReceiptPresent: false,
+    rowsPresent: false,
+    receiptPresent: false,
+    previewReceiptId: null,
+    previewOutputId: null,
+    proposalPreviewSurface: 'unknown',
+    sourceTablePreview: published ? {
+      ...sourcePreview,
+      receiptId: choicePreview.receiptId,
+      outputId: choicePreview.outputId,
+    } : sourcePreview,
+    embeddedProposalPreview: null,
+    apply: { available: false, enabled: false, applying: false },
+  });
+  const proposalOwner = { kind: 'proposal', attempt: 'P1' };
+  const applyOwner = { kind: 'apply', attempt: 'P1' };
+  const choiceRequest = {
+    method: 'POST',
+    path: 'construction-choice-proposals',
+    requestId: 'choice-request-self-test',
+    captureId: choiceCaptureId,
+    commandId,
+  };
+  const choiceResponse = {
+    status: 200,
+    requestId: choiceRequest.requestId,
+    captureId: choiceCaptureId,
+    commandId,
+    proposalId: null,
+    proposalOutputId: null,
+    proposalSnapshotToken: null,
+    proposalDraftVersion: null,
+    proposalDraftDigest: null,
+    proposalPreviewStatus: 'READY',
+    preview: choicePreview,
+    errorCode: null,
+  };
+  const commandRequest = {
+    method: 'POST',
+    path: 'commands',
+    requestId: 'command-request-self-test',
+    captureId: commandCaptureId,
+    commandId,
+  };
+  const commandResponse = {
+    status: 200,
+    requestId: commandRequest.requestId,
+    captureId: commandCaptureId,
+    commandId,
+    errorCode: null,
+  };
+  const choiceTrace = {
+    name: 'self-test-only synthetic BuilderJourney choice-preview and AddColumn capture',
+    model: 'BuilderJourney',
+    initialObservation: observed(false),
+    initialPreview: {
+      owner: { kind: 'preview', attempt: 'P1' },
+      request: {
+        method: 'POST',
+        path: 'preview',
+        requestId: 'source-request-self-test',
+        captureId: 'source-capture-self-test',
+      },
+      response: {
+        status: 200,
+        requestId: 'source-request-self-test',
+        captureId: 'source-capture-self-test',
+        errorCode: null,
+        preview: {
+          receiptId: sourcePreview.receiptId,
+          outputId: sourcePreview.outputId,
+          rowsPresent: true,
+          rowCount: sourcePreview.rowCount,
+        },
+      },
+      settlement: { kind: 'http-response', captureId: 'source-capture-self-test' },
+    },
+    actions: [
+      {
+        label: 'ChoicePreview',
+        event: 'choice-preview',
+        owner: proposalOwner,
+        request: choiceRequest,
+        observation: observed(false),
+      },
+      {
+        label: 'ChoicePreviewComplete',
+        event: 'choice-preview-response',
+        owner: proposalOwner,
+        request: choiceRequest,
+        response: choiceResponse,
+        settlement: { kind: 'http-response', captureId: choiceCaptureId },
+        // This snapshot is intentionally still the old table. Publication is
+        // proved only by the later AddColumn command observation.
+        observation: observed(false),
+      },
+      {
+        label: 'AddColumn',
+        event: 'add-column',
+        owner: applyOwner,
+        request: commandRequest,
+        response: commandResponse,
+        settlement: { kind: 'http-response', captureId: commandCaptureId },
+        observation: observed(true),
+      },
+    ],
+  };
+  const choicePayload = {
+    ...payload,
+    sourceProfile: 'journey',
+    contractSourceCommit: addColumnContract.sourceCommit,
+    traces: [choiceTrace],
+  };
+  const invoke = (label, candidate, expectedText, semanticActionLabel = null) => {
+    const tracePath = join(workDirectory, label + '.json');
+    const reportPath = join(workDirectory, label + '.report.json');
+    writeFileSync(tracePath, JSON.stringify(candidate, null, 2) + '\n');
+    const verifierArgs = [
+      'scripts/verify-builder-traces.mjs',
+      '--traces', tracePath,
+      '--contract', addColumnContractPath,
+      '--allow-partial',
+      '--quiet',
+      '--output', reportPath,
+    ];
+    const result = spawnSync(process.execPath, verifierArgs, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    if (semanticActionLabel) {
+      let report;
+      try {
+        report = JSON.parse(readFileSync(reportPath, 'utf8'));
+      } catch (error) {
+        console.error('FAIL ' + label + ': verifier did not write a structured TLC failure report');
+        console.error(error instanceof Error ? error.message : 'unknown failure');
+        return false;
+      }
+      const trace = report.traces?.[0];
+      if (result.status === 0 || trace?.status !== 'fail' ||
+          trace.failure?.actionLabel !== semanticActionLabel ||
+          trace.failure?.message !== 'TLC did not complete the trace' ||
+          !(trace.tlc?.stateCount > 0) || !(trace.tlc?.distinctStateCount > 0)) {
+        console.error('FAIL ' + label + ': rejection did not identify the expected missing choice transition');
+        console.error(JSON.stringify(trace ?? null, null, 2));
+        return false;
+      }
+      console.log('PASS ' + label + ': TLC rejected the out-of-order choice proof at ' + semanticActionLabel);
+      return true;
+    }
+    const output = (result.stdout || '') + (result.stderr || '');
+    if (result.status === 0 || !output.includes(expectedText)) {
+      console.error('FAIL ' + label + ': validator did not reject the choice mutation for the intended reason');
+      console.error('Expected diagnostic: ' + expectedText);
+      console.error(output.split('\n').slice(-16).join('\n'));
+      return false;
+    }
+    console.log('PASS ' + label + ': validator rejected the choice mutation before TLC');
+    return true;
+  };
+
+  const baselinePath = join(workDirectory, 'journey-choice-positive-baseline.json');
+  const baselineReportPath = join(workDirectory, 'journey-choice-positive-baseline.report.json');
+  writeFileSync(baselinePath, JSON.stringify(choicePayload, null, 2) + '\n');
+  const baseline = spawnSync(process.execPath, [
+    'scripts/verify-builder-traces.mjs',
+    '--traces', baselinePath,
+    '--contract', addColumnContractPath,
+    '--allow-partial',
+    '--quiet',
+    '--output', baselineReportPath,
+  ], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (baseline.status !== 0) {
+    console.error('FAIL journey choice positive baseline: validator rejected the complete choice-to-publication proof');
+    console.error(((baseline.stdout || '') + (baseline.stderr || '')).split('\n').slice(-18).join('\n'));
+    try {
+      console.error(JSON.stringify(JSON.parse(readFileSync(baselineReportPath, 'utf8')).traces?.[0] ?? null, null, 2));
+    } catch {}
+    return false;
+  }
+  console.log('PASS journey choice positive baseline: all four command IDs and later published preview matched');
+
+  const wrongCommandId = JSON.parse(JSON.stringify(choicePayload));
+  wrongCommandId.traces[0].actions[1].response.commandId = 'wrong-choice-command-self-test';
+  const wrongCommandPass = invoke(
+    'journey-choice-wrong-command-id',
+    wrongCommandId,
+    'ChoicePreviewComplete request/response commandId values must match the ChoicePreview request commandId',
+  );
+
+  const outOfOrder = JSON.parse(JSON.stringify(choicePayload));
+  outOfOrder.traces[0].actions = [
+    outOfOrder.traces[0].actions[0],
+    outOfOrder.traces[0].actions[2],
+    outOfOrder.traces[0].actions[1],
+  ];
+  const orderPass = invoke('journey-choice-proof-out-of-order', outOfOrder, null, 'AddColumn');
+
+  const wrongPublishedPreview = JSON.parse(JSON.stringify(choicePayload));
+  wrongPublishedPreview.traces[0].actions[2].observation.sourceTablePreview.outputId = 'wrong-published-output-self-test';
+  const publishedPass = invoke(
+    'journey-choice-wrong-published-source-output',
+    wrongPublishedPreview,
+    'AddColumn sourceTablePreview receipt/output does not match the ChoicePreviewComplete response.preview',
+  );
+
+  return wrongCommandPass && orderPass && publishedPass;
+};
+
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const fingerprintFor = (sources, root) => sha256(JSON.stringify(sources
   .map(({ path }) => ({ path, sha256: sha256(readFileSync(resolve(root, path))) }))
@@ -716,10 +963,11 @@ const runSourceProfileMutation = () => {
 };
 
 if (journeyOnly) {
-  const passed = runJourneyCrossEvidenceMutation();
+  const crossEvidencePassed = runJourneyCrossEvidenceMutation();
+  const choiceProofPassed = runJourneyChoiceProofMutations();
   rmSync(workDirectory, { recursive: true, force: true });
-  if (!passed) process.exit(1);
-  console.log('PASS BuilderJourney cross-evidence self-test');
+  if (!crossEvidencePassed || !choiceProofPassed) process.exit(1);
+  console.log('PASS BuilderJourney cross-evidence and choice-proof self-test');
   process.exit(0);
 }
 

@@ -9,8 +9,10 @@
       "actions": [
         "Group",
         "GroupAgain",
+        "ChoicePreview",
+        "ChoicePreviewComplete",
+        "ChoicePreviewError",
         "AddColumn",
-        "AddColumnAgain",
         "CancelFilter",
         "EditGroup",
         "RemoveGroup",
@@ -60,10 +62,6 @@
       "event": "add-column",
       "trigger": "first add-column selection applied"
     },
-    "AddColumnAgain": {
-      "event": "add-column",
-      "trigger": "second add-column selection applied"
-    },
     "CancelFilter": {
       "event": "cancel-filter",
       "trigger": "filter proposal cancelled"
@@ -75,6 +73,18 @@
     "RemoveGroup": {
       "event": "remove-group",
       "trigger": "saved group removed"
+    },
+    "ChoicePreview": {
+      "event": "choice-preview",
+      "trigger": "construction-choice-proposals request started for a selected field command"
+    },
+    "ChoicePreviewComplete": {
+      "event": "choice-preview-response",
+      "trigger": "successful 2xx READY choice preview with non-empty receipt/output IDs and rendered rows for the same command ID"
+    },
+    "ChoicePreviewError": {
+      "event": "choice-preview-response",
+      "trigger": "choice preview request failed or returned an unusable preview before AddColumn could consume it"
     }
   },
   "observationFields": [
@@ -93,14 +103,14 @@
       "BuilderJourney"
     ],
     "requiredActions": [
-      "Preview",
-      "PreviewComplete",
-      "AddColumn"
+      "AddColumn",
+      "ChoicePreview",
+      "ChoicePreviewComplete"
     ],
     "requiredEvents": [
-      "preview",
-      "preview-response",
-      "add-column"
+      "add-column",
+      "choice-preview",
+      "choice-preview-response"
     ]
   },
   "unmodeledEventPolicy": {

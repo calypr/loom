@@ -10,11 +10,13 @@ MaxReshapes == 2
 Phases == {"idle", "selected", "reshaping"}
 PreviewStates == {"none", "pending", "ready", "error"}
 ProposalOwners == {"P1", "P2", "NoAttempt"}
+ChoicePreviewStates == {"none", "pending", "ready", "error"}
 TablePreviewStates == {"ready", "error"}
-JourneyActions == {"Init", "Group", "GroupAgain", "AddColumn", "AddColumnAgain",
+JourneyActions == {"Init", "Group", "GroupAgain", "AddColumn",
                    "CancelFilter", "EditGroup", "RemoveGroup", "Pivot", "Preview",
                    "PreviewComplete", "PreviewError", "LatePreviewCompleteIgnored",
-                   "LatePreviewErrorIgnored"}
+                   "LatePreviewErrorIgnored", "ChoicePreview", "ChoicePreviewComplete",
+                   "ChoicePreviewError"}
 
 VARIABLES
   phase,
@@ -22,13 +24,16 @@ VARIABLES
   pivotReady,
   preview,
   proposalPreviewOwner,
+  choicePreview,
+  choicePreviewOwner,
   proposalIdPresent,
   rowsPresent,
   tablePreview,
   sourceRowsPresent,
   lastAction
 
-vars == <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner, proposalIdPresent,
+vars == <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner, choicePreview,
+          choicePreviewOwner, proposalIdPresent,
           rowsPresent, tablePreview, sourceRowsPresent, lastAction>>
 
 Init ==
@@ -37,6 +42,8 @@ Init ==
   /\ pivotReady = FALSE
   /\ preview = "none"
   /\ proposalPreviewOwner = "NoAttempt"
+  /\ choicePreview = "none"
+  /\ choicePreviewOwner = "NoAttempt"
   /\ proposalIdPresent = FALSE
   /\ rowsPresent = FALSE
   /\ tablePreview = "ready"
@@ -57,7 +64,7 @@ Group ==
   /\ phase' = "reshaping"
   /\ reshapeCount' = reshapeCount + 1
   /\ CloseProposalPreview
-  /\ UNCHANGED <<pivotReady, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<pivotReady, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "Group"
 
 GroupAgain ==
@@ -66,34 +73,25 @@ GroupAgain ==
   /\ reshapeCount = 1
   /\ reshapeCount' = 2
   /\ CloseProposalPreview
-  /\ UNCHANGED <<phase, pivotReady, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, pivotReady, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "GroupAgain"
 
 AddColumn ==
   /\ phase \in {"selected", "reshaping"}
   /\ ~pivotReady
-  /\ reshapeCount < MaxReshapes
-  /\ phase' = "reshaping"
-  /\ reshapeCount' = reshapeCount + 1
+  /\ choicePreview = "ready"
+  /\ choicePreview' = "none"
   /\ CloseProposalPreview
-  /\ UNCHANGED <<pivotReady, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "AddColumn"
-
-AddColumnAgain ==
-  /\ phase = "reshaping"
-  /\ ~pivotReady
-  /\ reshapeCount = 1
-  /\ reshapeCount' = 2
-  /\ CloseProposalPreview
-  /\ UNCHANGED <<phase, pivotReady, tablePreview, sourceRowsPresent>>
-  /\ lastAction' = "AddColumnAgain"
 
 CancelFilter ==
   /\ preview \in {"ready", "error"}
   /\ preview' = "none"
   /\ proposalIdPresent' = FALSE
   /\ rowsPresent' = FALSE
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, choicePreview, choicePreviewOwner,
+                  tablePreview, sourceRowsPresent>>
   /\ lastAction' = "CancelFilter"
 
 EditGroup ==
@@ -102,7 +100,7 @@ EditGroup ==
   /\ ~pivotReady
   /\ reshapeCount' = 2
   /\ CloseProposalPreview
-  /\ UNCHANGED <<phase, pivotReady, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, pivotReady, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "EditGroup"
 
 RemoveGroup ==
@@ -112,7 +110,7 @@ RemoveGroup ==
   /\ phase' = "selected"
   /\ reshapeCount' = 0
   /\ CloseProposalPreview
-  /\ UNCHANGED <<pivotReady, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<pivotReady, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "RemoveGroup"
 
 Pivot ==
@@ -121,7 +119,7 @@ Pivot ==
   /\ ~pivotReady
   /\ pivotReady' = TRUE
   /\ CloseProposalPreview
-  /\ UNCHANGED <<phase, reshapeCount, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, reshapeCount, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "Pivot"
 
 Preview(attempt) ==
@@ -134,7 +132,8 @@ Preview(attempt) ==
   /\ proposalPreviewOwner' = attempt
   /\ proposalIdPresent' = FALSE
   /\ rowsPresent' = FALSE
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, choicePreview, choicePreviewOwner,
+                  tablePreview, sourceRowsPresent>>
   /\ lastAction' = "Preview"
 
 PreviewComplete(attempt) ==
@@ -144,7 +143,8 @@ PreviewComplete(attempt) ==
   /\ preview' = "ready"
   /\ proposalIdPresent' = TRUE
   /\ rowsPresent' = TRUE
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, choicePreview, choicePreviewOwner,
+                  tablePreview, sourceRowsPresent>>
   /\ lastAction' = "PreviewComplete"
 
 PreviewError(attempt, hasProposalId) ==
@@ -155,14 +155,43 @@ PreviewError(attempt, hasProposalId) ==
   /\ preview' = "error"
   /\ proposalIdPresent' = hasProposalId
   /\ rowsPresent' = FALSE
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, tablePreview, sourceRowsPresent>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, choicePreview, choicePreviewOwner,
+                  tablePreview, sourceRowsPresent>>
   /\ lastAction' = "PreviewError"
+
+ChoicePreview(attempt) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ phase \in {"selected", "reshaping"}
+  /\ choicePreview \in {"none", "error"}
+  /\ choicePreview' = "pending"
+  /\ choicePreviewOwner' = attempt
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+                  proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "ChoicePreview"
+
+ChoicePreviewComplete(attempt) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ choicePreview = "pending"
+  /\ choicePreviewOwner = attempt
+  /\ choicePreview' = "ready"
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+                  choicePreviewOwner, proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "ChoicePreviewComplete"
+
+ChoicePreviewError(attempt) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ choicePreview = "pending"
+  /\ choicePreviewOwner = attempt
+  /\ choicePreview' = "error"
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+                  choicePreviewOwner, proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "ChoicePreviewError"
 
 LatePreviewCompleteIgnored(attempt) ==
   /\ attempt \in {"P1", "P2"}
   /\ proposalPreviewOwner \in {"P1", "P2"}
   /\ proposalPreviewOwner # attempt
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner, choicePreview, choicePreviewOwner,
                   proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "LatePreviewCompleteIgnored"
 
@@ -170,7 +199,7 @@ LatePreviewErrorIgnored(attempt) ==
   /\ attempt \in {"P1", "P2"}
   /\ proposalPreviewOwner \in {"P1", "P2"}
   /\ proposalPreviewOwner # attempt
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner, choicePreview, choicePreviewOwner,
                   proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "LatePreviewErrorIgnored"
 
@@ -181,7 +210,6 @@ Next ==
   \/ Group
   \/ GroupAgain
   \/ AddColumn
-  \/ AddColumnAgain
   \/ CancelFilter
   \/ EditGroup
   \/ RemoveGroup
@@ -191,6 +219,9 @@ Next ==
   \/ \E attempt \in {"P1", "P2"}, hasProposalId \in BOOLEAN: PreviewError(attempt, hasProposalId)
   \/ \E attempt \in {"P1", "P2"}: LatePreviewCompleteIgnored(attempt)
   \/ \E attempt \in {"P1", "P2"}: LatePreviewErrorIgnored(attempt)
+  \/ \E attempt \in {"P1", "P2"}: ChoicePreview(attempt)
+  \/ \E attempt \in {"P1", "P2"}: ChoicePreviewComplete(attempt)
+  \/ \E attempt \in {"P1", "P2"}: ChoicePreviewError(attempt)
   \/ Stutter
 
 Spec == Init /\ [][Next]_vars
@@ -201,6 +232,8 @@ TypeOK ==
   /\ pivotReady \in BOOLEAN
   /\ preview \in PreviewStates
   /\ proposalPreviewOwner \in ProposalOwners
+  /\ choicePreview \in ChoicePreviewStates
+  /\ choicePreviewOwner \in ProposalOwners
   /\ proposalIdPresent \in BOOLEAN
   /\ rowsPresent \in BOOLEAN
   /\ tablePreview \in TablePreviewStates

@@ -17,18 +17,29 @@ export const captureJourneyProvenance = () => ({
 });
 
 const AUTHORING_PREFIX = '/authoring/v2/';
+const COMMAND_ID_PATHS = new Set(['construction-choice-proposals', 'commands']);
 let authoringObservationSequence = 0;
 
 export const captureAuthoringRequest = (request, captureId = randomUUID()) => {
   const requestUrl = new URL(request.url());
   const path = requestUrl.pathname.split(AUTHORING_PREFIX)[1] ?? requestUrl.pathname;
   const requestId = String(request.headers()['x-request-id'] ?? '').trim() || null;
-  return {
+  const record = {
     method: request.method(),
     path,
     requestId,
     captureId,
   };
+  if (COMMAND_ID_PATHS.has(path)) {
+    let body = null;
+    try {
+      body = request.postDataJSON();
+    } catch {
+      body = null;
+    }
+    record.commandId = body?.commandId ?? null;
+  }
+  return record;
 };
 
 export const captureAuthoringExchange = async (request, observedResponse = undefined, captureId) => {
@@ -64,6 +75,7 @@ export const captureAuthoringExchange = async (request, observedResponse = undef
       status: response.status(),
       requestId: responseRequestId,
       captureId: requestRecord.captureId,
+      ...(COMMAND_ID_PATHS.has(requestRecord.path) ? { commandId: payload?.commandId ?? null } : {}),
       proposalId: payload?.proposalId ?? null,
       proposalOutputId: payload?.outputId ?? null,
       proposalSnapshotToken: payload?.snapshotToken ?? null,
@@ -167,9 +179,10 @@ export const recordAuthoringAttempt = (page, actions, attempt, {
   responseEvent,
 }) => {
   const started = attempt.started.then((observed) => {
+    const isChoicePreview = observed.request.path === 'construction-choice-proposals';
     actions.push({
-      label: requestLabel,
-      event: requestEvent,
+      label: isChoicePreview ? 'ChoicePreview' : requestLabel,
+      event: isChoicePreview ? 'choice-preview' : requestEvent,
       owner: observed.owner,
       request: observed.request,
       observation: observed.requestObservation,
@@ -178,15 +191,43 @@ export const recordAuthoringAttempt = (page, actions, attempt, {
   });
   const settled = started.then(async (observed) => {
     const exchange = await attempt.settled;
+    const isChoicePreview = exchange.request.path === 'construction-choice-proposals';
+    const settledResponseLabel = isChoicePreview ? 'ChoicePreviewComplete' : responseLabel;
+    const settledErrorLabel = isChoicePreview ? 'ChoicePreviewError' : responseErrorLabel;
+    const settledResponseEvent = isChoicePreview ? 'choice-preview-response' : responseEvent;
     if (!exchange.response) {
       actions.push({
-        label: responseErrorLabel,
-        event: responseEvent,
+        label: settledErrorLabel,
+        event: settledResponseEvent,
         owner: observed.owner,
         request: exchange.request,
         response: null,
         settlement: exchange.settlement,
-        observation: combineAuthoringObservation(exchange, exchange.responseObservation),
+        observation: exchange.responseObservation,
+      });
+      return { observed, exchange };
+    }
+    if (isChoicePreview) {
+      const preview = exchange.response.preview;
+      const completed = exchange.response.status >= 200
+        && exchange.response.status < 300
+        && exchange.response.errorCode == null
+        && exchange.response.proposalPreviewStatus === 'READY'
+        && typeof preview?.receiptId === 'string'
+        && preview.receiptId.length > 0
+        && typeof preview?.outputId === 'string'
+        && preview.outputId.length > 0
+        && preview.rowsPresent === true
+        && typeof preview.rowCount === 'number'
+        && Number.isFinite(preview.rowCount);
+      actions.push({
+        label: completed ? settledResponseLabel : settledErrorLabel,
+        event: settledResponseEvent,
+        owner: observed.owner,
+        request: exchange.request,
+        response: exchange.response,
+        settlement: exchange.settlement,
+        observation: exchange.responseObservation,
       });
       return { observed, exchange };
     }
@@ -205,17 +246,17 @@ export const recordAuthoringAttempt = (page, actions, attempt, {
     ));
     let label;
     if (panelStatus === 'ready' && !typedError) {
-      label = responseLabel;
+      label = settledResponseLabel;
     } else if (['error', 'needs-repair'].includes(panelStatus)) {
-      label = responseErrorLabel;
+      label = settledErrorLabel;
     } else if (['absent', 'unknown'].includes(panelStatus)) {
       if (typedError) {
-        label = responseErrorLabel;
+        label = settledErrorLabel;
       } else if (exchange.response?.status >= 200
         && exchange.response.status < 300
         && exchange.response.preview?.receiptId
         && typeof exchange.response.preview.rowsPresent === 'boolean') {
-        label = responseLabel;
+        label = settledResponseLabel;
       } else {
         throw new Error(`ambiguous ${requestEvent} settlement: no proposal status or typed preview result was observed`);
       }
@@ -224,7 +265,7 @@ export const recordAuthoringAttempt = (page, actions, attempt, {
     }
     actions.push({
       label,
-      event: responseEvent,
+      event: settledResponseEvent,
       owner: observed.owner,
       request: exchange.request,
       response: exchange.response,
@@ -362,6 +403,23 @@ export const captureBuilderObservation = async (page) => page.evaluate(() => {
   };
 });
 
+export const waitForPublishedSourcePreview = async (page, preview, timeout = 45_000) => {
+  const receiptId = preview?.receiptId;
+  const outputId = preview?.outputId;
+  if (typeof receiptId !== 'string' || receiptId.length === 0 ||
+      typeof outputId !== 'string' || outputId.length === 0) {
+    throw new Error('choice preview must provide non-empty receipt and output identities before waiting for publication');
+  }
+  await page.waitForFunction(({ expectedReceiptId, expectedOutputId }) => {
+    const source = document.querySelector('[data-testid="construction-preview"]');
+    const table = source?.querySelector('[data-testid="preview-table-content"] [role="table"], table');
+    return source?.dataset.previewStatus === 'ready'
+      && source.dataset.previewReceiptId === expectedReceiptId
+      && source.dataset.previewOutputId === expectedOutputId
+      && Boolean(table);
+  }, { expectedReceiptId: receiptId, expectedOutputId: outputId }, { timeout });
+};
+
 export const combineAuthoringObservation = (exchange, observation = exchange.responseObservation) => {
   const responseProposalId = exchange.response?.proposalId;
   if (observation.status === 'ready'
@@ -392,9 +450,10 @@ export const addFieldWithCommandTrace = async (page, fieldName, actions, addFiel
     responseEvent: 'preview-response',
   });
   const result = await addField(page, fieldName);
-  await proposalTrace.settled;
+  const { exchange: proposalExchange } = await proposalTrace.settled;
   const commandStarted = await commandAttempt.started;
   const commandExchange = await commandAttempt.settled;
+  await waitForPublishedSourcePreview(page, proposalExchange.response?.preview);
   actions.push({
     label: 'AddColumn',
     event: 'add-column',
