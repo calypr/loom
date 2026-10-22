@@ -2,13 +2,23 @@
 
 ## Status
 
-Complete: all eight requirements are satisfied as of 2026-10-21. F-001 and
-F-004 remain open product findings; their journey specs stay red as evidence.
-A failing journey is evidence about the product, not a blocked goal.
+The historical journey audit completed all eight requirements as of
+2026-10-21. The `edit-remove-reload` CLI alias now points to the registered
+`builder-authoring/group-entry` case. Its expanded Basic-fixture lifecycle is
+integrated but still pending browser acceptance. The legacy spec retains a
+separate CDA extension-grouping branch. F-001 and F-004 remain open product
+findings; their journey specs stay red as evidence. A failing journey is
+evidence about the product, not a blocked goal.
 
-Progress: all eight inventory rows have specs. `group-twice-preview`,
+Progress: every inventory row has a journey spec or registered native case.
+`group-twice-preview`,
 `load-preview`, and `add-column-preview` pass on synthetic and CDA.
-`filter-preview` and `edit-remove-reload` pass on synthetic.
+`filter-preview` passes on synthetic. The old `edit-remove-reload` Basic run is
+historical evidence only; its registered native route now exercises the
+five-column raw source oracle, ID-only and ID-plus-gender edits, removal
+Cancel, and reload restoration. That expanded route is pending browser
+acceptance. The legacy spec still contains the independent CDA extension-field
+variant.
 `group-pivot-preview` and `pivot-error` are red and reproduce F-001.
 `unpivot-preview` is red and reproduces F-004. Three rows have terminal CDA
 runs: `group-twice-preview`, `load-preview`, and `add-column-preview`.
@@ -22,8 +32,9 @@ tests. Product failures may remain red.
 
 Requirements:
 
-1. Every inventory row has a spec under
-   `scripts/verify-ui/journey-specs/` or a recorded reason it cannot exist.
+1. Every inventory row resolves to a journey spec under
+   `scripts/verify-ui/journey-specs/`, a registered native case, or a recorded
+   reason it cannot exist.
 2. Every action spec starts from a fresh synthetic fixture or a preflighted CDA
    generation, drives the real UI, and makes 10 to 20 `/authoring/v2/` calls.
    A successful action changes the table at least once. A typed-error journey
@@ -36,7 +47,8 @@ Requirements:
 5. Every product failure stays red and has a finding with a request ID, HTTP
    status, and artifact path. No skip, fixme, or expected-failure annotation.
 6. At least three inventory rows have a terminal CDA run.
-7. The journey runner selects one row with `--journey <id>`.
+7. The public journey runner selects one row with `--journey <id>`; a mapped
+   native case resolves through its registered scenario and case selection.
 8. The read-only fast lane lists only read-only specs.
 
 Constraints:
@@ -109,40 +121,50 @@ The machine-readable list is
 | `add-column-preview` | Select rows, add a scalar column, preview. | Exact source columns and added values survive preview. | passing on synthetic and CDA |
 | `filter-preview` | Select rows, filter, preview, cancel. | Exact filtered rows, then the original rows after cancel. | passing on synthetic |
 | `unpivot-preview` | Select rows, stack columns, preview. | Exact field and value rows. | product-failure; red spec exists, F-004 |
-| `edit-remove-reload` | Apply a Group, edit it to Group by id and gender, remove it, reload. | Two rows and three columns, removal restores the source, reload preserves the result. | passing on synthetic |
+| `edit-remove-reload` | Registered Group-entry case enters empty-key Group, previews and cancels ID-only edit, applies ID-plus-gender, edits back to ID-only, then cancels and applies removal. | Pending native oracle: Patient.ndjson matches five distinct source columns; empty-key `COUNT_ROWS` is 2; both applied edit shapes match exact fixture IDs and genders; ID-only rows survive reload; removal and reload restore all five source bindings and values. Reload and exact values remain native checks; TLA models only abstract request/apply-owner chronology. | pending native; historical 28-call Basic run; CDA branch retained |
 | `pivot-error` | Pivot with error policies. | Typed 4xx product error, no applied draft change. | product-failure; red spec exists, F-001 |
 
 ## Completion check
 
-Completion requires all eight requirements above. All eight are met; the open
-product findings F-001 and F-004 do not block coverage because the goal
-requires real evidence, not green tests.
+The historical audit met all eight requirements. The expanded native route is
+pending a browser run, so current `edit-remove-reload` lifecycle coverage is not
+closed. The open product findings F-001 and F-004 do not block coverage because
+the goal requires real evidence, not green tests.
 
 ## Requirement audit (2026-10-21)
 
-1. Specs: all eight manifest rows have an existing spec under
-   `scripts/verify-ui/journey-specs/`.
+1. Specs: the historical audit had eight journey specs. The current manifest
+   maps `edit-remove-reload` to the registered native
+   `builder-authoring/group-entry` case; its expanded Basic-fixture lifecycle
+   run remains pending. The legacy CDA extension-field branch remains separate.
 2. Call counts: `load-preview` 8; `group-twice-preview` 17; `group-pivot-preview`
    11; `add-column-preview` 13 synthetic and 14 CDA; `filter-preview` 14;
-   `unpivot-preview` 10; `edit-remove-reload` 28; `pivot-error` 11. The
-   lifecycle journey uses the documented 30-call allowance. Typed-error
+   `unpivot-preview` 10; the historical `edit-remove-reload` Basic run had 28;
+   the expanded native count is pending; `pivot-error` 11. The lifecycle uses
+   the documented 30-call allowance. Typed-error
    journeys reach the product action and record the error; `pivot-error`
    additionally asserts no draft command and an unchanged table.
-3. Terminal evidence: each green journey writes `outcome`; each red journey
-   writes `outcome` with `httpStatus`, `errorClass`, and `requestId`. The
-   `pivot-error` trace records `commandCount: 0`.
+3. Terminal evidence: historical green journeys wrote `outcome`; each red
+   journey writes `outcome` with `httpStatus`, `errorClass`, and `requestId`.
+   The `pivot-error` trace records `commandCount: 0`; the pending native route
+   has not produced terminal evidence.
 4. TLA: every modeled latest run reports `tlaStatus: pass`; `load-preview` is
    the unmodeled baseline. `BuilderJourney.cfg` passes safety with 227 generated
    states and 53 distinct states.
 5. Findings: F-001 and F-004 are open with request IDs, HTTP status, finding
-   artifacts, and red specs. F-003 is not reproducible and is covered by the
-   passing `edit-remove-reload` journey. No journey spec uses `test.skip`,
+   artifacts, and red specs. F-003 was not reproduced by the historical
+   ID+gender rerun; that result is legacy evidence, and native lifecycle
+   coverage is pending. No journey spec uses `test.skip`,
    `test.fixme`, or `test.fail`.
 6. CDA: `group-twice-preview`, `load-preview`, and `add-column-preview` have
    terminal CDA runs with distinct `*-cda-trace.json` and `*-cda-report.json`
    artifacts.
 7. Runner: every run above used `node scripts/run-builder-journey.mjs
-   --journey <id>`; the runner resolves exactly one manifest row.
+   --journey <id>`; the runner resolves exactly one manifest row. The
+   `edit-remove-reload` alias now selects the registered
+   `builder-authoring/group-entry` case; the old passing evidence below belongs
+   to the retired journey spec, so the native route remains pending a native
+   run.
 8. Fast lane: `scripts/verify-ui/fast-specs/` contains only
    `builder-preview-read-only.spec.mjs`.
 
@@ -193,18 +215,28 @@ requires real evidence, not green tests.
 
 ### F-003 Field-based Group proposal returns HTTP 500
 
-- Journey: `edit-remove-reload` (closing coverage)
+- Journey: historical Basic branch of `edit-remove-reload`; the standalone spec
+  retains its CDA extension-field branch
 - Request: `POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals`
 - Input: group by `id` and `gender` on a fresh synthetic Patient table
 - Historical result: HTTP 500 `INTERNAL_ERROR`
 - Historical request ID: `construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff`
-- Current result: HTTP 200 with two rows and three columns (`id`, `gender`, `Row count`)
+- Historical rerun: HTTP 200 with two rows and three columns (`id`, `gender`, `Row count`)
 - Artifact: `docs/verification/playwright/runtime/builder-journey-F-003.json`
 - Trace: `.artifacts/builder-journey/edit-remove-reload-trace.json`
-- Status: not reproducible; covered by the passing `edit-remove-reload` journey
-- Next step: none. Keep the field-based Group path as regression coverage.
+- Status: the error was not reproduced in the historical rerun. That ID+gender
+  result remains historical regression evidence; the registered native route
+  now includes an independently checked ID-and-gender preview and applied
+  result, followed by the separate ID-only persistence oracle.
+- Next step: run the registered native route before claiming current lifecycle
+  coverage. Keep the CDA extension-field branch as separate coverage.
 
-## Current evidence
+## Recorded evidence
+
+The runs below are historical evidence. In particular, the 28-call Basic
+`edit-remove-reload` artifacts come from the standalone spec; the registered
+native route has not yet produced a browser report or trace. The standalone
+spec also retains a separate CDA extension-field path.
 
 - `group-twice-preview` on a fresh synthetic fixture: 10.2 s, 17 authoring
   calls, exact `{ row_count: 1 }`, trace validation pass.
@@ -232,9 +264,12 @@ requires real evidence, not green tests.
   validation pass.
 - `unpivot-preview` on a fresh synthetic fixture: red as designed, 10 authoring
   calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING`, trace validation pass.
-- `edit-remove-reload` on a fresh synthetic fixture: 13.2 s, 28 authoring
-  calls, one default group row, Group by id+gender edited to two rows and three
-  columns, source restored, reload preserved, trace validation pass.
+- Retired `edit-remove-reload` journey on a fresh synthetic fixture: 13.2 s,
+  28 authoring calls, one default group row, Group by id+gender applied to two
+  rows and three columns, source restored, reload preserved, trace validation
+  pass. The registered native case instead checks the initial empty-key
+  `COUNT_ROWS` value of 2, canonical ID-only persistence of both Patient IDs
+  with count 1 each, and source restoration; that route remains pending.
 - `pivot-error` on a fresh synthetic fixture: red as designed, 11 authoring
   calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING` instead of a typed 4xx, no `commands` call,
   trace validation pass.
@@ -269,7 +304,22 @@ Run one inventory row:
 ```sh
 node scripts/run-builder-journey.mjs --journey group-twice-preview
 node scripts/run-builder-journey.mjs --journey group-pivot-preview
+node scripts/run-builder-journey.mjs --journey edit-remove-reload
 ```
+
+`edit-remove-reload` is a compatibility ID for the registered native
+`builder-authoring/group-entry` case. The runner gets the exact Playwright spec
+and grep from `scripts/verify-ui/registry.mjs`, then calls the native
+verification bracket and validates its emitted trace against
+`builder-edit-remove-contract.json`. Configure the validated native environment
+expected by the native bracket (`LOOM_CDA_*` capture values and `LOOM_DEV_*`
+fixture values); `LOOM_CDA_SOURCE_ROOT` must resolve to the checkout running
+the command. `docs/verification/playwright/NATIVE_RUN_PLAN.md` records an owned
+stack example whose values must match the selected checkout and stack. The
+native fixture owns the fresh synthetic project. It checks the empty-key
+`COUNT_ROWS` preview, edits Group by `Patient.id`, then removes the Group and
+reloads the restored source rows. The legacy `--project`, `--generation`, and
+`--bootstrap` options do not apply to this mapped case.
 
 The pivot journey exits 1 while F-001 is open. That is the intended red result.
 
@@ -285,8 +335,10 @@ The pivot journey exits 1 while F-001 is open. That is the intended red result.
 
 ## Next work unit
 
-All eight inventory rows have specs, and three rows have terminal CDA runs:
-`group-twice-preview`, `load-preview`, and `add-column-preview`. F-003 is
-covered and not reproducible. Remaining work: keep F-001 and F-004 red until
-the product fixes the pivot and unpivot proposal errors, and finish the
-requirement-by-requirement completion audit.
+All eight inventory rows have journey specs or registered native cases, and
+three rows have terminal CDA runs: `group-twice-preview`, `load-preview`, and
+`add-column-preview`. Run the registered `edit-remove-reload` native route
+before claiming current lifecycle coverage. The historical F-003 ID+gender
+rerun did not reproduce the error. Keep F-001 and F-004 red until the product
+fixes the pivot and unpivot proposal errors, then finish the requirement-by-
+requirement completion audit.

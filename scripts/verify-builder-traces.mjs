@@ -237,6 +237,16 @@ function validateContract(contract) {
   if (!Array.isArray(phase1.requiredActions) || phase1.requiredActions.some((action) => typeof action !== 'string')) {
     fail('trace contract phase1.requiredActions must be an array of strings');
   }
+  if (phase1.requiredActionsByTrace !== undefined) {
+    if (!isPlainObject(phase1.requiredActionsByTrace)) {
+      fail('trace contract phase1.requiredActionsByTrace must be an object when present');
+    }
+    for (const [traceName, actions] of Object.entries(phase1.requiredActionsByTrace)) {
+      if (!traceName.trim() || !Array.isArray(actions) || actions.some((action) => typeof action !== 'string')) {
+        fail('trace contract phase1.requiredActionsByTrace entries must map non-empty trace names to arrays of strings');
+      }
+    }
+  }
   if (!Array.isArray(phase1.requiredEvents) || phase1.requiredEvents.some((event) => typeof event !== 'string')) {
     fail('trace contract phase1.requiredEvents must be an array of strings');
   }
@@ -305,7 +315,7 @@ function requiredOwnerForAction(model, label) {
   if (model === 'BuilderJourney') {
     if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return true;
     return new Set([
-      'Group', 'GroupAgain', 'AddColumn', 'EditGroup', 'RemoveGroup',
+      'Group', 'GroupAgain', 'AddColumn', 'EditGroup', 'EditGroupAgain', 'RemoveGroup',
     ]).has(label);
   }
   return false;
@@ -325,7 +335,7 @@ function expectedOwnerKind(model, label) {
   }
   if (model === 'BuilderJourney') {
     if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return 'proposal';
-    if (/^(?:Group|GroupAgain|AddColumn|EditGroup|RemoveGroup)$/.test(label)) return 'apply';
+    if (/^(?:Group|GroupAgain|AddColumn|EditGroup|EditGroupAgain|RemoveGroup)$/.test(label)) return 'apply';
   }
   return null;
 }
@@ -1576,7 +1586,7 @@ function actionOwnerMatches(model) {
       '       [] label = "ChoicePreview" -> /\\ attempt \\in {"P1", "P2"} /\\ choicePreviewOwner\' = attempt',
       '       [] label \\in {"ChoicePreviewComplete", "ChoicePreviewError"} -> choicePreviewOwner = attempt',
       '       [] label = "AddColumn" -> /\\ attempt = choicePreviewOwner /\\ choicePreview = "ready"',
-      '       [] label \\in {"Group", "GroupAgain", "EditGroup", "RemoveGroup"} -> attempt = proposalPreviewOwner',
+      '       [] label \\in {"Group", "GroupAgain", "EditGroup", "EditGroupAgain", "RemoveGroup"} -> attempt = proposalPreviewOwner',
       '       [] OTHER -> TRUE',
     ].join('\n');
   }
@@ -1931,11 +1941,24 @@ async function main() {
   const missingActions = contract.phase1.requiredActions.filter((action) => !actionSet.has(action));
   const missingEvents = contract.phase1.requiredEvents.filter((event) => !eventSet.has(event));
   const missingModels = (contract.phase1.requiredModels ?? []).filter((model) => !traces.some((trace) => trace.model === model));
+  const missingActionsByTrace = {};
+  for (const [traceName, requiredActions] of Object.entries(contract.phase1.requiredActionsByTrace ?? {})) {
+    const trace = traces.find((candidate) => candidate.name === traceName);
+    if (!trace) continue;
+    const modelActions = new Set(contract.models[trace?.model]?.actions ?? []);
+    const traceActions = new Set((trace?.actions ?? []).map((action) =>
+      normalizedActionLabel(trace?.model, action.label, modelActions) ?? action.label));
+    const missing = requiredActions.filter((action) => !traceActions.has(action));
+    if (missing.length > 0) missingActionsByTrace[traceName] = missing;
+  }
   const coverageProblems = [];
   if (!options.allowPartial) {
     if (missingActions.length > 0) coverageProblems.push('required actions missing: ' + missingActions.join(', '));
     if (missingEvents.length > 0) coverageProblems.push('required events missing: ' + missingEvents.join(', '));
     if (missingModels.length > 0) coverageProblems.push('required models missing: ' + missingModels.join(', '));
+    for (const [traceName, missing] of Object.entries(missingActionsByTrace)) {
+      coverageProblems.push('trace "' + traceName + '" missing required actions: ' + missing.join(', '));
+    }
   }
 
   const uniqueByKey = new Map();
@@ -2017,6 +2040,7 @@ async function main() {
     coverage: {
       requiredModels: { missing: missingModels },
       requiredActions: { missing: missingActions },
+      requiredActionsByTrace: { missing: missingActionsByTrace },
       requiredEvents: { missing: missingEvents },
     },
     traces: reportTraces,

@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "bbb4bf64aa7002b5c214a5a8ad68122c5a769f68097976b6933e89abc0d7affd",
+      "sha256": "7234f2edbc1dc83d07b434be7822222014edaebcfe9fbf199c15ea4ab06bd3c5",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -39,12 +39,12 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "9335d29e89ac9bb320f840c08749f469115088d91e3795e7d1a6bc514bbe25de",
+      "sha256": "98a422caa9a7790612a0d220c15a1b5491a6e7486672b6a7db78300c3afc75ac",
       "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "c0680557b22bc94ef8f4130264246bdbcb6339dc7dc4a7d29337fec3509d5e24",
+      "sha256": "373e5af7f1536e9c3a739a78d60948df0d1d9a1f5eddad1e6f5d0122b6379db7",
       "contract": "Trace mutation controls for reconcile stale receipt/output takeover, request ownership, response binding, and settlement order."
     },
     {
@@ -179,7 +179,7 @@
     },
     {
       "path": "verification/builder-interactions/BuilderJourney.tla",
-      "sha256": "f49ab398aefe536d84b90ba6c7ab2b7a6ad21156dc092234def5e5428a52c3f7",
+      "sha256": "f71d933c2ebc92962a9816fdd1e561f4acafe5703cb2b8bc9d38e9a37ebf5d5a",
       "contract": "BuilderJourney lifecycle model for source preview, choice and proposal preview, AddColumn, apply, and stale settlements."
     },
     {
@@ -319,7 +319,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-edit-remove-contract.json",
-      "sha256": "8af1e8b8fed1590deb0327ef09f328119fd299c0d7d1a0341d7e139fa1d61fd5",
+      "sha256": "bf32c2c57503f3e4fbbef2d7fd234efeba460cfde3185b684a74e1678b7fa7f1",
       "contract": "Selected edit/remove Journey actions and expected trace contract."
     },
     {
@@ -329,7 +329,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-audit.json",
-      "sha256": "d61daab8650a50edcd75fcff9f2d3f8f72153ae7b50904e303b5cb8913f9ee95",
+      "sha256": "3ce8710c30615b6438f765599af0ce68d99704fc14467406eabce4a2ffeb0f71",
       "contract": "Journey selection and declared action manifest for the selected synthetic capture run."
     },
     {
@@ -356,6 +356,16 @@
       "path": "verification/builder-interactions/builder-unpivot-contract.json",
       "sha256": "a317dccb3cf0cd57575489b958df668c3b8e4fd50e061f0d4b8614c01de31bc4",
       "contract": "Selected Unpivot Journey actions and expected trace contract."
+    },
+    {
+      "path": "scripts/verify-ui/registry.mjs",
+      "sha256": "cdccf106d12ea08c9bc8dd2f59d21cdb802a913ea749d598ae9b2532e77e9663",
+      "contract": "Registered native case, trace requirements, focused checks, and Group-entry behavioral assertions."
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+      "sha256": "4dbb3cdd34c36d94ce2731a20d4322efa9c01dd394c79e10f8af03669023f332",
+      "contract": "Registered native Group lifecycle with five-column raw Patient oracle, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
     }
   ]
 }

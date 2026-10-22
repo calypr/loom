@@ -1029,14 +1029,16 @@ if (journeyOnly) {
     console.error('FAIL journey-only: cannot establish selected source profile provenance');
     process.exit(1);
   }
-  payload = {
-    schemaVersion: 1,
-    sourceProfile: contract.sourceProfile,
-    sourceCommit: (head.stdout || '').trim(),
-    contractSourceCommit: contract.sourceCommit,
-    sourceFingerprint: fingerprintFor(profile.sources, ROOT),
-    traces: [],
-  };
+  if (!tracesPath) {
+    payload = {
+      schemaVersion: 1,
+      sourceProfile: contract.sourceProfile,
+      sourceCommit: (head.stdout || '').trim(),
+      contractSourceCommit: contract.sourceCommit,
+      sourceFingerprint: fingerprintFor(profile.sources, ROOT),
+      traces: [],
+    };
+  }
 }
 
 const runSourceProfileMutation = () => {
@@ -1187,8 +1189,58 @@ if (journeyOnly) {
   const crossEvidencePassed = runJourneyCrossEvidenceMutation();
   const choiceProofPassed = runJourneyChoiceProofMutations();
   const requestCancellationPassed = runJourneyRequestCancellationMutation();
+  let repeatEditOwnerPassed = true;
+  let repeatEditRequiredPassed = true;
+  let lateAbortOwnerPassed = true;
+  if (tracesPath && contractPath.endsWith('builder-edit-remove-contract.json')) {
+    const groupTrace = payload.traces?.find(trace => trace.name === 'builder-authoring:group-entry');
+    if (!groupTrace || !groupTrace.actions?.some(action => action.label === 'EditGroupAgain')) {
+      console.error('FAIL BuilderJourney repeat-edit owner control: candidate trace lacks the canonical second applied Group edit.');
+      repeatEditOwnerPassed = false;
+    } else if (!runPositiveBaseline()) {
+      repeatEditOwnerPassed = false;
+    } else {
+      const mutatedTracePassed = runMutation('edit-group-again-noncurrent-owner', mutated => {
+        const hit = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
+          trace.name === 'builder-authoring:group-entry' && action.label === 'EditGroupAgain'));
+        if (hit) hit.action.owner = {
+          ...hit.action.owner,
+          attempt: hit.action.owner.attempt === 'P1' ? 'P2' : 'P1',
+        };
+      }, semanticFailureFor('EditGroupAgain'), { allowPartial: true });
+      repeatEditOwnerPassed = mutatedTracePassed;
+      repeatEditRequiredPassed = runMutation('group-entry-repeat-edit-required', mutated => {
+        const trace = mutated.traces?.find(candidate => candidate.name === 'builder-authoring:group-entry');
+        if (trace) trace.actions = trace.actions.filter(action => action.label !== 'EditGroupAgain');
+      }, 'trace "builder-authoring:group-entry" missing required actions: EditGroupAgain');
+      const lateAbortedPreview = findTraceAction(payload.traces, (trace, action) =>
+        trace.name === 'builder-authoring:group-entry'
+        && action.label === 'LatePreviewErrorIgnored'
+        && action.response === null
+        && action.settlement?.kind === 'request-failed'
+        && action.settlement.errorText === 'net::ERR_ABORTED');
+      if (lateAbortedPreview) {
+        lateAbortOwnerPassed = runMutation('late-aborted-preview-must-be-noncurrent-owner', mutated => {
+          const hit = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
+            trace.name === 'builder-authoring:group-entry'
+            && action.label === 'LatePreviewErrorIgnored'
+            && action.response === null
+            && action.settlement?.kind === 'request-failed'
+            && action.settlement.errorText === 'net::ERR_ABORTED'));
+          if (!hit) return;
+          const requestCaptureId = hit.action.request.captureId;
+          const start = hit.trace.actions.find(action => action.label === 'Preview'
+            && action.request?.captureId === requestCaptureId);
+          const currentAttempt = hit.action.owner.attempt === 'P1' ? 'P2' : 'P1';
+          hit.action.owner = { ...hit.action.owner, attempt: currentAttempt };
+          if (start) start.owner = { ...start.owner, attempt: currentAttempt };
+        }, semanticFailureFor('LatePreviewErrorIgnored'), { allowPartial: true });
+      }
+    }
+  }
   rmSync(workDirectory, { recursive: true, force: true });
-  if (!crossEvidencePassed || !choiceProofPassed || !requestCancellationPassed) process.exit(1);
+  if (!crossEvidencePassed || !choiceProofPassed || !requestCancellationPassed
+    || !repeatEditOwnerPassed || !repeatEditRequiredPassed || !lateAbortOwnerPassed) process.exit(1);
   console.log('PASS BuilderJourney cross-evidence, choice-proof, and request-cancellation self-test');
   process.exit(0);
 }

@@ -203,24 +203,27 @@
     {
       "id": "edit-remove-reload",
       "priority": "P1",
-      "status": "passing",
-      "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "status": "pending-native",
+      "legacyEvidenceStatus": "historical-28-call-basic-pass; legacy spec also retains an independent CDA extension grouping branch",
+      "legacySpec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "spec": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+      "nativeCase": {
+        "scenario": "builder-authoring",
+        "case": "group-entry"
+      },
       "actions": [
-        "Preview",
-        "PreviewComplete",
-        "PreviewError",
-        "LatePreviewCompleteIgnored",
-        "LatePreviewErrorIgnored",
-        "PreviewRequestCancelled",
         "Group",
         "EditGroup",
-        "RemoveGroup"
+        "EditGroupAgain",
+        "RemoveGroup",
+        "Reload"
       ],
-      "oracle": "Group by id and gender yields two rows and three columns; removal and reload restore both source rows.",
+      "oracle": "Pending native route: Patient.ndjson matches five distinct source columns; the empty-key COUNT_ROWS result is 2; the ID-only preview then Cancel preserves the exact saved Group; the captured P1 abort/P2 ID-and-gender edit matches fixture IDs/genders and applies exactly two rows and three columns; the same Group identity is edited back to ID-only and both IDs/counts survive reload; removal Cancel preserves the exact saved draft; removal and reload restore all five source column identities/bindings and raw Patient values. Reload and concrete values are native checks; TLA models only the abstract request/apply owner chronology.",
       "model": "BuilderJourney",
       "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
       "evidence": {
         "synthetic": {
+          "provenance": "historical-retired-journey-spec",
           "durationMs": 13200,
           "backendCallCount": 28,
           "result": "pass",
@@ -235,7 +238,8 @@
           "trace": ".artifacts/builder-journey/edit-remove-reload-trace.json",
           "report": ".artifacts/builder-journey/edit-remove-reload-report.json"
         }
-      }
+      },
+      "minBackendCalls": 10
     },
     {
       "id": "pivot-error",
@@ -292,11 +296,11 @@
       "journey": "edit-remove-reload",
       "status": "not-reproducible",
       "request": "POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
-      "result": "Historical HTTP 500; current field-based Group by id+gender returns HTTP 200 with 2 rows and 3 columns.",
+      "result": "Historical HTTP 500; a later historical field-based Group by id+gender run returned HTTP 200 with 2 rows and 3 columns. This does not establish the pending native route.",
       "requestId": "construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff",
       "input": "Group by id and gender on a fresh synthetic Patient table.",
       "artifact": "docs/verification/playwright/runtime/builder-journey-F-003.json",
-      "next": "Closed as not reproducible; covered by the passing edit-remove-reload journey."
+      "next": "The error was not reproduced by the historical ID+gender rerun. Preserve that result as legacy evidence and await the registered native route before claiming current lifecycle coverage."
     },
     {
       "id": "F-004",

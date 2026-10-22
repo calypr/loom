@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDevSession, createFreshVerificationFixture } from './loom-dev.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
+import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPT_DIR, '..');
@@ -77,7 +78,26 @@ const selectJourney = (journeyId, manifestPath = MANIFEST) => {
   if (!specPath || !existsSync(resolve(SCRIPT_DIR, specPath))) {
     throw new Error('journey ' + journeyId + ' has no spec yet: ' + String(entry.spec ?? '(missing)'));
   }
-  return { entry, specPath, contract: entry.contract ?? CONTRACT };
+  let nativeSelection = null;
+  if (entry.nativeCase) {
+    const scenarioID = String(entry.nativeCase.scenario ?? '');
+    const caseName = String(entry.nativeCase.case ?? '');
+    const scenario = registry.find((candidate) => candidate.id === scenarioID);
+    if (!scenario || !caseName) throw new Error('journey ' + journeyId + ' has an invalid registered native case mapping');
+    const registeredCase = scenarioCaseFor(scenario, caseName);
+    if (entry.spec !== registeredCase.playwrightTest) {
+      throw new Error('journey ' + journeyId + ' spec must match registered native case ' + scenarioID + '/' + caseName);
+    }
+    nativeSelection = {
+      scenarioID,
+      caseName,
+      playwrightTest: registeredCase.playwrightTest,
+      playwrightGrep: registeredCase.playwrightGrep,
+      traceName: registeredCase.journeyTrace?.name ?? null,
+      requiredTraceActions: registeredCase.journeyTrace?.requiredActions ?? [],
+    };
+  }
+  return { entry, specPath, contract: entry.contract ?? CONTRACT, nativeSelection };
 };
 
 const runPlaywright = (env, specPath) => {
@@ -89,6 +109,22 @@ const runPlaywright = (env, specPath) => {
   args.push('--reporter=line');
   const result = spawnSync(executable, args, {
     cwd: SCRIPT_DIR,
+    env,
+    stdio: 'inherit',
+  });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+};
+
+const runRegisteredNativeCase = (env, selection) => {
+  const result = spawnSync(process.execPath, [
+    join(SCRIPT_DIR, 'run-native-verification-bracket.mjs'),
+    '--scenario', selection.scenarioID,
+    '--case', selection.caseName,
+    '--target-from-environment',
+    '--grep', selection.playwrightGrep,
+  ], {
+    cwd: ROOT,
     env,
     stdio: 'inherit',
   });
@@ -114,10 +150,18 @@ const validateTrace = (tracePath, reportPath, contractPath, allowPartial) => {
   return result.status ?? 1;
 };
 
-const inspectJourney = (tracePath, minBackendCalls = 10) => {
+const inspectJourney = (tracePath, minBackendCalls = 10, traceRequirements = {}) => {
   const payload = JSON.parse(readFileSync(resolve(ROOT, tracePath), 'utf8'));
   const trace = payload.traces?.[0];
   if (!trace) throw new Error('journey trace did not contain a trace');
+  if (traceRequirements.name && trace.name !== traceRequirements.name) {
+    throw new Error('journey trace name must be ' + traceRequirements.name + '; found ' + String(trace.name));
+  }
+  const actionLabels = new Set((trace.actions ?? []).map((action) => action.label));
+  const missingActions = (traceRequirements.requiredActions ?? []).filter((action) => !actionLabels.has(action));
+  if (missingActions.length > 0) {
+    throw new Error('journey trace is missing registered native actions: ' + missingActions.join(', '));
+  }
   if (!Array.isArray(trace.backendCalls) || trace.backendCalls.length < minBackendCalls) {
     throw new Error('journey trace must contain at least ' + minBackendCalls + ' authoring backend calls; found ' + (trace.backendCalls?.length ?? 0));
   }
@@ -239,11 +283,17 @@ const main = async () => {
     throw new Error('journey contract ' + actionContractPath + ' must declare sourceProfile "journey"');
   }
   const contractSourceCommit = actionContract.sourceCommit;
+  const nativeSelection = selectedJourney?.nativeSelection;
+  if (nativeSelection && (options.project || options.generation || options.explorer || options.uiUrl || options.apiUrl || options.bootstrap)) {
+    throw new Error('journey ' + selectedJourney.entry.id + ' runs through the registered native fixture; configure its target environment instead of passing legacy dataset options');
+  }
   let checked;
   let uiUrl;
   let apiUrl;
   let fixtureSource;
-  if (options.project) {
+  if (nativeSelection) {
+    fixtureSource = 'fresh-fixture-owned-by-native-runner';
+  } else if (options.project) {
     if (!options.generation) throw new Error('--project requires --generation');
     uiUrl = options.uiUrl ?? process.env.LOOM_FAST_UI_URL ?? 'http://127.0.0.1:3180';
     apiUrl = options.apiUrl ?? process.env.LOOM_FAST_API_URL ?? 'http://127.0.0.1:8180';
@@ -294,12 +344,14 @@ const main = async () => {
     LOOM_SOURCE_COMMIT: sourceCommit,
     LOOM_CONTRACT_SOURCE_COMMIT: contractSourceCommit,
     LOOM_SOURCE_FINGERPRINT: sourceFingerprint,
-    LOOM_FAST_SKIP_GLOBAL_SETUP: '1',
-    LOOM_FAST_PROJECT: checked.project,
-    LOOM_FAST_GENERATION: checked.generation,
-    LOOM_FAST_EXPLORER: checked.explorerId,
-    LOOM_FAST_UI_URL: uiUrl,
-    LOOM_FAST_API_URL: apiUrl,
+    ...(checked ? {
+      LOOM_FAST_SKIP_GLOBAL_SETUP: '1',
+      LOOM_FAST_PROJECT: checked.project,
+      LOOM_FAST_GENERATION: checked.generation,
+      LOOM_FAST_EXPLORER: checked.explorerId,
+      LOOM_FAST_UI_URL: uiUrl,
+      LOOM_FAST_API_URL: apiUrl,
+    } : {}),
     LOOM_JOURNEY_TRACE: tracePath,
     LOOM_JOURNEY_SOURCE_COMMIT: sourceCommit,
     LOOM_JOURNEY_CONTRACT_SOURCE_COMMIT: contractSourceCommit,
@@ -307,13 +359,15 @@ const main = async () => {
     LOOM_JOURNEY_MIN_BACKEND_CALLS: String(selectedJourney?.entry.minBackendCalls ?? 10),
   };
 
-  const playwrightStatus = runPlaywright(env, selectedJourney?.specPath);
-  const fixture = {
+  const playwrightStatus = nativeSelection
+    ? runRegisteredNativeCase(env, nativeSelection)
+    : runPlaywright(env, selectedJourney?.specPath);
+  const fixture = checked ? {
     project: checked.project,
     generation: checked.generation,
     explorerId: checked.explorerId,
     source: fixtureSource,
-  };
+  } : { source: fixtureSource };
 
   if (!existsSync(tracePath)) {
     const report = {
@@ -324,15 +378,18 @@ const main = async () => {
       sourceFingerprint,
       fixture,
       journey: selectedJourney ? { id: selectedJourney.entry.id, spec: selectedJourney.entry.spec } : null,
+      ...(nativeSelection ? { nativeCase: nativeSelection } : {}),
       result: 'harness-failure',
       playwrightStatus,
+      ...(nativeSelection ? { nativeRunnerStatus: playwrightStatus } : {}),
       error: 'journey did not write a trace',
       tla: null,
     };
     writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
     console.error('JOURNEY_HARNESS_FAILURE ' + JSON.stringify({
-      project: checked.project,
+      project: checked?.project ?? null,
       journey: selectedJourney?.entry.id ?? null,
+      nativeCase: nativeSelection ? `${nativeSelection.scenarioID}/${nativeSelection.caseName}` : null,
       playwrightStatus,
       report: reportRelative,
     }));
@@ -340,7 +397,11 @@ const main = async () => {
     return;
   }
 
-  const journey = inspectJourney(tracePath, selectedJourney?.entry.minBackendCalls ?? 10);
+  const journey = inspectJourney(
+    tracePath,
+    selectedJourney?.entry.minBackendCalls ?? 10,
+    selectedJourney?.nativeSelection ?? {},
+  );
   const tlaReportPath = reportPath.replace(/\.json$/, '.tla.json');
   const hasDeclaredModel = Boolean(selectedJourney?.entry.model);
   const unmodeled = Boolean(selectedJourney && selectedJourney.entry.contract === null && !hasDeclaredModel);
@@ -353,9 +414,11 @@ const main = async () => {
   const tlaStatus = unmodeled ? 'not-modeled'
     : allowPartial ? (validationStatus === 0 ? 'partial' : 'fail')
       : (validationStatus === 0 ? 'pass' : 'fail');
-  const result = journey.result === 'product-failure' || playwrightStatus !== 0
+  const result = journey.result === 'product-failure'
     ? 'product-failure'
-    : 'pass';
+    : nativeSelection && playwrightStatus !== 0
+      ? 'native-runner-failure'
+      : playwrightStatus !== 0 ? 'product-failure' : 'pass';
   const report = {
     schemaVersion: 1,
     sourceProfile: 'journey',
@@ -364,8 +427,10 @@ const main = async () => {
     sourceFingerprint,
     fixture,
     journey,
+    ...(nativeSelection ? { nativeCase: nativeSelection } : {}),
     result,
     playwrightStatus,
+    ...(nativeSelection ? { nativeRunnerStatus: playwrightStatus } : {}),
     tlaStatus,
     tla,
   };
@@ -373,8 +438,9 @@ const main = async () => {
 
   if (result === 'product-failure') {
     console.log('JOURNEY_PRODUCT_FAILURE ' + JSON.stringify({
-      project: checked.project,
+      project: checked?.project ?? null,
       journey: selectedJourney?.entry.id ?? journey.name,
+      nativeCase: nativeSelection ? `${nativeSelection.scenarioID}/${nativeSelection.caseName}` : null,
       actions: journey.actions,
       backendCallCount: journey.backendCallCount,
       outcome: journey.outcome,
@@ -386,14 +452,28 @@ const main = async () => {
     return;
   }
 
+  if (result === 'native-runner-failure') {
+    console.error('JOURNEY_NATIVE_RUNNER_FAILURE ' + JSON.stringify({
+      journey: selectedJourney.entry.id,
+      nativeCase: `${nativeSelection.scenarioID}/${nativeSelection.caseName}`,
+      nativeRunnerStatus: playwrightStatus,
+      trace: traceRelative,
+      report: reportRelative,
+      tlaStatus: report.tlaStatus,
+    }));
+    process.exitCode = playwrightStatus || 1;
+    return;
+  }
+
   if (validationStatus !== 0) {
     process.exitCode = validationStatus;
     return;
   }
 
   console.log('JOURNEY_OK ' + JSON.stringify({
-    project: checked.project,
+    project: checked?.project ?? null,
     journey: selectedJourney?.entry.id ?? journey.name,
+    nativeCase: nativeSelection ? `${nativeSelection.scenarioID}/${nativeSelection.caseName}` : null,
     actions: journey.actions,
     backendCallCount: journey.backendCallCount,
     outcome: journey.outcome,

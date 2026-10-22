@@ -635,6 +635,10 @@ export const registry = Object.freeze([
       "group-entry": {
         playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'standard Group entry proposes an empty-key COUNT_ROWS preview$',
+        journeyTrace: {
+          name: 'builder-authoring:group-entry',
+          requiredActions: ['EditGroupAgain'],
+        },
         focusedChecks: [
           {
             id: 'group-entry-rendered-grid-contract',
@@ -649,12 +653,15 @@ export const registry = Object.freeze([
         requiredChecks: [
           "basic Patient fixture contains the two independently known records",
           "Direct Group action is actionable",
+          "fresh Patient source table renders the exact five raw columns and Patient.ndjson values",
           "direct standard Group entry defaults to empty-key COUNT_ROWS without an edit",
           "native Builder automatically proposes the exact empty-key COUNT_ROWS GROUP",
           "automatic Group proposal Preview returns one row with the independently expected count 2",
           "applied empty-key Group renders the independently expected count 2",
           "saved Group edit previews exact Patient IDs as one row per key",
           "Cancel preserves the saved empty-key Group and exact draft",
+          "saved Group edit by id and gender preview matches exact fixture IDs, gender values, and row counts",
+          "applied Group edit by id and gender has the exact two-row, three-column result",
           "saved Group edit applies one row per exact Patient ID",
           "keyed Group edit and exact Patient rows survive reload",
           "Group removal previews both literal source Patient rows",

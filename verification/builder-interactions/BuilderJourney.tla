@@ -13,7 +13,7 @@ ProposalOwners == {"P1", "P2", "NoAttempt"}
 ChoicePreviewStates == {"none", "pending", "ready", "error"}
 TablePreviewStates == {"ready", "error"}
 JourneyActions == {"Init", "Group", "GroupAgain", "AddColumn",
-                   "CancelFilter", "EditGroup", "RemoveGroup", "Pivot", "Preview",
+                   "CancelFilter", "EditGroup", "EditGroupAgain", "RemoveGroup", "Pivot", "Preview",
                    "PreviewComplete", "PreviewError", "LatePreviewCompleteIgnored",
                    "LatePreviewErrorIgnored", "PreviewRequestCancelled", "ChoicePreview", "ChoicePreviewComplete",
                    "ChoicePreviewError"}
@@ -102,6 +102,14 @@ EditGroup ==
   /\ CloseProposalPreview
   /\ UNCHANGED <<phase, pivotReady, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "EditGroup"
+
+EditGroupAgain ==
+  /\ phase = "reshaping"
+  /\ reshapeCount = MaxReshapes
+  /\ ~pivotReady
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, choicePreview, choicePreviewOwner, tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "EditGroupAgain"
 
 RemoveGroup ==
   /\ phase = "reshaping"
@@ -221,6 +229,7 @@ Next ==
   \/ AddColumn
   \/ CancelFilter
   \/ EditGroup
+  \/ EditGroupAgain
   \/ RemoveGroup
   \/ Pivot
   \/ \E attempt \in {"P1", "P2"}: Preview(attempt)

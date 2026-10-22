@@ -15,6 +15,7 @@
         "AddColumn",
         "CancelFilter",
         "EditGroup",
+        "EditGroupAgain",
         "RemoveGroup",
         "Pivot",
         "Preview",
@@ -71,6 +72,10 @@
       "event": "edit-group",
       "trigger": "saved group edited"
     },
+    "EditGroupAgain": {
+      "event": "edit-group",
+      "trigger": "the same saved Group is edited again after an earlier applied edit"
+    },
     "RemoveGroup": {
       "event": "remove-group",
       "trigger": "saved group removed"
@@ -114,6 +119,11 @@
       "EditGroup",
       "RemoveGroup"
     ],
+    "requiredActionsByTrace": {
+      "builder-authoring:group-entry": [
+        "EditGroupAgain"
+      ]
+    },
     "requiredEvents": [
       "preview",
       "preview-response",
@@ -130,6 +140,8 @@
     "reconcile": "The journey model does not own draft reconciliation.",
     "commands": "Draft command persistence is below the row-definition journey boundary.",
     "row-definition-choices": "The journey model does not own row-choice inventory.",
+    "group-edit-cancel": "BuilderJourney does not model the Group-edit Cancel control; native checks compare the exact stored workspace, draft version, and digest.",
+    "group-removal-cancel": "BuilderJourney does not model the Group-removal Cancel control; native checks compare the exact stored workspace, draft version, and digest.",
     "reload": "Page reload is a lifecycle event outside the in-memory journey model."
   }
 }
