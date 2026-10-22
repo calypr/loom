@@ -63,6 +63,16 @@
       "contract": "Journey request/response capture, request-object correlation, and read-only DOM observation helpers."
     },
     {
+      "path": "scripts/verify-ui/helpers/fixture-context.mjs",
+      "sha256": "48edfda4b593a209d9c14073f87e5b79f695e2bb23adae23191ad109ea05ebc3",
+      "contract": "Native fixture context routes the registered Group raw-Basic case to the existing seeded bootstrap Explorer."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fixtures.mjs",
+      "sha256": "d7b78ae984db83d9ee6a484b19482e34adb00b0f1f49b71918bab27d07581f06",
+      "contract": "Playwright fixture setup passes the registered bootstrap population mode into isolated fixture creation."
+    },
+    {
       "path": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
       "sha256": "49de93846ba9e080b9648902aadf29c8fa84512c9087d328fd109f6344e72b96",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
@@ -106,6 +116,11 @@
       "path": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
       "sha256": "a242669d0fca33ee1de587af7257be04e60bc9cd9a84827b1ae51a415bfe8706",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+      "sha256": "885af1bbffba315b6dfc88471f8789aa988515e5c359684fe1dd3d89b938942b",
+      "contract": "Native Builder authoring case registration, including authored-three and raw Basic Group lifecycle variants."
     },
     {
       "path": "ui/packages/loom-ui/src/api.ts",
@@ -359,13 +374,13 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "90c931a660fb336ca3dfdeffdf5e3b4a179a9270248df48bc8217c6dae71b6f5",
-      "contract": "Registered native case, trace requirements, focused checks, and Group-entry behavioral assertions."
+      "sha256": "a07fdea6ba0a07b23715f9327133efcf7eb5201f496559e351800d6ab272a123",
+      "contract": "Registered native cases, trace requirements, focused checks, and Group-entry behavioral assertions."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "d7eaac96fea7359a01f20349e5ef61fc674340f6b7ab719ca8fa0f12bc73b9de",
-      "contract": "Registered native Group lifecycle with exact three-column authored Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
+      "sha256": "f2c508a4c8941289771eca315e6d0448415266e89f9d8559877da8f8ba285089",
+      "contract": "Registered native Group lifecycles with exact authored-three and raw Basic Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
     }
   ]
 }

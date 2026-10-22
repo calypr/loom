@@ -34,6 +34,9 @@ test.describe('Builder authoring', () => {
     repeatedEmptyWorkflow, 'testdata/verify-repeated-empty');
   defineCase('group-entry', 'standard Group entry proposes an empty-key COUNT_ROWS preview',
     groupEntryWorkflow);
+  defineCase('group-entry-raw-basic',
+    'Group edit and removal preserve the raw five-column Basic Patient table',
+    groupEntryWorkflow);
   defineCase('selected-resource-coverage',
     'selected Patient coverage preserves exact membership through detach, reattach, and reload',
     populationCoverageWorkflow);

@@ -29,12 +29,12 @@ export const assertNamedDevSessionEnvironment = (env = process.env) => {
   if (missing.length) throw new Error('set the named development target explicitly: ' + missing.join(', '));
 };
 
-export const createRunContext = async ({ caseName }, scenario, { env = process.env } = {}) => {
+export const createRunContext = async ({ caseName }, scenario, { env = process.env, populateBootstrap = false } = {}) => {
   assertNamedDevSessionEnvironment(env);
   const session = createDevSession(env);
   await assertOwnedDevSession(session, { uiRouting: 'explicit-query' });
   const id = Date.now().toString(36) + '-' + Math.random().toString(16).slice(2, 9);
-  const fixture = await createFreshVerificationFixture(session, id);
+  const fixture = await createFreshVerificationFixture(session, id, { populateBootstrap });
   return {
     target: { ...fixture.target, bootstrapExplorerId: fixture.seed.bootstrapExplorerId },
     seed: fixture.seed,

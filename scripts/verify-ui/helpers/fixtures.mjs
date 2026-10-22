@@ -71,7 +71,10 @@ export const test = base.extend({
     const args = { caseName };
     const contextStarted = performance.now();
     const env = environmentForFixtureDir(process.env, fixtureDir, fixtureGeneration);
-    const context = await createRunContext(args, scenario, { env });
+    const context = await createRunContext(args, scenario, {
+      env,
+      populateBootstrap: caseContract?.populateBootstrap === true,
+    });
     const contextSetupMs = performance.now() - contextStarted;
     const location = makeReportLocation(context, scenarioID, caseName);
     const report = createReport({

@@ -21,6 +21,7 @@ import {
 import { addField } from '../helpers/cda-journey-fields.mjs';
 
 const expectedPatientIDs = ['dev-patient-001', 'dev-patient-002'];
+const legacyBasicSourceLabels = ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const journeyContractPath = 'verification/builder-interactions/builder-edit-remove-contract.json';
 const journeyTraceContractPath = join(repositoryRoot, journeyContractPath);
@@ -145,6 +146,94 @@ const renderedSourceRowExpectations = (sourceRows, idLabel) => sourceRows.map(({
   Gender: gender ?? '—',
 }));
 
+const legacyBasicRowsFromFixture = sourceRows => sourceRows.map(({ id, families, gender }) => {
+  assert(families.length <= 2, 'The five-column Basic projection can represent at most two Patient family values.');
+  return {
+    id,
+    family0: families[0] ?? null,
+    family1: families[1] ?? null,
+    familyCount: families.length,
+    gender: gender ?? null,
+  };
+}).sort((left, right) => left.id.localeCompare(right.id));
+
+const legacyBasicRowsFromPreview = preview => {
+  const columns = preview?.columns ?? [];
+  assert.deepEqual(columns.map(column => column.label), legacyBasicSourceLabels,
+    'Legacy Basic bootstrap Preview must retain its exact five flattened source columns.');
+  const column = label => columns.find(item => item.label === label)?.column;
+  const id = column('id');
+  const firstFamily = column('name[].family [0]');
+  const secondFamily = column('name[].family [1]');
+  const familyCount = column('name__count');
+  const gender = column('gender');
+  assert(id && firstFamily && secondFamily && familyCount && gender,
+    'Legacy Basic Preview must expose all five flattened source columns.');
+  return (preview?.rows ?? []).map(row => {
+    return {
+      id: row[id],
+      family0: row[firstFamily] ?? null,
+      family1: row[secondFamily] ?? null,
+      familyCount: Number(row[familyCount]),
+      gender: row[gender] ?? null,
+    };
+  }).sort((left, right) => left.id.localeCompare(right.id));
+};
+
+const sourceRowsFromLegacyBasicPreview = preview => legacyBasicRowsFromPreview(preview).map((row) => {
+  assert(Number.isInteger(row.familyCount) && row.familyCount >= 0 && row.familyCount <= 2,
+    'Legacy indexed family values must match the exact name__count value.');
+  return {
+    id: row.id,
+    families: [row.family0, row.family1].slice(0, row.familyCount),
+    gender: row.gender,
+  };
+});
+
+const legacyBasicRowsFromRendered = rendered => {
+  const index = label => findRenderedBuilderHeaderIndex(rendered.headers, label);
+  const cell = (row, label) => row[index(label)]?.text ?? '';
+  return rendered.rawRows.map(row => {
+    const missing = value => value === '' || value === '—' ? null : value;
+    return {
+      id: cell(row, 'id'),
+      family0: missing(cell(row, 'name[].family [0]')),
+      family1: missing(cell(row, 'name[].family [1]')),
+      familyCount: Number(cell(row, 'name__count')),
+      gender: missing(cell(row, 'gender')),
+    };
+  }).sort((left, right) => left.id.localeCompare(right.id));
+};
+
+const sourceRowsFromLegacyBasicRendered = rendered => legacyBasicRowsFromRendered(rendered).map((row) => {
+  assert(Number.isInteger(row.familyCount) && row.familyCount >= 0 && row.familyCount <= 2,
+    'Rendered indexed family values must match the exact name__count value.');
+  return {
+    id: row.id,
+    families: [row.family0, row.family1].slice(0, row.familyCount),
+    gender: row.gender,
+  };
+});
+
+const legacyBasicRenderedSourceRowExpectations = sourceRows => sourceRows.map(({ id, families, gender }) => ({
+  id,
+  'name[].family [0]': families[0] ?? '—',
+  'name[].family [1]': families[1] ?? '—',
+  name__count: String(families.length),
+  gender: gender ?? '—',
+}));
+
+const readRenderedBuilderRows = async page => page.evaluate(() => {
+  const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
+  const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
+  const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
+    text: cell.innerText.replace(/\s+/g, ' ').trim(),
+    title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
+  })));
+  return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
+});
+
 const assertRenderedHeaders = (actual, expected, message) => assert.deepEqual(
   actual.map(normalizeRenderedBuilderHeader),
   expected.map(normalizeRenderedBuilderHeader),
@@ -190,7 +279,7 @@ const writeAndReplayGroupJourney = (journeyTrace, report, fixture) => {
   }
 };
 
-export const openFreshPatientTable = async ({ page, report, check, action }, context, purpose) => {
+export const openFreshPatientTable = async ({ page, report, check, action }, context, purpose, { populateBootstrap = false } = {}) => {
   configureNativePage(page);
   assert.equal(context.custom, false, 'This case requires a fresh owned fixture project.');
   assert.equal(context.seed?.fresh, true, 'This case must use a fresh verification project.');
@@ -240,6 +329,64 @@ export const openFreshPatientTable = async ({ page, report, check, action }, con
     'bootstrap Builder state request must complete before Explorer creation');
   const bootstrapRequestBody = await bootstrapResponse.json();
   assert(bootstrapRequestBody, 'bootstrap Builder state response must be readable');
+
+  if (populateBootstrap) {
+    assert.equal(context.seed?.bootstrapWorkspace?.seeded, true,
+      'The legacy Basic case must use the fixture harness seeded bootstrap workspace.');
+    const explorer = context.target.bootstrapExplorerId;
+    const apiRoot = `${fixtureProjectExplorerCollectionPath(context.target.fixtureProject)}`
+      + `/${encodeURIComponent(explorer)}`;
+    const builder = bootstrapRequestBody;
+    assert.equal(builder.catalog?.generation, context.target.fixtureGeneration,
+      'Bootstrapped Builder must expose the exact isolated fixture generation.');
+    const document = builder.workspace?.documents?.find(item => item.rootResourceType === 'Patient');
+    assert(document?.output?.id, 'Legacy Basic bootstrap must contain its preseeded Patient table.');
+    const sourcePaths = document.columns?.map(column => column.source?.field?.path ?? null);
+    assert.deepEqual(sourcePaths, ['id', 'name[].family', 'gender'],
+      'Legacy Basic bootstrap must use the existing catalog-seeded Patient fields.');
+    const sourceIdColumn = document.columns.find(column => column.source?.field?.path === 'id');
+    const sourceIdColumnId = sourceIdColumn?.columnId ?? sourceIdColumn?.id;
+    assert(sourceIdColumnId && sourceIdColumn.label,
+      'Legacy Basic bootstrap must retain its exact source Patient.id column identity.');
+    report.target.explorer = explorer;
+    report.target.qaIsolation.explorer = explorer;
+    report.target.qaIsolation.workflowMutations.push(
+      'fixture harness seeded the existing bootstrap Patient source from id, name[].family, and gender catalog candidates before the native Group workflow',
+    );
+    report.target.table = {
+      outputId: document.output.id,
+      rootResourceType: 'Patient',
+      rawRowCount: fixtureIDs.length,
+      patientIDColumn: {
+        id: sourceIdColumnId,
+        label: sourceIdColumn.label,
+        sourcePath: 'id',
+      },
+      sourceColumns: document.columns.map(column => ({
+        id: column.columnId ?? column.id,
+        label: column.label,
+        sourcePath: column.source?.field?.path ?? null,
+        projectionMode: column.source?.field?.projectionMode ?? null,
+      })),
+    };
+    await waitForBuilderRenderedGrid(page, {
+      tableSelector: renderedTableSelector,
+      expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })),
+    });
+    return {
+      fixtureIDs,
+      fixtureOracle,
+      explorerName: null,
+      explorer,
+      apiRoot,
+      builder,
+      document,
+      outputId: document.output.id,
+      sourceIdColumn,
+      sourceIdColumnId,
+      bootstrapRawBasic: true,
+    };
+  }
 
   const newExplorer = page.getByText('New explorer', { exact: true });
   await newExplorer.waitFor({ state: 'visible' });
@@ -326,8 +473,9 @@ export const groupEntryWorkflow = async (workflow, context) => {
       status: response.status(),
     });
   });
+  const rawBasicCase = context.args.caseName === 'group-entry-raw-basic';
   let { fixtureIDs, fixtureOracle, explorer, apiRoot, builder, outputId, sourceIdColumn, sourceIdColumnId } =
-    await openFreshPatientTable(workflow, context, 'group entry');
+    await openFreshPatientTable(workflow, context, 'group entry', { populateBootstrap: rawBasicCase });
   const fixturePatients = readNDJSON(join(context.target.fixtureDir, 'Patient.ndjson'))
     .filter(resource => resource?.resourceType === 'Patient');
   const fixtureIDGenderPairs = fixturePatients
@@ -342,8 +490,12 @@ export const groupEntryWorkflow = async (workflow, context) => {
     ...fixtureOracle,
     idGenderPairs: fixtureIDGenderPairs,
     sourceRows: fixtureSourceRows,
-    nativeSourceShape: 'three authored columns: Patient.id, Patient.name[].family ALL, Patient.gender',
-    separateLegacyShape: 'the five-column flattened Basic raw-table oracle remains in the legacy journey branch and is not replaced by this authored list-column evidence',
+    nativeSourceShape: rawBasicCase
+      ? 'bootstrap-seeded Basic source preview with five flattened columns from Patient.id, Patient.name[].family, and Patient.gender'
+      : 'three authored columns: Patient.id, Patient.name[].family ALL, Patient.gender',
+    separateLegacyShape: rawBasicCase
+      ? 'the authored three-column ALL-family native lifecycle remains a separate registered Group case'
+      : 'the five-column flattened Basic raw-table oracle remains in the legacy journey branch and is not replaced by this authored list-column evidence',
   };
   report.target.fixtureRawOracle = fixtureOracle;
 
@@ -389,83 +541,154 @@ export const groupEntryWorkflow = async (workflow, context) => {
     backendCalls,
   };
 
-  await addFieldWithCommandTrace(page, 'Select Patient.name[].family', traceActions, addField);
-  const sourceFieldsAdded = await addFieldWithCommandTrace(page, 'Select Patient.gender', traceActions, addField);
-  builder = await (async () => {
-    const response = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
-      signal: AbortSignal.timeout(30000),
+  let sourceDocument;
+  let sourcePreviewLabels;
+  let sourceRowsForPreview;
+  let sourceRowsForRendered;
+  let renderedSourceExpectations;
+  let flatSourceRowsFromPreview;
+  let flatSourceRowsFromRendered;
+  let expectedFlatSourceRows;
+  if (rawBasicCase) {
+    sourceDocument = builder.workspace.documents.find(item => item.output?.id === outputId);
+    assert(sourceDocument, 'Bootstrapped Patient table must retain its original Builder document.');
+    sourceIdColumn = sourceDocument.columns?.find(column => column.source?.field?.path === 'id');
+    sourceIdColumnId = sourceIdColumn?.columnId ?? sourceIdColumn?.id;
+    assert(sourceIdColumnId && sourceIdColumn.label, 'Bootstrapped Patient table must retain its source ID identity.');
+    assert.deepEqual(sourceDocument.columns?.map(column => column.source?.field?.path ?? null),
+      ['id', 'name[].family', 'gender'],
+      'Bootstrap workspace must retain the catalog-seeded Patient source field bindings.');
+    const sourcePreviewPayload = sourcePreviewExchange.payload?.preview ?? sourcePreviewExchange.payload;
+    sourcePreviewLabels = sourcePreviewPayload?.columns?.map(column => column.label) ?? [];
+    assert.deepEqual(sourcePreviewLabels, legacyBasicSourceLabels,
+      'The native Group workflow must start from the legacy five-column Basic Patient preview.');
+    assert.equal(Number(sourcePreviewPayload.rowCount ?? sourcePreviewPayload.rows?.length ?? 0), fixtureIDs.length,
+      'The legacy five-column Basic Patient preview must preserve both fixture rows.');
+    sourceRowsForPreview = preview => sourceRowsFromLegacyBasicPreview(preview?.preview ?? preview);
+    sourceRowsForRendered = sourceRowsFromLegacyBasicRendered;
+    renderedSourceExpectations = legacyBasicRenderedSourceRowExpectations;
+    flatSourceRowsFromPreview = preview => legacyBasicRowsFromPreview(preview?.preview ?? preview);
+    flatSourceRowsFromRendered = legacyBasicRowsFromRendered;
+    expectedFlatSourceRows = legacyBasicRowsFromFixture(fixtureSourceRows);
+    assert.deepEqual(flatSourceRowsFromPreview(sourcePreviewPayload), expectedFlatSourceRows,
+      'All five flattened source columns, including both indexed values and name__count, must equal Patient.ndjson.');
+    assert.deepEqual(sourceRowsForPreview(sourcePreviewPayload), fixtureSourceRows,
+      'The five flattened source columns must equal the exact independent Patient.ndjson values.');
+    const initialRawRows = await readRenderedBuilderRows(page);
+    assertRenderedHeaders(initialRawRows.headers, legacyBasicSourceLabels,
+      'Rendered legacy Basic Patient table must preserve all five source columns in order.');
+    assert.deepEqual(flatSourceRowsFromRendered(initialRawRows), expectedFlatSourceRows,
+      'All five rendered source columns, including both indexed values and name__count, must equal Patient.ndjson.');
+    assert.deepEqual(sourceRowsForRendered(initialRawRows), fixtureSourceRows,
+      'Rendered five-column Basic rows must equal the exact independent Patient.ndjson values.');
+    await waitForBuilderRenderedGrid(page, {
+      tableSelector: renderedTableSelector,
+      expectedRows: renderedSourceExpectations(fixtureSourceRows),
     });
-    const value = await response.json();
-    if (!response.ok) throw new Error(`Builder read after raw source-field setup returned HTTP ${response.status}.`);
-    return value;
-  })();
-  const sourceDocument = builder.workspace.documents.find(item => item.output?.id === outputId);
-  assert(sourceDocument, 'Patient root table must survive raw source-field setup.');
-  sourceIdColumn = sourceDocument.columns?.find(column => column.source?.field?.path === 'id');
-  sourceIdColumnId = sourceIdColumn?.columnId ?? sourceIdColumn?.id;
-  assert(sourceIdColumnId && sourceIdColumn.label, 'Patient root must retain its source id column identity.');
-  const authoredSourceLabels = [sourceIdColumn.label, 'Name Family', 'Gender'];
-  assert.deepEqual(sourceDocument.columns.map(column => column.label), authoredSourceLabels,
-    'Fresh Patient root must retain the exact three native authored source columns.');
-  const authoredSourcePaths = sourceDocument.columns.map(column => column.source?.field?.path ?? null);
-  assert.deepEqual(authoredSourcePaths, ['id', 'name[].family', 'gender'],
-    'The authored list-value source must retain the exact Patient field bindings.');
-  const familyColumn = sourceDocument.columns.find(column => column.source?.field?.path === 'name[].family');
-  assert.equal(familyColumn?.source?.field?.projectionMode, 'ALL',
-    'The native family source column must preserve the complete Patient.name[].family list.');
-  const sourceColumnIDs = sourceDocument.columns.map(column => column.columnId ?? column.id);
-  assert.equal(new Set(sourceColumnIDs).size, authoredSourceLabels.length,
-    'Each native authored Patient source column must retain a distinct Builder identity.');
-  assert.deepEqual((sourceFieldsAdded.columns ?? []).map(column => column.label), authoredSourceLabels,
-    'Adding the two raw fields must produce the exact three-column authored source table.');
-  assert.equal(Number(sourceFieldsAdded.rowCount ?? sourceFieldsAdded.rows?.length ?? 0), fixtureIDs.length,
-    'The authored source preview must preserve both raw Patient rows.');
-  assert.deepEqual(sourceRowsFromPreview(sourceFieldsAdded, sourceIdColumn.label), fixtureSourceRows,
-    'The ID, full family-list, and gender preview must equal Patient.ndjson before Group entry.');
-  const initialRawRows = await page.evaluate(() => {
-    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
-    const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
-    const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
-    const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
-      text: cell.innerText.replace(/\s+/g, ' ').trim(),
-      title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
-    })));
-    return { headers, rawRows };
-  });
-  assertRenderedHeaders(initialRawRows.headers, authoredSourceLabels,
-    'Rendered Patient table must preserve the exact source header order and names.');
-  assert.deepEqual(sourceRowsFromRendered(initialRawRows, sourceIdColumn.label), fixtureSourceRows,
-    'Rendered authored source rows must equal the exact independent Patient.ndjson field values before Group entry.');
-  await waitForBuilderRenderedGrid(page, {
-    tableSelector: renderedTableSelector,
-    expectedRows: renderedSourceRowExpectations(fixtureSourceRows, sourceIdColumn.label),
-  });
-  report.target.table = {
-    outputId,
-    rootResourceType: 'Patient',
-    rawRowCount: fixtureIDs.length,
-    patientIDColumn: { id: sourceIdColumnId, label: sourceIdColumn.label, sourcePath: 'id' },
-    sourceColumns: sourceDocument.columns.map(column => ({
-      id: column.columnId ?? column.id,
-      label: column.label,
-      sourcePath: column.source?.field?.path ?? null,
-      projectionMode: column.source?.field?.projectionMode ?? null,
-    })),
-    sourceRows: fixtureSourceRows,
-  };
-  report.target.qaIsolation.workflowMutations.push('native UI added Patient.name[].family with ALL projection and Patient.gender, producing the exact three authored source columns before Group entry');
-  report.target.legacySourceShape = {
-    status: 'retained-separately-not-proven-by-this-case',
-    source: 'scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs Basic branch',
-    columns: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'],
-  };
-  check('correctness', 'fresh Patient source table renders exact authored ID, family-list, and gender values', true, {
-    columns: authoredSourceLabels,
-    sourcePaths: authoredSourcePaths,
-    familyProjectionMode: familyColumn.source.field.projectionMode,
-    rows: fixtureSourceRows,
-    rawSourceColumnIdentity: report.target.table.sourceColumns,
-  });
+    report.target.table = {
+      outputId,
+      rootResourceType: 'Patient',
+      rawRowCount: fixtureIDs.length,
+      patientIDColumn: { id: sourceIdColumnId, label: sourceIdColumn.label, sourcePath: 'id' },
+      sourceColumns: sourceDocument.columns.map(column => ({
+        id: column.columnId ?? column.id,
+        label: column.label,
+        sourcePath: column.source?.field?.path ?? null,
+        projectionMode: column.source?.field?.projectionMode ?? null,
+      })),
+      previewColumns: sourcePreviewLabels,
+      sourceRows: fixtureSourceRows,
+    };
+    report.target.qaIsolation.workflowMutations.push(
+      'native Group lifecycle reused the fixture harness bootstrap Patient table with its original five-column Basic preview',
+    );
+    report.target.legacySourceShape = {
+      status: 'proved-by-this-native-case',
+      source: 'fixture bootstrap default Patient source and scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs Basic branch',
+      columns: sourcePreviewLabels,
+      rows: fixtureSourceRows,
+    };
+    check('correctness', 'legacy Basic bootstrap renders the exact five-column Patient source values', true, {
+      columns: sourcePreviewLabels,
+      sourcePaths: sourceDocument.columns.map(column => column.source?.field?.path ?? null),
+      rows: fixtureSourceRows,
+      flattenedRows: expectedFlatSourceRows,
+      rawSourceColumnIdentity: report.target.table.sourceColumns,
+    });
+  } else {
+    await addFieldWithCommandTrace(page, 'Select Patient.name[].family', traceActions, addField);
+    const sourceFieldsAdded = await addFieldWithCommandTrace(page, 'Select Patient.gender', traceActions, addField);
+    builder = await (async () => {
+      const response = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
+        signal: AbortSignal.timeout(30000),
+      });
+      const value = await response.json();
+      if (!response.ok) throw new Error(`Builder read after raw source-field setup returned HTTP ${response.status}.`);
+      return value;
+    })();
+    sourceDocument = builder.workspace.documents.find(item => item.output?.id === outputId);
+    assert(sourceDocument, 'Patient root table must survive raw source-field setup.');
+    sourceIdColumn = sourceDocument.columns?.find(column => column.source?.field?.path === 'id');
+    sourceIdColumnId = sourceIdColumn?.columnId ?? sourceIdColumn?.id;
+    assert(sourceIdColumnId && sourceIdColumn.label, 'Patient root must retain its source id column identity.');
+    sourcePreviewLabels = [sourceIdColumn.label, 'Name Family', 'Gender'];
+    assert.deepEqual(sourceDocument.columns.map(column => column.label), sourcePreviewLabels,
+      'Fresh Patient root must retain the exact three native authored source columns.');
+    const authoredSourcePaths = sourceDocument.columns.map(column => column.source?.field?.path ?? null);
+    assert.deepEqual(authoredSourcePaths, ['id', 'name[].family', 'gender'],
+      'The authored list-value source must retain the exact Patient field bindings.');
+    const familyColumn = sourceDocument.columns.find(column => column.source?.field?.path === 'name[].family');
+    assert.equal(familyColumn?.source?.field?.projectionMode, 'ALL',
+      'The native family source column must preserve the complete Patient.name[].family list.');
+    const sourceColumnIDs = sourceDocument.columns.map(column => column.columnId ?? column.id);
+    assert.equal(new Set(sourceColumnIDs).size, sourcePreviewLabels.length,
+      'Each native authored Patient source column must retain a distinct Builder identity.');
+    assert.deepEqual((sourceFieldsAdded.columns ?? []).map(column => column.label), sourcePreviewLabels,
+      'Adding the two raw fields must produce the exact three-column authored source table.');
+    assert.equal(Number(sourceFieldsAdded.rowCount ?? sourceFieldsAdded.rows?.length ?? 0), fixtureIDs.length,
+      'The authored source preview must preserve both raw Patient rows.');
+    sourceRowsForPreview = preview => sourceRowsFromPreview(preview?.preview ?? preview, sourceIdColumn.label);
+    sourceRowsForRendered = rendered => sourceRowsFromRendered(rendered, sourceIdColumn.label);
+    renderedSourceExpectations = rows => renderedSourceRowExpectations(rows, sourceIdColumn.label);
+    assert.deepEqual(sourceRowsForPreview(sourceFieldsAdded), fixtureSourceRows,
+      'The ID, full family-list, and gender preview must equal Patient.ndjson before Group entry.');
+    const initialRawRows = await readRenderedBuilderRows(page);
+    assertRenderedHeaders(initialRawRows.headers, sourcePreviewLabels,
+      'Rendered Patient table must preserve the exact source header order and names.');
+    assert.deepEqual(sourceRowsForRendered(initialRawRows), fixtureSourceRows,
+      'Rendered authored source rows must equal the exact independent Patient.ndjson field values before Group entry.');
+    await waitForBuilderRenderedGrid(page, {
+      tableSelector: renderedTableSelector,
+      expectedRows: renderedSourceExpectations(fixtureSourceRows),
+    });
+    report.target.table = {
+      outputId,
+      rootResourceType: 'Patient',
+      rawRowCount: fixtureIDs.length,
+      patientIDColumn: { id: sourceIdColumnId, label: sourceIdColumn.label, sourcePath: 'id' },
+      sourceColumns: sourceDocument.columns.map(column => ({
+        id: column.columnId ?? column.id,
+        label: column.label,
+        sourcePath: column.source?.field?.path ?? null,
+        projectionMode: column.source?.field?.projectionMode ?? null,
+      })),
+      previewColumns: sourcePreviewLabels,
+      sourceRows: fixtureSourceRows,
+    };
+    report.target.qaIsolation.workflowMutations.push('native UI added Patient.name[].family with ALL projection and Patient.gender, producing the exact three authored source columns before Group entry');
+    report.target.legacySourceShape = {
+      status: 'not-covered-by-authored-three-column-case',
+      source: 'scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs Basic branch',
+      columns: legacyBasicSourceLabels,
+    };
+    check('correctness', 'fresh Patient source table renders exact authored ID, family-list, and gender values', true, {
+      columns: sourcePreviewLabels,
+      sourcePaths: authoredSourcePaths,
+      familyProjectionMode: familyColumn.source.field.projectionMode,
+      rows: fixtureSourceRows,
+      rawSourceColumnIdentity: report.target.table.sourceColumns,
+    });
+  }
 
   const groupProposalPath = `${apiRoot}/authoring/v2/construction-proposals`;
   const groupRequests = [];
@@ -1053,10 +1276,12 @@ export const groupEntryWorkflow = async (workflow, context) => {
       && Boolean(document.querySelector('[data-testid="construction-removal-summary"]'))),
   }));
   const removalSourcePreview = removalPreviewCapture.exchange.payload?.preview;
-  assert.deepEqual(removalSourcePreview?.columns?.map(column => column.label), authoredSourceLabels,
-    'Group removal proposal must restore the exact three native authored Patient source columns.');
-  assert.deepEqual(sourceRowsFromPreview(removalSourcePreview, sourceIdColumn.label), fixtureSourceRows,
-    'Group removal proposal must restore exact ID, family-list, and gender values from Patient.ndjson.');
+  assert.deepEqual(removalSourcePreview?.columns?.map(column => column.label), sourcePreviewLabels,
+    'Group removal proposal must restore the exact source preview columns for this registered fixture shape.');
+  if (rawBasicCase) assert.deepEqual(flatSourceRowsFromPreview(removalSourcePreview), expectedFlatSourceRows,
+    'Group removal must restore all five exact flattened source columns, including both indexed values and name__count.');
+  assert.deepEqual(sourceRowsForPreview(removalSourcePreview), fixtureSourceRows,
+    'Group removal proposal must restore the exact ID, family, count, and gender values from Patient.ndjson.');
   const restoredPreview = await page.evaluate(() => {
     const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
     const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
@@ -1068,11 +1293,13 @@ export const groupEntryWorkflow = async (workflow, context) => {
       })));
     return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
   });
-  assertRenderedHeaders(restoredPreview.headers, authoredSourceLabels,
-    'Rendered removal proposal must contain the exact three authored source column labels.');
-  assert.deepEqual(sourceRowsFromRendered(restoredPreview, sourceIdColumn.label), fixtureSourceRows,
-    'Rendered removal proposal must restore the exact Patient.ndjson ID, family-list, and gender values.');
-  const removalRestoredRows = sourceRowsFromRendered(restoredPreview, sourceIdColumn.label);
+  assertRenderedHeaders(restoredPreview.headers, sourcePreviewLabels,
+    'Rendered removal proposal must contain the exact source columns for this registered fixture shape.');
+  if (rawBasicCase) assert.deepEqual(flatSourceRowsFromRendered(restoredPreview), expectedFlatSourceRows,
+    'Rendered Group removal must restore all five exact flattened source columns, including both indexed values and name__count.');
+  assert.deepEqual(sourceRowsForRendered(restoredPreview), fixtureSourceRows,
+    'Rendered removal proposal must restore the exact Patient.ndjson ID, family, count, and gender values.');
+  const removalRestoredRows = sourceRowsForRendered(restoredPreview);
   assert.deepEqual(removalRestoredRows.map(row => row.id), fixtureIDs,
     'removing Group must preview the exact two original Patient rows');
   check('correctness', 'Group removal previews both literal source Patient rows', true, {
@@ -1138,22 +1365,15 @@ export const groupEntryWorkflow = async (workflow, context) => {
   await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible' });
   await waitForBuilderRenderedGrid(page, {
     tableSelector: renderedTableSelector,
-    expectedRows: renderedSourceRowExpectations(fixtureSourceRows, sourceIdColumn.label),
+    expectedRows: renderedSourceExpectations(fixtureSourceRows),
   });
-  const restoredRows = await page.evaluate(({ tableSelector }) => {
-    const table = document.querySelector(tableSelector);
-    const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
-    const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
-    const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
-      text: cell.innerText.replace(/\s+/g, ' ').trim(),
-      title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
-    })));
-    return { headers, rawRows, rows: rawRows.map(row => row.map(cell => cell.text)) };
-  }, { tableSelector: renderedTableSelector });
-  assertRenderedHeaders(restoredRows.headers, authoredSourceLabels,
-    'Reload after Group removal must render the exact three authored source columns.');
-  assert.deepEqual(sourceRowsFromRendered(restoredRows, sourceIdColumn.label), fixtureSourceRows,
-    'Reload after Group removal must restore exact Patient.ndjson ID, family-list, and gender values.');
+  const restoredRows = await readRenderedBuilderRows(page);
+  assertRenderedHeaders(restoredRows.headers, sourcePreviewLabels,
+    'Reload after Group removal must render the exact source columns for this registered fixture shape.');
+  if (rawBasicCase) assert.deepEqual(flatSourceRowsFromRendered(restoredRows), expectedFlatSourceRows,
+    'Reload after Group removal must restore both indexed values and the exact name__count values.');
+  assert.deepEqual(sourceRowsForRendered(restoredRows), fixtureSourceRows,
+    'Reload after Group removal must restore exact Patient.ndjson ID, family, count, and gender values.');
   const restoredBuilder = await readBuilder();
   const restoredDocument = restoredBuilder.workspace.documents.find(item => item.output?.id === outputId);
   assert.deepEqual(restoredDocument?.columns?.map(column => ({
@@ -1163,7 +1383,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     projectionMode: column.source?.field?.projectionMode ?? null,
   })), report.target.table.sourceColumns,
   'Reload after Group removal must restore each original source column binding and identity.');
-  const restoredSourceRows = sourceRowsFromRendered(restoredRows, sourceIdColumn.label);
+  const restoredSourceRows = sourceRowsForRendered(restoredRows);
   const restoredIDs = restoredSourceRows.map(row => row.id);
   assert.deepEqual(restoredIDs, fixtureIDs, 'removing Group and reloading must restore both exact source Patient IDs');
   journeyTrace.unmodeledEvents.push({
@@ -1184,7 +1404,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     kind: 'table-preview',
     status: 'ready',
     rowCount: fixtureIDs.length,
-    columns: authoredSourceLabels,
+    columns: sourcePreviewLabels,
     restoredRowCount: fixtureIDs.length,
     restoredColumns: restoredRows.headers,
   };
