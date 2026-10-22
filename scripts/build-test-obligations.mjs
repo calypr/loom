@@ -162,9 +162,22 @@ function callArgumentsAt(lines, lineNumber, callPattern) {
 
 function diagnosticReporterSummary(lines) {
   const source = lines.join('\n');
+  let recordCheckStatusIndex = null;
+  if (/\bimport\s*\{[^}]*\brecordCheck\b[^}]*\}\s*from\s*['"][^'"]*report\.mjs['"]/.test(source)) {
+    recordCheckStatusIndex = 3;
+  } else {
+    const declaration = source.match(/\b(?:const|let|var)\s+recordCheck\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>|\bfunction\s+recordCheck\s*\(([^)]*)\)/);
+    const parameters = declaration?.[1] ?? declaration?.[2];
+    if (parameters !== undefined) {
+      const statusIndex = parameters.split(',').map((parameter) => parameter.trim().split('=')[0].trim())
+        .findIndex((parameter) => /^(passed|success|condition|check|ok|valid|isValid|result|didPass)$/i.test(parameter));
+      if (statusIndex >= 0) recordCheckStatusIndex = statusIndex;
+    }
+  }
   return {
+    recordCheckStatusIndex,
     unconditionalPassedRecordAssertion: /\b(?:const|let)\s+recordAssertion\s*=\s*\([^)]*\)\s*=>\s*report\.assertions\.push\s*\(\s*\{[^}]*\bstatus\s*:\s*['"]passed['"][^}]*\}\s*\)/.test(source),
-    unconditionalTrueRecordCheck: /\b(?:const|let)\s+recordCheck\s*=\s*\([^)]*\)\s*=>\s*cda\.check\s*\([\s\S]{0,300}?,\s*true\s*,/.test(source),
+    unconditionalTrueRecordCheck: /\b(?:const|let)\s+recordCheck\s*=\s*\([^)]*\)\s*=>\s*cda\.check\s*\([^)]*,\s*true\s*,/.test(source),
   };
 }
 
@@ -172,7 +185,8 @@ function isDiagnosticAssertionRecorder(lines, lineNumber, reporterSummary) {
   const cdaCheckArgs = callArgumentsAt(lines, lineNumber, /\bcda\.check\s*\(/);
   if (cdaCheckArgs[2] === 'true') return true;
   const recordCheckArgs = callArgumentsAt(lines, lineNumber, /\brecordCheck\s*\(/);
-  if (recordCheckArgs.includes('true')) return true;
+  if (reporterSummary.recordCheckStatusIndex !== null
+    && recordCheckArgs[reporterSummary.recordCheckStatusIndex] === 'true') return true;
   if (reporterSummary.unconditionalPassedRecordAssertion && /\brecordAssertion\s*\(/.test(lines[lineNumber - 1] ?? '')) return true;
   return reporterSummary.unconditionalTrueRecordCheck && /\brecordCheck\s*\(/.test(lines[lineNumber - 1] ?? '');
 }
@@ -697,7 +711,7 @@ function selfTestCatalogValidation() {
     ...context,
     reviewedBlobInfos: new Map([[sourcePath, {
       ...context.reviewedBlobInfos.get(sourcePath),
-      sourceLines: ['assert.deepEqual(actual, expected);', 'recordCheck(report, \'correctness\', \'status label\', true, evidence);'],
+      sourceLines: ['import { recordCheck } from \'../helpers/report.mjs\';', 'recordCheck(report, \'correctness\', \'status label\', true, evidence);'],
     }]]),
   };
   expectError('recordCheck reporter is not a test assertion', diagnosticRecordCheck, 'diagnostic check/recordCheck/recordAssertion reporter', recordCheckContext);
@@ -710,12 +724,27 @@ function selfTestCatalogValidation() {
     reviewedBlobInfos: new Map([[sourcePath, {
       ...context.reviewedBlobInfos.get(sourcePath),
       sourceLines: [
-        'function recordCheck(name, passed) { if (!passed) throw new Error(name); }',
-        'recordCheck(\'row count matches fixture\', actualRows.length === 2);',
+        'function recordCheck(name, condition, evidence) { if (!condition) throw new Error(name); }',
+        'recordCheck(\'row count matches fixture\', actualRows.length === 2, true);',
       ],
     }]]),
   };
-  assert(errorsFor(predicateRecordCheck, predicateRecordCheckContext).length === 0, 'real boolean predicate wrapper remains a valid test assertion');
+  assert(errorsFor(predicateRecordCheck, predicateRecordCheckContext).length === 0, 'real predicate wrapper with boolean evidence remains a valid test assertion');
+
+  const unconditionalRecordCheck = validCatalog();
+  unconditionalRecordCheck.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:forced-check';
+  unconditionalRecordCheck.files[0].assertions[0].sourceLines = [2];
+  const unconditionalRecordCheckContext = {
+    ...context,
+    reviewedBlobInfos: new Map([[sourcePath, {
+      ...context.reviewedBlobInfos.get(sourcePath),
+      sourceLines: [
+        'const recordCheck = (name, evidence) => cda.check(\'correctness\', name, true, evidence);',
+        'recordCheck(\'row property label\', actualRows);',
+      ],
+    }]]),
+  };
+  expectError('unconditional same-file recordCheck is not a test assertion', unconditionalRecordCheck, 'diagnostic check/recordCheck/recordAssertion reporter', unconditionalRecordCheckContext);
 
   const diagnosticRecordAssertion = validCatalog();
   diagnosticRecordAssertion.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:recorded-assertion';
@@ -758,7 +787,7 @@ function selfTestCatalogValidation() {
   diagnosticCallThrough.files[0].assertions[0].evidenceKind = 'call-through';
   assert(errorsFor(diagnosticCallThrough).length === 0, 'literal-true diagnostic may be catalogued as a call-through');
 
-  console.log('PASS semantic catalog validation self-test: 25 positive and negative fixtures');
+  console.log('PASS semantic catalog validation self-test: 26 positive and negative fixtures');
 }
 
 function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog) {
