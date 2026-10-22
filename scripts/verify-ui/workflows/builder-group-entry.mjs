@@ -241,10 +241,11 @@ const assertRenderedHeaders = (actual, expected, message) => assert.deepEqual(
 );
 
 const writeAndReplayGroupJourney = (journeyTrace, report, fixture) => {
+  const artifactStem = journeyTrace.name.replaceAll(':', '-');
   const tracePath = process.env.LOOM_JOURNEY_TRACE
     ? resolve(repositoryRoot, process.env.LOOM_JOURNEY_TRACE)
-    : join(report.evidenceDirectory, 'builder-authoring-group-entry-trace.json');
-  const replayReportPath = join(report.evidenceDirectory, 'builder-authoring-group-entry-tla.json');
+    : join(report.evidenceDirectory, `${artifactStem}-trace.json`);
+  const replayReportPath = join(report.evidenceDirectory, `${artifactStem}-tla.json`);
   const tracePayload = {
     schemaVersion: 1,
     ...journeyTraceProvenance(),
@@ -527,7 +528,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const initialObservation = await captureBuilderObservation(page);
   const traceActions = [];
   const journeyTrace = {
-    name: 'builder-authoring:group-entry',
+    name: `builder-authoring:${context.args.caseName}`,
     model: 'BuilderJourney',
     initialObservation,
     initialPreview: {

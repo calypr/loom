@@ -675,7 +675,7 @@ export const registry = Object.freeze([
         playwrightGrep: 'Group edit and removal preserve the raw five-column Basic Patient table$',
         populateBootstrap: true,
         journeyTrace: {
-          name: 'builder-authoring:group-entry',
+          name: 'builder-authoring:group-entry-raw-basic',
           requiredActions: ['EditGroupAgain'],
         },
         focusedChecks: [

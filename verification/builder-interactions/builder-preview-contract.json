@@ -44,7 +44,7 @@
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "373e5af7f1536e9c3a739a78d60948df0d1d9a1f5eddad1e6f5d0122b6379db7",
+      "sha256": "7e4237ce1caec53f3d5151d88c0b84ce3a607ede608c9d96371b4d603ff5a245",
       "contract": "Trace mutation controls for reconcile stale receipt/output takeover, request ownership, response binding, and settlement order."
     },
     {
@@ -334,7 +334,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-edit-remove-contract.json",
-      "sha256": "bf32c2c57503f3e4fbbef2d7fd234efeba460cfde3185b684a74e1678b7fa7f1",
+      "sha256": "f948a27c3af1c32cfc0afe49ed85f8c8d015a5ccf77928ea34f0b4b1a6cf79d4",
       "contract": "Selected edit/remove Journey actions and expected trace contract."
     },
     {
@@ -374,12 +374,12 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "a07fdea6ba0a07b23715f9327133efcf7eb5201f496559e351800d6ab272a123",
+      "sha256": "7a6f085e243c7a5a4ebdfe6daf4071e62c75e722e7a1d774dbb51c183224c38a",
       "contract": "Registered native cases, trace requirements, focused checks, and Group-entry behavioral assertions."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "f2c508a4c8941289771eca315e6d0448415266e89f9d8559877da8f8ba285089",
+      "sha256": "84101424264c5591fd2e2e151ff7a7669c0c18743f42e6685e77dbe204add7db",
       "contract": "Registered native Group lifecycles with exact authored-three and raw Basic Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
     }
   ]

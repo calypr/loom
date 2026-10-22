@@ -1193,28 +1193,37 @@ if (journeyOnly) {
   let repeatEditRequiredPassed = true;
   let lateAbortOwnerPassed = true;
   if (tracesPath && contractPath.endsWith('builder-edit-remove-contract.json')) {
-    const groupTrace = payload.traces?.find(trace => trace.name === 'builder-authoring:group-entry');
-    if (!groupTrace || !groupTrace.actions?.some(action => action.label === 'EditGroupAgain')) {
-      console.error('FAIL BuilderJourney repeat-edit owner control: candidate trace lacks the canonical second applied Group edit.');
+    const groupTraceNames = new Set([
+      'builder-authoring:group-entry',
+      'builder-authoring:group-entry-raw-basic',
+    ]);
+    const groupTrace = payload.traces?.find(trace => groupTraceNames.has(trace.name));
+    if (groupTrace && !groupTrace.actions?.some(action => action.label === 'EditGroupAgain')) {
+      console.error(`FAIL BuilderJourney repeat-edit owner control: ${groupTrace.name} lacks its second applied Group edit.`);
       repeatEditOwnerPassed = false;
-    } else if (!runPositiveBaseline()) {
+      repeatEditRequiredPassed = false;
+    } else if (groupTrace && !runPositiveBaseline()) {
       repeatEditOwnerPassed = false;
-    } else {
+    } else if (groupTrace) {
+      const groupTraceName = groupTrace.name;
       const mutatedTracePassed = runMutation('edit-group-again-noncurrent-owner', mutated => {
         const hit = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
-          trace.name === 'builder-authoring:group-entry' && action.label === 'EditGroupAgain'));
+          trace.name === groupTraceName && action.label === 'EditGroupAgain'));
         if (hit) hit.action.owner = {
           ...hit.action.owner,
           attempt: hit.action.owner.attempt === 'P1' ? 'P2' : 'P1',
         };
       }, semanticFailureFor('EditGroupAgain'), { allowPartial: true });
       repeatEditOwnerPassed = mutatedTracePassed;
-      repeatEditRequiredPassed = runMutation('group-entry-repeat-edit-required', mutated => {
-        const trace = mutated.traces?.find(candidate => candidate.name === 'builder-authoring:group-entry');
+      const requiredActionControl = groupTraceName.endsWith('-raw-basic')
+        ? 'group-entry-raw-basic-repeat-edit-required'
+        : 'group-entry-repeat-edit-required';
+      repeatEditRequiredPassed = runMutation(requiredActionControl, mutated => {
+        const trace = mutated.traces?.find(candidate => candidate.name === groupTraceName);
         if (trace) trace.actions = trace.actions.filter(action => action.label !== 'EditGroupAgain');
-      }, 'trace "builder-authoring:group-entry" missing required actions: EditGroupAgain');
+      }, `trace "${groupTraceName}" missing required actions: EditGroupAgain`);
       const lateAbortedPreview = findTraceAction(payload.traces, (trace, action) =>
-        trace.name === 'builder-authoring:group-entry'
+        trace.name === groupTraceName
         && action.label === 'LatePreviewErrorIgnored'
         && action.response === null
         && action.settlement?.kind === 'request-failed'
@@ -1222,7 +1231,7 @@ if (journeyOnly) {
       if (lateAbortedPreview) {
         lateAbortOwnerPassed = runMutation('late-aborted-preview-must-be-noncurrent-owner', mutated => {
           const hit = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
-            trace.name === 'builder-authoring:group-entry'
+            trace.name === groupTraceName
             && action.label === 'LatePreviewErrorIgnored'
             && action.response === null
             && action.settlement?.kind === 'request-failed'

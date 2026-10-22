@@ -122,6 +122,9 @@
     "requiredActionsByTrace": {
       "builder-authoring:group-entry": [
         "EditGroupAgain"
+      ],
+      "builder-authoring:group-entry-raw-basic": [
+        "EditGroupAgain"
       ]
     },
     "requiredEvents": [
