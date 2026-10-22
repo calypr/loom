@@ -1856,12 +1856,31 @@ if (formalLinks.length === 0) lines.push('No file is currently marked as formall
 lines.push('');
 lines.push('These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.');
 lines.push('');
-lines.push('### Cleanup review order');
+lines.push('### Dispositions and replacement evidence');
 lines.push('');
-lines.push('1. Close the remaining controller/reconcile and reload boundaries with runtime evidence where applicable; preserve independent data oracles.');
-lines.push('2. Review classified-but-unreplayed late/rejected runtime events before expanding the model claims.');
-lines.push('3. Consolidate duplicate test/route parsers and TLC acquisition only after proving equivalent behavior.');
-lines.push('4. Review each consolidation or retirement candidate against its replacement path, independent oracle, and exact required checks before removing it.');
+lines.push('| Disposition | Files |');
+lines.push('| --- | ---: |');
+for (const disposition of uniqueSorted(Object.keys(scriptCatalog.summary.dispositionCounts))) {
+  lines.push('| ' + disposition + ' | ' + scriptCatalog.summary.dispositionCounts[disposition] + ' |');
+}
+lines.push('');
+const dispositionReviewRows = scripts.filter((script) => script.disposition.kind !== 'keep');
+lines.push('| MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |');
+lines.push('| --- | --- | --- | --- | --- |');
+const markdownCell = (value) => String(value ?? '').replaceAll('|', '\\|').replace(/\s+/g, ' ').trim();
+for (const script of dispositionReviewRows) {
+  const replacement = [
+    ...(script.replacementProof?.paths ?? []),
+    ...(script.replacementProof?.evidence ?? []).map((evidence) => evidence.path + ' [' + evidence.kind + ']'),
+  ];
+  lines.push('| `' + markdownCell(script.path) + '` | ' + markdownCell(script.lifecycle + ' / ' + script.disposition.kind)
+    + ' | ' + markdownCell(script.purpose + ' ' + script.disposition.reason)
+    + ' | ' + markdownCell(replacement.join('; ') || '—')
+    + ' | ' + markdownCell(script.replacementProof?.gap || 'No remaining proof gap recorded.') + ' |');
+}
+if (dispositionReviewRows.length === 0) lines.push('| — | — | All MJS files are marked keep. | — | — |');
+lines.push('');
+lines.push('Disposition labels and replacement evidence come from the source catalog. They do not turn a candidate into runtime proof; independent oracles and replacement gates remain explicit in purpose, evidence, and any nonempty gap.');
 lines.push('');
 lines.push(report.scriptInventoryBounds);
 lines.push('');
