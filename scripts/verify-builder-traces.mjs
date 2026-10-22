@@ -775,6 +775,12 @@ function tlaBool(value) {
   return value ? 'TRUE' : 'FALSE';
 }
 
+function tlaOptionalBoolean(value) {
+  if (value === true) return '"true"';
+  if (value === false) return '"false"';
+  return '"unknown"';
+}
+
 function tlaObservedValue(value) {
   if (value === undefined || value === null) return '"NoObservedValue"';
   if (typeof value === 'string') return tlaString(value);
@@ -804,7 +810,7 @@ function tlaObservation(observation) {
     ', sourcePreviewProposalId |-> ' + tlaObservedValue(nestedObservedValue(observation, 'sourceTablePreview', 'proposalId')) +
     ', sourcePreviewDraftVersion |-> ' + tlaObservedValue(nestedObservedValue(observation, 'sourceTablePreview', 'draftVersion')) +
     ', sourcePreviewDraftDigest |-> ' + tlaObservedValue(nestedObservedValue(observation, 'sourceTablePreview', 'draftDigest')) +
-    ', sourcePreviewRowsPresent |-> ' + tlaObservedValue(nestedObservedValue(observation, 'sourceTablePreview', 'rowsPresent')) +
+    ', sourcePreviewRowsPresent |-> ' + tlaOptionalBoolean(nestedObservedValue(observation, 'sourceTablePreview', 'rowsPresent')) +
     ', sourcePreviewRowCount |-> ' + tlaObservedValue(nestedObservedValue(observation, 'sourceTablePreview', 'rowCount')) +
     ', sourcePreviewRenderedRowCount |-> ' + tlaObservedValue(nestedObservedValue(observation, 'sourceTablePreview', 'renderedRowCount')) +
     ', embeddedPreviewStatus |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'status')) +
@@ -813,12 +819,12 @@ function tlaObservation(observation) {
     ', embeddedPreviewProposalId |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'proposalId')) +
     ', embeddedPreviewDraftVersion |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'draftVersion')) +
     ', embeddedPreviewDraftDigest |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'draftDigest')) +
-    ', embeddedPreviewRowsPresent |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'rowsPresent')) +
+    ', embeddedPreviewRowsPresent |-> ' + tlaOptionalBoolean(nestedObservedValue(observation, 'embeddedProposalPreview', 'rowsPresent')) +
     ', embeddedPreviewRowCount |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'rowCount')) +
     ', embeddedPreviewRenderedRowCount |-> ' + tlaObservedValue(nestedObservedValue(observation, 'embeddedProposalPreview', 'renderedRowCount')) +
-    ', applyAvailable |-> ' + tlaObservedValue(nestedObservedValue(observation, 'apply', 'available')) +
-    ', applyEnabled |-> ' + tlaObservedValue(nestedObservedValue(observation, 'apply', 'enabled')) +
-    ', applying |-> ' + tlaObservedValue(nestedObservedValue(observation, 'apply', 'applying')) +
+    ', applyAvailable |-> ' + tlaOptionalBoolean(nestedObservedValue(observation, 'apply', 'available')) +
+    ', applyEnabled |-> ' + tlaOptionalBoolean(nestedObservedValue(observation, 'apply', 'enabled')) +
+    ', applying |-> ' + tlaOptionalBoolean(nestedObservedValue(observation, 'apply', 'applying')) +
     ', canApply |-> ' + tlaBool(observation.canApply) +
     ', proposalIdPresent |-> ' + tlaBool(observation.proposalIdPresent) +
     ', previewReceiptPresent |-> ' + tlaBool(observation.previewReceiptPresent) +
@@ -866,8 +872,8 @@ function builderJourneyObservationMapping(prime) {
     '  /\\ (obs.embeddedPreviewStatus = "error" => (' + preview + ' = "error"))',
     '  /\\ (obs.tablePreviewStatus = "ready" => (' + tablePreview + ' = "ready"))',
     '  /\\ (obs.tablePreviewStatus = "error" => (' + tablePreview + ' = "error"))',
-    '  /\\ (obs.sourcePreviewRowsPresent = TRUE => ' + sourceRowsPresent + ')',
-    '  /\\ (obs.sourcePreviewRowsPresent = FALSE => ~' + sourceRowsPresent + ')',
+    '  /\\ (obs.sourcePreviewRowsPresent = "true" => ' + sourceRowsPresent + ')',
+    '  /\\ (obs.sourcePreviewRowsPresent = "false" => ~' + sourceRowsPresent + ')',
     '  /\\ obs.proposalIdPresent <=> ' + proposalIdPresent,
     '  /\\ obs.previewReceiptPresent <=> (' + preview + ' = "ready")',
     '  /\\ obs.receiptPresent <=> (' + preview + ' = "ready")',
@@ -875,10 +881,10 @@ function builderJourneyObservationMapping(prime) {
     '  /\\ obs.canApply <=> ((' + preview + ' = "ready") /\\ ' + proposalIdPresent + ' /\\ rowsPresent' + prime + ')',
     '  /\\ (obs.canApply => obs.previewReceiptId = obs.proposalId)',
     '  /\\ (obs.canApply => obs.previewOutputId = obs.proposalOutputId)',
-    '  /\\ (obs.embeddedPreviewRowsPresent = TRUE => rowsPresent' + prime + ')',
-    '  /\\ (obs.embeddedPreviewRowsPresent = FALSE => ~rowsPresent' + prime + ')',
-    '  /\\ (obs.applyEnabled = TRUE => obs.applyAvailable = TRUE)',
-    '  /\\ (obs.applying = TRUE => obs.applyAvailable = TRUE)',
+    '  /\\ (obs.embeddedPreviewRowsPresent = "true" => rowsPresent' + prime + ')',
+    '  /\\ (obs.embeddedPreviewRowsPresent = "false" => ~rowsPresent' + prime + ')',
+    '  /\\ (obs.applyEnabled = "true" => obs.applyAvailable = "true")',
+    '  /\\ (obs.applying = "true" => obs.applyAvailable = "true")',
   ].join('\n');
 }
 
