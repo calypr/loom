@@ -395,7 +395,7 @@ function journeyPreviewEvidenceProblem(action, where) {
   for (const [responseField, observedValue, message] of pairs) {
     const responseValue = response[responseField];
     if (responseValue !== undefined && responseValue !== null &&
-        observedValue !== undefined && observedValue !== null && responseValue !== observedValue) {
+        (observedValue === undefined || observedValue === null || responseValue !== observedValue)) {
       return where + ' ' + message;
     }
   }
@@ -406,13 +406,14 @@ function journeyPreviewEvidenceProblem(action, where) {
     ];
     for (const [responseField, observedValue, responseName, observedName] of previewPairs) {
       const responseValue = response.preview[responseField];
-      if (responseValue !== undefined && responseValue !== null && observedValue !== undefined && observedValue !== null && responseValue !== observedValue) {
+      if (responseValue !== undefined && responseValue !== null &&
+          (observedValue === undefined || observedValue === null || responseValue !== observedValue)) {
         return where + ' response.' + responseName + ' does not match displayed observation.' + observedName;
       }
     }
     const renderedRows = embedded?.rowsPresent;
-    if (typeof response.preview.rowsPresent === 'boolean' && typeof renderedRows === 'boolean' &&
-        response.preview.rowsPresent !== renderedRows) {
+    if (typeof response.preview.rowsPresent === 'boolean' &&
+        (typeof renderedRows !== 'boolean' || response.preview.rowsPresent !== renderedRows)) {
       return where + ' response.preview.rowsPresent does not match displayed observation.embeddedProposalPreview.rowsPresent';
     }
   }
