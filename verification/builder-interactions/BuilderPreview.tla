@@ -120,14 +120,21 @@ ReplaceProposal ==
        pivotMissing, presenceTracked
      >>
 
-ProposalComplete ==
+ProposalComplete(embeddedPreview) ==
   /\ proposalPhase = "pending"
+  /\ embeddedPreview \in BOOLEAN
   /\ proposalPhase' =
        IF proposalOwner.draft = currentDraft THEN "ready" ELSE "error"
+  /\ previewPhase' = IF embeddedPreview THEN "ready" ELSE previewPhase
+  /\ previewOwner' = IF embeddedPreview
+       THEN [generation |-> proposalOwner.generation,
+             draft |-> acceptedDraft,
+             receipt |-> proposalOwner.receipt]
+       ELSE previewOwner
   /\ lastAction' = "ProposalComplete"
   /\ UNCHANGED <<
-       currentDraft, acceptedDraft, proposalOwner, previewPhase,
-       previewOwner, applyPhase, applyOwner, applyAckTarget, applyAckResult,
+       currentDraft, acceptedDraft, proposalOwner,
+       applyPhase, applyOwner, applyAckTarget, applyAckResult,
        discoveryPhase, discoveryDraft, discoveryCategory, discoveryValue,
        discoveryResultDraft, discoveryResultCategory, discoveryResultValue,
        pivotMounted, pivotMissing, presenceTracked
@@ -412,7 +419,7 @@ AdoptDiscovery ==
 Next ==
   \/ StartProposal
   \/ ReplaceProposal
-  \/ ProposalComplete
+  \/ \E embeddedPreview \in BOOLEAN: ProposalComplete(embeddedPreview)
   \/ ProposalError
   \/ LateProposalComplete
   \/ CancelProposal

@@ -38,6 +38,8 @@
         "CancelProposalOwner",
         "ProposalComplete(P1)",
         "ProposalComplete(P2)",
+        "StartPreview(P1)",
+        "StartPreview(P2)",
         "ProposalError(P1)",
         "ProposalError(P2)",
         "LateProposalErrorIgnored(P1)",
@@ -202,6 +204,126 @@
     "DiscoveryComplete": {
       "event": "construction-discovery",
       "trigger": "the discovery response settles"
+    },
+    "LateProposalCompleteIgnored": {
+      "event": "proposal-response",
+      "trigger": "a retired proposal owner response is ignored"
+    },
+    "LatePreviewCompleteIgnored": {
+      "event": "preview-response",
+      "trigger": "a retired preview owner response is ignored"
+    },
+    "AcceptCurrentDraft": {
+      "event": "identity-change",
+      "trigger": "the current draft is accepted and pending work is cleared"
+    },
+    "ChangePivotKey": {
+      "event": "identity-change",
+      "trigger": "the pivot category or value key changes"
+    },
+    "UnmountEditor": {
+      "event": "unmount",
+      "trigger": "the pivot editor unmounts and pending discovery is ignored"
+    },
+    "AdoptDiscovery": {
+      "event": "construction-discovery",
+      "trigger": "the current discovery result is adopted"
+    },
+    "StartProposal(P2)": {
+      "event": "propose-construction",
+      "trigger": "ConstructionLifecycle starts proposal attempt P2"
+    },
+    "ReplaceProposalOwner": {
+      "event": "propose-construction",
+      "trigger": "a new proposal request replaces the active owner"
+    },
+    "RetryProposal(P1-to-P2)": {
+      "event": "retry",
+      "trigger": "the failed P1 proposal is retried as P2"
+    },
+    "CancelProposalOwner": {
+      "event": "cancel",
+      "trigger": "the current proposal owner is canceled"
+    },
+    "ProposalComplete(P2)": {
+      "event": "proposal-response",
+      "trigger": "proposal attempt P2 settles with a response"
+    },
+    "ProposalError(P1)": {
+      "event": "proposal-response",
+      "trigger": "proposal attempt P1 rejects or returns an unusable response"
+    },
+    "ProposalError(P2)": {
+      "event": "proposal-response",
+      "trigger": "proposal attempt P2 rejects or returns an unusable response"
+    },
+    "LateProposalErrorIgnored(P1)": {
+      "event": "proposal-response",
+      "trigger": "retired proposal attempt P1 rejects and is ignored"
+    },
+    "LateProposalErrorIgnored(P2)": {
+      "event": "proposal-response",
+      "trigger": "retired proposal attempt P2 rejects and is ignored"
+    },
+    "LateProposalCompleteIgnored(P1)": {
+      "event": "proposal-response",
+      "trigger": "retired proposal attempt P1 response is ignored"
+    },
+    "LateProposalCompleteIgnored(P2)": {
+      "event": "proposal-response",
+      "trigger": "retired proposal attempt P2 response is ignored"
+    },
+    "StartPreview(P1)": {
+      "event": "preview",
+      "trigger": "fallback preview request for proposal attempt P1 starts"
+    },
+    "StartPreview(P2)": {
+      "event": "preview",
+      "trigger": "fallback preview request for proposal attempt P2 starts"
+    },
+    "PreviewComplete(P1)": {
+      "event": "preview-response",
+      "trigger": "fallback preview response for proposal attempt P1 settles"
+    },
+    "PreviewComplete(P2)": {
+      "event": "preview-response",
+      "trigger": "fallback preview response for proposal attempt P2 settles"
+    },
+    "PreviewError(P1)": {
+      "event": "preview-response",
+      "trigger": "fallback preview transport request for proposal attempt P1 rejects"
+    },
+    "PreviewError(P2)": {
+      "event": "preview-response",
+      "trigger": "fallback preview transport request for proposal attempt P2 rejects"
+    },
+    "LatePreviewErrorIgnored(P1)": {
+      "event": "preview-response",
+      "trigger": "retired preview request for proposal attempt P1 rejects and is ignored"
+    },
+    "LatePreviewErrorIgnored(P2)": {
+      "event": "preview-response",
+      "trigger": "retired preview request for proposal attempt P2 rejects and is ignored"
+    },
+    "LatePreviewCompleteIgnored(P1)": {
+      "event": "preview-response",
+      "trigger": "retired preview response for proposal attempt P1 is ignored"
+    },
+    "LatePreviewCompleteIgnored(P2)": {
+      "event": "preview-response",
+      "trigger": "retired preview response for proposal attempt P2 is ignored"
+    },
+    "BeginApply(rejected)": {
+      "event": "begin-apply",
+      "trigger": "beginApply rejects a proposal that is not the current applicable owner"
+    },
+    "SetTablesRooted": {
+      "event": "input-change",
+      "trigger": "the authored tables-rooted condition changes"
+    },
+    "SetSnapshotPresent": {
+      "event": "input-change",
+      "trigger": "the current snapshot availability changes"
     }
   },
   "observationFields": [
@@ -213,44 +335,41 @@
     "receiptPresent"
   ],
   "phase1": {
-    "expectedTraceCount": 70,
-    "expectedScheduleCount": 70,
+    "expectedTraceCount": 62,
+    "expectedScheduleCount": 62,
     "expectedFindingCount": 0,
     "requiredModels": [
       "BuilderPreview",
-      "ConstructionLifecycle",
-      "ReconcileLifecycle"
+      "ConstructionLifecycle"
     ],
     "requiredActions": [
-      "StartProposal",
-      "ReplaceProposal",
-      "ProposalComplete",
-      "ProposalError",
-      "CancelProposal",
-      "RetryProposal",
-      "StartPreview",
-      "PreviewComplete",
-      "BeginApply",
       "ApplyAck",
-      "ChangeDraft",
-      "StartProposal(P1)",
+      "BeginApply",
+      "BeginApply(accepted)",
+      "BeginApply(rejected)",
+      "CancelProposalOwner",
       "ChangeDraftIdentity(A-to-B)",
       "ChangeDraftIdentity(B-to-A)",
+      "DiscoveryComplete",
+      "LatePreviewCompleteIgnored(P1)",
+      "LateProposalCompleteIgnored(P1)",
+      "LateProposalErrorIgnored(P1)",
+      "PreviewComplete(P2)",
+      "PreviewError(P2)",
+      "ProposalComplete",
       "ProposalComplete(P1)",
-      "BeginApply(accepted)",
-      "RequestReconcile",
-      "RetryReconcile",
-      "ReconcileSuccess",
-      "ReconcileStale",
-      "ReconcileConflict",
-      "ReconcileInvalid",
-      "ReconcileFailure(retryable)",
-      "ReconcileFailure(fatal)",
-      "ClearReceipt",
-      "AuthoredChange",
-      "SetPivotPair",
+      "ProposalComplete(P2)",
+      "ProposalError(P1)",
+      "ProposalError(P2)",
+      "ReplaceProposal",
+      "ReplaceProposalOwner",
+      "RetryProposal(P1-to-P2)",
       "ScheduleDiscovery",
-      "DiscoveryComplete"
+      "SetPivotPair",
+      "StartPreview(P1)",
+      "StartPreview(P2)",
+      "StartProposal",
+      "StartProposal(P1)"
     ],
     "requiredEvents": [
       "propose-construction",
@@ -262,20 +381,12 @@
       "begin-apply",
       "finish-apply",
       "identity-change",
-      "reconcile-request",
-      "reconcile-retry",
-      "reconcile-response",
       "pivot-mounted",
       "construction-discovery"
-    ]
+    ],
+    "expectedTestCount": 70
   },
-  "unmodeledEventPolicy": {
-    "BeginApply(rejected)": "A rejected beginApply is a no-op by contract; ownership and preview state must remain unchanged. Covered by lifecycle beginApply acceptance schedules.",
-    "LatePreviewCompleteIgnored": "A preview settlement from an older owner or draft is ignored; it cannot satisfy the current preview. Covered by late-preview schedules in BuilderPreview.tla.",
-    "LateProposalCompleteIgnored": "A proposal settlement from an older generation or replaced owner is ignored; it cannot become the current proposal. Covered by replacement and late-proposal schedules.",
-    "LateProposalErrorIgnored": "A proposal error from an older generation or replaced owner is ignored; it cannot retire the current proposal. Covered by replacement and late-proposal schedules.",
-    "late-reconcile-ignored": "A reconcile response from an older generation, explorer, or workspace fingerprint is ignored; the result identity guard rejects it. Covered by the reconcile identity schedule."
-  },
+  "unmodeledEventPolicy": {},
   "schedules": {
     "reconcile-recovery": {
       "test": "reconcile recovery formal schedule",
@@ -321,5 +432,6 @@
         "retained categories"
       ]
     }
-  }
+  },
+  "sourceProfile": "formal"
 }

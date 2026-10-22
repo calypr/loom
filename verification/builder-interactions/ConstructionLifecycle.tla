@@ -303,10 +303,10 @@ ProposalComplete(attempt, baseMatches, statusReady, hasProposalId,
   /\ responseMatches' = [responseMatches EXCEPT ![attempt] = baseMatches]
   /\ proposalIdPresent' =
        [proposalIdPresent EXCEPT ![attempt] =
-         baseMatches /\ statusReady /\ hasProposalId]
+         baseMatches /\ hasProposalId]
   /\ proposalReceipt' =
        [proposalReceipt EXCEPT ![attempt] =
-         IF baseMatches /\ statusReady /\ hasProposalId
+         IF baseMatches /\ hasProposalId
          THEN ReceiptFor(attempt) ELSE NoReceipt]
   /\ responseOutput' =
        [responseOutput EXCEPT ![attempt] =
@@ -348,7 +348,10 @@ ProposalError(attempt) ==
 LateProposalSettlementIgnored(attempt, isError) ==
   /\ attempt \in Attempts
   /\ isError \in BOOLEAN
-  /\ attemptPhase[attempt] = RetiredProposalPending
+  /\ \/ attemptPhase[attempt] = RetiredProposalPending
+     \/ /\ owner = attempt
+        /\ attemptPhase[attempt] = ProposalPending
+        /\ requestIdentity[attempt] # currentIdentity
   /\ attemptPhase' = [attemptPhase EXCEPT ![attempt] = RetiredDone]
   /\ lastAction' =
        IF isError
@@ -387,6 +390,19 @@ PreviewComplete(attempt, returnedReceipt, returnedOutput, rowsNonNull) ==
   /\ UNCHANGED <<
        currentIdentity, owner, generation, ownerGeneration, requestIdentity,
        responseMatches, proposalIdPresent, proposalReceipt, responseOutput,
+       overrideOwner, overrideState, applyWitness, lastBeginApplyResult,
+       lastBeginApplyExpected, lastBeginApplyFieldsMatch
+     >>
+
+StartPreview(attempt) ==
+  /\ attempt \in Attempts
+  /\ owner = attempt
+  /\ attemptPhase[attempt] = PreviewPending
+  /\ lastAction' = IF attempt = Attempt1 THEN "StartPreview(P1)" ELSE "StartPreview(P2)"
+  /\ UNCHANGED <<
+       currentIdentity, owner, generation, ownerGeneration, attemptPhase,
+       requestIdentity, responseMatches, proposalIdPresent, proposalReceipt,
+       responseOutput, previewReceipt, previewOutput, previewRowsNonNull,
        overrideOwner, overrideState, applyWitness, lastBeginApplyResult,
        lastBeginApplyExpected, lastBeginApplyFieldsMatch
      >>
@@ -599,6 +615,7 @@ TypeOK ==
        "Init", "ChangeDraftIdentity(A-to-B)", "ChangeDraftIdentity(B-to-A)",
        "StartProposal(P1)", "StartProposal(P2)", "ReplaceProposalOwner",
        "CancelProposalOwner", "ProposalComplete(P1)", "ProposalComplete(P2)",
+       "StartPreview(P1)", "StartPreview(P2)",
        "ProposalError(P1)", "ProposalError(P2)",
        "LateProposalCompleteIgnored(P1)", "LateProposalCompleteIgnored(P2)",
        "LateProposalErrorIgnored(P1)", "LateProposalErrorIgnored(P2)",
@@ -638,6 +655,7 @@ Next ==
            \E rowsNonNull \in BOOLEAN:
              PreviewComplete(attempt, returnedReceipt, returnedOutput,
                              rowsNonNull)
+  \/ \E attempt \in Attempts: StartPreview(attempt)
   \/ \E attempt \in Attempts: PreviewError(attempt)
   \/ \E attempt \in Attempts:
        \E isError \in BOOLEAN:

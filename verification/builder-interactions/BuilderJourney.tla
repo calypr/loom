@@ -1,44 +1,54 @@
 ---------------- MODULE BuilderJourney ----------------
-\* A composed, bounded user journey: select a row source, apply at most two
-\* reshapes, optionally pivot, then preview the current table.
-\*
-\* The model deliberately keeps data shape out of scope. A trace observation
-\* maps the rendered UI state onto phase/preview state. Data-shape correctness
-\* remains in BuilderOperations.tla and the fixture oracle carried by the
-\* browser trace.
+\* Navigation supplies the ready source-table preview. Proposal preview and
+\* applied operation lifecycle stay separate from that rendered table state.
+\* Data-shape correctness remains in BuilderOperations.tla and the browser
+\* fixture oracle carried by each trace.
 EXTENDS Naturals, Sequences, TLC
 
 MaxReshapes == 2
 
 Phases == {"idle", "selected", "reshaping"}
 PreviewStates == {"none", "pending", "ready", "error"}
-JourneyActions == {"Init", "SelectRows", "Group", "GroupAgain", "AddColumn", "AddColumnAgain",
-                   "Filter", "CancelFilter", "Unpivot", "EditGroup", "RemoveGroup", "Pivot", "PivotDirect", "Preview", "PreviewComplete",
-                   "PreviewError"}
+ProposalOwners == {"P1", "P2", "NoAttempt"}
+TablePreviewStates == {"ready", "error"}
+JourneyActions == {"Init", "Group", "GroupAgain", "AddColumn", "AddColumnAgain",
+                   "CancelFilter", "EditGroup", "RemoveGroup", "Pivot", "Preview",
+                   "PreviewComplete", "PreviewError", "LatePreviewCompleteIgnored",
+                   "LatePreviewErrorIgnored"}
 
 VARIABLES
   phase,
   reshapeCount,
   pivotReady,
   preview,
+  proposalPreviewOwner,
+  proposalIdPresent,
   rowsPresent,
+  tablePreview,
+  sourceRowsPresent,
   lastAction
 
-vars == <<phase, reshapeCount, pivotReady, preview, rowsPresent, lastAction>>
+vars == <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner, proposalIdPresent,
+          rowsPresent, tablePreview, sourceRowsPresent, lastAction>>
 
 Init ==
-  /\ phase = "idle"
+  /\ phase = "selected"
   /\ reshapeCount = 0
   /\ pivotReady = FALSE
   /\ preview = "none"
+  /\ proposalPreviewOwner = "NoAttempt"
+  /\ proposalIdPresent = FALSE
   /\ rowsPresent = FALSE
+  /\ tablePreview = "ready"
+  /\ sourceRowsPresent = TRUE
   /\ lastAction = "Init"
 
-SelectRows ==
-  /\ phase = "idle"
-  /\ phase' = "selected"
-  /\ UNCHANGED <<reshapeCount, pivotReady, preview, rowsPresent>>
-  /\ lastAction' = "SelectRows"
+CloseProposalPreview ==
+  /\ preview \in {"none", "ready"}
+  /\ preview' = "none"
+  /\ proposalIdPresent' = IF preview = "ready" THEN FALSE ELSE proposalIdPresent
+  /\ rowsPresent' = IF preview = "ready" THEN FALSE ELSE rowsPresent
+  /\ UNCHANGED proposalPreviewOwner
 
 Group ==
   /\ phase \in {"selected", "reshaping"}
@@ -46,7 +56,8 @@ Group ==
   /\ reshapeCount < MaxReshapes
   /\ phase' = "reshaping"
   /\ reshapeCount' = reshapeCount + 1
-  /\ UNCHANGED <<pivotReady, preview, rowsPresent>>
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "Group"
 
 GroupAgain ==
@@ -54,7 +65,8 @@ GroupAgain ==
   /\ ~pivotReady
   /\ reshapeCount = 1
   /\ reshapeCount' = 2
-  /\ UNCHANGED <<phase, pivotReady, preview, rowsPresent>>
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<phase, pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "GroupAgain"
 
 AddColumn ==
@@ -63,7 +75,8 @@ AddColumn ==
   /\ reshapeCount < MaxReshapes
   /\ phase' = "reshaping"
   /\ reshapeCount' = reshapeCount + 1
-  /\ UNCHANGED <<pivotReady, preview, rowsPresent>>
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "AddColumn"
 
 AddColumnAgain ==
@@ -71,44 +84,25 @@ AddColumnAgain ==
   /\ ~pivotReady
   /\ reshapeCount = 1
   /\ reshapeCount' = 2
-  /\ UNCHANGED <<phase, pivotReady, preview, rowsPresent>>
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<phase, pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "AddColumnAgain"
 
-Filter ==
-  /\ phase \in {"selected", "reshaping"}
-  /\ ~pivotReady
-  /\ reshapeCount < MaxReshapes
-  /\ phase' = "reshaping"
-  /\ reshapeCount' = reshapeCount + 1
-  /\ UNCHANGED <<pivotReady, preview, rowsPresent>>
-  /\ lastAction' = "Filter"
-
 CancelFilter ==
-  /\ phase = "reshaping"
-  /\ reshapeCount = 1
-  /\ preview = "ready"
-  /\ phase' = "selected"
-  /\ reshapeCount' = 0
+  /\ preview \in {"ready", "error"}
   /\ preview' = "none"
+  /\ proposalIdPresent' = FALSE
   /\ rowsPresent' = FALSE
-  /\ UNCHANGED pivotReady
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "CancelFilter"
-
-Unpivot ==
-  /\ phase \in {"selected", "reshaping"}
-  /\ ~pivotReady
-  /\ reshapeCount < MaxReshapes
-  /\ phase' = "reshaping"
-  /\ reshapeCount' = reshapeCount + 1
-  /\ UNCHANGED <<pivotReady, preview, rowsPresent>>
-  /\ lastAction' = "Unpivot"
 
 EditGroup ==
   /\ phase = "reshaping"
   /\ reshapeCount = 1
   /\ ~pivotReady
   /\ reshapeCount' = 2
-  /\ UNCHANGED <<phase, pivotReady, preview, rowsPresent>>
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<phase, pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "EditGroup"
 
 RemoveGroup ==
@@ -117,9 +111,8 @@ RemoveGroup ==
   /\ ~pivotReady
   /\ phase' = "selected"
   /\ reshapeCount' = 0
-  /\ preview' = "none"
-  /\ rowsPresent' = FALSE
-  /\ UNCHANGED pivotReady
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "RemoveGroup"
 
 Pivot ==
@@ -127,56 +120,77 @@ Pivot ==
   /\ reshapeCount = MaxReshapes
   /\ ~pivotReady
   /\ pivotReady' = TRUE
-  /\ UNCHANGED <<phase, reshapeCount, preview, rowsPresent>>
+  /\ CloseProposalPreview
+  /\ UNCHANGED <<phase, reshapeCount, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "Pivot"
 
-PivotDirect ==
-  /\ phase = "selected"
-  /\ ~pivotReady
-  /\ pivotReady' = TRUE
-  /\ UNCHANGED <<phase, reshapeCount, preview, rowsPresent>>
-  /\ lastAction' = "PivotDirect"
-
-Preview ==
-  /\ (pivotReady \/ reshapeCount > 0)
-  /\ preview = "none"
+Preview(attempt) ==
+  \* The candidate preview request precedes its command apply; the source
+  \* table's automatic navigation preview is represented by tablePreview.
+  /\ attempt \in {"P1", "P2"}
+  /\ phase \in {"selected", "reshaping"}
+  /\ preview \in PreviewStates
   /\ preview' = "pending"
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady, rowsPresent>>
+  /\ proposalPreviewOwner' = attempt
+  /\ proposalIdPresent' = FALSE
+  /\ rowsPresent' = FALSE
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "Preview"
 
-PreviewComplete ==
+PreviewComplete(attempt) ==
+  /\ attempt \in {"P1", "P2"}
   /\ preview = "pending"
+  /\ proposalPreviewOwner = attempt
   /\ preview' = "ready"
+  /\ proposalIdPresent' = TRUE
   /\ rowsPresent' = TRUE
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "PreviewComplete"
 
-PreviewError ==
+PreviewError(attempt, hasProposalId) ==
+  /\ attempt \in {"P1", "P2"}
   /\ preview = "pending"
+  /\ proposalPreviewOwner = attempt
+  /\ hasProposalId \in BOOLEAN
   /\ preview' = "error"
+  /\ proposalIdPresent' = hasProposalId
   /\ rowsPresent' = FALSE
-  /\ UNCHANGED <<phase, reshapeCount, pivotReady>>
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, proposalPreviewOwner, tablePreview, sourceRowsPresent>>
   /\ lastAction' = "PreviewError"
+
+LatePreviewCompleteIgnored(attempt) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ proposalPreviewOwner \in {"P1", "P2"}
+  /\ proposalPreviewOwner # attempt
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+                  proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "LatePreviewCompleteIgnored"
+
+LatePreviewErrorIgnored(attempt) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ proposalPreviewOwner \in {"P1", "P2"}
+  /\ proposalPreviewOwner # attempt
+  /\ UNCHANGED <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
+                  proposalIdPresent, rowsPresent, tablePreview, sourceRowsPresent>>
+  /\ lastAction' = "LatePreviewErrorIgnored"
 
 Stutter ==
   UNCHANGED vars
 
 Next ==
-  \/ SelectRows
   \/ Group
   \/ GroupAgain
   \/ AddColumn
   \/ AddColumnAgain
-  \/ Filter
   \/ CancelFilter
-  \/ Unpivot
   \/ EditGroup
   \/ RemoveGroup
   \/ Pivot
-  \/ PivotDirect
-  \/ Preview
-  \/ PreviewComplete
-  \/ PreviewError
+  \/ \E attempt \in {"P1", "P2"}: Preview(attempt)
+  \/ \E attempt \in {"P1", "P2"}: PreviewComplete(attempt)
+  \/ \E attempt \in {"P1", "P2"}, hasProposalId \in BOOLEAN: PreviewError(attempt, hasProposalId)
+  \/ \E attempt \in {"P1", "P2"}: LatePreviewCompleteIgnored(attempt)
+  \/ \E attempt \in {"P1", "P2"}: LatePreviewErrorIgnored(attempt)
   \/ Stutter
 
 Spec == Init /\ [][Next]_vars
@@ -186,17 +200,20 @@ TypeOK ==
   /\ reshapeCount \in 0..MaxReshapes
   /\ pivotReady \in BOOLEAN
   /\ preview \in PreviewStates
+  /\ proposalPreviewOwner \in ProposalOwners
+  /\ proposalIdPresent \in BOOLEAN
   /\ rowsPresent \in BOOLEAN
+  /\ tablePreview \in TablePreviewStates
+  /\ sourceRowsPresent \in BOOLEAN
   /\ lastAction \in JourneyActions
 
-\* A preview may follow at least one reshape or a direct pivot.
-PreviewRequiresReshapeOrPivot ==
-  preview \in {"pending", "ready", "error"} => (reshapeCount > 0 \/ pivotReady)
-
 PivotRequiresReshapeOrDirect ==
-  pivotReady => (reshapeCount = MaxReshapes \/ phase = "selected")
+  pivotReady => reshapeCount = MaxReshapes
 
-RowsOnlyAfterPreview ==
+RowsOnlyAfterProposalPreview ==
   rowsPresent => preview = "ready"
+
+SourceRowsRequireReadyTablePreview ==
+  sourceRowsPresent => tablePreview = "ready"
 
 =============================================================================
