@@ -9,6 +9,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MODEL_DIR = 'verification/builder-interactions';
 const LEDGER = MODEL_DIR + '/route-contract.json';
 const TRACE_CONTRACT = MODEL_DIR + '/builder-trace-contract.json';
+const SEMANTIC_CATALOG = MODEL_DIR + '/mjs-source-semantics.json';
 const BROWSER_EVIDENCE = MODEL_DIR + '/browser-evidence.json';
 const REGISTRY = 'scripts/verify-ui/registry.mjs';
 const FORMAL_RUNNER = 'scripts/verify-builder-formal.mjs';
@@ -58,7 +59,7 @@ function uniqueSorted(values) {
   return [...new Set(values)].sort();
 }
 
-function scriptRole(path) {
+function scriptRoleHint(path) {
   if (/\.(test|spec)\.mjs$/.test(path)) return path.endsWith('.spec.mjs') ? 'browser-spec' : 'test';
   if (/\.config\.mjs$/.test(path)) return 'config';
   if (path.includes('/helpers/') || path.includes('/lib/')) return 'helper-or-oracle';
@@ -66,19 +67,588 @@ function scriptRole(path) {
   return 'tool-or-module';
 }
 
-// These are source links, not proof that an implementation refines a model.
-function scriptInventory(modelDefinitions) {
+function gitOutput(args, encoding = 'utf8') {
+  const result = spawnSync('git', args, { cwd: ROOT, encoding, maxBuffer: 64 * 1024 * 1024 });
+  if (result.status !== 0) fail('git ' + args.join(' ') + ' failed: ' + (result.stderr || result.error?.message));
+  return result.stdout;
+}
+
+function trackedMjsPaths(commit = null) {
+  const output = commit
+    ? gitOutput(['ls-tree', '-r', '--name-only', '-z', commit])
+    : gitOutput(['ls-files', '-z']);
+  return output.split('\0').filter((path) => path.endsWith('.mjs')).sort();
+}
+
+function blobInfoAtCommit(commit, paths) {
+  const infos = new Map();
+  if (paths.length === 0) return infos;
+  const input = Buffer.from(paths.map((path) => commit + ':' + path + '\n').join(''));
+  const result = spawnSync('git', ['cat-file', '--batch'], {
+    cwd: ROOT,
+    input,
+    encoding: null,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) fail('cannot resolve reviewed catalog source: ' + (result.stderr?.toString('utf8') || result.error?.message));
+  const output = result.stdout;
+  let offset = 0;
+  for (const path of paths) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) fail('git cat-file returned a malformed header for ' + path);
+    const header = output.subarray(offset, headerEnd).toString('utf8');
+    offset = headerEnd + 1;
+    const match = header.match(/^[a-f0-9]+ blob (\d+)$/);
+    if (!match) {
+      infos.set(path, null);
+      continue;
+    }
+    const size = Number(match[1]);
+    const body = output.subarray(offset, offset + size);
+    if (body.length !== size || output[offset + size] !== 0x0a) fail('git cat-file returned a malformed blob for ' + path);
+    const lineCount = body.length === 0 ? 0
+      : body.reduce((count, byte) => count + (byte === 0x0a ? 1 : 0), 0) + (body.at(-1) === 0x0a ? 0 : 1);
+    infos.set(path, { sha256: createHash('sha256').update(body).digest('hex'), lineCount, sourceText: body.toString('utf8') });
+    offset += size + 1;
+  }
+  return infos;
+}
+
+function nonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isDiagnosticAssertionRecorder(sourceText, lineNumber) {
+  const lines = sourceText.split(/\r?\n/);
+  const index = lineNumber - 1;
+  const line = lines[index] ?? '';
+  if (/\brecordAssertion\s*\(/.test(line)) return true;
+  const checkStart = line.search(/\bcda\.check\s*\(/);
+  if (checkStart < 0) return false;
+  const excerpt = lines.slice(index, Math.min(lines.length, index + 3)).join('\n');
+  return /,\s*true\s*,/.test(excerpt.slice(checkStart, checkStart + 300));
+}
+
+function buildRegistryCaseIndex(registry) {
+  const cases = new Map();
+  for (const scenario of registry) {
+    for (const [caseName, caseData] of Object.entries(scenario.cases ?? {})) {
+      cases.set(scenario.id + ':' + caseName, {
+        requiredChecks: new Set(Array.isArray(caseData.requiredChecks) ? caseData.requiredChecks : []),
+        focusedCheckIds: new Set((caseData.focusedChecks ?? []).map((check) => check.id).filter(Boolean)),
+      });
+    }
+  }
+  return cases;
+}
+
+function catalogErrors(catalog, {
+  currentPaths,
+  currentHashes,
+  baselinePaths,
+  reviewedBlobInfos,
+  caseIndex,
+  models,
+  traceContract,
+  journeyAudit,
+}) {
+  const errors = [];
+  const error = (message) => errors.push(message);
+  const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const asArray = (value) => Array.isArray(value) ? value : [];
+  const activePaths = new Set();
+  const retiredPaths = new Set();
+  const filesByPath = new Map();
+  const claimsById = new Map();
+  const sourceAssertionIds = new Set();
+  const roles = new Set(['test', 'helper-or-oracle', 'browser-workflow', 'browser-spec', 'tool-or-module', 'config']);
+  const testLayers = new Set(['browser-workflow', 'browser-spec', 'node-test', 'test-support', 'command-line', 'runtime-module', 'configuration']);
+  const evidenceKinds = new Set(['test-assertion', 'runtime-guard', 'oracle-computation', 'fixture-fact', 'call-through', 'trace-capture']);
+
+  if (!isRecord(catalog) || catalog.schemaVersion !== 1) return ['catalog schemaVersion must be 1'];
+  if (!nonEmptyString(catalog.sourceCommit)) error('catalog sourceCommit is required');
+  if (nonEmptyString(catalog.sourceCommit) && !/^[a-f0-9]{40}$/.test(catalog.sourceCommit)) error('catalog sourceCommit must be a full commit hash');
+  for (const forbidden of ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
+    if (Object.hasOwn(catalog, forbidden)) error('catalog cannot author runtime field ' + forbidden);
+  }
+  if (!Array.isArray(catalog.claims)) error('catalog claims must be an array');
+  if (!Array.isArray(catalog.files)) error('catalog files must be an array');
+  if (!Array.isArray(catalog.claims) || !Array.isArray(catalog.files)) return errors;
+
+  for (const claim of catalog.claims) {
+    if (!isRecord(claim) || !nonEmptyString(claim.id) || !nonEmptyString(claim.statement)) {
+      error('each claim needs a stable id and statement');
+      continue;
+    }
+    if (claim.id.startsWith('source:') || /:L\d+:/.test(claim.id)) error('semantic claim ID cannot be a source-line occurrence ID: ' + claim.id);
+    if (claimsById.has(claim.id)) error('duplicate/conflicting semantic claim definition: ' + claim.id);
+    else claimsById.set(claim.id, claim);
+    if (!['behavior', 'invariant', 'oracle', 'tool-contract'].includes(claim.category)) {
+      error('claim ' + claim.id + ' has unknown category ' + String(claim.category));
+    }
+    if (!Array.isArray(claim.journeys)) error('claim ' + claim.id + ' journeys must be an array');
+    const claimCaseIds = new Set();
+    for (const mapping of asArray(claim.journeys)) {
+      if (!isRecord(mapping) || !nonEmptyString(mapping.caseId)) {
+        error('claim ' + claim.id + ' has a malformed journey mapping');
+        continue;
+      }
+      if (['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness'].some((key) => Object.hasOwn(mapping, key))) {
+        error('claim ' + claim.id + ' journey mapping cannot author runtime status');
+      }
+      const registeredCase = caseIndex.get(mapping.caseId);
+      if (!registeredCase) {
+        error('claim ' + claim.id + ' references unknown journey/case ' + mapping.caseId);
+        continue;
+      }
+      if (!['direct', 'partial', 'supporting'].includes(mapping.relation)) {
+        error('claim ' + claim.id + ' has unknown relation for ' + mapping.caseId);
+      }
+      if (claimCaseIds.has(mapping.caseId)) error('claim ' + claim.id + ' duplicates journey mapping ' + mapping.caseId);
+      claimCaseIds.add(mapping.caseId);
+      if (mapping.requiredChecks !== undefined && !Array.isArray(mapping.requiredChecks)) error('claim ' + claim.id + ' requiredChecks must be an array');
+      if (mapping.focusedCheckIds !== undefined && !Array.isArray(mapping.focusedCheckIds)) error('claim ' + claim.id + ' focusedCheckIds must be an array');
+      if (['direct', 'partial'].includes(mapping.relation)
+        && (mapping.requiredChecks ?? []).length + (mapping.focusedCheckIds ?? []).length === 0) {
+        error('claim ' + claim.id + ' direct/partial journey mapping needs an exact registered check: ' + mapping.caseId);
+      }
+      for (const check of asArray(mapping.requiredChecks)) {
+        if (!registeredCase.requiredChecks.has(check)) error('claim ' + claim.id + ' references unknown required check in ' + mapping.caseId + ': ' + check);
+      }
+      for (const checkId of asArray(mapping.focusedCheckIds)) {
+        if (!registeredCase.focusedCheckIds.has(checkId)) error('claim ' + claim.id + ' references unknown focused check in ' + mapping.caseId + ': ' + checkId);
+      }
+      if (!Array.isArray(mapping.evidence) || mapping.evidence.length === 0) {
+        error('claim ' + claim.id + ' journey mapping needs source evidence: ' + mapping.caseId);
+      } else if (mapping.evidence.some((anchor) => !isRecord(anchor) || !nonEmptyString(anchor.path) || !Number.isInteger(anchor.line) || anchor.line < 1)) {
+        error('claim ' + claim.id + ' journey evidence needs path and positive line anchors: ' + mapping.caseId);
+      }
+    }
+    for (const forbidden of ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
+      if (Object.hasOwn(claim, forbidden)) error('claim ' + claim.id + ' cannot author runtime field ' + forbidden);
+    }
+  }
+
+  for (const file of catalog.files) {
+    if (!isRecord(file) || !nonEmptyString(file.path)) {
+      error('each catalog file needs a repository-relative path');
+      continue;
+    }
+    if (!file.path.endsWith('.mjs')) error('catalog path is not an MJS file: ' + file.path);
+    if (filesByPath.has(file.path)) error('duplicate catalog file record: ' + file.path);
+    else filesByPath.set(file.path, file);
+    if (!['active', 'retired'].includes(file.lifecycle)) error('catalog file has invalid lifecycle: ' + file.path);
+    if (file.lifecycle === 'active') activePaths.add(file.path);
+    if (file.lifecycle === 'retired') retiredPaths.add(file.path);
+    if (!nonEmptyString(file.sha256) || !/^[a-f0-9]{64}$/.test(file.sha256)) error('catalog file needs a SHA-256: ' + file.path);
+    if (!nonEmptyString(file.purpose)) error('catalog file needs a concrete purpose: ' + file.path);
+    if (!roles.has(file.role)) error('catalog file has unknown role ' + String(file.role) + ': ' + file.path);
+    if (!testLayers.has(file.testLayer)) error('catalog file has unknown test layer ' + String(file.testLayer) + ': ' + file.path);
+    if (!isRecord(file.sourceReview) || file.sourceReview.status !== 'reviewed'
+      || !Array.isArray(file.sourceReview.evidence) || file.sourceReview.evidence.length === 0) {
+      error('catalog file needs reviewed source evidence: ' + file.path);
+    }
+    if (file.sourceReview?.reviewedCommit !== undefined && !/^[a-f0-9]{40}$/.test(file.sourceReview.reviewedCommit)) {
+      error('sourceReview reviewedCommit must be a full commit hash: ' + file.path);
+    }
+    if (file.sourceReview?.confidence !== undefined && !['high', 'medium', 'low'].includes(file.sourceReview.confidence)) {
+      error('sourceReview has unknown confidence: ' + file.path);
+    }
+    if (!isRecord(file.executionDiscovery)
+      || !['static-path-found', 'no-static-path-found', 'uncertain-dynamic-or-manual'].includes(file.executionDiscovery.status)) {
+      error('catalog file needs an explicit invocation-discovery state: ' + file.path);
+    }
+    if (file.executionDiscovery && !Array.isArray(file.executionDiscovery.evidence)) error('executionDiscovery evidence must be an array: ' + file.path);
+    if (file.executionDiscovery && !Array.isArray(file.executionDiscovery.unresolvedFacts)) error('executionDiscovery unresolvedFacts must be an array: ' + file.path);
+    if (file.executionDiscovery?.status === 'static-path-found' && (file.executionDiscovery.evidence ?? []).length === 0) {
+      error('static invocation finding needs a source anchor: ' + file.path);
+    }
+    if (['no-static-path-found', 'uncertain-dynamic-or-manual'].includes(file.executionDiscovery?.status)
+      && (!Array.isArray(file.executionDiscovery.unresolvedFacts) || file.executionDiscovery.unresolvedFacts.length === 0)) {
+      error('missing static invocation requires an explicit dynamic/manual uncertainty: ' + file.path);
+    }
+    if (!Array.isArray(file.assertions)) error('catalog assertions must be an array: ' + file.path);
+    if (!Array.isArray(file.unresolvedFacts)) error('catalog unresolvedFacts must be an array: ' + file.path);
+    for (const assertion of asArray(file.assertions)) {
+      if (!isRecord(assertion) || !nonEmptyString(assertion.sourceAssertionId)
+        || !nonEmptyString(assertion.semanticClaimId)) {
+        error('catalog assertion needs sourceAssertionId and semanticClaimId: ' + file.path);
+        continue;
+      }
+      if (!claimsById.has(assertion.semanticClaimId)) error('undefined semantic claim ' + assertion.semanticClaimId + ' in ' + file.path);
+      if (sourceAssertionIds.has(assertion.sourceAssertionId)) error('duplicate source assertion occurrence: ' + assertion.sourceAssertionId);
+      sourceAssertionIds.add(assertion.sourceAssertionId);
+      const occurrencePrefix = 'source:' + file.path + ':L';
+      if (!assertion.sourceAssertionId.startsWith(occurrencePrefix)) error('sourceAssertionId must identify this file and line: ' + assertion.sourceAssertionId);
+      const occurrenceLine = Number(assertion.sourceAssertionId.slice(occurrencePrefix.length).split(':', 1)[0]);
+      if (!Number.isInteger(occurrenceLine) || !asArray(assertion.sourceLines).includes(occurrenceLine)) {
+        error('sourceAssertionId line must appear in sourceLines: ' + assertion.sourceAssertionId);
+      }
+      if (!evidenceKinds.has(assertion.evidenceKind)) error('assertion has unknown evidence kind ' + String(assertion.evidenceKind) + ': ' + assertion.sourceAssertionId);
+    if (!Array.isArray(assertion.sourceLines) || assertion.sourceLines.some((line) => !Number.isInteger(line) || line < 1)) {
+        error('assertion needs positive source line anchors: ' + assertion.sourceAssertionId);
+      }
+      const reviewedInfo = reviewedBlobInfos.get(file.path);
+      if (Array.isArray(assertion.sourceLines) && reviewedInfo
+        && assertion.sourceLines.some((line) => line > reviewedInfo.lineCount)) {
+        error('assertion line anchor is outside reviewed source revision: ' + assertion.sourceAssertionId);
+      }
+      if (assertion.evidenceKind === 'test-assertion' && reviewedInfo?.sourceText
+        && asArray(assertion.sourceLines).some((line) => isDiagnosticAssertionRecorder(reviewedInfo.sourceText, line))) {
+        error('test-assertion points to a diagnostic check/recordAssertion reporter rather than its underlying assertion: ' + assertion.sourceAssertionId);
+      }
+      if (!['independent', 'shared', 'derived'].includes(assertion.independence)) {
+        error('assertion has unknown independence kind: ' + assertion.sourceAssertionId);
+      }
+      for (const forbidden of ['claim', 'statement', 'category', 'status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
+        if (Object.hasOwn(assertion, forbidden)) error('assertion ' + assertion.sourceAssertionId + ' cannot duplicate claim or runtime field ' + forbidden);
+      }
+    }
+    if (!isRecord(file.formalApplicability) || !nonEmptyString(file.formalApplicability.kind)) {
+      error('catalog file needs an explicit formal applicability decision: ' + file.path);
+    }
+    if (file.formalApplicability && !['direct-trace', 'trace-support', 'candidate', 'not-applicable', 'uncertain'].includes(file.formalApplicability.kind)) {
+      error('catalog file has unknown formal applicability kind: ' + file.path);
+    }
+    if (file.formalApplicability?.kind === 'candidate' && asArray(file.formalApplicability.bindings).length === 0
+      && (!nonEmptyString(file.formalApplicability.rationale) || !nonEmptyString(file.formalApplicability.limitation))) {
+      error('unmapped formal candidate needs a concrete rationale and gap: ' + file.path);
+    }
+    if (['direct-trace', 'trace-support'].includes(file.formalApplicability?.kind)
+      && (!Array.isArray(file.formalApplicability.bindings) || file.formalApplicability.bindings.length === 0)) {
+      error('direct formal trace association needs a model binding: ' + file.path);
+    }
+    if (file.formalApplicability && !nonEmptyString(file.formalApplicability.rationale)) {
+      error('formal applicability needs a concrete rationale: ' + file.path);
+    }
+    if (file.formalApplicability && !nonEmptyString(file.formalApplicability.limitation)) {
+      error('formal applicability needs an explicit limitation: ' + file.path);
+    }
+    if (file.formalApplicability?.bindings !== undefined && !Array.isArray(file.formalApplicability.bindings)) {
+      error('formal applicability bindings must be an array: ' + file.path);
+    }
+    for (const binding of asArray(file.formalApplicability?.bindings)) {
+      if (!isRecord(binding) || !nonEmptyString(binding.model)) {
+        error('formal binding needs a model id: ' + file.path);
+        continue;
+      }
+      if (!models.has(binding.model)) error('unknown formal model ' + binding.model + ' in ' + file.path);
+      const definition = models.get(binding.model);
+      for (const field of ['actions', 'invariants', 'scheduleIds', 'journeyIds']) {
+        if (binding[field] !== undefined && !Array.isArray(binding[field])) error('formal binding ' + field + ' must be an array: ' + file.path);
+      }
+      for (const action of asArray(binding.actions)) {
+        const baseAction = String(action).replace(/\(.*\)$/, '');
+        if (!definition?.actions.includes(action) && !definition?.actions.includes(baseAction)) error('unknown formal action ' + binding.model + '.' + action + ' in ' + file.path);
+      }
+      for (const invariant of asArray(binding.invariants)) {
+        if (!definition?.invariants.includes(invariant)) error('unknown formal invariant ' + binding.model + '.' + invariant + ' in ' + file.path);
+      }
+      for (const scheduleId of asArray(binding.scheduleIds)) {
+        if (!Object.hasOwn(traceContract.schedules ?? {}, scheduleId)) {
+          error('unknown formal schedule ' + scheduleId + ' in ' + file.path);
+        } else if (traceContract.schedules[scheduleId].model !== binding.model) {
+          error('formal schedule ' + scheduleId + ' belongs to a different model in ' + file.path);
+        }
+      }
+      for (const journeyId of asArray(binding.journeyIds)) {
+        if (!(journeyAudit.journeys ?? []).some((journey) => journey.id === journeyId && journey.model === binding.model)) {
+          error('unknown formal journey trace ' + journeyId + ' for ' + binding.model + ' in ' + file.path);
+        }
+      }
+    }
+    if (!isRecord(file.disposition) || !['keep', 'integrate', 'merge-candidate', 'retire-candidate', 'unresolved'].includes(file.disposition.kind)
+      || !nonEmptyString(file.disposition.reason)) {
+      error('catalog file needs a concrete replacement disposition and reason: ' + file.path);
+    }
+    if (file.disposition && Object.hasOwn(file.disposition, 'gap')) {
+      error('replacement-proof gap must be recorded only at replacementProof.gap: ' + file.path);
+    }
+    if (!isRecord(file.replacementProof) || !Array.isArray(file.replacementProof.paths)
+      || !Array.isArray(file.replacementProof.evidence) || typeof file.replacementProof.gap !== 'string') {
+      error('catalog file needs replacementProof with its canonical gap field: ' + file.path);
+    } else if (Object.hasOwn(file.replacementProof, 'proofNeeded')) {
+      error('replacementProof cannot duplicate its canonical gap in proofNeeded: ' + file.path);
+    }
+    for (const replacementPath of asArray(file.replacementProof?.paths)) {
+      if (!nonEmptyString(replacementPath)) error('replacementProof paths must be nonempty source paths: ' + file.path);
+    }
+    for (const proof of asArray(file.replacementProof?.evidence)) {
+      if (!isRecord(proof) || !nonEmptyString(proof.path) || !/^[a-f0-9]{64}$/.test(proof.sha256)
+        || !nonEmptyString(proof.kind)) {
+        error('replacementProof evidence needs path, SHA-256, and kind: ' + file.path);
+      }
+    }
+    if (file.formalApplicability && ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness'].some((key) => Object.hasOwn(file.formalApplicability, key))) {
+      error('formal applicability cannot author runtime status: ' + file.path);
+    }
+    if (file.disposition && ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness'].some((key) => Object.hasOwn(file.disposition, key))) {
+      error('replacement disposition cannot author runtime status: ' + file.path);
+    }
+    if (file.replacementProof && ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness'].some((key) => Object.hasOwn(file.replacementProof, key))) {
+      error('replacement proof cannot author runtime status: ' + file.path);
+    }
+    if (file.oracle !== undefined && file.oracle !== null) {
+      if (!isRecord(file.oracle) || !nonEmptyString(file.oracle.kind) || !nonEmptyString(file.oracle.dataScope)
+        || !Array.isArray(file.oracle.evidence) || file.oracle.evidence.length === 0) {
+        error('file oracle needs kind, dataScope, and source evidence: ' + file.path);
+      }
+    }
+    const reviewedInfo = reviewedBlobInfos.get(file.path);
+    if (!reviewedInfo) error('reviewed source revision does not contain ' + file.path);
+    else if (file.sha256 !== reviewedInfo.sha256) error('catalog SHA-256 does not match reviewed source revision for ' + file.path);
+    if (file.lifecycle === 'retired' && file.disposition?.kind !== 'integrate') error('retired file lifecycle needs an integrated disposition: ' + file.path);
+    if (file.lifecycle === 'retired' && file.replacementProof?.gap !== '') error('retired file lifecycle requires a closed replacement-proof gap: ' + file.path);
+    if (file.duplicateCandidates !== undefined && (!Array.isArray(file.duplicateCandidates)
+      || file.duplicateCandidates.some((candidate) => !nonEmptyString(candidate)))) {
+      error('duplicateCandidates must contain only repository-relative MJS paths: ' + file.path);
+    }
+    if (asArray(file.sourceReview?.evidence).length && !asArray(file.sourceReview.evidence).some((anchor) => anchor.path === file.path)) {
+      error('source review needs an anchor in the reviewed MJS file: ' + file.path);
+    }
+    const reviewedInfoForLines = reviewedBlobInfos.get(file.path);
+    if (reviewedInfoForLines) {
+      for (const anchor of asArray(file.sourceReview?.evidence)) {
+        if (anchor.path === file.path && (!Number.isInteger(anchor.line) || anchor.line < 1 || anchor.line > reviewedInfoForLines.lineCount)) {
+          error('source review anchor is outside reviewed MJS revision: ' + file.path);
+        }
+      }
+    }
+    for (const forbidden of ['status', 'runtimeStatus', 'runtimeEvidence', 'passed', 'result', 'freshness']) {
+      if (Object.hasOwn(file, forbidden)) error('catalog file cannot author runtime field ' + forbidden + ': ' + file.path);
+    }
+  }
+
+  for (const file of catalog.files.filter((entry) => isRecord(entry) && nonEmptyString(entry.path))) {
+    const candidates = asArray(file.duplicateCandidates);
+    if (new Set(candidates).size !== candidates.length) error('duplicateCandidates repeats a path: ' + file.path);
+    for (const candidate of candidates) {
+      if (candidate === file.path || !candidate.endsWith('.mjs') || !filesByPath.has(candidate)) {
+        error('duplicateCandidates must reference a different catalogued MJS path: ' + file.path + ' -> ' + candidate);
+      }
+    }
+  }
+
+  for (const path of currentPaths) {
+    const file = filesByPath.get(path);
+    if (!file || file.lifecycle !== 'active') error('tracked MJS lacks one active catalog record: ' + path);
+    else if (file.sha256 !== currentHashes.get(path)) error('catalog SHA-256 is stale for tracked MJS: ' + path);
+  }
+  for (const path of activePaths) {
+    if (!currentPaths.has(path)) error('active catalog record is not currently tracked: ' + path);
+  }
+  for (const path of baselinePaths) {
+    const file = filesByPath.get(path);
+    if (!file) error('baseline MJS has no catalog or retirement record: ' + path);
+  }
+  for (const path of retiredPaths) {
+    const file = filesByPath.get(path);
+    if (currentPaths.has(path)) error('retired catalog record is still tracked: ' + path);
+    if (!baselinePaths.has(path) && !file?.sourceReview?.reviewedCommit) error('retired catalog record needs a reviewed historical source revision: ' + path);
+    if (!isRecord(file?.replacementProof) || !Array.isArray(file.replacementProof.paths)
+      || file.replacementProof.paths.length === 0 || !Array.isArray(file.replacementProof.evidence)
+      || file.replacementProof.evidence.length === 0) {
+      error('retired catalog record needs replacement paths and proof references: ' + path);
+    }
+  }
+  return errors;
+}
+
+function selfTestCatalogValidation() {
+  const assert = (condition, message) => {
+    if (!condition) fail('catalog self-test: ' + message);
+  };
+  const sourcePath = 'scripts/example.test.mjs';
+  const sourceCommit = 'b'.repeat(40);
+  const sourceHash = 'a'.repeat(64);
+  const context = {
+    currentPaths: new Set([sourcePath]),
+    currentHashes: new Map([[sourcePath, sourceHash]]),
+    baselinePaths: new Set([sourcePath]),
+    reviewedBlobInfos: new Map([[sourcePath, { sha256: sourceHash, lineCount: 2, sourceText: 'assert.deepEqual(actual, expected);\ncda.check(\'correctness\', \'status label\', true, evidence);' }]]),
+    caseIndex: new Map([['example:case', {
+      requiredChecks: new Set(['shows source rows']),
+      focusedCheckIds: new Set(['row-oracle']),
+    }]]),
+    models: new Map([['ExampleModel', { actions: ['LoadRows'], invariants: ['RowsPreserved'] }]]),
+    traceContract: { schedules: { 'load-rows': { model: 'ExampleModel' } } },
+    journeyAudit: { journeys: [{ id: 'load-preview', model: 'ExampleModel' }] },
+  };
+  const validCatalog = () => ({
+    schemaVersion: 1,
+    sourceCommit,
+    claims: [{
+      id: 'example.rows-preserved',
+      statement: 'The loaded row set matches the independent fixture oracle.',
+      category: 'behavior',
+      journeys: [{
+        caseId: 'example:case',
+        relation: 'direct',
+        requiredChecks: ['shows source rows'],
+        focusedCheckIds: ['row-oracle'],
+        evidence: [{ path: sourcePath, line: 1 }],
+      }],
+    }],
+    files: [{
+      path: sourcePath,
+      lifecycle: 'active',
+      sha256: sourceHash,
+      purpose: 'Runs the fixture-backed row rendering check.',
+      role: 'test',
+      testLayer: 'node-test',
+      sourceReview: { status: 'reviewed', reviewedCommit: sourceCommit, confidence: 'high', evidence: [{ path: sourcePath, line: 1 }] },
+      executionDiscovery: { status: 'static-path-found', evidence: [{ path: 'package.json', line: 1 }], unresolvedFacts: [] },
+      assertions: [{
+        sourceAssertionId: 'source:scripts/example.test.mjs:L1:rows-match',
+        semanticClaimId: 'example.rows-preserved',
+        evidenceKind: 'test-assertion',
+        sourceLines: [1],
+        independence: 'independent',
+      }],
+      formalApplicability: {
+        kind: 'direct-trace',
+        rationale: 'The captured load journey is checked against the row-preservation invariant.',
+        limitation: 'The TLA model checks row presence, not exact cell values.',
+        bindings: [{ model: 'ExampleModel', actions: ['LoadRows'], invariants: ['RowsPreserved'], scheduleIds: ['load-rows'], journeyIds: ['load-preview'] }],
+      },
+      disposition: { kind: 'keep', reason: 'Owns the independent source-row oracle.' },
+      replacementProof: { paths: [], evidence: [], gap: '' },
+      unresolvedFacts: [],
+    }],
+  });
+  const errorsFor = (catalog, overrides = {}) => catalogErrors(catalog, { ...context, ...overrides });
+  const expectError = (label, catalog, fragment, overrides = {}) => {
+    const errors = errorsFor(catalog, overrides);
+    assert(errors.some((message) => message.includes(fragment)), label + ' should reject with ' + fragment + '; got ' + errors.join(' | '));
+  };
+
+  const validErrors = errorsFor(validCatalog());
+  assert(validErrors.length === 0, 'valid catalog fixture should pass: ' + validErrors.join(' | '));
+
+  const missingFile = validCatalog();
+  missingFile.files = [];
+  expectError('missing file record', missingFile, 'lacks one active catalog record');
+
+  const staleSha = validCatalog();
+  staleSha.files[0].sha256 = 'c'.repeat(64);
+  expectError('stale source SHA', staleSha, 'SHA-256');
+
+  const unknownJourney = validCatalog();
+  unknownJourney.claims[0].journeys[0].caseId = 'missing:case';
+  expectError('unknown journey', unknownJourney, 'unknown journey/case');
+
+  const unknownRequiredCheck = validCatalog();
+  unknownRequiredCheck.claims[0].journeys[0].requiredChecks = ['not registered'];
+  expectError('unknown required check', unknownRequiredCheck, 'unknown required check');
+
+  const undefinedClaim = validCatalog();
+  undefinedClaim.files[0].assertions[0].semanticClaimId = 'missing.claim';
+  expectError('undefined semantic claim', undefinedClaim, 'undefined semantic claim');
+
+  const conflictingClaim = validCatalog();
+  conflictingClaim.claims.push({ ...conflictingClaim.claims[0], statement: 'A conflicting definition.' });
+  expectError('conflicting claim definition', conflictingClaim, 'duplicate/conflicting semantic claim definition');
+
+  const unknownModel = validCatalog();
+  unknownModel.files[0].formalApplicability.bindings[0].model = 'MissingModel';
+  expectError('unknown model', unknownModel, 'unknown formal model');
+
+  const unknownAction = validCatalog();
+  unknownAction.files[0].formalApplicability.bindings[0].actions = ['MissingAction'];
+  expectError('unknown action', unknownAction, 'unknown formal action');
+
+  const unknownSchedule = validCatalog();
+  unknownSchedule.files[0].formalApplicability.bindings[0].scheduleIds = ['missing-schedule'];
+  expectError('unknown schedule', unknownSchedule, 'unknown formal schedule');
+
+  const forgedRuntimeStatus = validCatalog();
+  forgedRuntimeStatus.files[0].runtimeEvidence = { status: 'passed' };
+  expectError('forged runtime result', forgedRuntimeStatus, 'cannot author runtime field');
+
+  const retired = validCatalog();
+  retired.files[0].lifecycle = 'retired';
+  retired.files[0].disposition = { kind: 'integrate', reason: 'Replaced by the canonical row oracle.' };
+  retired.files[0].replacementProof = { paths: ['scripts/replacement.test.mjs'], evidence: [{ path: 'docs/replacement-run.json', sha256: 'd'.repeat(64), kind: 'captured replacement run' }], gap: '' };
+  const retiredContext = {
+    ...context,
+    currentPaths: new Set(),
+    currentHashes: new Map(),
+    reviewedBlobInfos: new Map([[sourcePath, { sha256: sourceHash, lineCount: 2 }]]),
+  };
+  const retiredErrors = errorsFor(retired, retiredContext);
+  assert(retiredErrors.length === 0, 'retired baseline record with replacement evidence should remain catalogued: ' + retiredErrors.join(' | '));
+  retired.files[0].replacementProof = undefined;
+  expectError('retired file without proof', retired, 'needs replacement paths and proof references', retiredContext);
+
+  const duplicateGap = validCatalog();
+  duplicateGap.files[0].disposition.gap = 'Duplicate gap text';
+  expectError('duplicate replacement gap', duplicateGap, 'only at replacementProof.gap');
+
+  const duplicateProofNeed = validCatalog();
+  duplicateProofNeed.files[0].replacementProof.proofNeeded = 'Duplicate proof-gap text';
+  expectError('duplicate proof-needed field', duplicateProofNeed, 'cannot duplicate its canonical gap');
+
+  const duplicateAssertionCategory = validCatalog();
+  duplicateAssertionCategory.files[0].assertions[0].category = 'behavior';
+  expectError('duplicate assertion category', duplicateAssertionCategory, 'cannot duplicate claim');
+
+  const diagnosticCheckClaim = validCatalog();
+  diagnosticCheckClaim.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:status-label';
+  diagnosticCheckClaim.files[0].assertions[0].sourceLines = [2];
+  expectError('literal-true diagnostic is not a test assertion', diagnosticCheckClaim, 'diagnostic check/recordAssertion reporter');
+
+  const diagnosticCallThrough = validCatalog();
+  diagnosticCallThrough.files[0].assertions[0].sourceAssertionId = 'source:scripts/example.test.mjs:L2:status-label';
+  diagnosticCallThrough.files[0].assertions[0].sourceLines = [2];
+  diagnosticCallThrough.files[0].assertions[0].evidenceKind = 'call-through';
+  assert(errorsFor(diagnosticCallThrough).length === 0, 'literal-true diagnostic may be catalogued as a call-through');
+
+  console.log('PASS semantic catalog validation self-test: 18 positive and negative fixtures');
+}
+
+function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog) {
   const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' });
   if (listed.status !== 0) fail('cannot inventory tracked scripts: ' + (listed.stderr || listed.error?.message));
   const tracked = listed.stdout.split('\0').filter(Boolean).sort();
   const paths = tracked.filter((path) => path.endsWith('.mjs'));
+  const currentHashes = new Map(paths.filter((path) => existsSync(resolve(ROOT, path)))
+    .map((path) => [path, createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex')]));
+  const baselinePaths = new Set(trackedMjsPaths(catalog.sourceCommit));
+  const currentPathSet = new Set(paths);
+  const reviewedPathsByCommit = new Map();
+  for (const file of catalog.files ?? []) {
+    const commit = file.sourceReview?.reviewedCommit ?? catalog.sourceCommit;
+    if (!reviewedPathsByCommit.has(commit)) reviewedPathsByCommit.set(commit, []);
+    reviewedPathsByCommit.get(commit).push(file.path);
+  }
+  const reviewedBlobInfos = new Map();
+  for (const [commit, reviewedPaths] of reviewedPathsByCommit) {
+    for (const [path, info] of blobInfoAtCommit(commit, uniqueSorted(reviewedPaths))) reviewedBlobInfos.set(path, info);
+  }
+  const caseIndex = buildRegistryCaseIndex(registry);
+  const errors = catalogErrors(catalog, {
+    currentPaths: currentPathSet,
+    currentHashes,
+    baselinePaths,
+    reviewedBlobInfos,
+    caseIndex,
+    models: modelDefinitions,
+    traceContract,
+    journeyAudit,
+  });
+  if (errors.length) fail('semantic MJS catalog invalid:\n' + errors.map((message) => '- ' + message).join('\n'));
+
+  const catalogByPath = new Map(catalog.files.map((file) => [file.path, file]));
   const rows = new Map(paths.map((path) => [path, {
-    path, role: scriptRole(path), present: existsSync(resolve(ROOT, path)),
-    sha256: existsSync(resolve(ROOT, path)) ? createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex') : null,
-    references: [], formalEvidence: [], decision: 'keep-unproven',
+    path,
+    roleHint: scriptRoleHint(path),
+    present: true,
+    sha256: currentHashes.get(path),
+    staticReferenceCandidates: [],
   }]));
   // Do not consume our own generated output: that would make --check recursive.
   for (const source of tracked.filter((path) => path !== OUTPUT_JSON && path !== OUTPUT_MD
+    && path !== SEMANTIC_CATALOG
     && !path.startsWith('generated/') && !path.includes('/runtime/')
     && (/\.(mjs|ts|tsx|py|sh|md|ya?ml)$/.test(path) || path.endsWith('package.json') || path === 'Makefile'))) {
     if (!existsSync(resolve(ROOT, source))) continue;
@@ -86,40 +656,121 @@ function scriptInventory(modelDefinitions) {
     for (const match of text.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"]([^'"]+\.mjs)['"]/g)) {
       if (!match[1].startsWith('.')) continue;
       const target = relative(ROOT, resolve(ROOT, source, '..', match[1]));
-      if (rows.has(target)) rows.get(target).references.push({ kind: 'literal-import-candidate', source, line: text.slice(0, match.index).split('\n').length });
+      if (rows.has(target)) rows.get(target).staticReferenceCandidates.push({ kind: 'literal-import-candidate', source, line: text.slice(0, match.index).split('\n').length });
     }
     for (const path of paths) {
       if (path === source) continue;
       const index = text.indexOf(path);
-      if (index >= 0) rows.get(path).references.push({ kind: 'path-mention', source, line: text.slice(0, index).split('\n').length });
+      if (index >= 0) rows.get(path).staticReferenceCandidates.push({ kind: 'path-mention', source, line: text.slice(0, index).split('\n').length });
     }
   }
-  const link = (path, kind, names, source, declaredActions = []) => {
-    if (!rows.has(path)) return;
-    rows.get(path).formalEvidence.push({ kind, source, declaredActions, models: names.map((name) => {
-      const definition = modelDefinitions.get(name);
-      if (!definition?.cfg) fail('script inventory references a model without a config: ' + name);
-      return { name, config: definition.cfg, modelActions: definition.actions, configuredInvariants: definition.invariants };
-    }) });
-  };
-  const runnerText = readFileSync(resolve(ROOT, FORMAL_RUNNER), 'utf8');
-  const runModules = [...runnerText.matchAll(/module: '([^']+)'/g)].map((match) => match[1]);
-  link(FORMAL_RUNNER, 'configured-model-runner', runModules, FORMAL_RUNNER + ':MODEL_RUNS');
-  link('scripts/verify-builder-interactions.mjs', 'configured-model-runner', ['ConstructionLifecycle'], 'scripts/verify-builder-interactions.mjs');
-  link('scripts/verify-builder-traces.mjs', 'trace-validator-not-producer', Object.keys(readJson(TRACE_CONTRACT).models), TRACE_CONTRACT);
-  const journeyManifest = MODEL_DIR + '/builder-journey-audit.json';
-  const journeyInventory = readJson(journeyManifest);
-  link(journeyInventory.runner, 'journey-runner-consumes-captured-traces', uniqueSorted(journeyInventory.journeys.map((journey) => journey.model).filter(Boolean)), journeyManifest);
-  for (const journey of journeyInventory.journeys) {
-    link(journey.spec, journey.model ? 'declared-journey-model-runtime-observations' : 'unmodeled-browser-oracle',
-      journey.model ? [journey.model] : [], journeyManifest + '#' + journey.id, journey.actions ?? []);
+  const catalogRows = [];
+  const sourceFilesByClaim = new Map();
+  const claimsById = new Map(catalog.claims.map((claim) => [claim.id, claim]));
+  const claimMappingsByCase = new Map();
+  for (const claim of catalog.claims) {
+    for (const mapping of claim.journeys ?? []) {
+      if (!claimMappingsByCase.has(mapping.caseId)) claimMappingsByCase.set(mapping.caseId, []);
+      claimMappingsByCase.get(mapping.caseId).push({ claimId: claim.id, ...mapping });
+    }
   }
-  return [...rows.values()].map((row) => ({ ...row,
-    referenceCount: row.references.length,
-    references: row.references.slice(0, 8),
-    gap: row.formalEvidence.length ? 'Links describe configured or declared checks, not a current passing run or runtime refinement.'
-      : 'No explicit formal producer/runner link audited; retain independent checks and review applicability.',
+  const rowFor = (source, lifecycle, row = null) => {
+    const assertionRows = (source.assertions ?? []).map((assertion) => {
+      if (!sourceFilesByClaim.has(assertion.semanticClaimId)) sourceFilesByClaim.set(assertion.semanticClaimId, []);
+      sourceFilesByClaim.get(assertion.semanticClaimId).push({
+        path: source.path,
+        lifecycle,
+        sourceAssertionId: assertion.sourceAssertionId,
+        evidenceKind: assertion.evidenceKind,
+        sourceLines: assertion.sourceLines,
+      });
+      return { ...assertion };
+    });
+    const semanticClaimIds = uniqueSorted(assertionRows.map((assertion) => assertion.semanticClaimId));
+    const journeyMappings = uniqueSorted(semanticClaimIds.flatMap((claimId) => (claimsById.get(claimId).journeys ?? []).map((mapping) => mapping.caseId)))
+      .map((caseId) => ({
+        caseId,
+        claims: semanticClaimIds.flatMap((claimId) => (claimsById.get(claimId).journeys ?? [])
+          .filter((mapping) => mapping.caseId === caseId)
+          .map((mapping) => ({ id: claimId, relation: mapping.relation, requiredChecks: mapping.requiredChecks ?? [], focusedCheckIds: mapping.focusedCheckIds ?? [] }))),
+      }));
+    return {
+      ...(row ?? { path: source.path, roleHint: scriptRoleHint(source.path), staticReferenceCandidates: [], staticReferenceCandidateCount: 0 }),
+      path: source.path,
+      lifecycle,
+      origin: baselinePaths.has(source.path) ? 'baseline' : 'added',
+      present: lifecycle === 'active',
+      sha256: source.sha256,
+      purpose: source.purpose,
+      role: source.role,
+      testLayer: source.testLayer,
+      sourceReview: {
+        ...source.sourceReview,
+        reviewedCommit: source.sourceReview.reviewedCommit ?? catalog.sourceCommit,
+      },
+      sourceRevision: {
+        commit: source.sourceReview.reviewedCommit ?? catalog.sourceCommit,
+        sha256: source.sha256,
+      },
+      executionDiscovery: source.executionDiscovery,
+      assertions: assertionRows,
+      semanticClaimIds,
+      journeyMappings,
+      oracle: source.oracle ?? null,
+      formalApplicability: source.formalApplicability,
+      disposition: source.disposition,
+      replacementProof: source.replacementProof ?? null,
+      duplicateCandidates: source.duplicateCandidates ?? [],
+      runtimeEvidence: { status: 'unverified', reason: 'No exact current run artifact is joined to this MJS SHA-256.' },
+    };
+  };
+  for (const [path, row] of rows) {
+    const source = catalogByPath.get(path);
+    catalogRows.push(rowFor(source, 'active', {
+      ...row,
+      staticReferenceCandidateCount: row.staticReferenceCandidates.length,
+      staticReferenceCandidates: row.staticReferenceCandidates.slice(0, 8),
+    }));
+  }
+  for (const source of catalog.files.filter((file) => file.lifecycle === 'retired')) {
+    catalogRows.push(rowFor(source, 'retired'));
+  }
+  const ordered = catalogRows.sort((left, right) => left.path.localeCompare(right.path));
+  const retiredPaths = catalog.files.filter((file) => file.lifecycle === 'retired').map((file) => file.path);
+  const semanticClaims = catalog.claims.map((claim) => ({
+    id: claim.id,
+    statement: claim.statement,
+    category: claim.category,
+    journeys: claim.journeys ?? [],
+    sourceAssertions: (sourceFilesByClaim.get(claim.id) ?? []).sort((left, right) => left.path.localeCompare(right.path) || left.sourceAssertionId.localeCompare(right.sourceAssertionId)),
   }));
+  const sourceOccurrences = catalog.files.flatMap((file) => file.assertions ?? []);
+  const countBy = (items, keyOf) => Object.fromEntries([...items.reduce((counts, item) => {
+    const key = keyOf(item);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return counts;
+  }, new Map()).entries()].sort(([left], [right]) => left.localeCompare(right)));
+  const assertionEvidenceKindCounts = countBy(sourceOccurrences, (occurrence) => occurrence.evidenceKind);
+  const summary = {
+    baselineFiles: baselinePaths.size,
+    currentFiles: currentPathSet.size,
+    baselineRetired: [...retiredPaths].filter((path) => baselinePaths.has(path)).length,
+    currentAdded: [...currentPathSet].filter((path) => !baselinePaths.has(path)).length,
+    sourceReviewed: catalog.files.filter((file) => file.sourceReview?.status === 'reviewed').length,
+    runtimeUnverified: ordered.length,
+    invocationUncertain: catalog.files.filter((file) => file.executionDiscovery?.status === 'uncertain-dynamic-or-manual').length,
+    semanticClaims: catalog.claims.length,
+    sourceAssertionOccurrences: sourceOccurrences.length,
+    sourceAssertions: sourceOccurrences.filter((occurrence) => occurrence.evidenceKind === 'test-assertion').length,
+    diagnosticOccurrences: sourceOccurrences.filter((occurrence) => ['call-through', 'trace-capture'].includes(occurrence.evidenceKind)).length,
+    claimsWithoutSourceAssertions: semanticClaims.filter((claim) => !claim.sourceAssertions.some((source) => source.evidenceKind === 'test-assertion')).length,
+    claimsWithoutJourneyMappings: semanticClaims.filter((claim) => claim.journeys.length === 0).length,
+    assertionEvidenceKindCounts,
+    roleCounts: countBy(ordered, (file) => file.role),
+    formalApplicabilityCounts: countBy(ordered, (file) => file.formalApplicability.kind),
+    dispositionCounts: countBy(ordered, (file) => file.disposition.kind),
+  };
+  return { rows: ordered, semanticClaims, claimMappingsByCase, sourceFilesByClaim, summary };
 }
 
 function normalizeRoute(value) {
@@ -325,14 +976,17 @@ function betterMapping(left, right) {
 
 if (args.includes('--self-test')) {
   selfTestParser();
-  if (scriptRole('scripts/a.spec.mjs') !== 'browser-spec'
-    || scriptRole('scripts/a.test.mjs') !== 'test'
-    || scriptRole('scripts/lib/a.mjs') !== 'helper-or-oracle') fail('script inventory role classification failed');
+  selfTestCatalogValidation();
+  if (scriptRoleHint('scripts/a.spec.mjs') !== 'browser-spec'
+    || scriptRoleHint('scripts/a.test.mjs') !== 'test'
+    || scriptRoleHint('scripts/lib/a.mjs') !== 'helper-or-oracle') fail('script inventory role hint classification failed');
   process.exit(0);
 }
 
 const ledger = readJson(LEDGER);
 const traceContract = readJson(TRACE_CONTRACT);
+const journeyAudit = readJson(MODEL_DIR + '/builder-journey-audit.json');
+const semanticCatalog = readJson(SEMANTIC_CATALOG);
 const browserEvidence = existsSync(resolve(ROOT, BROWSER_EVIDENCE)) ? readJson(BROWSER_EVIDENCE) : { cases: [] };
 const routeByKey = new Map();
 const actionToRoutes = new Map();
@@ -471,6 +1125,35 @@ function routeObligations(routes) {
 
 const browserCases = new Map((browserEvidence.cases ?? []).map((entry) => [entry.id, entry]));
 const { registry } = await import(pathToFileURL(resolve(ROOT, REGISTRY)).href);
+const scriptCatalog = scriptInventory(models, registry, traceContract, journeyAudit, semanticCatalog);
+const scripts = scriptCatalog.rows;
+const scriptRowsByPath = new Map(scripts.map((script) => [script.path, script]));
+const semanticClaimsById = new Map(scriptCatalog.semanticClaims.map((claim) => [claim.id, claim]));
+const semanticClaimsForCase = (caseId) => (scriptCatalog.claimMappingsByCase.get(caseId) ?? []).map((mapping) => {
+  const claim = semanticClaimsById.get(mapping.claimId);
+  const sourceFiles = (scriptCatalog.sourceFilesByClaim.get(mapping.claimId) ?? []);
+  const groupedSources = new Map();
+  for (const source of sourceFiles) {
+    if (!groupedSources.has(source.path)) groupedSources.set(source.path, { path: source.path, lifecycle: source.lifecycle, sourceAssertionIds: [], evidenceKinds: [] });
+    const target = groupedSources.get(source.path);
+    target.sourceAssertionIds.push(source.sourceAssertionId);
+    target.evidenceKinds.push(source.evidenceKind);
+  }
+  return {
+    id: claim.id,
+    statement: claim.statement,
+    category: claim.category,
+    relation: mapping.relation,
+    requiredChecks: mapping.requiredChecks ?? [],
+    focusedCheckIds: mapping.focusedCheckIds ?? [],
+    sourceFiles: [...groupedSources.values()].map((source) => ({
+      ...source,
+      sourceAssertionIds: uniqueSorted(source.sourceAssertionIds),
+      evidenceKinds: uniqueSorted(source.evidenceKinds),
+      formalApplicability: scriptRowsByPath.get(source.path)?.formalApplicability ?? null,
+    })),
+  };
+});
 for (const entry of registry) {
   const entryRoutes = uniqueSorted((entry.endpoints ?? []).map(parseEndpoint).filter(Boolean));
   for (const [caseName, caseData] of Object.entries(entry.cases ?? {})) {
@@ -489,6 +1172,7 @@ for (const entry of registry) {
       suspectedModels: suspectedModelsForRoutes(routes),
       checks: Array.isArray(caseData.requiredChecks) ? caseData.requiredChecks : [],
       focusedChecks: uniqueSorted((caseData.focusedChecks ?? []).map((check) => check.id)),
+      semanticClaims: semanticClaimsForCase(id),
       mapping: evidence ? 'browser-evidence' : 'registry-endpoints',
       evidence: evidence ? BROWSER_EVIDENCE : REGISTRY,
     });
@@ -787,13 +1471,13 @@ const summary = {
   candidateRouteBindings: obligations.filter((obligation) => obligation.routeBinding === 'candidate').length,
 };
 
-const scripts = scriptInventory(models);
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   sources: {
     modelDir: MODEL_DIR,
     routeLedger: LEDGER,
     traceContract: TRACE_CONTRACT,
+    semanticCatalog: SEMANTIC_CATALOG,
     browserEvidence: existsSync(resolve(ROOT, BROWSER_EVIDENCE)) ? BROWSER_EVIDENCE : null,
     registry: REGISTRY,
     formalRunner: FORMAL_RUNNER,
@@ -802,7 +1486,9 @@ const report = {
   },
   summary,
   scripts,
-  scriptInventoryBounds: 'Tracked paths only. Import-syntax matches are candidates (comments and fixture strings may match); path mentions include documentation and historical records. Neither establishes executable reachability. Reference lists retain eight examples with a full count. Dynamic imports, glob discovery and manual CLI invocation remain unresolved. No row authorizes deletion. Formal links are declared/configured associations, not runtime proof or current run results.',
+  mjsCatalogSummary: scriptCatalog.summary,
+  semanticClaims: scriptCatalog.semanticClaims,
+  scriptInventoryBounds: 'The file catalog is source-reviewed and hash-bound to a reviewed source revision. Static import and path mentions remain candidates, not proof of reachability; dynamic and manual invocation uncertainty is recorded separately. Semantic claims, journey mappings, and formal bindings describe intended associations. Every MJS runtime status is unverified unless an exact current artifact is joined to its source SHA; labels do not prove execution or model refinement. Retirement rows preserve their source and replacement references.',
   obligations,
   tests: [...tests.values()].sort((left, right) => left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name)),
   duplicates: {
@@ -833,7 +1519,12 @@ lines.push('Status: generated from the TLA models and existing test metadata.');
 lines.push('');
 lines.push('## Script quality inventory');
 lines.push('');
-lines.push(scripts.length + ' tracked MJS files are indexed in the JSON report under `scripts`; no new MJS runner is required.');
+lines.push(scriptCatalog.summary.baselineFiles + ' MJS files in the reviewed baseline are accounted for as active or retired records.');
+lines.push(scripts.filter((script) => script.lifecycle === 'active').length + ' are currently tracked; ' + scriptCatalog.summary.baselineRetired + ' baseline files have retained tombstones.');
+lines.push(scriptCatalog.summary.semanticClaims + ' semantic claims are defined once; ' + scriptCatalog.summary.sourceAssertions + ' source occurrences are direct test assertions, out of ' + scriptCatalog.summary.sourceAssertionOccurrences + ' total labeled occurrences.');
+lines.push(scriptCatalog.summary.diagnosticOccurrences + ' call-through or trace-capture occurrences are reported separately and do not count as test assertions.');
+lines.push(scriptCatalog.summary.sourceReviewed + ' catalog records have source-review evidence; ' + scriptCatalog.summary.runtimeUnverified + ' MJS records remain runtime-unverified.');
+lines.push('`role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.');
 lines.push('');
 lines.push('| Role | Files |');
 lines.push('| --- | ---: |');
@@ -841,18 +1532,25 @@ for (const role of uniqueSorted(scripts.map((script) => script.role))) lines.pus
 lines.push('');
 lines.push('### Explicit formal links');
 lines.push('');
-for (const script of scripts.filter((script) => script.formalEvidence.length)) {
-  lines.push('- `' + script.path + '`: ' + script.formalEvidence.map((evidence) => evidence.kind + (evidence.models.length ? ' → ' + evidence.models.map((model) => model.name).join(', ') : '')).join('; '));
+const formalLinks = scripts.filter((script) => script.formalApplicability.kind !== 'not-applicable');
+for (const script of formalLinks.slice(0, 80)) {
+  const bindings = (script.formalApplicability.bindings ?? []).map((binding) => binding.model + (binding.actions?.length ? ' [' + binding.actions.join(', ') + ']' : '')
+    + (binding.scheduleIds?.length ? ' schedule=' + binding.scheduleIds.join(',') : '')
+    + (binding.journeyIds?.length ? ' journey=' + binding.journeyIds.join(',') : '')).join('; ');
+  lines.push('- `' + script.path + '`: ' + script.formalApplicability.kind + (bindings ? ' → ' + bindings : '')
+    + (script.formalApplicability.limitation ? '; gap: ' + script.formalApplicability.limitation : ''));
 }
+if (formalLinks.length > 80) lines.push('- ' + (formalLinks.length - 80) + ' additional formal applicability rows are in the JSON report.');
+if (formalLinks.length === 0) lines.push('No file is currently marked as formally applicable or a candidate.');
 lines.push('');
-lines.push('These are source associations, not passing runs. Journey traces capture DOM observations and correlated network request/response facts; they do not establish full UI/controller refinement. Independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.');
+lines.push('These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.');
 lines.push('');
 lines.push('### Cleanup review order');
 lines.push('');
 lines.push('1. Close the remaining controller/reconcile and reload boundaries with runtime evidence where applicable; preserve independent data oracles.');
 lines.push('2. Review classified-but-unreplayed late/rejected runtime events before expanding the model claims.');
 lines.push('3. Consolidate duplicate test/route parsers and TLC acquisition only after proving equivalent behavior.');
-lines.push('4. Investigate `scripts/verify-ui/helpers/playwright-verification.mjs` and `scripts/local-preview-index-explain.mjs`; static audit found no current importer/invocation, but historical and manual use remain unresolved. Neither is approved for deletion.');
+lines.push('4. Review each consolidation or retirement candidate against its replacement path, independent oracle, and exact required checks before removing it.');
 lines.push('');
 lines.push(report.scriptInventoryBounds);
 lines.push('');
