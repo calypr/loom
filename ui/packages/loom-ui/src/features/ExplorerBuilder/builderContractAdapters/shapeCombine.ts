@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { hasRowValuePolicy } from './shapeCombinePolicy';
 
 type AdapterInput = {
   readonly uiAction: {
@@ -717,7 +718,7 @@ const driveRelatedSource = async (input: AdapterInput): Promise<void> => {
     fireEvent.click(within(matchingDetails).getByRole('radio', { name: predicateLabel }));
   }
   const rowPolicy = dimension(input, 'row_value_policy');
-  if (rowPolicy !== null && rowPolicy !== undefined) {
+  if (hasRowValuePolicy(rowPolicy)) {
     const policy = screen.queryByLabelText('Values per grouped row');
     if (policy) await selectValue('Values per grouped row', requiredId(input, 'row_value_policy'));
   }

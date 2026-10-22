@@ -1,78 +1,164 @@
 ---
 name: builder-interaction-formal-verification
-description: Verify Builder proposal ownership, draft identity, preview receipts, and Apply eligibility when changing the construction workspace lifecycle or its applicability checks.
+description: Verify Builder operation/data-shape support, proposal/preview/apply ownership, Pivot discovery, and bounded UI-contract coverage when changing the construction lifecycle or supported actions.
 ---
 
 # Builder interaction formal verification
 
-Use this skill when changing `useConstructionLifecycle`, `constructionProposalIsApplicable`, proposal cancellation or replacement, preview receipt handling, the proposal's Apply gate, the active Group editor's operation history and downstream recalculation, or the supported Builder actions covered by the UI contract inventory.
+Use this skill when changing `useConstructionLifecycle`, `BuilderWorkspace`'s Apply flow, `ConstructionReshapeEditor` Pivot discovery, construction operation availability, the supported Builder actions in the UI contract inventory, or the TLA+ models and coverage map.
 
-The checked promise is: only an uncancelled proposal owner for the current Builder request identity, with a matching proposal response and preview receipt/output with non-null rows, can be ready or begin Apply. A break can show or apply a preview for another draft or another proposal.
+The checked promises are bounded:
 
-Run the integrated check from the repository root containing the current Builder implementation:
+- Every operation or data shape the mounted editors offer is one the authoring backend accepts for the modeled input, with no typed refusal of a valid form.
+- Only the owner for the current request identity, with a matching proposal response and preview receipt/output with non-null rows, can become ready or begin Apply.
+- A completed Apply acknowledgment targets the owner that began Apply, not whichever proposal is current when the acknowledgment arrives. This is now implemented and covered by two regression schedules.
+- A Pivot discovery result is adopted only for the current key and generation. The former missing-category refusal finding is retired: the audited source and materialized paths do not reach `MISSING_UNSUPPORTED`. The remaining gap is that materialized outputs collapse an absent input to a present null.
+- A captured implementation trace projects to a legal `Next` path in the bounded model. The Phase 1 evidence covers the 70 formal lifecycle schedules.
 
-    node scripts/verify-builder-interactions.mjs
+These are finite-state checks. They are not an unbounded refinement proof of React, Go, transport, persistence, or browser behavior.
 
-The runner checks the pinned source files, explores the finite TLA+ model with TLC 1.7.4, and drives the real React hook through the explicit schedule families in its Vitest suite. It downloads the official TLC release to a cache under the operating-system temporary directory when needed. The download and any `TLA2TOOLS_JAR` override must match the SHA-256 recorded in the runner. Java and the existing UI workspace dependencies are required; this workflow adds no package dependency.
+## Fast loop
 
-This is the focused proposal-owner/concurrency check. It does not cover every Builder affordance or replay UI requests through the backend.
+The inner loop is one source change, one focused test, and one mutation probe. Keep each command under 5 seconds. Do not run the integrated gate for a small change. Use it at a batch checkpoint.
 
-The bounded operation-history slice has a separate command:
+Run one mutation probe:
 
-    node scripts/verify-builder-operation-history.mjs
+    node scripts/run-builder-mutation-probe.mjs <probe-id> --force
 
-It runs the explicit transition explorer, asks the focused Builder DOM adapter to export each accepted workspace seed, has Go validate and compile those seeds into canonical draft identities, then replays every modeled action through the UI using those identities. Finally it passes the unmodified captured proposal requests and the same trace JSON to the Go lifecycle replay. Every case and proposal checkpoint must appear in each artifact; missing, skipped, or unsupported rows fail. This mode checks pinned operation/analyzer source hashes. It does not change the default hook/TLC mode or its source-mutation probe behavior.
+The runner applies Vitest mutants through a Vite overlay, so it does not copy the repository. Go probes run one named regression and reuse `ui/node_modules/.cache/loom-mutation-go`. Evidence is keyed by source, test, and probe hashes. A repeat run skips unchanged probes. Use `--jobs=N` only after individual probes are cheap. The current suite is 50 probes, 47 killed, 3 equivalent, 0 survived, and 94 unprobed actions. The strict allowlist is empty.
 
-## What the check covers
+Run one focused UI test:
 
-The source map is `verification/builder-interactions/source-contract.json`. Open the mapped source before changing the model:
+    cd ui/packages/loom-ui
+    node ../../node_modules/vitest/vitest.mjs run <test-file> -t "<test name>"
 
-- `useConstructionLifecycle.ts` builds the request identity, filters the active owner by exact request key, checks proposal response identity, fetches or validates the preview, invalidates a replaced or canceled owner, and gates `beginApply`.
-- `ConstructionProposalPanel.tsx` contains `constructionProposalIsApplicable`, which checks the response identity and the preview's proposal receipt, output, and rows.
-- `resourceFor` in `ui/packages/loom-ui/src/react.tsx` owns the proposal resource snapshot, abort/epoch handling, and notification behavior used by the hook. Its source is fingerprinted because the hook exposes its snapshot.
+If a focused check cannot finish in 5 seconds, run less. The integrated gate is not the inner loop.
 
-The hook's finishApply(true) calls cancel() on the current owner. finishApply(false) closes over the active owner. The model and generated schedule suite stop at beginApply; the included pre-existing unit suite exercises the immediate finishApply(true) client state. They do not model a delayed completion from an old Apply after a replacement. Do not infer an old-owner guard from these functions.
+## Integrated command
 
-The model has two proposal attempts, two abstract request identities, and owner generations from 0 through 4, with finite proposal outcomes and preview receipts. TLC explores every reachable interleaving in that configured state space. The real hook suite drives the implementation with deferred transports and fake timers through 59 explicitly enumerated schedules: 30 proposal response-order/outcome combinations, 4 proposal identity mismatches, 10 fallback-preview response-order/outcome combinations, 3 late cancellation results, 9 one-field request-identity changes, one A-to-B-to-A timing case, one stale expected proposal after replacement, and one proposal retry. These are bounded model and implementation-conformance checks, not an unbounded proof or a full refinement proof of the entire Builder.
+Run from the repository root:
 
-A request identity change makes the old owner inactive while its request key differs; the hook does not itself increment proposal generation on that change. The finite model tracks identity, not React subscription-cleanup timing. Its A-to-B-to-A test rerenders B and then the exact same A synchronously before queued unsubscribe cleanup, and verifies that the pending A owner is not aborted and can become ready. That case does not establish that every A-to-B-to-A timing preserves the old owner.
+    node scripts/verify-builder-formal.mjs
 
-The check does not establish server persistence, saved-data semantics, construction calculations, full browser behavior, or Apply completion behavior after replacement.
+The runner:
 
-## Bounded operation-history checks
+1. Verifies `verification/builder-interactions/builder-preview-contract.json`. Any changed fingerprinted production or model source fails the run until the source-to-model mapping is reviewed deliberately.
+2. Requires Java and TLC 1.7.4. It uses `TLA2TOOLS_JAR` when set; otherwise it downloads the official release into the operating-system temporary directory. The JAR SHA-256 is `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`.
+3. Runs the two safety models and the three retained finding models through TLC.
+4. Runs the real React hook schedule suite. It expects 70 tests: 70 schedules, including two Apply-acknowledgment regressions. The suite writes a trace corpus to a temporary file.
+5. Validates every captured trace with TLC through `scripts/verify-builder-traces.mjs`, using `builder-trace-contract.json` and the same TLC pin.
+6. Runs selected Go lifecycle replay tests and server boundary tests, then the inventory source-only check.
+7. Writes `verification/builder-interactions/report.json` and `report.md` with checks, findings, trace conformance, and coverage gaps.
 
-`node scripts/verify-builder-operation-history.mjs` remains a focused Group operation-history check. It is useful for the COUNT_ROWS-to-MEAN edit, dependent Filter/Calculate reconciliation, cancel, preview, and Apply lifecycle. Treat it as a narrow regression check; it does not establish coverage of the full UI affordance inventory.
+Useful options:
 
-`verification/builder-interactions/operationHistoryModel.mjs` performs bounded breadth-first transition exploration from 14 sampled accepted-workspace seeds. They cover COUNT_ROWS or MEAN, numeric input availability, key A (`Patient.gender`) and key B (`Patient.active`) availability, and accepted histories with no dependent or up to two FILTER/CALCULATE steps. The seeds are not the full set of possible construction histories. The model enumerates each enabled transition through one Group editor session, with at most six transitions, four user edits, and two downstream steps. Successful Apply acknowledgment and cancel end that session. The artifact contains the exact trace IDs and proposal action indices that the UI and Go phases must replay; the runner derives coverage counts from that artifact and rejects missing or skipped work.
+    node scripts/verify-builder-formal.mjs --skip-go
+    node scripts/verify-builder-formal.mjs --strict
 
-The key cascade witness changes COUNT_ROWS to MEAN and removes the Group key while retaining the accepted downstream history Group→Filter(group-key)→Calculate(aggregate). The raw UI request keeps both dependent steps unchanged. Go's proposal response must remove only the incompatible Filter, preserve the Calculate step ID and order, reconnect its input stage directly to Group, and report the resolved construction the user reviewed. The model independently derives which raw dependent input IDs remain available and asserts survivor membership, exact removals, operation/column identity, order, and reconnected stages without using the resolver as its own oracle. Proposal and cancel do not save; successful Apply acknowledgment advances accepted workspace to exactly that resolved candidate. The model has separate raw and resolved candidates so it does not mistake backend cascading for an editor rewrite.
+`--skip-go` is for UI/model iteration; it is not a substitute for the full run before reporting completion. `--strict` fails while any retained finding or coverage gap remains; it is the full gate, not the default harness run.
 
-The model predicts Group aggregate output as integer for COUNT_ROWS and decimal for MEAN. Its seeded, uncased Calculate expression is aggregate plus integer literal `1`; the raw editor output carries no declared type, and the model independently predicts the inferred result type from the expression: integer under COUNT_ROWS and decimal under MEAN. Explicit casts are outside the modeled expression. The real frontend and Go replay assert the resolved/analyzed and compiled stage input/output types, including decimal inference in the combined cascade witness.
+UI dependencies are required. The runner prefers `ui/node_modules` and falls back to `ui/packages/loom-ui/node_modules`. Do not commit a local `ui/node_modules` symlink.
 
-The Go prepare phase validates and compiles every accepted seed to provide the exact draft version and digest used by the later UI replay. The UI adapter captures the unmodified proposal request. Go replays those requests through real proposal, analyzer, Apply, and acknowledgment code using a synthetic in-memory store. For each READY proposal it calls the real `Service.Preview` and exports that result beside the unchanged `PREVIEW_PENDING` service DTO. The final panel check presents the DTO's actual `DependencyImpact` and `CandidateConstruction` with that actual preview result, adding the READY presentation shape required by the panel schema. It runs only the panel and inventory assertions and must leave the Go-checked candidate artifact byte-for-byte unchanged. This is a service-DTO-to-panel presentation fixture, not the wire response from the HTTP handler; the runner separately executes the existing server HTTP Group/proposal tests that cover the handler's PREVIEW_PENDING-to-READY-plus-preview conversion. Transport, chrome, and store contents remain synthetic. This is bounded model-based conformance, not a whole-application theorem or browser lifecycle proof; it does not establish database persistence, calculated value correctness, or production transport behavior. On mismatch, the runner reports the trace ID, preceding actions, expected state, and actual UI or Go result.
+## Model architecture
 
-The operation runner pins the actual `BuilderWorkspace` wiring, Group editor, analyzer/lifecycle proposal, proposal HTTP conversion sources, and the corresponding server route test. It keeps one fresh temporary artifact set across model generation, Go seed preparation, UI replay, Go lifecycle replay, server boundary tests, and panel verification. Run the artifact-dependent UI and Go checks through that runner so trace, identity, candidate, response, and preview files all come from one invocation. Its controlled mutation mode is:
+The models are deliberately split so operation combinations do not multiply the lifecycle interleavings.
+
+`BuilderOperations.tla` / `BuilderOperations.cfg`:
+
+- Two authored steps over the mounted operation families for a rooted table.
+- Tracks row shape (`records`, `groups`, `expanded`), column classes, whether a construction exists, editor form validity, undo, and reset.
+- Models `ADD_FIELD`, `ADD_RELATED`, `FILTER`, `DERIVE`, `GROUP`, `PIVOT`, `CODED_PIVOT`, `UNPIVOT`, `EXPAND`, `RELATED_EXPAND`, the three Combine forms, Row Expanded, Row Explicit Group, and the legacy Table Shape Pivot/Unpivot forms.
+- Checks `Inv_StepsWellFormed` and `Inv_NoUiOfferedUnsupportedOperation`.
+- Current bound: 36,063 generated states, 2,428 distinct.
+
+`BuilderPreview.tla` / `BuilderPreviewSafety.cfg`:
+
+- Two accepted-draft identities and three proposal generations.
+- Models proposal start, replacement, completion, proposal errors, late completion, cancellation, retry, preview start/completion, stale preview, Begin Apply, Apply acknowledgment, draft change, reconcile, Pivot key changes, discovery scheduling/completion, unmount, and adoption. `ApplyAck` targets `applyOwner`, not the current proposal owner; a replacement proposal is left unchanged by an older Apply settlement.
+- `StartPreview` remains legal while an older Apply is in flight. `Inv_ApplyUsesReviewedPreview` compares the current preview only when the proposal generation still matches the Apply generation; a replacement preview is a separate finding path.
+- Checks preview ownership, reviewed-preview Apply, Apply acknowledgment ownership, discovery ownership, missing-category support, and draft monotonicity.
+- Current bound: 496,664 generated states, 66,469 distinct, depth 20.
+
+The discovery finding config was retired on 2026-10-18. The real-AQL audit found no valid UI-offered field with `missing && !PresenceTracked`; source fields with absent values are tracked, while materialized outputs report `present=true`. The TLA model retains the abstract `missing-unsupported` outcome for trace vocabulary, but it is no longer run as an active finding.
+
+## Trace conformance (Phase 1)
+
+`verification/builder-interactions/builder-trace-contract.json` is the shared vocabulary: model action labels, events, request/checkpoint bindings, observation fields, and the Phase 1 required coverage. It is pinned in `builder-preview-contract.json`.
+
+The formal suite records:
+- initial observation immediately after capabilities settle;
+- one action per settled implementation transition;
+- observations `status`, `canApply`, `proposalIdPresent`, `previewReceiptPresent`, and `rowsPresent`;
+- unmodeled implementation events separately, so stale settlements are visible rather than silently dropped.
+
+Run the trace validator directly when iterating:
+
+    node scripts/verify-builder-traces.mjs --traces /tmp/loom-formal-traces.json --output /tmp/trace-report.json
+
+The validator deduplicates identical traces, generates a TLA+ case module per unique trace, and checks each step against `BuilderPreview!Next` or `ConstructionLifecycle!Next` with `lastAction'` constrained to the captured label. It also checks required models, actions, events, and the 70-trace Phase 1 count. `--allow-partial` is for local iteration only.
+
+Current Phase 1 result after the Apply fix: 70 traces, 21 unique, 70 validated, 0 invalid. Required models, actions, and events are all covered. The 55 unmodeled events are stale proposal/preview settlements and rejected old `beginApply` calls; they are reported by kind in `report.json`.
+
+Two abstraction limits are intentional:
+- A ready proposal with an embedded preview is split into `ProposalComplete`, `StartPreview`, and `PreviewComplete`. The middle observation is a synthetic abstract `previewing` observation because the React hook has no intermediate render. The note says `embedded proposal preview abstract split`.
+- The A-B-A schedule uses `ConstructionLifecycle.tla`, not `BuilderPreview.tla`, because the latter tracks monotonic draft identity. The other 60 traces use `BuilderPreview.tla`.
+
+This layer validates action paths and a small observation projection. It is not a full state-refinement proof.
+
+## Findings and resolved regressions
+
+No active findings.
+
+Retired finding:
+
+1. `pivot-missing-category-unsupported`: the mounted Pivot editor was said to offer category fields whose absent values the backend refuses to discover. Retired after the compile-matrix and real-AQL audits found no valid path satisfying `missing && !PresenceTracked`. Source and related fields with absent values are tracked; derived, Filter, Expand, Group, and Unpivot materialized outputs report `present=true`, so they collapse absent to a present null instead of refusing discovery. That missing/null distinction remains a separate correctness gap and is not claimed fixed.
+
+Resolved and covered by regression schedules:
+
+1. `apply-ack-targets-current-owner-success`: `finishApply(true)` now targets the owner that began Apply and leaves a replacement owner untouched.
+2. `apply-ack-targets-current-owner-failure`: `finishApply(false)` now targets the owner that began Apply and does not mark a replacement as failed.
+3. `beginApply` rejects a second Apply while one is already applying.
+
+Apply-ack browser acceptance attempt (2026-10-18): an isolated dev stack was built from this worktree, but the existing Basic authoring Playwright case failed before Apply because it expects a `Fields and related data` control that the current UI does not render. That is a harness/source mismatch, not an Apply-ack failure. The ownership race remains covered by the two formal hook regression schedules; do not claim a browser pass for it until a current case reaches Apply and reload.
+
+Apply evidence is in `BuilderWorkspace.tsx` (`applyConstructionProposal` / `finishApply`) and `useConstructionLifecycle.ts` (`beginApply` / `finishApply`). The regression tests are named `regression: old Apply ...` at the end of `useConstructionLifecycle.formal.test.tsx`. Pivot retirement evidence is in `internal/dataframe/compiler/pivot_presence_audit_test.go` and `internal/dataframe/compiler/pivot_presence_arango_audit_test.go`; the discovery source remains `internal/explorer/lifecycle/construction_category_discovery.go`, `useConstructionLifecycle.ts`, and `ConstructionReshapeEditor.tsx`.
+
+## Source and coverage maps
+
+`verification/builder-interactions/builder-preview-contract.json` pins the reviewed production sources, the two TLA modules and configs, the trace contract, and the test trace recorder. Open the mapped source before changing the model. A hash mismatch means review, not a fingerprint refresh.
+
+`verification/builder-interactions/affordance-model-map.json` assigns every one of the 57 inventory affordances to one of:
+
+- `modeled`: the operation/data-shape or lifecycle behavior is in a TLA model.
+- `partially-modeled`: lifecycle/ownership is modeled, but peripheral routing, persistence, or presentation is not.
+- `unmodeled`: outside the current construction and preview model.
+
+It also records implementation evidence as `tested`, `fixture-gap`, or `untested`. The runner rejects missing or unknown inventory IDs and model actions that do not exist in the TLA text.
+
+Current coverage: 57 modeled, 0 partially modeled, 0 unmodeled; 57 implementation-tested, 0 fixture-gap, 0 untested. These counts are a map, not a completion claim. In particular, the Go replay covers Group, Filter, Derive, expanded Row Definition, empty-root creation, and server proposal conversion. It does not cover every Pivot, Unpivot, Combine, Table Shape, related-route, population, or interpretation affordance.
+
+## Narrow runners
+
+`node scripts/verify-builder-interactions.mjs` remains the focused proposal-owner check using `ConstructionLifecycle.tla` and `source-contract.json`. It drives 59 real-hook schedules. Keep it for fast lifecycle review; the integrated runner also runs those schedules.
+
+`node scripts/verify-builder-operation-history.mjs` remains the focused Group operation-history and Go replay check. It covers the COUNT_ROWS-to-MEAN cascade, dependent Filter/Calculate reconciliation, cancel, preview, Apply, and the service-DTO-to-panel presentation fixture. Its controlled mutation mode remains:
 
     node scripts/verify-builder-operation-history.mjs --allow-source-drift-for-mutation /absolute/path/to/pristine-worktree
 
-Use a same-HEAD pristine worktree and change only `internal/explorer/lifecycle/construction_proposal.go` to bypass dependent-step cascade resolution. The runner requires the model, UI/Go tests, skill, and verifier to match the pristine reference, then passes only if the Go replay fails at the READY-versus-NEEDS_REPAIR behavioral assertion for the modeled cascade. A source-hash rejection, preparation failure, test setup error, or surviving mutation is a failed probe. Re-read the mapped source before extending the model's action alphabet or claims.
-
-At source HEAD `63e330d12`, Apply also has an `ApplyCommandsWithConstructionPreview` path that returns captured accepted-preview data to the Builder. This bounded Group-history replay still calls the lifecycle `ApplyCommands` API and verifies the saved candidate; it does not verify the new accepted-preview response/handoff through that wrapper and UI path. That additional contract remains outside this check.
+Use a same-HEAD pristine worktree and change only `internal/explorer/lifecycle/construction_proposal.go` to bypass dependent-step cascade resolution. A source-hash rejection, preparation failure, test setup error, unrelated assertion, or surviving mutant is a failed probe.
 
 ## Reading failures
 
-A normal run stops before model checking if any source hash in `source-contract.json` differs. That means the implementation changed and the mapping needs review. Read the current implementation, update the model and real-hook schedule only when the intended behavior changed, then update the source fingerprint deliberately. A hash update alone does not complete that review.
+A trace failure names the trace, action index, label, and generated TLA module. Compare the action with the implementation transition that produced it. Do not weaken an observation implication to make a stale or missing transition pass. A failure caused by an embedded-preview split usually means the synthetic middle observation was not used.
 
-If TLC stops before exploring states with a Java RMI ExportException that says “Listen failed on port: 0” and a SocketException saying “Operation not permitted,” the execution environment blocked TLC's local ephemeral listener. Keep that launch log and rerun the same verifier where local sockets are permitted. This is not an invariant counterexample; do not change the model to work around it.
+A source-hash failure means the implementation changed. Read the current source, decide whether intended behavior changed, update the model and real-hook schedules together, and then update the manifest deliberately. A hash update alone is not a review.
 
-A TLC counterexample names a reachable model action sequence that violates an invariant. Compare each action with the mapped hook steps. If the source permits the sequence, keep the finding and report it; do not weaken the invariant to make TLC pass.
+If TLC stops with a Java RMI `ExportException` saying `Listen failed on port: 0` and a `SocketException` saying `Operation not permitted`, the environment blocked TLC's local ephemeral listener. Keep the log and rerun where local sockets are permitted. Do not change the model around that failure.
 
-A Vitest failure names the concrete hook schedule. Deferred clients may resolve even after receiving an abort signal so the suite can test whether stale work still takes control. A failure from that assertion is a source behavior finding; a module-load or environment failure is not.
+If Go cannot write the configured build cache, set `LOOM_GO_CACHE` to a writable directory. The integrated and operation-history runners otherwise use a cache under the operating-system temporary directory.
 
-## Proving the check can catch a source regression
+A normal `--strict` run currently passes with zero active findings and zero coverage gaps. Any new inventory entry must be mapped to modeled, tested behavior before the gate passes again.
 
-The operation-history check has a controlled mutant mode. Use a separate worktree at the same commit as a pristine reference, and change only `internal/explorer/lifecycle/construction_proposal.go` to bypass dependent-step cascade resolution. Leave the model, tests, manifest, skill, and runner unchanged. From the mutated worktree root, run `node scripts/verify-builder-operation-history.mjs --allow-source-drift-for-mutation /absolute/path/to/pristine-worktree`.
+A Vitest failure names a concrete hook schedule. Deferred clients may resolve after receiving an abort signal so the suite can test whether stale work still takes control. A failure from that assertion is a source behavior finding; a module-load or environment failure is not.
 
-The runner verifies the distinct worktree paths, same Git HEAD, pristine reference fingerprints, exactly one changed fingerprinted production source, and byte-identical declared verification inputs. It bypasses only the source fingerprint gate, runs the bounded UI/Go replay, and reports success only when Go fails at the modeled READY-versus-NEEDS_REPAIR cascade assertion. A source-hash rejection, preparation failure, test setup error, unrelated assertion, or surviving mutant is a failed probe.
-
-For an intended production behavior change, update the source mapping, abstract model, and real-hook schedule together, then run the ordinary command without mutation mode.
+The inventory `--check` mode still reports pending coverage metadata for most affordances. The integrated runner uses `--source-only` plus the separate coverage map, so a passing integrated run does not mean the inventory's own strict coverage gate passes.

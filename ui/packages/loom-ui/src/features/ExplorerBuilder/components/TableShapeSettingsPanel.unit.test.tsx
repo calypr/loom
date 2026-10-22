@@ -246,6 +246,21 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     expect((screen.getByRole('combobox', { name: 'Pivot value column' }) as HTMLSelectElement).value).toBe('measure');
   });
 
+  it('rejects category discovery returned for a different pivot pair', async () => {
+    const mismatched: TableShapeCategoryDiscovery = {
+      ...discovery,
+      pair: { ...categoryPair, valueColumn: reference('column', 'measure-2') },
+    };
+    const client = makeClient({ discoverTableShapeCategories: vi.fn(async () => mismatched) });
+    renderPanel(client);
+    await open();
+    choosePivot();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discover categories' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Loom returned categories for a different pivot selection.');
+  });
+
   it('resolves pivot first, maps exact pivot descriptors, then resolves derived columns in authored order', async () => {
     const client = makeClient({
       resolveTableShape: vi.fn(async (request: Parameters<LoomClient['resolveTableShape']>[0]) => request.kind === 'PIVOT'

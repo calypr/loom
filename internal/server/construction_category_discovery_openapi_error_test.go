@@ -51,11 +51,11 @@ func TestAuthoringErrorForOpenAPIMapsConstructionCategoryScanFailures(t *testing
 			name: "internal execution failure",
 			err: &lifecycle.Error{
 				Class: lifecycle.ClassInternal, Stage: "construction-category-discovery",
-				Code: "INTERNAL_ERROR", Message: "category discovery failed unexpectedly",
+				Code: "CATEGORY_DISCOVERY_FAILED", Message: "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID",
 				Cause: fmt.Errorf("execute category query with private bind value: %w", privateCause),
 			},
-			wantStatus: 500, wantCode: "INTERNAL_ERROR",
-			wantMsg: "category discovery failed unexpectedly",
+			wantStatus: 500, wantCode: "CATEGORY_DISCOVERY_FAILED",
+			wantMsg: "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID",
 			wantLog: true, wantLogCause: "private bind value",
 		},
 	}

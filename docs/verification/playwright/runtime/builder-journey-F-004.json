@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "finding": "F-004",
+  "journey": "unpivot-preview",
+  "observedAt": "2026-10-21",
+  "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
+    "input": {
+      "reshape": "UNPIVOT",
+      "inputColumns": [
+        "name[].family [0]",
+        "name[].family [1]"
+      ],
+      "keyOutput": "default key",
+      "valueOutput": "default value",
+      "nullRowPolicy": "PRESERVE"
+    }
+  },
+  "response": {
+    "status": 500,
+    "code": "CONSTRUCTION_RECEIPT_INPUT_MISSING",
+    "message": "the compiled receipt references construction input column \"source_child_v1_...\" but that column is absent from the prior stage; the authored construction and compiler schema disagree",
+    "requestId": "construction-proposal-21f5a84e-4815-4e43-8d61-203db897bd0e"
+  },
+  "capture": "Playwright response listener on the real Builder UI. The trace records every authoring call and the terminal error.",
+  "trace": ".artifacts/builder-journey/unpivot-preview-descriptive-trace.json",
+  "report": ".artifacts/builder-journey/unpivot-preview-descriptive-report.json",
+  "status": "open",
+  "next": "Fix the unpivot reconciliation mismatch: the key/value output metadata references source_child input columns that are absent from the prior stage. The 500 now names the missing column."
+}

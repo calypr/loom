@@ -3,8 +3,8 @@
   "sources": [
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-      "sha256": "02ca6f5b6e629c88bcc0d581f1ff9cf811a7c5f361fd54373919b16e523c8e06",
-      "contract": "capabilitiesIdentity and requestKey define the current context; activeProposalOwner filters by exact request key; startCandidateProposal checks proposal base identity and fallback preview receipt/output/rows; cancel and replacement invalidate owner/generation; beginApply checks current owner, generation, resource snapshot, and applicability; finishApply updates client-side proposal state."
+      "sha256": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb",
+      "contract": "capabilitiesIdentity and requestKey define the current context; activeProposalOwner filters by exact request key; startCandidateProposal checks proposal base identity and fallback preview receipt/output/rows; cancel and replacement invalidate owner/generation; beginApply checks current owner, generation, resource snapshot, and applicability; finishApply targets the owner that began Apply and ignores a replaced owner. Pivot category-discovery request identity, generation, key, and adoption are modeled separately in BuilderPreview.tla."
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",

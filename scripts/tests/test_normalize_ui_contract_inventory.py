@@ -48,7 +48,7 @@ class NormalizeUiContractInventoryTest(unittest.TestCase):
             second = self._run_in_repository(Path(second_dir), "marker-b", "verification head B")
         self.assertEqual(first, second)
         self.assertNotIn(b"generatedAtCommit", first)
-        self.assertIn(b'"sourceCommit": "63e330d12cc62c30563e3735d6e33ab6f88afdb0"', first)
+        self.assertIn(('"sourceCommit": "' + normalizer.BASE + '"').encode(), first)
         manifest = json.loads(first)
         entry = next(item for item in manifest["affordances"] if item["id"] == "builder.population.exclude_unmapped_member")
         self.assertEqual(

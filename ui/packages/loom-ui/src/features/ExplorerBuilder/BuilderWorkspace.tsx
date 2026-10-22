@@ -73,6 +73,11 @@ import {
   type BuilderAuthoringState,
 } from './authoring/model';
 import {
+  hasCommandSelectedTable,
+  hasPairedPreviewRows,
+  isCompilerNavigationSelection,
+} from './authoring/workspaceGuards';
+import {
   sameRootChangeRequestIdentity,
   type RootChangePickerState,
   type RootChangeRequestIdentity,
@@ -90,6 +95,17 @@ import {
   previewRecoveryAction,
   type PreviewLimit,
 } from './authoring/previewRecovery';
+import { commandDraftIdentity } from './authoring/commandDraftIdentity';
+import { isDraftRestoreError } from './authoring/draftRestore';
+import { shouldShowBuilderLoadError } from './authoring/builderLoadError';
+import { shouldSyncServerDraft } from './authoring/serverDraftSync';
+import {
+  isDraftDesynchronized,
+  isStaleSnapshot,
+  reconcileReceiptMatchesRequest,
+  reconcileRecoveryAction,
+  reconcileResultIsCurrent,
+} from './authoring/reconcileRecovery';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
@@ -246,18 +262,6 @@ const unsupportedSavedSourceColumns = (tables: BuilderAuthoringState['tables']) 
         label: column.label,
       })),
   );
-const isStaleSnapshot = (code: string | undefined) =>
-  [
-    'STALE_CATALOG_SNAPSHOT',
-    'STALE_SNAPSHOT',
-    'SNAPSHOT_STALE',
-    'STALE_RECEIPT',
-    'RECEIPT_STALE',
-    'COMPILE_RECEIPT_NOT_FOUND',
-    'RECEIPT_RECOMPILE_REQUIRED',
-  ].includes(code ?? '');
-const isDraftDesynchronized = (code: string | undefined) =>
-  ['DRAFT_CONFLICT', 'INVALID_EXPLORER_COMMAND_RESULT'].includes(code ?? '');
 const opaqueId = (prefix: 'output' | 'tab' | 'step') =>
   `${prefix}-${window.crypto.randomUUID()}`;
 const constructionSourceStageId = 'source_projection';
@@ -665,7 +669,7 @@ const BuilderWorkspaceContent = ({
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
 
   const serverDraftKey = useRef('');
-  if (builder.data && serverDraftKey.current !== builderDataKey) {
+  if (shouldSyncServerDraft(builder.data, serverDraftKey.current, builderDataKey)) {
     serverDraft.current = {
       version: builder.data.draftVersion,
       digest: builder.data.draftDigest,
@@ -797,14 +801,14 @@ const BuilderWorkspaceContent = ({
           await queryOwner?.pauseAndDrain();
           const current = latestState.current;
           const commandId = proposedCommandId ?? window.crypto.randomUUID();
+          const draftIdentity = commandDraftIdentity(current, serverDraft.current);
           const value = await applyBuilderCommands({
             project: projectId,
             explorerId: current.explorerId,
             authResourcePath,
             commandId,
             snapshotToken: current.catalog.snapshotToken,
-            expectedDraftVersion: serverDraft.current.version,
-            expectedDraftDigest: serverDraft.current.digest || undefined,
+            ...draftIdentity,
             commands,
             requestId: `builder-command-${commandId}`,
           }).unwrap();
@@ -852,8 +856,9 @@ const BuilderWorkspaceContent = ({
             command.type === 'DUPLICATE_TABLE' ||
             (command.type === 'DELETE_TABLE' && command.outputId === current.selectedOutputId),
           );
-          if (selectsTableThroughCommand && next.selectedOutputId) {
-            rememberSelectedTable(next.selectedOutputId);
+          const selectedOutputId = next.selectedOutputId;
+          if (hasCommandSelectedTable(selectsTableThroughCommand, selectedOutputId)) {
+            rememberSelectedTable(selectedOutputId);
             setActiveConstructionSelection(undefined);
           }
           latestState.current = next;
@@ -1705,7 +1710,7 @@ const BuilderWorkspaceContent = ({
       ) throw new Error('The table changed while Loom checked paired values.');
       const columnId = response.candidateColumnIds[0];
       const rows = response.preview.rows;
-      if (response.previewStatus !== 'READY' || !columnId || !rows) {
+      if (!hasPairedPreviewRows(response.previewStatus, columnId, rows)) {
         throw new Error('Loom could not measure paired values in this preview.');
       }
       let empty = 0;
@@ -2142,7 +2147,7 @@ const BuilderWorkspaceContent = ({
                 : {}),
             }
           : undefined;
-        if (apiError && (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code))) {
+        if (apiError && isDraftRestoreError(apiError.code)) {
           const refreshed = await refetchBuilder({ reload: true });
           if (!isCurrentAttempt()) return;
           if (refreshed.data) syncBuilderData(refreshed.data, 'hydrate');
@@ -2174,7 +2179,7 @@ const BuilderWorkspaceContent = ({
       sameRootChangeRequestIdentity(active.identity, currentIdentity)
       ? active.resolution
       : {};
-    if (selection.kind === 'compiler-route' || selection.kind === 'compiler-occurrence') {
+    if (isCompilerNavigationSelection(selection)) {
       const isCurrentBlocked = active.kind === 'blocked' && currentIdentity !== undefined &&
         sameRootChangeRequestIdentity(active.identity, currentIdentity);
       const alternative = selection.kind === 'compiler-route'
@@ -2516,6 +2521,9 @@ const BuilderWorkspaceContent = ({
     let draftVersion = submitted.draftVersion;
     let draftDigest = submitted.draftDigest;
     let attempt = 1;
+    let staleRefreshes = 0;
+    const maxAttempts = 3;
+    const maxStaleRefreshes = 2;
     if (!owner) dispatch({ type: 'compiling' });
     for (;;) {
       if (owner?.cancelled) return undefined;
@@ -2536,14 +2544,30 @@ const BuilderWorkspaceContent = ({
       }
       try {
         const value = await request.unwrap();
-        if (owner?.cancelled || generation !== compileGeneration.current) return undefined;
+        if (owner?.cancelled) return undefined;
         const current = latestState.current;
-        if (
-          current.explorerId !== submitted.explorerId ||
-          intentFingerprint(workspaceFromState(current)) !==
-            submittedFingerprint
-        )
+        if (!reconcileResultIsCurrent({
+          generation,
+          currentGeneration: compileGeneration.current,
+          submittedExplorerId: submitted.explorerId,
+          currentExplorerId: current.explorerId,
+          submittedFingerprint,
+          currentFingerprint: intentFingerprint(workspaceFromState(current)),
+        })) return undefined;
+        if (!reconcileReceiptMatchesRequest(value, {
+          snapshotToken,
+          ...(outputId ? { outputId } : {}),
+        })) {
+          dispatch({
+            type: 'repair',
+            diagnostics: [{
+              severity: 'error',
+              code: 'RECONCILE_RECEIPT_MISMATCH',
+              message: 'Loom returned a compile receipt for a different snapshot or output.',
+            }],
+          });
           return undefined;
+        }
         dispatch({ type: 'compiled', value });
         return value.diagnostics.some(
           (diagnostic) => diagnostic.severity === 'error',
@@ -2558,7 +2582,13 @@ const BuilderWorkspaceContent = ({
           apiError.code === 'CLIENT_CANCELLED'
         )
           return undefined;
-        if (isDraftDesynchronized(apiError.code)) {
+        const recovery = reconcileRecoveryAction(apiError, {
+          attempt,
+          maxAttempts,
+          staleRefreshes,
+          maxStaleRefreshes,
+        });
+        if (recovery === 'refresh-and-stop') {
           const refreshed = await refetchBuilder({ reload: true });
           if (owner?.cancelled) return undefined;
           if (refreshed.data) {
@@ -2572,17 +2602,18 @@ const BuilderWorkspaceContent = ({
           }
           return undefined;
         }
-        if (isStaleSnapshot(apiError.code)) {
+        if (recovery === 'refresh-and-retry') {
           const refreshed = await refetchBuilder({ reload: true });
           if (owner?.cancelled || !refreshed.data) return undefined;
           syncBuilderData(refreshed.data, 'catalog');
           snapshotToken = refreshed.data.catalog.snapshotToken;
           draftVersion = refreshed.data.draftVersion;
           draftDigest = refreshed.data.draftDigest;
+          staleRefreshes += 1;
           attempt += 1;
           continue;
         }
-        if (apiError.retryable && attempt < 3) {
+        if (recovery === 'retry') {
           attempt += 1;
           await new Promise((resolve) => window.setTimeout(resolve, 250));
           continue;
@@ -3108,7 +3139,7 @@ const BuilderWorkspaceContent = ({
       </main>
     );
   }
-  if (explorers.error || !builder.data) {
+  if (shouldShowBuilderLoadError(Boolean(explorers.error), Boolean(builder.data))) {
     return (
       <main className="p-6" role="alert">
         <p>Couldn’t load this dataset.</p>

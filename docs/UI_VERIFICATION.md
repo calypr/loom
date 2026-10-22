@@ -55,12 +55,24 @@ report records its own mounted-source fingerprint; the other agent changed
 source between some cases, but the source remained stable within each run.
 
 The Recompile case now reaches a controlled 422 reconcile failure and exposes
-the Recompile button. Clicking it issued no second reconcile request within
-five seconds, so the case fails with a named assertion. This is a product
-behavior failure for the execution thread to investigate. Viewer query
-recovery passes, while its Gender facet remains untested: the published fixture
-declares no runtime filters and renders no facet control. Add a fixture that
-declares a runtime Gender filter before closing that separate coverage gap.
+the Recompile button. At the 2026-10-03 checkpoint, clicking it issued no second
+reconcile request within five seconds, so the case failed with a named
+assertion. On 2026-10-21 the case was rechecked against
+`/private/tmp/loom-formal-verification` with the isolated stack
+`loom-dev-fcbf4d7d11f4`. It passed. The mounted source fingerprint was
+`273156f27e0cd878b09f92388251a7b39ccb0676ddb9374fdc08c29c28957f59`
+(2,040 files), and the API build identity was
+`3967c46c0737b2b039f94e6775e2bc4455b3f08fed292a637fd03182167b9ca3:3967c46c0737b2b039f94e6775e2bc4455b3f08fed292a637fd03182167b9ca3:03b8085d60523649b5a27dc2d3150fb6d5b5ca59dd762682ffa66729882ecdfb`.
+The report records a 200 response from
+`/authoring/v2/reconcile` after the Recompile click. The report is
+`.artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json`.
+The harness fix was in `scripts/verify-ui/workflows/builder-controls.mjs`; it
+now uses the same canonical double-encoded project as the UI client.
+`verification/builder-interactions/browser-evidence.json` records this case as
+`builder-controls:recompile` for the reconcile route proof. Viewer query recovery
+passes, while its Gender facet remains untested: the published
+fixture declares no runtime filters and renders no facet control. Add a fixture
+that declares a runtime Gender filter before closing that separate coverage gap.
 
 The generated inventory currently contains 257 records from 41 scanned production source files.
 

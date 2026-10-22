@@ -10,7 +10,7 @@ import (
 
 func TestPersistedFailureRedactsLegacyText(t *testing.T) {
 	message, code, retryable := PersistedFailure("clickhouse table=secret", "", false)
-	if message == nil || *message != "internal server error" || code == nil || *code != string(dataframeerrors.CodeInternalError) || retryable == nil || *retryable {
+	if message == nil || *message != "an unexpected internal error occurred while processing the data request" || code == nil || *code != string(dataframeerrors.CodeInternalError) || retryable == nil || *retryable {
 		t.Fatalf("failure = %v/%v/%v", message, code, retryable)
 	}
 }

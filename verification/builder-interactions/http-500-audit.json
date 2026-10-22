@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "scope": "internal/server/openapi_*.go case http.StatusInternalServerError",
+  "mapperContract": {
+    "authoringErrorForOpenAPI": "failure",
+    "explorerLegacyResponse": "legacy",
+    "mapServiceError": "body",
+    "serveGraphQL": "value"
+  },
+  "spec500OperationCount": 52,
+  "count": 52,
+  "mappers": {
+    "authoringErrorForOpenAPI": 43,
+    "explorerLegacyResponse": 4,
+    "mapServiceError": 3,
+    "serveGraphQL": 2
+  },
+  "problems": [],
+  "cases": [
+    {
+      "file": "openapi_data_routes.go",
+      "line": 72,
+      "function": "GetDatasetGenerationStatus",
+      "mapper": "mapServiceError",
+      "bodyVariable": "body"
+    },
+    {
+      "file": "openapi_data_routes.go",
+      "line": 105,
+      "function": "CreateDatasetGeneration",
+      "mapper": "mapServiceError",
+      "bodyVariable": "body"
+    },
+    {
+      "file": "openapi_data_routes.go",
+      "line": 130,
+      "function": "ActivateDatasetGeneration",
+      "mapper": "mapServiceError",
+      "bodyVariable": "body"
+    },
+    {
+      "file": "openapi_explorer_artifacts.go",
+      "line": 90,
+      "function": "PrepareExplorerArtifact",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_artifacts.go",
+      "line": 126,
+      "function": "DownloadExplorerArtifact",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction.go",
+      "line": 198,
+      "function": "SearchExplorerConstructionChoices",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction.go",
+      "line": 230,
+      "function": "SearchExplorerRelatedExpandChoices",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction.go",
+      "line": 262,
+      "function": "SearchExplorerRelatedFieldChoices",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction.go",
+      "line": 294,
+      "function": "SearchExplorerRelatedExpandContributors",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction.go",
+      "line": 326,
+      "function": "SearchExplorerPopulationRoutes",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction.go",
+      "line": 356,
+      "function": "GetExplorerColumnSource",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction_choice_proposal.go",
+      "line": 97,
+      "function": "ProposeExplorerConstructionChoice",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction_inputs.go",
+      "line": 59,
+      "function": "GetExplorerConstructionInputs",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction_proposal.go",
+      "line": 172,
+      "function": "GetExplorerConstructionCapabilities",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction_proposal.go",
+      "line": 204,
+      "function": "DiscoverExplorerConstructionCategories",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_construction_proposal.go",
+      "line": 236,
+      "function": "ProposeExplorerConstruction",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_explicit_groups.go",
+      "line": 67,
+      "function": "CreateExplorerExplicitGroupRevision",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_population_member_proposal.go",
+      "line": 88,
+      "function": "ProposeExplorerPopulationMemberRemoval",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 20,
+      "function": "ListExplorers",
+      "mapper": "explorerLegacyResponse",
+      "bodyVariable": "legacy"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 42,
+      "function": "CreateExplorer",
+      "mapper": "explorerLegacyResponse",
+      "bodyVariable": "legacy"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 60,
+      "function": "GetExplorer",
+      "mapper": "explorerLegacyResponse",
+      "bodyVariable": "legacy"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 82,
+      "function": "PublishRepositoryExplorerConfig",
+      "mapper": "explorerLegacyResponse",
+      "bodyVariable": "legacy"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 104,
+      "function": "GetExplorerAuthoringCapability",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 131,
+      "function": "SearchExplorerCandidates",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 162,
+      "function": "SearchExplorerSchemaFields",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 191,
+      "function": "GetExplorerBuilder",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 222,
+      "function": "ApplyExplorerBuilderCommands",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 255,
+      "function": "AssessExplorerRowChange",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 287,
+      "function": "ReconcileExplorerBuilder",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 325,
+      "function": "PreviewExplorer",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 362,
+      "function": "TraceExplorerCell",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 397,
+      "function": "TraceExplorerRowLineage",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 431,
+      "function": "CheckExplorerPopulationMapping",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 465,
+      "function": "PublishExplorer",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 501,
+      "function": "ListInterpretationLibraries",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 533,
+      "function": "CreateInterpretationRevision",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 559,
+      "function": "GetInterpretationRevision",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 597,
+      "function": "PreviewInterpretationCandidate",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 631,
+      "function": "ResolveConfiguredColumnContext",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_routes.go",
+      "line": 663,
+      "function": "CreateInterpretationRevisionFromColumn",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_row_definition.go",
+      "line": 83,
+      "function": "ListExplorerRowDefinitionChoices",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_row_definition.go",
+      "line": 115,
+      "function": "ProposeExplorerRowDefinition",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_selections.go",
+      "line": 125,
+      "function": "CreateExplorerSelection",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_selections.go",
+      "line": 157,
+      "function": "GetExplorerSelection",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_table_shape.go",
+      "line": 209,
+      "function": "GetExplorerTableShapeCapabilities",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_table_shape.go",
+      "line": 241,
+      "function": "DiscoverExplorerTableShapeCategories",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_table_shape.go",
+      "line": 273,
+      "function": "ResolveExplorerTableShape",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_explorer_table_shape.go",
+      "line": 308,
+      "function": "ProposeExplorerTableShape",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_frame_source_options.go",
+      "line": 62,
+      "function": "BrowseExplorerFrameSourceOptions",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    },
+    {
+      "file": "openapi_graphql_routes.go",
+      "line": 67,
+      "function": "ExecuteGraphQL",
+      "mapper": "serveGraphQL",
+      "bodyVariable": "value"
+    },
+    {
+      "file": "openapi_graphql_routes.go",
+      "line": 101,
+      "function": "ExecuteDataframeGraphQL",
+      "mapper": "serveGraphQL",
+      "bodyVariable": "value"
+    },
+    {
+      "file": "openapi_semantic_inventory.go",
+      "line": 83,
+      "function": "BrowseExplorerSemanticInventory",
+      "mapper": "authoringErrorForOpenAPI",
+      "bodyVariable": "failure"
+    }
+  ]
+}

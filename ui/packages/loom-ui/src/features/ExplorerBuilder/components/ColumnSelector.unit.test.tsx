@@ -266,6 +266,47 @@ describe('configured V2 columns', () => {
     expect(onEditInGraph).toHaveBeenCalledWith(height);
   });
 
+  it('filters columns by the local search query without a request', () => {
+    render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base" disabled={false}
+      onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search columns' }), { target: { value: 'zzz-no-match' } });
+    expect(screen.getByText('No columns match this search.')).toBeInTheDocument();
+  });
+
+  it('removes a configured column from its row control', () => {
+    const onRemove = vi.fn();
+    render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base" disabled={false}
+      onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={onRemove} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Research Subject Identifier' }));
+    expect(onRemove).toHaveBeenCalledWith('research_subject_identifier');
+  });
+
+  it('rejects source details returned for a different column', async () => {
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={table}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+        onInspectSource={vi.fn().mockResolvedValue({
+          snapshotToken: 'snapshot',
+          outputId: table.outputId,
+          column: 'different-column',
+          summary: 'Wrong column',
+          route: [{ occurrenceId: 'base', resourceType: 'ResearchSubject' }],
+          facts: [],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Column details' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Loom returned source details for a different column.');
+  });
+
   it('narrows and highlights the exact feature handed off for repair', async () => {
     render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base"
       focusColumn="research_subject_identifier" disabled={false} onAdd={vi.fn()}
@@ -1613,6 +1654,55 @@ describe('configured V2 columns', () => {
     ]);
     expect(onChange).not.toHaveBeenCalled();
     expect(onConstructionOutputChange).not.toHaveBeenCalled();
+  });
+
+  it('toggles configured visibility and filter from their row controls', () => {
+    const onChange = vi.fn();
+    const Harness = () => {
+      const [current, setCurrent] = React.useState(table);
+      return (
+        <ColumnSelector
+          catalog={catalog}
+          table={current}
+          occurrenceId="base"
+          disabled={false}
+          onAdd={vi.fn()}
+          onAddAll={vi.fn()}
+          onChange={(next) => {
+            onChange(next);
+            setCurrent((value) => ({
+              ...value,
+              document: {
+                ...value.document,
+                columns: value.document.columns.map((column) => column.column === next.column ? next : column),
+              },
+            }));
+          }}
+          onSourceChange={vi.fn()}
+          onRemove={vi.fn()}
+        />
+      );
+    };
+    render(<Harness />);
+
+    const visible = screen.getByRole('checkbox', { name: 'Display Research Subject Identifier in table' });
+    fireEvent.click(visible);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      column: 'research_subject_identifier',
+      table: expect.objectContaining({ visible: false }),
+    }));
+
+    const filter = screen.getByRole('checkbox', { name: 'Use Research Subject Identifier as filter' });
+    fireEvent.click(filter);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      column: 'research_subject_identifier',
+      filter: { label: 'Research Subject Identifier' },
+    }));
+    fireEvent.click(filter);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      column: 'research_subject_identifier',
+      filter: undefined,
+    }));
   });
 
   it('toggles all configured table columns off without removing their configuration', () => {

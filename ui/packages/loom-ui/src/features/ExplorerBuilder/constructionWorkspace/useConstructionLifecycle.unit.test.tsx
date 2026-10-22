@@ -247,11 +247,14 @@ describe('useConstructionLifecycle', () => {
     expect(result.current.proposal.status).toBe('ready');
     expect(result.current.canApply).toBe(true);
     let proposalId: string | undefined;
+    let duplicateProposalId: string | undefined;
     await act(async () => {
       const ready = await repairedAttempt;
       proposalId = result.current.beginApply(ready);
+      duplicateProposalId = result.current.beginApply(ready);
     });
     expect(proposalId).toBe('proposal-1');
+    expect(duplicateProposalId).toBeUndefined();
     expect(result.current.proposal.status).toBe('applying');
     unmount();
   });
@@ -481,6 +484,61 @@ describe('useConstructionLifecycle', () => {
     expect(firstAccepted).not.toHaveBeenCalled();
     expect(secondAccepted).toHaveBeenCalledWith(expect.objectContaining({
       ...secondRequest,
+      status: 'complete',
+    }));
+    unmount();
+  });
+
+  it('ignores a same-key discovery settlement after a newer request starts', async () => {
+    let resolveFirst: ((response: ConstructionCategoryDiscoveryResponse) => void) | undefined;
+    let resolveSecond: ((response: ConstructionCategoryDiscoveryResponse) => void) | undefined;
+    const first = new Promise<ConstructionCategoryDiscoveryResponse>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<ConstructionCategoryDiscoveryResponse>((resolve) => { resolveSecond = resolve; });
+    let discoveryCalls = 0;
+    const discoverConstructionCategories = vi.fn((_args: DiscoverConstructionCategoriesArgs, _signal?: AbortSignal) => {
+      discoveryCalls += 1;
+      return discoveryCalls === 1 ? first : second;
+    });
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories,
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({ client, capabilitiesRequest: request }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const discoveryRequest = {
+      stageId: request.stageId,
+      categoryColumnId: 'category-id',
+      valueColumnId: 'value-id',
+      pivotStepId: 'pivot-step-one',
+      groupKeyIds: ['row-one'],
+      pivotSources: [{ choiceId: 'category-source', columnId: 'category-id' }],
+      candidateConstruction: { version: 1, steps: [] } satisfies NonNullable<DiscoverConstructionCategoriesArgs['candidateConstruction']>,
+    };
+    const firstAccepted = vi.fn();
+    const secondAccepted = vi.fn();
+    act(() => result.current.onDiscoverCategories(discoveryRequest, firstAccepted));
+    act(() => result.current.onDiscoverCategories(discoveryRequest, secondAccepted));
+
+    await act(async () => {
+      resolveFirst?.(categoriesFor({ ...request, ...discoveryRequest }));
+      await Promise.resolve();
+    });
+    expect(firstAccepted).not.toHaveBeenCalled();
+    expect(result.current.pivotDiscovery).toMatchObject({ ...discoveryRequest, status: 'loading' });
+
+    await act(async () => {
+      resolveSecond?.(categoriesFor({ ...request, ...discoveryRequest }));
+      await Promise.resolve();
+    });
+    expect(firstAccepted).not.toHaveBeenCalled();
+    expect(secondAccepted).toHaveBeenCalledWith(expect.objectContaining({
+      ...discoveryRequest,
       status: 'complete',
     }));
     unmount();

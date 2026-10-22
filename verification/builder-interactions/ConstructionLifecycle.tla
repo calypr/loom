@@ -3,9 +3,9 @@ EXTENDS Naturals, FiniteSets, TLC
 
 (* Finite interaction model for useConstructionLifecycle.ts.               *)
 (*                                                                        *)
-(* Source map: useConstructionLifecycle.ts:63-80, 141-155, 230-326,        *)
-(* 444-477; react.tsx:65-112 (resource snapshot, abort, and epoch publish). *)
-(* Frozen hook SHA256: 02ca6f5b6e629c88bcc0d581f1ff9cf811a7c5f361fd54373919b16e523c8e06. *)
+(* Source map: useConstructionLifecycle.ts:80-97, 158-164, 248-345,        *)
+(* 464-499; react.tsx:65-112 (resource snapshot, abort, and epoch publish). *)
+(* Frozen hook SHA256: b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb. *)
 (* Run the cfg with Java 17 and TLC 1.7.4 from this directory.              *)
 (*                                                                        *)
 (* A request identity is the complete capabilitiesIdentity JSON value:    *)

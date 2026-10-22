@@ -527,7 +527,7 @@ func classifyConstructionCategoryScanError(ctx context.Context, err error) error
 		// preserve their established code and status mapping.
 		return err
 	}
-	return internal(stage, "INTERNAL_ERROR", "category discovery failed unexpectedly", cause)
+	return internal(stage, "CATEGORY_DISCOVERY_FAILED", "category discovery failed unexpectedly while reading the catalog; inspect the server log for the request ID", cause)
 }
 
 func constructionCategoryColumn(columns []explorer.ReceiptConstructionStageColumn, id string) (explorer.ReceiptConstructionStageColumn, bool) {

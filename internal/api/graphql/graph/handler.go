@@ -139,7 +139,9 @@ func serveGraphQLResponse(destination http.ResponseWriter, request *http.Request
 	}
 	reader, err := captured.reader()
 	if err != nil {
+		destination.Header().Set("Content-Type", "application/json")
 		destination.WriteHeader(http.StatusInternalServerError)
+		_, _ = destination.Write([]byte(`{"errors":[{"message":"the GraphQL response could not be read","extensions":{"code":"GRAPHQL_RESPONSE_READ_FAILED"}}]}`))
 		return
 	}
 	if status < http.StatusBadRequest {

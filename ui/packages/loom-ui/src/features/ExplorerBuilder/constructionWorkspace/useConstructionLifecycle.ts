@@ -150,6 +150,7 @@ export const useConstructionLifecycle = ({
   const proposalGeneration = useRef(0);
   const proposalOwnerSequence = useRef(0);
   const proposalOwnerRef = useRef<ProposalOwner | undefined>(undefined);
+  const applyingOwnerRef = useRef<ProposalOwner | undefined>(undefined);
   const pivotDiscoveryGeneration = useRef(0);
   const candidateIntent = useRef<ConstructionCandidateIntent | undefined>(undefined);
   const capabilitiesRequestRef = useRef(capabilitiesRequest);
@@ -358,6 +359,7 @@ export const useConstructionLifecycle = ({
   }, [requestKey, startCandidateProposal]);
 
   const cancel = useCallback(() => {
+    applyingOwnerRef.current = undefined;
     invalidateProposalRequest();
     candidateIntent.current = undefined;
   }, [invalidateProposalRequest]);
@@ -460,6 +462,7 @@ export const useConstructionLifecycle = ({
   }, [capabilitiesLoad, client, invalidatePivotDiscovery, requestKey]);
 
   const beginApply = useCallback((expectedProposal?: ReadyProposalOutcome) => {
+    if (applyingOwnerRef.current) return undefined;
     const owner = proposalOwnerRef.current;
     const currentRequest = capabilitiesRequestRef.current;
     if (!owner || !currentRequest || owner.requestKey !== capabilitiesIdentity(currentRequest) ||
@@ -488,24 +491,28 @@ export const useConstructionLifecycle = ({
       draftDigest: currentRequest.expectedDraftDigest,
     };
     if (!constructionProposalIsApplicable(state, identity)) return undefined;
+    applyingOwnerRef.current = owner;
     setProposalOverride({ ownerId: owner.id,
       state: { status: 'applying', response: state.response, preview: state.preview } });
     return state.response.proposalId;
   }, [activeProposal, activeProposalOwner]);
 
   const finishApply = useCallback((applied: boolean) => {
+    const applyingOwner = applyingOwnerRef.current;
+    applyingOwnerRef.current = undefined;
+    if (!applyingOwner) return;
     if (applied) {
-      cancel();
+      if (proposalOwnerRef.current === applyingOwner) cancel();
       return;
     }
-    if (activeProposalOwner) setProposalOverride({
-      ownerId: activeProposalOwner.id,
+    if (proposalOwnerRef.current === applyingOwner) setProposalOverride({
+      ownerId: applyingOwner.id,
       state: {
         status: 'error',
         message: 'Loom could not save this proposal. Review the Builder message and try again if the draft is unchanged.',
       },
     });
-  }, [activeProposalOwner, cancel]);
+  }, [cancel]);
 
   const activeCapabilities = capabilitiesLoad.key === requestKey
     ? capabilitiesLoad.state

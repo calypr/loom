@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "goal": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
+  "runner": "scripts/run-builder-journey.mjs",
+  "specDirectory": "scripts/verify-ui/journey-specs",
+  "journeys": [
+    {
+      "id": "load-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Preview",
+        "PreviewComplete"
+      ],
+      "oracle": "The authored table previews with the expected columns and row count.",
+      "contract": null,
+      "model": null,
+      "minBackendCalls": 8,
+      "evidence": {
+        "synthetic": {
+          "durationMs": 12700,
+          "backendCallCount": 8,
+          "result": "pass",
+          "rowCount": 2,
+          "columnCount": 5,
+          "trace": ".artifacts/builder-journey/load-preview-trace.json",
+          "report": ".artifacts/builder-journey/load-preview-report.json"
+        },
+        "cda": {
+          "project": "loom_dev_cda_fhir",
+          "generation": "repo-c0ec9689932caec424ad34a9",
+          "explorer": "loom-cda-load-preview-1",
+          "durationMs": 12800,
+          "backendCallCount": 8,
+          "result": "pass",
+          "rowCount": 25,
+          "columnCount": 1,
+          "sampled": true,
+          "trace": ".artifacts/builder-journey/load-preview-cda-trace.json",
+          "report": ".artifacts/builder-journey/load-preview-cda-report.json"
+        }
+      }
+    },
+    {
+      "id": "group-twice-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
+      "model": "BuilderJourney",
+      "actions": [
+        "SelectRows",
+        "Group",
+        "GroupAgain",
+        "Preview",
+        "PreviewComplete"
+      ],
+      "oracle": "One grouped row, row_count = 1, preview receipt present.",
+      "evidence": {
+        "synthetic": {
+          "durationMs": 10200,
+          "backendCallCount": 17,
+          "result": "pass",
+          "rowCount": 1
+        },
+        "cda": {
+          "project": "loom_dev_cda_fhir",
+          "generation": "repo-c0ec9689932caec424ad34a9",
+          "explorer": "loom-cda-group-twice-2",
+          "durationMs": 18100,
+          "backendCallCount": 17,
+          "result": "pass",
+          "rowCount": 1,
+          "trace": ".artifacts/builder-journey/group-twice-preview-cda-trace.json",
+          "report": ".artifacts/builder-journey/group-twice-preview-cda-report.json"
+        }
+      },
+      "contract": "verification/builder-interactions/builder-journey-contract.json"
+    },
+    {
+      "id": "group-pivot-preview",
+      "priority": "P0",
+      "status": "product-failure",
+      "spec": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
+      "model": "BuilderJourney",
+      "actions": [
+        "SelectRows",
+        "PivotDirect",
+        "Preview",
+        "PreviewError"
+      ],
+      "oracle": "Pivot columns and cell values match the fixture oracle.",
+      "knownFailure": "F-001",
+      "contract": "verification/builder-interactions/builder-pivot-contract.json",
+      "evidence": {
+        "synthetic": {
+          "result": "product-failure",
+          "httpStatus": 500,
+          "errorClass": "CONSTRUCTION_RECEIPT_INPUT_MISSING",
+          "requestId": "construction-proposal-8bc2c5fa-9767-4e3b-b43e-37229cf55622",
+          "backendCallCount": 11,
+          "tlaStatus": "pass",
+          "trace": ".artifacts/builder-journey/group-pivot-preview-descriptive2-trace.json",
+          "report": ".artifacts/builder-journey/group-pivot-preview-descriptive2-report.json",
+          "diagnostic": "the compiled receipt references a construction input column absent from the prior stage"
+        }
+      }
+    },
+    {
+      "id": "add-column-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "AddColumn",
+        "Preview",
+        "PreviewComplete"
+      ],
+      "oracle": "Exact source columns plus Birth Date, rowCount 2, Birth Date values 1980-01-02 and 1985-03-04.",
+      "model": "BuilderJourney",
+      "contract": "verification/builder-interactions/builder-add-column-contract.json",
+      "evidence": {
+        "synthetic": {
+          "durationMs": 6200,
+          "backendCallCount": 13,
+          "result": "pass",
+          "rowCount": 2,
+          "columnCount": 6,
+          "trace": ".artifacts/builder-journey/add-column-preview-trace.json",
+          "report": ".artifacts/builder-journey/add-column-preview-report.json"
+        },
+        "cda": {
+          "project": "loom_dev_cda_fhir",
+          "generation": "repo-c0ec9689932caec424ad34a9",
+          "explorer": "loom-cda-add-column-3",
+          "durationMs": 11100,
+          "backendCallCount": 14,
+          "result": "pass",
+          "rowCount": 25,
+          "columnCount": 2,
+          "sampled": true,
+          "columns": [
+            "id",
+            "Identifier Value"
+          ],
+          "trace": ".artifacts/builder-journey/add-column-preview-cda-trace.json",
+          "report": ".artifacts/builder-journey/add-column-preview-cda-report.json"
+        }
+      }
+    },
+    {
+      "id": "filter-preview",
+      "priority": "P1",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Filter",
+        "Preview",
+        "PreviewComplete",
+        "CancelFilter"
+      ],
+      "oracle": "Filtered preview has one dev-patient-001 row with gender female; cancel and reload restore both source rows.",
+      "model": "BuilderJourney",
+      "contract": "verification/builder-interactions/builder-filter-contract.json",
+      "evidence": {
+        "synthetic": {
+          "durationMs": 8100,
+          "backendCallCount": 14,
+          "result": "pass",
+          "rowCount": 1,
+          "restoredRowCount": 2,
+          "columns": [
+            "id",
+            "name[].family [0]",
+            "name[].family [1]",
+            "name__count",
+            "gender"
+          ],
+          "trace": ".artifacts/builder-journey/filter-preview-trace.json",
+          "report": ".artifacts/builder-journey/filter-preview-report.json"
+        }
+      }
+    },
+    {
+      "id": "unpivot-preview",
+      "priority": "P1",
+      "status": "product-failure",
+      "spec": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Unpivot",
+        "Preview",
+        "PreviewError"
+      ],
+      "oracle": "Stacked family columns produce four rows with key and value columns; current product returns HTTP 500.",
+      "model": "BuilderJourney",
+      "contract": "verification/builder-interactions/builder-unpivot-contract.json",
+      "evidence": {
+        "synthetic": {
+          "result": "product-failure",
+          "httpStatus": 500,
+          "errorClass": "CONSTRUCTION_RECEIPT_INPUT_MISSING",
+          "requestId": "construction-proposal-21f5a84e-4815-4e43-8d61-203db897bd0e",
+          "backendCallCount": 10,
+          "tlaStatus": "pass",
+          "trace": ".artifacts/builder-journey/unpivot-preview-descriptive-trace.json",
+          "report": ".artifacts/builder-journey/unpivot-preview-descriptive-report.json",
+          "diagnostic": "the compiled receipt references a construction input column absent from the prior stage"
+        }
+      }
+    },
+    {
+      "id": "edit-remove-reload",
+      "priority": "P1",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Group",
+        "EditGroup",
+        "Preview",
+        "PreviewComplete",
+        "RemoveGroup"
+      ],
+      "oracle": "Group by id and gender yields two rows and three columns; removal and reload restore both source rows.",
+      "model": "BuilderJourney",
+      "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
+      "evidence": {
+        "synthetic": {
+          "durationMs": 13200,
+          "backendCallCount": 28,
+          "result": "pass",
+          "editedRowCount": 2,
+          "editedColumns": [
+            "id",
+            "gender",
+            "Row count"
+          ],
+          "restoredRowCount": 2,
+          "restoredColumnCount": 5,
+          "trace": ".artifacts/builder-journey/edit-remove-reload-trace.json",
+          "report": ".artifacts/builder-journey/edit-remove-reload-report.json"
+        }
+      }
+    },
+    {
+      "id": "pivot-error",
+      "priority": "P1",
+      "status": "product-failure",
+      "spec": "scripts/verify-ui/journey-specs/pivot-error.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "PivotDirect",
+        "Preview",
+        "PreviewError"
+      ],
+      "oracle": "Pivot with ERROR policies returns a typed 4xx validation error and leaves the source table unchanged.",
+      "model": "BuilderJourney",
+      "contract": "verification/builder-interactions/builder-pivot-error-contract.json",
+      "evidence": {
+        "synthetic": {
+          "result": "product-failure",
+          "httpStatus": 500,
+          "errorClass": "CONSTRUCTION_RECEIPT_INPUT_MISSING",
+          "requestId": "construction-proposal-beb11c39-a416-4ae4-843e-05828a8a9afd",
+          "backendCallCount": 11,
+          "commandCount": 0,
+          "tlaStatus": "pass",
+          "trace": ".artifacts/builder-journey/pivot-error-descriptive-trace.json",
+          "report": ".artifacts/builder-journey/pivot-error-descriptive-report.json",
+          "diagnostic": "the compiled receipt references a construction input column absent from the prior stage"
+        }
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "journey": "group-pivot-preview",
+      "status": "open",
+      "request": "POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
+      "result": "HTTP 500 CONSTRUCTION_RECEIPT_INPUT_MISSING: the compiled receipt references a construction input column absent from the prior stage",
+      "requestId": "construction-proposal-8bc2c5fa-9767-4e3b-b43e-37229cf55622",
+      "input": "group by id, category gender, values name__count, duplicate policy ERROR, missing cell policy NULL, unlisted category policy ERROR",
+      "artifact": "docs/verification/playwright/runtime/builder-journey-F-001.json",
+      "next": "Fix the reconciliation mismatch. The 500 now names the missing input column and identifies the authored-construction/compiler-schema disagreement; the red specs still assert HTTP 200 and exact pivot output."
+    },
+    {
+      "id": "F-002",
+      "journey": null,
+      "status": "pre-existing",
+      "request": "node scripts/verify-builder-formal.mjs --model builder-journey",
+      "result": "Refuses to start because BuilderWorkspace.tsx does not match the pinned source hash.",
+      "requestId": null,
+      "input": null,
+      "next": "Resolve the source pin drift separately. The journey runner validates its trace with TLC directly."
+    },
+    {
+      "id": "F-003",
+      "journey": "edit-remove-reload",
+      "status": "not-reproducible",
+      "request": "POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
+      "result": "Historical HTTP 500; current field-based Group by id+gender returns HTTP 200 with 2 rows and 3 columns.",
+      "requestId": "construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff",
+      "input": "Group by id and gender on a fresh synthetic Patient table.",
+      "artifact": "docs/verification/playwright/runtime/builder-journey-F-003.json",
+      "next": "Closed as not reproducible; covered by the passing edit-remove-reload journey."
+    },
+    {
+      "id": "F-004",
+      "journey": "unpivot-preview",
+      "status": "open",
+      "request": "POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
+      "result": "HTTP 500 CONSTRUCTION_RECEIPT_INPUT_MISSING: the compiled receipt references a construction input column absent from the prior stage",
+      "requestId": "construction-proposal-21f5a84e-4815-4e43-8d61-203db897bd0e",
+      "input": "Stack name[].family [0] and name[].family [1] into key/value rows with PRESERVE for missing values.",
+      "artifact": "docs/verification/playwright/runtime/builder-journey-F-004.json",
+      "next": "Fix the unpivot reconciliation mismatch. The 500 now names the missing input column; the red spec still asserts HTTP 200 and a four-row key/value preview."
+    }
+  ]
+}

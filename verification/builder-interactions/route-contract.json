@@ -1,0 +1,2074 @@
+{
+  "schemaVersion": 2,
+  "generatedFrom": "docs/ui-contract-inventory/ui-supported-affordances.json",
+  "overridesFrom": "verification/builder-interactions/builder-route-overrides.json",
+  "proofsFrom": "verification/builder-interactions/builder-route-overrides.json",
+  "modelMapFrom": "verification/builder-interactions/affordance-model-map.json",
+  "generatedRouteSource": "generated/loomapi/api.gen.go",
+  "status": "generated-provisional; route-level proof pending",
+  "scope": {
+    "generatedAuthoringRoutes": 37,
+    "builderRoutes": 39,
+    "ledgerAuthoringRoutes": 33,
+    "excludedAuthoringRoutes": 4,
+    "unaccountedAuthoringRoutes": [],
+    "modeledAndTraced": 3,
+    "traceTested": 1,
+    "modeledOnly": 17,
+    "contractTested": 16,
+    "unproven": 2
+  },
+  "excludedAuthoringRoutes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts",
+      "reason": "Viewer artifact preparation, not a mounted Builder action.",
+      "usedByBuilder": false,
+      "proof": {
+        "status": "excluded",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Viewer artifact preparation, not a mounted Builder action."
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/artifacts/{artifactId}",
+      "reason": "Viewer artifact download, not a mounted Builder action.",
+      "usedByBuilder": false,
+      "proof": {
+        "status": "excluded",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Viewer artifact download, not a mounted Builder action."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace",
+      "reason": "Viewer cell trace, not a mounted Builder action.",
+      "usedByBuilder": false,
+      "proof": {
+        "status": "excluded",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Viewer cell trace, not a mounted Builder action."
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/schema-fields",
+      "reason": "No mounted Builder caller. ConceptCatalog tests assert the Builder does not call schema-fields.",
+      "usedByBuilder": false,
+      "proof": {
+        "status": "excluded",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": null,
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "No mounted Builder caller. ConceptCatalog tests assert the Builder does not call schema-fields."
+      }
+    }
+  ],
+  "routes": [
+    {
+      "id": "get:api-v1-projects-project-explorers-explorerId-authoring-v2-builder",
+      "tier": 1,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+      ],
+      "uiCallers": [
+        "builder.automatic_preview_refresh_and_recovery",
+        "builder.server_saved_draft_and_reconcile",
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AbortPreview",
+          "AcceptPreview",
+          "AuthoredChange",
+          "CommandStale",
+          "CommandSuccess",
+          "DraftChange",
+          "ExplorerListComplete",
+          "ExplorerListError",
+          "GateReconcile",
+          "HydrateBuilder",
+          "PreviewComplete",
+          "PreviewFailed",
+          "RecompileReceipt",
+          "ReconcileConflict",
+          "ReconcileFailure",
+          "ReconcileInvalid",
+          "ReconcileNeedsRepair",
+          "ReconcileReceiptBound",
+          "ReconcileStale",
+          "RefreshCatalog",
+          "RequestReconcile",
+          "RetryEntryReconcile",
+          "RetryTransient",
+          "SelectExplorer",
+          "StartCommand",
+          "StartPreview"
+        ],
+        "routeActions": [
+          "HydrateBuilder"
+        ],
+        "routeActionReason": "Builder hydration is the route-level transition.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-commands",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ChoiceSelect.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GroupedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeController.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.add_columns.catalog_field",
+        "builder.add_columns.catalog_semantic",
+        "builder.add_columns.grouped_row_values",
+        "builder.add_columns.related_field",
+        "builder.calculate.derive",
+        "builder.calculate.table_shape_derived_column",
+        "builder.column.grouped_row_value_policy",
+        "builder.column.presentation",
+        "builder.column_filter_presentation",
+        "builder.column_selector.feature_policy",
+        "builder.column_selector.related_aggregate_source",
+        "builder.column_selector.remove_configured_column",
+        "builder.combine.append",
+        "builder.combine.key_join",
+        "builder.combine.membership",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.first_table_from_root",
+        "builder.frame_source.manage_existing",
+        "builder.interpretation.preview_and_apply_candidate",
+        "builder.population.attach_or_replace_selection",
+        "builder.population.clear_attached_selection",
+        "builder.population.exclude_unmapped_member",
+        "builder.population.review_and_remove_attached_member",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot",
+        "builder.restore_previous_draft_undo",
+        "builder.root.change_or_replace",
+        "builder.row_definition.expanded_source_rows",
+        "builder.row_definition.explicit_groups",
+        "builder.row_definition.rows_per_starting_record",
+        "builder.row_definition_proposal_apply_cancel",
+        "builder.server_saved_draft_and_reconcile",
+        "builder.table_route_and_occurrence_selection",
+        "legacy.table_shape.grouped_pivot",
+        "legacy.table_shape.unpivot"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "BuilderPreview.tla",
+        "modelActions": [
+          "AddRoute",
+          "ApplyAck",
+          "ApplyCandidate",
+          "ApplyFrameRemove",
+          "ApplyFrameReplace",
+          "ApplyPreview",
+          "ApplyProposal",
+          "ApplyRemoval",
+          "AssessmentBlocked",
+          "AssessmentNoChange",
+          "AssessmentReady",
+          "AssessmentStale",
+          "AttachSelection",
+          "AuthorStep",
+          "AuthoredChange",
+          "BeginApply",
+          "BeginChange",
+          "BeginFrameRemove",
+          "BeginFrameReplace",
+          "Cancel",
+          "CancelFrameChange",
+          "CancelProposal",
+          "CancelRestore",
+          "ClearAttached",
+          "CommandStale",
+          "CommandSuccess",
+          "CommandsApplied",
+          "ConfirmFrameChange",
+          "CreateRelatedAggregate",
+          "DraftChange",
+          "ExcludeMember",
+          "ExcludeRouteFound",
+          "ExcludeRouteMissing",
+          "GateReconcile",
+          "LookupRoutes",
+          "MoveColumn",
+          "PreviewComplete",
+          "PreviewReady",
+          "PreviewUnavailable",
+          "ProposalComplete",
+          "ProposalError",
+          "ProposalFailed",
+          "ReconcileConflict",
+          "ReconcileFailure",
+          "ReconcileInvalid",
+          "ReconcileNeedsRepair",
+          "ReconcileReceiptBound",
+          "ReconcileStale",
+          "RemovalFailed",
+          "RemovalReviewReady",
+          "RemoveConfiguredColumn",
+          "RemoveRoute",
+          "RenameColumn",
+          "ReplaceProposal",
+          "ReplaceSelection",
+          "RequestProposal",
+          "RequestReconcile",
+          "RestoreComplete",
+          "RetryEntryReconcile",
+          "RetryProposal",
+          "ReviewCandidate",
+          "ReviewReady",
+          "ReviewRemoval",
+          "ReviewStale",
+          "RouteLookupFailed",
+          "SaveDraft",
+          "SelectOccurrence",
+          "SelectRow",
+          "SelectTable",
+          "SetFeaturePolicy",
+          "SetFilterOffered",
+          "SetRowValuePolicy",
+          "StaleDraft",
+          "StartCommand",
+          "StartPreview",
+          "StartProposal",
+          "StartRestore",
+          "ToggleVisibility",
+          "WorkspaceChanged"
+        ],
+        "routeActions": [
+          "BeginApply",
+          "ApplyAck"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule.",
+        "traceEvent": "finish-apply",
+        "schedule": "apply-ownership",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Apply command slice. Apply ownership schedule, Go preview/apply contract test, and Recompile browser case command requests.",
+        "scope": "apply command slice",
+        "coveredActions": [
+          "BeginApply",
+          "ApplyAck"
+        ]
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-category-discoveries",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.reshape.pivot_values"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "trace-tested",
+        "model": "BuilderPreview.tla",
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ],
+        "routeActionReason": "Read-only discovery with an asynchronous request lifecycle. BuilderPreview models the request and completion; the stale-response path is part of the route contract.",
+        "traceEvent": "construction-discovery",
+        "schedule": "construction-discovery",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": null,
+        "reason": "Discovery request, pivot mount, and completion schedule. Go HTTP contract test rejects a stale stage discovery before the category scan. Browser evidence is still missing.",
+        "browserGap": "The Recompile browser report does not request the construction-category-discoveries route. A new browser report is blocked by the Docker VM disk being full.",
+        "scope": "category discovery request, stage identity, and completion lifecycle",
+        "coveredActions": [
+          "ScheduleDiscovery",
+          "DiscoveryComplete"
+        ]
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-choice-proposals",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
+      ],
+      "uiCallers": [
+        "builder.add_columns.catalog_field",
+        "builder.add_columns.catalog_semantic",
+        "builder.add_columns.grouped_row_values"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [
+          "StartProposal",
+          "ProposalComplete"
+        ],
+        "routeActionReason": "Proposal route creates a candidate receipt and preview. It does not mutate the saved draft, but it drives the UI proposal lifecycle.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-proposals",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.add_columns.related_field",
+        "builder.calculate.derive",
+        "builder.combine.append",
+        "builder.combine.key_join",
+        "builder.combine.membership",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ApplyAck",
+          "AuthorStep",
+          "BeginApply",
+          "CancelProposal",
+          "PreviewComplete",
+          "ProposalComplete",
+          "ProposalError",
+          "ReplaceProposal",
+          "RetryProposal",
+          "StartPreview",
+          "StartProposal"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.unit.test.tsx",
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-interpretation-preview",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.interpretation.preview_and_apply_candidate"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ApplyCandidate",
+          "ReviewCandidate",
+          "ReviewReady",
+          "ReviewStale"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestInterpretationPreviewRouteRejectsMissingBody",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.unit.test.tsx",
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-interpretation-revisions",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.interpretation.create_revision_from_column"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "BeginCreate",
+          "CancelCreate",
+          "CreateBlocked",
+          "CreateFailed",
+          "CreateRevision"
+        ],
+        "routeActions": [
+          "BeginCreate",
+          "CancelCreate",
+          "CreateBlocked",
+          "CreateFailed",
+          "CreateRevision"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-mapping",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.population.selected_resource_coverage_check"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "CoverageComplete",
+          "CoverageIncomplete",
+          "CoverageStale",
+          "RequestCoverage"
+        ],
+        "routeActions": [
+          "CoverageComplete",
+          "CoverageIncomplete",
+          "CoverageStale",
+          "RequestCoverage"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-member-proposals",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-member-proposals",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.population.review_and_remove_attached_member"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ApplyRemoval",
+          "RemovalFailed",
+          "RemovalReviewReady",
+          "ReviewRemoval"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestPopulationMemberRemovalProposalHTTPPreviewsAndAppliesExactScopedCAS",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-population-routes",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.population.attach_or_replace_selection",
+        "builder.population.exclude_unmapped_member"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AttachSelection",
+          "ExcludeMember",
+          "ExcludeRouteFound",
+          "ExcludeRouteMissing",
+          "LookupRoutes",
+          "ReplaceSelection",
+          "RouteLookupFailed"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-preview",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+      ],
+      "uiCallers": [
+        "builder.add_columns.related_field",
+        "builder.automatic_preview_refresh_and_recovery",
+        "builder.calculate.derive",
+        "builder.combine.append",
+        "builder.combine.key_join",
+        "builder.combine.membership",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.first_table_from_root",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot",
+        "builder.root.change_or_replace"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "BuilderPreview.tla",
+        "modelActions": [
+          "AbortPreview",
+          "AcceptPreview",
+          "ApplyAck",
+          "ApplyPreview",
+          "AssessmentBlocked",
+          "AssessmentNoChange",
+          "AssessmentReady",
+          "AssessmentStale",
+          "AuthorStep",
+          "BeginApply",
+          "BeginChange",
+          "Cancel",
+          "CancelProposal",
+          "PreviewComplete",
+          "PreviewFailed",
+          "PreviewReady",
+          "PreviewUnavailable",
+          "ProposalComplete",
+          "ProposalError",
+          "RecompileReceipt",
+          "RefreshCatalog",
+          "ReplaceProposal",
+          "RetryProposal",
+          "RetryTransient",
+          "StartPreview",
+          "StartProposal",
+          "WorkspaceChanged"
+        ],
+        "routeActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule.",
+        "traceEvent": "preview-response",
+        "schedule": "preview-ownership",
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Fallback preview ownership schedules; Go preview contract test; Recompile browser case asserts preview rows.",
+        "scope": "preview request, ownership, and late-response lifecycle",
+        "coveredActions": [
+          "StartPreview",
+          "PreviewComplete"
+        ]
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-publish",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/publish",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "uiCallers": [
+        "builder.publish"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "unproven",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": "No route-level TLA action exists for publication; keep the route unproven until publication is modeled.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "No model action or route test exists; keep the route unproven until modeled."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-reconcile",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+      ],
+      "uiCallers": [
+        "builder.automatic_preview_refresh_and_recovery",
+        "builder.first_table_from_root",
+        "builder.server_saved_draft_and_reconcile"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-and-traced",
+        "model": "ReconcileLifecycle.tla",
+        "modelActions": [
+          "AbortPreview",
+          "AcceptPreview",
+          "ApplyAck",
+          "AuthorStep",
+          "AuthoredChange",
+          "BeginApply",
+          "CommandStale",
+          "CommandSuccess",
+          "DraftChange",
+          "GateReconcile",
+          "PreviewComplete",
+          "PreviewFailed",
+          "ProposalComplete",
+          "RecompileReceipt",
+          "ReconcileConflict",
+          "ReconcileFailure",
+          "ReconcileInvalid",
+          "ReconcileNeedsRepair",
+          "ReconcileReceiptBound",
+          "ReconcileStale",
+          "RefreshCatalog",
+          "RequestReconcile",
+          "RetryEntryReconcile",
+          "RetryTransient",
+          "StartCommand",
+          "StartPreview",
+          "StartProposal"
+        ],
+        "routeActions": [
+          "RequestReconcile",
+          "RetryReconcile",
+          "ReconcileSuccess",
+          "ReconcileStale",
+          "ReconcileConflict",
+          "ReconcileInvalid",
+          "ReconcileFailure(retryable)",
+          "ReconcileFailure(fatal)",
+          "ClearReceipt",
+          "AuthoredChange"
+        ],
+        "routeActionReason": "Proven route actions from the trace and schedule.",
+        "traceEvent": "reconcile-response",
+        "schedule": "reconcile-recovery",
+        "contractTest": null,
+        "goTest": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Reconcile success, stale retry, conflict, invalid, retryable, fatal, identity rejection, and late result schedules. Go receipt test and Recompile browser case.",
+        "scope": "reconcile request, recovery, and late-result lifecycle",
+        "coveredActions": [
+          "RequestReconcile",
+          "RetryReconcile",
+          "ReconcileSuccess",
+          "ReconcileStale",
+          "ReconcileConflict",
+          "ReconcileInvalid",
+          "ReconcileFailure(retryable)",
+          "ReconcileFailure(fatal)",
+          "ClearReceipt",
+          "AuthoredChange"
+        ]
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-change",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.root.change_or_replace"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "ApplyPreview",
+          "AssessmentBlocked",
+          "AssessmentNoChange",
+          "AssessmentReady",
+          "AssessmentStale",
+          "BeginChange",
+          "Cancel",
+          "PreviewReady",
+          "PreviewUnavailable",
+          "WorkspaceChanged"
+        ],
+        "routeActions": [
+          "ApplyPreview",
+          "AssessmentBlocked",
+          "AssessmentNoChange",
+          "AssessmentReady",
+          "AssessmentStale",
+          "BeginChange",
+          "Cancel",
+          "PreviewReady",
+          "PreviewUnavailable",
+          "WorkspaceChanged"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-definition-proposals",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.reshape.group_field",
+        "builder.row_definition.expanded_source_rows",
+        "builder.row_definition.explicit_groups",
+        "builder.row_definition.rows_per_starting_record",
+        "builder.row_definition_proposal_apply_cancel"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ApplyAck",
+          "ApplyProposal",
+          "AuthorStep",
+          "BeginApply",
+          "CancelProposal",
+          "PreviewComplete",
+          "ProposalComplete",
+          "ProposalFailed",
+          "RequestProposal",
+          "SelectRow",
+          "StartPreview",
+          "StartProposal"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-category-discoveries",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx"
+      ],
+      "uiCallers": [
+        "legacy.table_shape.category_discovery"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "unproven",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "No model action is mapped to this route; assign a model or exclude the route."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-proposals",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ChoiceSelect.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GroupedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeController.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts"
+      ],
+      "uiCallers": [
+        "builder.calculate.table_shape_derived_column",
+        "legacy.table_shape.grouped_pivot",
+        "legacy.table_shape.unpivot"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Candidate receipt only. The lifecycle test asserts the saved draft does not change. Contract test is the correct proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestOpenAPIDocumentsOperationSpecificFailureStatuses",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-resolutions",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ChoiceSelect.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GroupedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeController.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts"
+      ],
+      "uiCallers": [
+        "builder.calculate.table_shape_derived_column",
+        "legacy.table_shape.grouped_pivot",
+        "legacy.table_shape.unpivot"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Pure table-shape resolution. Contract test is the correct proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Model actions exist but no route action or contract test is assigned; keep the route modeled-only until one is chosen."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-selections",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "uiCallers": [
+        "builder.population.exclude_unmapped_member"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "ExcludeMember",
+          "ExcludeRouteFound",
+          "ExcludeRouteMissing"
+        ],
+        "routeActions": [
+          "ExcludeMember",
+          "ExcludeRouteFound",
+          "ExcludeRouteMissing"
+        ],
+        "routeActionReason": "Reviewer accepted the proposed route actions; trace and test remain required.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "get:api-v1-projects-project-explorers-explorerId-selections-selectionRevision",
+      "tier": 1,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.demo_entry_route",
+        "builder.population.review_and_remove_attached_member"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "ApplyRemoval",
+          "ParseRoute",
+          "RemovalFailed",
+          "RemovalReviewReady",
+          "ReplaceExplorer",
+          "ReviewRemoval",
+          "SelectionFailed",
+          "SelectionReady",
+          "SetFeatureFocus"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-selections-selectionRevision-explicit-groups",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx"
+      ],
+      "uiCallers": [
+        "builder.row_definition.explicit_groups"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Write route creates an explicit-group selection revision. No existing Population action covers revision creation. It needs a new model action or a contract test.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Model actions exist but no route action or contract test is assigned; keep the route modeled-only until one is chosen."
+      }
+    },
+    {
+      "id": "get:api-v1-projects-project-explorers",
+      "tier": 2,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
+      ],
+      "uiCallers": [
+        "builder.delete_explorer_no_fallback",
+        "builder.explorer_create_delete",
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "CreateExplorer",
+          "DeleteCapability",
+          "DeleteExplorer",
+          "ExplorerListComplete",
+          "ExplorerListError",
+          "HydrateBuilder",
+          "Inv_DeleteKeepsFallback",
+          "SelectExplorer"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": null,
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
+      ],
+      "uiCallers": [
+        "builder.delete_explorer_no_fallback",
+        "builder.explorer_create_delete",
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "CreateExplorer",
+          "DeleteCapability",
+          "DeleteExplorer",
+          "ExplorerListComplete",
+          "ExplorerListError",
+          "HydrateBuilder",
+          "Inv_DeleteKeepsFallback",
+          "SelectExplorer"
+        ],
+        "routeActions": [
+          "CreateExplorer",
+          "SelectExplorer"
+        ],
+        "routeActionReason": "Explorer creation and selection are the route-level transitions; hydration is not a create-route action.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "delete:api-v1-projects-project-explorers-explorerId",
+      "tier": 2,
+      "method": "DELETE",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
+      ],
+      "uiCallers": [
+        "builder.explorer_create_delete"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "CreateExplorer",
+          "DeleteCapability",
+          "DeleteExplorer",
+          "SelectExplorer"
+        ],
+        "routeActions": [
+          "DeleteExplorer",
+          "DeleteCapability"
+        ],
+        "routeActionReason": "Explorer deletion and capability invalidation are the route-level transitions.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "get:api-v1-projects-project-explorers-explorerId-authoring-v2-capability",
+      "tier": 2,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "uiCallers": [
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ExplorerListComplete",
+          "ExplorerListError",
+          "HydrateBuilder",
+          "SelectExplorer"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody",
+        "uiTest": null,
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-column-source",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx"
+      ],
+      "uiCallers": [
+        "builder.column_source.inspect"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "InspectColumn",
+          "InspectRejected",
+          "InspectSucceeded"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-configured-column-context",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "uiCallers": [
+        "builder.interpretation.configured_column_context"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestConfiguredColumnContextRouteRejectsMissingBody",
+        "uiTest": null,
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-capabilities",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedSourceStepEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/operationFamilies.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.add_columns.grouped_row_values",
+        "builder.add_columns.related_field",
+        "builder.add_columns.source_selection",
+        "builder.calculate.derive",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.construction_step_editor_routing",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ApplyAck",
+          "AuthorStep",
+          "BeginApply",
+          "CancelProposal",
+          "PreviewComplete",
+          "ProposalComplete",
+          "ProposalError",
+          "ReplaceProposal",
+          "RetryProposal",
+          "RouteSavedStep",
+          "StartPreview",
+          "StartProposal"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-choices",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx"
+      ],
+      "uiCallers": [
+        "builder.add_columns.catalog_field",
+        "builder.add_columns.catalog_semantic",
+        "builder.add_columns.source_selection",
+        "builder.related_source_column"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-inputs",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "uiCallers": [
+        "builder.combine.append",
+        "builder.combine.key_join",
+        "builder.combine.membership"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestConstructionInputsGeneratedHTTPRouteReturnsExactCatalog",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-frame-source-options",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.add_columns.source_selection",
+        "builder.frame_source.manage_existing",
+        "builder.reshape.pivot_coded"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "ApplyFrameRemove",
+          "ApplyFrameReplace",
+          "AuthorStep",
+          "BeginFrameRemove",
+          "BeginFrameReplace",
+          "CancelFrameChange",
+          "ConfirmFrameChange"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-related-expand-choices",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.filter_rows.related_eligibility",
+        "builder.reshape.related_expand"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-related-expand-contributors",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.filter_rows.related_eligibility",
+        "builder.reshape.related_expand"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-related-field-choices",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx"
+      ],
+      "uiCallers": [
+        "builder.add_columns.related_field"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "get:api-v1-projects-project-explorers-explorerId-authoring-v2-row-definition-choices",
+      "tier": 2,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "uiCallers": [
+        "builder.reshape.group_field",
+        "builder.row_definition.expanded_source_rows",
+        "builder.row_definition.explicit_groups",
+        "builder.row_definition.rows_per_starting_record",
+        "builder.row_definition_proposal_apply_cancel"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "ApplyAck",
+          "ApplyProposal",
+          "AuthorStep",
+          "BeginApply",
+          "CancelProposal",
+          "PreviewComplete",
+          "ProposalComplete",
+          "ProposalFailed",
+          "RequestProposal",
+          "SelectRow",
+          "StartPreview",
+          "StartProposal"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-row-lineage",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
+      ],
+      "uiCallers": [
+        "builder.preview_table.inspect_row_sources"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "NextLineagePage",
+          "RequestRowSources",
+          "RowSourcesReady",
+          "RowSourcesUnavailable"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-semantic-inventory",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx"
+      ],
+      "uiCallers": [
+        "builder.add_columns.catalog_field",
+        "builder.add_columns.catalog_semantic",
+        "builder.add_columns.source_selection",
+        "builder.reshape.pivot_coded"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestBrowseSemanticInventoryThroughPublicAPI",
+        "uiTest": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.unit.test.tsx",
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-suggestions",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx"
+      ],
+      "uiCallers": [
+        "builder.first_table_from_root",
+        "builder.table_route_and_occurrence_selection"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "contract-tested",
+        "model": null,
+        "modelActions": [
+          "AddRoute",
+          "ApplyAck",
+          "AuthorStep",
+          "BeginApply",
+          "CommandsApplied",
+          "PreviewComplete",
+          "ProposalComplete",
+          "RemoveRoute",
+          "SelectOccurrence",
+          "SelectTable",
+          "StartPreview",
+          "StartProposal"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-like route. No route transition at the boundary; the contract test is the proof.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+        "uiTest": null,
+        "browserCase": "builder-controls:recompile",
+        "reason": "Read-like route has mapped contract evidence."
+      }
+    },
+    {
+      "id": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-table-shape-capabilities",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities",
+      "usedByBuilder": true,
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ChoiceSelect.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GroupedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeController.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts"
+      ],
+      "uiCallers": [
+        "builder.calculate.table_shape_derived_column",
+        "legacy.table_shape.grouped_pivot",
+        "legacy.table_shape.unpivot"
+      ],
+      "requestIdentity": [],
+      "responseBinding": [],
+      "staleRule": "",
+      "errorClasses": [],
+      "proof": {
+        "status": "modeled-only",
+        "model": null,
+        "modelActions": [
+          "AuthorStep"
+        ],
+        "routeActions": [],
+        "routeActionReason": "Read-only route. Contract test is the correct proof; no TLA state transition belongs to this endpoint.",
+        "traceEvent": null,
+        "schedule": null,
+        "contractTest": null,
+        "goTest": null,
+        "uiTest": null,
+        "browserCase": null,
+        "reason": "Affordance model actions exist; route-level trace, schedule, and executable test bindings are not assigned."
+      }
+    }
+  ]
+}

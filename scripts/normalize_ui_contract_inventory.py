@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs/ui-contract-inventory/ui-supported-affordances.json"
-BASE = "63e330d12cc62c30563e3735d6e33ab6f88afdb0"
+BASE = "dc331783dde3f61e764bab3a421b66b28698c9d4"
 FRAGMENTS = [
     "expression.fragment.json",
     "relational.fragment.json",

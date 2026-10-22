@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
-SOURCE_COMMIT = "63e330d12cc62c30563e3735d6e33ab6f88afdb0"
+SOURCE_COMMIT = "dc331783dde3f61e764bab3a421b66b28698c9d4"
 DEFAULT_MANIFEST = Path("docs/ui-contract-inventory/ui-supported-affordances.json")
 SOURCE_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
 REFERENCE_RE = re.compile(

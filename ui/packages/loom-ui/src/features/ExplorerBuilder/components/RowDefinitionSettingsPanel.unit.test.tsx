@@ -476,6 +476,23 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(onApplyRootReplacement).not.toHaveBeenCalled();
   });
 
+  it('fails closed when the replacement preview belongs to another table', async () => {
+    renderSettings({
+      tableValue: patientWorkspaceTable,
+      workspaceTables: [patientWorkspaceTable, reportWorkspaceTable],
+      replacementPreview: { ...replacementPreview, outputId: 'reports' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Change current rows' }));
+    await screen.findByRole('combobox', { name: 'Rows per starting record' });
+    fireEvent.click(screen.getByRole('button', { name: 'Replace current setup' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Replace this table’s current setup?' });
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.',
+    );
+    expect(within(dialog).queryByTestId('construction-proposal-preview')).toBeNull();
+  });
+
   it('translates backend removal keys into readable setup consequences', async () => {
     const featureKeys = [
       'root:Patient',

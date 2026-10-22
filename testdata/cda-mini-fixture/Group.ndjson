@@ -1,0 +1,2 @@
+{"resourceType":"Group","id":"cda-mini-group-001","type":"person","actual":true,"member":[{"entity":{"reference":"Patient/cda-mini-patient-001"}},{"entity":{"reference":"Patient/cda-mini-patient-002"}},{"entity":{"reference":"Patient/cda-mini-patient-003"}}]}
+{"resourceType":"Group","id":"cda-mini-group-002","type":"person","actual":true,"member":[{"entity":{"reference":"Patient/cda-mini-patient-004"}},{"entity":{"reference":"Patient/cda-mini-patient-005"}},{"entity":{"reference":"Patient/cda-mini-patient-006"}}]}

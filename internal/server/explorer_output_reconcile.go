@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -683,6 +684,12 @@ func authoredConstructionOutputsWithCombineInputs(
 			}
 			inputColumns, err := constructionInputNames(prior, publicInputIDs)
 			if err != nil {
+				var missing *constructionInputMissingError
+				if errors.As(err, &missing) {
+					missing.StepID = step.ID
+					missing.OutputID = outputColumnID
+					missing.OutputName = output.Name
+				}
 				return fmt.Errorf("step %q output %q: %w", step.ID, output.Name, err)
 			}
 			lineageInputs := make([]string, 0, len(inputColumns))
@@ -1185,12 +1192,26 @@ func combineProjectionInputName(
 	return "", fmt.Errorf("published input %d exact schema has no column ID %q", inputIndex, columnID)
 }
 
+type constructionInputMissingError struct {
+	ColumnID   string
+	StepID     string
+	OutputID   string
+	OutputName string
+}
+
+func (e *constructionInputMissingError) Error() string {
+	if e.StepID != "" || e.OutputName != "" {
+		return fmt.Sprintf("construction step %q output %q references input column %q, which is absent from the prior stage", e.StepID, e.OutputName, e.ColumnID)
+	}
+	return fmt.Sprintf("input column ID %q is absent from the prior stage", e.ColumnID)
+}
+
 func constructionInputNames(schema map[string]string, ids []string) ([]string, error) {
 	names := make([]string, 0, len(ids))
 	for _, id := range ids {
 		name, exists := schema[id]
 		if !exists {
-			return nil, fmt.Errorf("input column ID %q is absent from the prior stage", id)
+			return nil, &constructionInputMissingError{ColumnID: id}
 		}
 		names = append(names, name)
 	}

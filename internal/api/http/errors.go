@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -77,10 +78,11 @@ func MapDataframeError(err error, requestID string) MappedError {
 
 	if userErr, ok := dataframeerrors.AsUserError(err); ok {
 		code := normalizeHTTPCode(userErr.Code())
+		message := dataframeerrors.PublicMessage(err)
 		return MappedError{
 			Status: statusForCode(code, 0),
 			Body: ErrorResponse{Error: HTTPErrorBody{
-				Code: code, Message: dataframeerrors.PublicMessage(err), FieldPath: userErr.FieldPath(), Details: userErr.Details(), Retryable: userErr.Retryable() || dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)), RequestID: requestID,
+				Code: code, Message: message, FieldPath: userErr.FieldPath(), Details: userErr.Details(), Retryable: userErr.Retryable() || dataframeerrors.IsRetryableCode(dataframeerrors.ErrorCode(code)), RequestID: requestID,
 			}},
 			Cause: err,
 		}
@@ -93,10 +95,16 @@ func MapDataframeError(err error, requestID string) MappedError {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, dataframeerrors.ErrBackendUnavailable) {
 		code = "BACKEND_UNAVAILABLE"
 	}
+	var details map[string]any
+	if code == "INTERNAL_ERROR" {
+		details = map[string]any{"causeType": fmt.Sprintf("%T", err)}
+	}
 	return MappedError{
 		Status: statusForCode(code, 0),
-		Body:   ErrorResponse{Error: HTTPErrorBody{Code: code, Message: messageForCode(code), Retryable: code == "BACKEND_UNAVAILABLE", RequestID: requestID}},
-		Cause:  err,
+		Body: ErrorResponse{Error: HTTPErrorBody{
+			Code: code, Message: messageForCode(code), Retryable: code == "BACKEND_UNAVAILABLE", RequestID: requestID, Details: details,
+		}},
+		Cause: err,
 	}
 }
 
@@ -145,14 +153,11 @@ var httpCodePolicies = map[string]httpCodePolicy{
 	"PUBLICATION_IN_PROGRESS": {http.StatusConflict}, "PUBLICATION_CONFLICT": {http.StatusConflict}, "PUBLICATION_LEASE_LOST": {http.StatusServiceUnavailable}, "PUBLICATION_FAILED": {http.StatusServiceUnavailable}, "OUTPUT_ENCODING_FAILED": {http.StatusInternalServerError},
 	"DYNAMIC_SCHEMA_DRIFT": {http.StatusConflict}, "RECIPE_CONTRACT_VIOLATION": {http.StatusConflict}, "INVALID_SELECTOR": {http.StatusBadRequest}, "RECEIPT_STORE_UNAVAILABLE": {http.StatusServiceUnavailable}, "PREVIEW_TIMEOUT": {http.StatusGatewayTimeout},
 	"PREVIEW_RESPONSE_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "QUERY_MEMORY_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_RESOURCE_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_BACKEND_OUT_OF_MEMORY": {http.StatusServiceUnavailable},
-	"RELATIONSHIP_CARDINALITY_VIOLATION": {http.StatusUnprocessableEntity}, "CONSTRUCTION_EXPANSION_EMPTY": {http.StatusUnprocessableEntity}, "EXPLICIT_GROUP_UNASSIGNED_MEMBER": {http.StatusUnprocessableEntity}, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES": {http.StatusUnprocessableEntity}, "TABLE_PIVOT_CELL_CARDINALITY": {http.StatusUnprocessableEntity}, "TABLE_PIVOT_UNLISTED_CATEGORY": {http.StatusUnprocessableEntity}, "TEMPORAL_ANCHOR_INVALID": {http.StatusUnprocessableEntity}, "TEMPORAL_PRECISION_UNSUPPORTED": {http.StatusUnprocessableEntity}, "TEMPORAL_TIE_AMBIGUOUS": {http.StatusUnprocessableEntity}, "UNIT_IDENTITY_UNKNOWN": {http.StatusUnprocessableEntity}, "UNIT_DIMENSION_INCOMPATIBLE": {http.StatusUnprocessableEntity},
+	"RELATIONSHIP_CARDINALITY_VIOLATION": {http.StatusUnprocessableEntity}, "CONSTRUCTION_RECEIPT_INPUT_MISSING": {http.StatusInternalServerError}, "CATEGORY_DISCOVERY_FAILED": {http.StatusInternalServerError}, "CONSTRUCTION_RECEIPT_CONTRACT_INVALID": {http.StatusInternalServerError}, "CONSTRUCTION_EXPANSION_EMPTY": {http.StatusUnprocessableEntity}, "EXPLICIT_GROUP_UNASSIGNED_MEMBER": {http.StatusUnprocessableEntity}, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES": {http.StatusUnprocessableEntity}, "TABLE_PIVOT_CELL_CARDINALITY": {http.StatusUnprocessableEntity}, "TABLE_PIVOT_UNLISTED_CATEGORY": {http.StatusUnprocessableEntity}, "TEMPORAL_ANCHOR_INVALID": {http.StatusUnprocessableEntity}, "TEMPORAL_PRECISION_UNSUPPORTED": {http.StatusUnprocessableEntity}, "TEMPORAL_TIE_AMBIGUOUS": {http.StatusUnprocessableEntity}, "UNIT_IDENTITY_UNKNOWN": {http.StatusUnprocessableEntity}, "UNIT_DIMENSION_INCOMPATIBLE": {http.StatusUnprocessableEntity},
 	"NOT_FOUND": {http.StatusNotFound}, "METHOD_NOT_ALLOWED": {http.StatusMethodNotAllowed}, "PAYLOAD_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "UNSUPPORTED_MEDIA_TYPE": {http.StatusUnsupportedMediaType}, "GRAPHQL_VALIDATION_FAILED": {http.StatusBadRequest},
 }
 
 func messageForCode(code string) string {
-	if msg := dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.ErrorCode(code), "")); msg != "internal server error" {
-		return msg
-	}
 	switch code {
 	case "UNAUTHENTICATED":
 		return "authentication is required"
@@ -188,7 +193,6 @@ func messageForCode(code string) string {
 		return "the requested method is not allowed"
 	case "PAYLOAD_TOO_LARGE":
 		return "the request payload is too large"
-	default:
-		return "internal server error"
 	}
+	return dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.ErrorCode(code), ""))
 }

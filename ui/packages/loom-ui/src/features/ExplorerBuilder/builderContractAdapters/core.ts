@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { isConstructionProposalAction, isRowDefinitionAction } from './actionGuards';
 
 type ActionValues = Readonly<Record<string, unknown>>;
 type ActionRequestStep = Readonly<Record<string, unknown>> | null;
@@ -266,7 +267,7 @@ const driveCatalogChoice = async (input: CoreAdapterInput, semantic: boolean): P
     await confirmCatalogSelection(input, values);
     return;
   }
-  if (action === 'proposalEndpoint' || action === 'applyEndpoint' || action === 'apply') {
+  if (isConstructionProposalAction(action)) {
     await chooseCatalogItem(input, values);
     await confirmCatalogSelection(input, values);
     await screen.findByTestId('construction-proposal-ready');
@@ -546,7 +547,7 @@ const driveRowDefinition = async (input: CoreAdapterInput): Promise<void> => {
     fireEvent.click(close);
     return;
   }
-  if (action !== 'select_row_shape_or_policy' && action !== 'apply_row_definition') {
+  if (!isRowDefinitionAction(action)) {
     throw new CoreAdapterGapError(input.uiAction.affordanceId, `row-definition actionId ${action ?? '(missing)'} is unsupported.`);
   }
   if (action === 'apply_row_definition') {

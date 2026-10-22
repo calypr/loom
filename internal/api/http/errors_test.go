@@ -64,8 +64,11 @@ func TestMapDataframeErrorRedactsUnknownCause(t *testing.T) {
 	if mapped.Status != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", mapped.Status)
 	}
-	if mapped.Body.Error.Code != "INTERNAL_ERROR" || mapped.Body.Error.Message != "internal server error" {
+	if mapped.Body.Error.Code != "INTERNAL_ERROR" || mapped.Body.Error.Message != "an unexpected internal error occurred while processing the data request" {
 		t.Fatalf("body = %#v", mapped.Body.Error)
+	}
+	if mapped.Body.Error.Details["causeType"] != "*errors.errorString" {
+		t.Fatalf("details = %#v, want causeType", mapped.Body.Error.Details)
 	}
 	if mapped.Body.Error.RequestID != "req-1" {
 		t.Fatalf("request id = %q", mapped.Body.Error.RequestID)
@@ -175,6 +178,52 @@ func TestMapDataframeErrorPreservesLimitAndPublicationCodes(t *testing.T) {
 		mapped := MapDataframeError(dataframeerrors.NewError(test.code, ""), "req-publication")
 		if mapped.Status != test.status || mapped.Body.Error.Code != string(test.code) || mapped.Body.Error.Retryable != test.retryable {
 			t.Errorf("%s mapped = %#v, want %s/%d retryable=%t", test.code, mapped, test.code, test.status, test.retryable)
+		}
+	}
+}
+
+type adapterUserError struct {
+	code string
+}
+
+func (e adapterUserError) Error() string {
+	return "private adapter detail"
+}
+
+func (e adapterUserError) Code() string {
+	return e.code
+}
+
+func (e adapterUserError) FieldPath() []string {
+	return nil
+}
+
+func (e adapterUserError) Details() map[string]any {
+	return nil
+}
+
+func (e adapterUserError) Retryable() bool {
+	return false
+}
+
+func TestMapDataframeErrorDescribesUnknownAdapterUserCode(t *testing.T) {
+	for _, test := range []struct {
+		code    string
+		message string
+		status  int
+	}{
+		{"ADAPTER_PRIVATE_CODE", "an unexpected internal error occurred while processing the data request", http.StatusInternalServerError},
+		{"INVALID_REQUEST", "the request is invalid", http.StatusBadRequest},
+	} {
+		mapped := MapDataframeError(adapterUserError{code: test.code}, "req-adapter")
+		if mapped.Status != test.status {
+			t.Fatalf("%s status = %d, want %d", test.code, mapped.Status, test.status)
+		}
+		if mapped.Body.Error.Message != test.message {
+			t.Fatalf("%s message = %q, want %q", test.code, mapped.Body.Error.Message, test.message)
+		}
+		if strings.Contains(mapped.Body.Error.Message, "private adapter detail") {
+			t.Fatalf("%s leaked adapter cause", test.code)
 		}
 	}
 }

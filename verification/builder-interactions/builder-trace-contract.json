@@ -1,0 +1,325 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
+  "models": {
+    "BuilderPreview": {
+      "module": "BuilderPreview.tla",
+      "safetyConfig": "BuilderPreviewSafety.cfg",
+      "actions": [
+        "StartProposal",
+        "ReplaceProposal",
+        "ProposalComplete",
+        "ProposalError",
+        "LateProposalCompleteIgnored",
+        "CancelProposal",
+        "RetryProposal",
+        "StartPreview",
+        "PreviewComplete",
+        "LatePreviewCompleteIgnored",
+        "BeginApply",
+        "ApplyAck",
+        "ChangeDraft",
+        "AcceptCurrentDraft",
+        "SetPivotPair",
+        "ScheduleDiscovery",
+        "DiscoveryComplete",
+        "ChangePivotKey",
+        "UnmountEditor",
+        "AdoptDiscovery"
+      ]
+    },
+    "ConstructionLifecycle": {
+      "module": "ConstructionLifecycle.tla",
+      "actions": [
+        "StartProposal(P1)",
+        "StartProposal(P2)",
+        "ReplaceProposalOwner",
+        "RetryProposal(P1-to-P2)",
+        "CancelProposalOwner",
+        "ProposalComplete(P1)",
+        "ProposalComplete(P2)",
+        "ProposalError(P1)",
+        "ProposalError(P2)",
+        "LateProposalErrorIgnored(P1)",
+        "LateProposalErrorIgnored(P2)",
+        "LateProposalCompleteIgnored(P1)",
+        "LateProposalCompleteIgnored(P2)",
+        "PreviewComplete(P1)",
+        "PreviewComplete(P2)",
+        "PreviewError(P1)",
+        "PreviewError(P2)",
+        "LatePreviewErrorIgnored(P1)",
+        "LatePreviewErrorIgnored(P2)",
+        "LatePreviewCompleteIgnored(P1)",
+        "LatePreviewCompleteIgnored(P2)",
+        "BeginApply(accepted)",
+        "BeginApply(rejected)",
+        "ChangeDraftIdentity(A-to-B)",
+        "ChangeDraftIdentity(B-to-A)"
+      ]
+    },
+    "ReconcileLifecycle": {
+      "module": "ReconcileLifecycle.tla",
+      "actions": [
+        "RequestReconcile",
+        "RetryReconcile",
+        "ReconcileSuccess",
+        "ReconcileStale",
+        "ReconcileConflict",
+        "ReconcileInvalid",
+        "ReconcileFailure(retryable)",
+        "ReconcileFailure(fatal)",
+        "DraftChange",
+        "AuthoredChange",
+        "ChangeExplorer",
+        "SetTablesRooted",
+        "SetSnapshotPresent",
+        "ClearReceipt"
+      ]
+    }
+  },
+  "actionBindings": {
+    "StartProposal": {
+      "event": "propose-construction",
+      "trigger": "client.proposeConstruction"
+    },
+    "ReplaceProposal": {
+      "event": "propose-construction",
+      "trigger": "client.proposeConstruction replacement"
+    },
+    "ProposalComplete": {
+      "event": "proposal-response",
+      "trigger": "proposal response accepted as ready"
+    },
+    "ProposalError": {
+      "event": "proposal-response",
+      "trigger": "proposal response rejected, needs repair, missing receipt, or transport error"
+    },
+    "StartPreview": {
+      "event": "preview",
+      "trigger": "client.preview or accepted embedded preview"
+    },
+    "PreviewComplete": {
+      "event": "preview-response",
+      "trigger": "preview response accepted or rejected"
+    },
+    "CancelProposal": {
+      "event": "cancel",
+      "trigger": "lifecycle.cancel"
+    },
+    "RetryProposal": {
+      "event": "retry",
+      "trigger": "lifecycle.retry"
+    },
+    "BeginApply": {
+      "event": "begin-apply",
+      "trigger": "lifecycle.beginApply accepted"
+    },
+    "ApplyAck": {
+      "event": "finish-apply",
+      "trigger": "lifecycle.finishApply"
+    },
+    "ChangeDraft": {
+      "event": "identity-change",
+      "trigger": "capabilities request identity rerender"
+    },
+    "StartProposal(P1)": {
+      "event": "propose-construction",
+      "trigger": "ConstructionLifecycle client.proposeConstruction"
+    },
+    "ChangeDraftIdentity(A-to-B)": {
+      "event": "identity-change",
+      "trigger": "ConstructionLifecycle A-to-B rerender"
+    },
+    "ChangeDraftIdentity(B-to-A)": {
+      "event": "identity-change",
+      "trigger": "ConstructionLifecycle B-to-A rerender"
+    },
+    "ProposalComplete(P1)": {
+      "event": "proposal-response",
+      "trigger": "ConstructionLifecycle proposal response accepted with embedded preview"
+    },
+    "BeginApply(accepted)": {
+      "event": "begin-apply",
+      "trigger": "ConstructionLifecycle lifecycle.beginApply accepted"
+    },
+    "RequestReconcile": {
+      "event": "reconcile-request",
+      "trigger": "reconcile controller starts an attempt"
+    },
+    "RetryReconcile": {
+      "event": "reconcile-retry",
+      "trigger": "reconcile controller retries after a stale or transient failure"
+    },
+    "ReconcileSuccess": {
+      "event": "reconcile-response",
+      "trigger": "reconcile response accepted and bound to the current identity"
+    },
+    "ReconcileStale": {
+      "event": "reconcile-response",
+      "trigger": "reconcile response rejected as a stale snapshot"
+    },
+    "ReconcileConflict": {
+      "event": "reconcile-response",
+      "trigger": "reconcile response rejected as a draft conflict"
+    },
+    "ReconcileInvalid": {
+      "event": "reconcile-response",
+      "trigger": "reconcile response rejected as invalid"
+    },
+    "ReconcileFailure(retryable)": {
+      "event": "reconcile-response",
+      "trigger": "reconcile response rejected with a retryable failure"
+    },
+    "ReconcileFailure(fatal)": {
+      "event": "reconcile-response",
+      "trigger": "reconcile response rejected with a fatal failure"
+    },
+    "DraftChange": {
+      "event": "identity-change",
+      "trigger": "draft version or digest changes"
+    },
+    "AuthoredChange": {
+      "event": "identity-change",
+      "trigger": "authored workspace changes and invalidates the receipt"
+    },
+    "ChangeExplorer": {
+      "event": "identity-change",
+      "trigger": "Explorer selection changes"
+    },
+    "ClearReceipt": {
+      "event": "identity-change",
+      "trigger": "receipt is cleared without a request"
+    },
+    "SetPivotPair": {
+      "event": "pivot-mounted",
+      "trigger": "ConstructionReshapePivotEditor mounts the pivot category/value pair"
+    },
+    "ScheduleDiscovery": {
+      "event": "construction-discovery",
+      "trigger": "onDiscoverCategories sends the category discovery request"
+    },
+    "DiscoveryComplete": {
+      "event": "construction-discovery",
+      "trigger": "the discovery response settles"
+    }
+  },
+  "observationFields": [
+    "status",
+    "canApply",
+    "proposalIdPresent",
+    "previewReceiptPresent",
+    "rowsPresent",
+    "receiptPresent"
+  ],
+  "phase1": {
+    "expectedTraceCount": 70,
+    "expectedScheduleCount": 70,
+    "expectedFindingCount": 0,
+    "requiredModels": [
+      "BuilderPreview",
+      "ConstructionLifecycle",
+      "ReconcileLifecycle"
+    ],
+    "requiredActions": [
+      "StartProposal",
+      "ReplaceProposal",
+      "ProposalComplete",
+      "ProposalError",
+      "CancelProposal",
+      "RetryProposal",
+      "StartPreview",
+      "PreviewComplete",
+      "BeginApply",
+      "ApplyAck",
+      "ChangeDraft",
+      "StartProposal(P1)",
+      "ChangeDraftIdentity(A-to-B)",
+      "ChangeDraftIdentity(B-to-A)",
+      "ProposalComplete(P1)",
+      "BeginApply(accepted)",
+      "RequestReconcile",
+      "RetryReconcile",
+      "ReconcileSuccess",
+      "ReconcileStale",
+      "ReconcileConflict",
+      "ReconcileInvalid",
+      "ReconcileFailure(retryable)",
+      "ReconcileFailure(fatal)",
+      "ClearReceipt",
+      "AuthoredChange",
+      "SetPivotPair",
+      "ScheduleDiscovery",
+      "DiscoveryComplete"
+    ],
+    "requiredEvents": [
+      "propose-construction",
+      "proposal-response",
+      "preview",
+      "preview-response",
+      "cancel",
+      "retry",
+      "begin-apply",
+      "finish-apply",
+      "identity-change",
+      "reconcile-request",
+      "reconcile-retry",
+      "reconcile-response",
+      "pivot-mounted",
+      "construction-discovery"
+    ]
+  },
+  "unmodeledEventPolicy": {
+    "BeginApply(rejected)": "A rejected beginApply is a no-op by contract; ownership and preview state must remain unchanged. Covered by lifecycle beginApply acceptance schedules.",
+    "LatePreviewCompleteIgnored": "A preview settlement from an older owner or draft is ignored; it cannot satisfy the current preview. Covered by late-preview schedules in BuilderPreview.tla.",
+    "LateProposalCompleteIgnored": "A proposal settlement from an older generation or replaced owner is ignored; it cannot become the current proposal. Covered by replacement and late-proposal schedules.",
+    "LateProposalErrorIgnored": "A proposal error from an older generation or replaced owner is ignored; it cannot retire the current proposal. Covered by replacement and late-proposal schedules.",
+    "late-reconcile-ignored": "A reconcile response from an older generation, explorer, or workspace fingerprint is ignored; the result identity guard rejects it. Covered by the reconcile identity schedule."
+  },
+  "schedules": {
+    "reconcile-recovery": {
+      "test": "reconcile recovery formal schedule",
+      "model": "ReconcileLifecycle",
+      "covers": [
+        "success",
+        "stale retry",
+        "draft conflict",
+        "invalid output",
+        "retryable failure",
+        "fatal failure",
+        "identity rejection",
+        "late result rejection"
+      ]
+    },
+    "preview-ownership": {
+      "test": "replays fallback preview schedule",
+      "model": "BuilderPreview",
+      "covers": [
+        "proposal preview",
+        "late preview",
+        "preview receipt",
+        "preview rows"
+      ]
+    },
+    "apply-ownership": {
+      "test": "replays ready replacement",
+      "model": "BuilderPreview",
+      "covers": [
+        "begin apply",
+        "apply ack",
+        "replacement owner",
+        "apply receipt"
+      ]
+    },
+    "construction-discovery": {
+      "test": "replays category discovery schedule",
+      "model": "BuilderPreview",
+      "covers": [
+        "pivot pair mount",
+        "schedule discovery",
+        "discovery complete",
+        "retained categories"
+      ]
+    }
+  }
+}

@@ -80,13 +80,27 @@ func previewRouteError(err error) error {
 		case string(dataframeerrors.CodeRecipeContractViolation), string(dataframeerrors.CodeDynamicSchemaDrift):
 			return receiptPreviewConflict(err)
 		default:
-			return &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err}
+			return previewInternalError(err)
 		}
 	}
 	if errors.As(err, new(*receiptPreviewResolutionError)) {
 		return receiptPreviewConflict(err)
 	}
-	return &explorer.AuthoringError{Status: 500, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_FAILED", Message: "receipt preview failed"}, Cause: err}
+	return previewInternalError(err)
+}
+
+func previewInternalError(err error) error {
+	return &explorer.AuthoringError{
+		Status: http.StatusInternalServerError,
+		Diagnostic: explorer.AuthoringDiagnostic{
+			Severity: "ERROR",
+			Stage:    "preview",
+			Code:     "PREVIEW_FAILED",
+			Message:  "receipt preview failed while executing the compiled query; inspect the server log for the request ID",
+			Details:  map[string]any{"causeType": fmt.Sprintf("%T", err)},
+		},
+		Cause: err,
+	}
 }
 
 func receiptPreviewConflict(cause error) error {

@@ -94,12 +94,13 @@ const ConstructionOutputRow = ({
   const [label, setLabel] = useState(column.label);
   useEffect(() => setLabel(column.label), [column.label]);
   const commitLabel = () => {
-    const next = label.trim();
-    if (!next) {
+    const next = normalizedColumnLabel(label, column.label);
+    if (next === column.label) {
       setLabel(column.label);
       return;
     }
-    if (next !== column.label) onChange({ ...column, label: next });
+    setLabel(next);
+    onChange({ ...column, label: next });
   };
 
   return (
@@ -232,12 +233,13 @@ const ConfiguredColumnRow = ({
   const [label, setLabel] = useState(column.label);
 
   const commitLabel = () => {
-    const next = label.trim();
-    if (!next) {
+    const next = normalizedColumnLabel(label, column.label);
+    if (next === column.label) {
       setLabel(column.label);
       return;
     }
-    if (next !== column.label) onChange({ ...column, label: next });
+    setLabel(next);
+    onChange({ ...column, label: next });
   };
   const visible = column.table?.visible ?? Boolean(column.table);
 

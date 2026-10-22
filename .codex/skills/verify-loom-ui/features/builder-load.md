@@ -8,9 +8,15 @@ Authenticated project routing, V2 Builder contract loading, catalog hydration, s
 
 Open the project, choose Explorer, select Builder, and supply the Explorer ID in the route query.
 
+## Source entry points
+
+- `ui/packages/loom-ui/src/Builder.tsx:34-85` resolves the Builder identity and mounts the workspace.
+- `ui/packages/loom-ui/src/api.ts:1410` loads the V2 Builder state.
+- `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3130-3147` renders the load failure and retry control.
+
 ## Driving it with Chrome CDP
 
-Run `verify.mjs drive`. Require a valid `ExplorerBuilderState`, no authentication redirect, and no visible no-V1-fallback error.
+Run `verify.mjs drive`. Require a valid `ExplorerBuilderState`, no authentication redirect, and no visible no-V1-fallback error. On a load failure, require the visible `Couldn’t load this dataset.` alert and enabled `Try again` control.
 
 ## Gotchas
 

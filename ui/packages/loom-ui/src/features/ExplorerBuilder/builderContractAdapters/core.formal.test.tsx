@@ -318,4 +318,61 @@ describe('core proposal lifecycle action IDs', () => {
     await expect(lifecycleAdapter.drive(lifecycleInput('applyEndpoint'))).rejects.toThrow('proposal lifecycle actionId applyEndpoint is not supported');
     expect(applied).not.toHaveBeenCalled();
   });
+
+  it('clicks Cancel proposal only for the local cancel action', async () => {
+    const cancelled = vi.fn();
+    render(<button type="button" data-testid="construction-cancel-proposal" onClick={cancelled}>Cancel proposal</button>);
+
+    await lifecycleAdapter.drive({
+      uiAction: {
+        affordanceId: 'builder.construction_proposal_apply_cancel_retry',
+        runnerActionId: lifecycleAdapter.runnerActionId,
+        values: { localAction: 'cancel_construction_proposal' },
+      },
+      requestStep: null,
+      values: { localAction: 'cancel_construction_proposal' },
+    });
+
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it('clicks the mounted preview refresh control for refresh_preview_catalog', async () => {
+    const refresh = vi.fn();
+    render(<><button type="button" onClick={refresh}>Refresh preview</button><div role="region" aria-label="Preview" /></>);
+
+    await coreAdapters['builder.automatic_preview_refresh_and_recovery'].drive({
+      uiAction: {
+        affordanceId: 'builder.automatic_preview_refresh_and_recovery',
+        runnerActionId: coreAdapters['builder.automatic_preview_refresh_and_recovery'].runnerActionId,
+        values: {},
+      },
+      requestStep: { actionId: 'refresh_preview_catalog', kind: 'command' },
+    });
+
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat another local action as Cancel proposal', async () => {
+    const cancelled = vi.fn();
+    render(<button type="button" data-testid="construction-cancel-proposal" onClick={cancelled}>Cancel proposal</button>);
+
+    let caught: unknown;
+    try {
+      await lifecycleAdapter.drive({
+        uiAction: {
+          affordanceId: 'builder.construction_proposal_apply_cancel_retry',
+          runnerActionId: lifecycleAdapter.runnerActionId,
+          values: { localAction: 'accept_construction_proposal' },
+        },
+        requestStep: null,
+        values: { localAction: 'accept_construction_proposal' },
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(caught).toBeInstanceOf(CoreAdapterGapError);
+    expect((caught as Error).message).toContain('proposal lifecycle actionId (missing) is not supported');
+  });
 });

@@ -255,6 +255,24 @@ describe('SourceCollectionExpandEditor', () => {
     expect(context.onApply).not.toHaveBeenCalled();
   });
 
+  it('rejects a proposal with a stale draft identity while the panel identity is current', async () => {
+    const context = contextFor();
+    vi.mocked(context.client.proposeRowDefinition).mockResolvedValueOnce({
+      ...proposalFor('PRESERVE_PARENT'),
+      draftDigest: 'draft-digest-5',
+    });
+    render(<SourceCollectionExpandEditor context={context} disabled={false} />);
+    fireEvent.click(screen.getByTestId('construction-reshape-expand-source'));
+    await screen.findByRole('dialog', { name: 'Expand a repeated source field' });
+    fireEvent.change(screen.getByLabelText('Repeated source field'), { target: { value: 'component-scope-choice' } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The table changed while source expansion was being previewed.',
+    );
+    expect(screen.getByTestId('construction-source-expand-apply')).toBeDisabled();
+    expect(context.onApply).not.toHaveBeenCalled();
+  });
+
   it('does not open a source-expansion proposal while the saved row definition is grouped', () => {
     const context = contextFor({ rowsKind: 'GROUPS' });
     render(<SourceCollectionExpandEditor context={context} disabled={false} />);

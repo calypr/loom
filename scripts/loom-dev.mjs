@@ -1152,10 +1152,10 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
   return { reused, fresh: requireFresh, bootstrapExplorerId: bootstrap.explorerId, bootstrapWorkspace, fixtureManifest: reused ? undefined : fixtureManifest?.summary };
 };
 
-export const createFreshVerificationFixture = async (session, runID) => {
+export const createFreshVerificationFixture = async (session, runID, { populateBootstrap = false } = {}) => {
   if (!/^[a-z0-9][a-z0-9-]{0,24}$/.test(runID)) throw new Error('verification run id must be a short lowercase slug');
   const target = createVerificationTarget(session, runID);
-  const seed = await seedFixture(target, { requireFresh: true, populateBootstrap: false });
+  const seed = await seedFixture(target, { requireFresh: true, populateBootstrap });
   if (seed.reused || !seed.fresh) throw new Error(`verification fixture was unexpectedly reused: ${target.fixtureProject}`);
   return Object.freeze({ target, seed });
 };
