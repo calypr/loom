@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +10,7 @@ import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPT_DIR, '..');
 const CONTRACT = 'verification/builder-interactions/builder-journey-contract.json';
+const SOURCE_MANIFEST = 'verification/builder-interactions/builder-preview-contract.json';
 const MANIFEST = 'verification/builder-interactions/builder-journey-audit.json';
 const CONFIG = 'playwright.journey.config.mjs';
 const SPEC_GREP = 'builder journey groups twice and previews the applied table';
@@ -45,6 +47,26 @@ const git = (args) => {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error((result.stderr || result.stdout || '').trim());
   return result.stdout.trim();
+};
+
+const canonicalJson = (value) => {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+};
+
+const fingerprintPinnedSources = (sources) => {
+  if (!Array.isArray(sources) || sources.length === 0) throw new Error('Builder source manifest has no pinned sources');
+  const entries = sources.map((source) => {
+    const actual = createHash('sha256').update(readFileSync(resolve(ROOT, source.path))).digest('hex');
+    if (actual !== source.sha256) {
+      throw new Error('Builder proof source drift at ' + source.path + ': expected ' + source.sha256 + ', found ' + actual);
+    }
+    return { path: source.path, sha256: actual };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  return createHash('sha256').update(canonicalJson(entries)).digest('hex');
 };
 
 const selectJourney = (journeyId, manifestPath = MANIFEST) => {
@@ -207,6 +229,16 @@ const main = async () => {
   const options = parseArgs();
   const selectedJourney = options.journey ? selectJourney(options.journey, options.manifest ?? MANIFEST) : null;
   const sourceCommit = git(['rev-parse', 'HEAD']);
+  const sourceManifest = JSON.parse(readFileSync(resolve(ROOT, SOURCE_MANIFEST), 'utf8'));
+  const sourceFingerprint = fingerprintPinnedSources(sourceManifest.sources);
+  const actionContractPath = selectedJourney?.entry.contract === null
+    ? CONTRACT
+    : (selectedJourney?.entry.contract ?? CONTRACT);
+  const actionContract = JSON.parse(readFileSync(resolve(ROOT, actionContractPath), 'utf8'));
+  if (actionContract.sourceProfile !== 'journey') {
+    throw new Error('journey contract ' + actionContractPath + ' must declare sourceProfile "journey"');
+  }
+  const contractSourceCommit = actionContract.sourceCommit;
   let checked;
   let uiUrl;
   let apiUrl;
@@ -258,6 +290,10 @@ const main = async () => {
 
   const env = {
     ...process.env,
+    LOOM_TRACE_SOURCE_PROFILE: 'journey',
+    LOOM_SOURCE_COMMIT: sourceCommit,
+    LOOM_CONTRACT_SOURCE_COMMIT: contractSourceCommit,
+    LOOM_SOURCE_FINGERPRINT: sourceFingerprint,
     LOOM_FAST_SKIP_GLOBAL_SETUP: '1',
     LOOM_FAST_PROJECT: checked.project,
     LOOM_FAST_GENERATION: checked.generation,
@@ -266,6 +302,8 @@ const main = async () => {
     LOOM_FAST_API_URL: apiUrl,
     LOOM_JOURNEY_TRACE: tracePath,
     LOOM_JOURNEY_SOURCE_COMMIT: sourceCommit,
+    LOOM_JOURNEY_CONTRACT_SOURCE_COMMIT: contractSourceCommit,
+    LOOM_JOURNEY_SOURCE_FINGERPRINT: sourceFingerprint,
     LOOM_JOURNEY_MIN_BACKEND_CALLS: String(selectedJourney?.entry.minBackendCalls ?? 10),
   };
 
@@ -280,7 +318,10 @@ const main = async () => {
   if (!existsSync(tracePath)) {
     const report = {
       schemaVersion: 1,
+      sourceProfile: 'journey',
       sourceCommit,
+      contractSourceCommit,
+      sourceFingerprint,
       fixture,
       journey: selectedJourney ? { id: selectedJourney.entry.id, spec: selectedJourney.entry.spec } : null,
       result: 'harness-failure',
@@ -314,7 +355,10 @@ const main = async () => {
     : 'pass';
   const report = {
     schemaVersion: 1,
+    sourceProfile: 'journey',
     sourceCommit,
+    contractSourceCommit,
+    sourceFingerprint,
     fixture,
     journey,
     result,

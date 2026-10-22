@@ -138,6 +138,27 @@ function requirePinnedSources() {
   return manifest;
 }
 
+function fingerprintPinnedSources(sources) {
+  const entries = sources.map((source) => {
+    const actual = sha256(bytes(source.path));
+    if (actual !== source.sha256) {
+      fail('modeled Builder sources drifted while fingerprinting: ' + source.path +
+        '\n  expected ' + source.sha256 + '\n  found    ' + actual);
+    }
+    return { path: source.path, sha256: actual };
+  }).sort((left, right) => left.path.localeCompare(right.path));
+  return sha256(canonicalJson(entries));
+}
+
+function currentSourceCommit() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' });
+  if (result.error) fail('cannot read tested Git commit: ' + result.error.message);
+  if (result.status !== 0) fail('cannot read tested Git commit: ' + (result.stderr || result.stdout || '').trim());
+  const sourceCommit = result.stdout.trim();
+  if (!/^[0-9a-f]{40}$/.test(sourceCommit)) fail('tested Git commit is not a 40-character lowercase SHA');
+  return sourceCommit;
+}
+
 function verifyJava() {
   const result = spawnSync('java', ['-version'], { encoding: 'utf8' });
   if (result.error) fail('Java is required to run TLC ' + TLC_VERSION + ': ' + result.error.message);
@@ -258,11 +279,12 @@ function traceContractCounts() {
   return {
     traceCount: contract.phase1?.expectedTraceCount,
     scheduleCount: contract.phase1?.expectedScheduleCount,
+    testCount: contract.phase1?.expectedTestCount ?? contract.phase1?.expectedTraceCount,
   };
 }
 
 function runFormalSchedules() {
-  const expected = traceContractCounts().traceCount;
+  const expected = traceContractCounts().testCount;
   const reportDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-formal-vitest-'));
   const reportPath = join(reportDirectory, 'vitest.json');
   const tracePath = join(reportDirectory, 'traces.json');
@@ -432,12 +454,15 @@ function buildFindings(tlcRuns) {
   return findings;
 }
 
-function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, retiredFindings, resolvedFindings, map, traceValidation }) {
+function writeReports({ sourceCommit, contractSourceCommit, sourceFingerprint, jarPath, javaVersion, checks, findings, retiredFindings, resolvedFindings, map, traceValidation }) {
   const routeLedgerCheck = checks.find((check) => check.name === 'builder-route-ledger');
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
+    sourceProfile: 'formal',
     sourceCommit,
+    contractSourceCommit,
+    sourceFingerprint,
     tool: {
       name: 'TLC',
       version: TLC_VERSION,
@@ -487,6 +512,9 @@ function writeReports({ sourceCommit, jarPath, javaVersion, checks, findings, re
   lines.push('# Builder formal verification report');
   lines.push('');
   lines.push('Source commit: `' + sourceCommit + '`');
+  lines.push('Source profile: `formal`');
+  lines.push('Contract baseline: `' + contractSourceCommit + '`');
+  lines.push('Proof source fingerprint: `' + sourceFingerprint + '`');
   lines.push('');
   lines.push('Tool: TLC ' + TLC_VERSION + ' (`' + TLC_SHA256 + '`), ' + javaVersion + '.');
   lines.push('');
@@ -652,7 +680,16 @@ async function main() {
     fail('run this command from the repository root: ' + ROOT);
   }
   const manifest = requirePinnedSources();
-  process.env.LOOM_SOURCE_COMMIT = manifest.sourceCommit;
+  const sourceCommit = currentSourceCommit();
+  const sourceFingerprint = fingerprintPinnedSources(manifest.sources);
+  const contractSourceCommit = readJson(MODEL_DIR + '/builder-trace-contract.json').sourceCommit;
+  if (typeof contractSourceCommit !== 'string' || !/^[0-9a-f]{40}$/.test(contractSourceCommit)) {
+    fail('builder-trace-contract.json sourceCommit must be a 40-character lowercase Git SHA');
+  }
+  process.env.LOOM_TRACE_SOURCE_PROFILE = 'formal';
+  process.env.LOOM_SOURCE_COMMIT = sourceCommit;
+  process.env.LOOM_CONTRACT_SOURCE_COMMIT = contractSourceCommit;
+  process.env.LOOM_SOURCE_FINGERPRINT = sourceFingerprint;
   const inventory = readJson(INVENTORY_RELATIVE);
   if (manifest.sourceCommit !== inventory.sourceCommit) {
     fail('builder-preview-contract.json sourceCommit does not match the inventory');
@@ -759,7 +796,9 @@ async function main() {
   }
   const failedChecks = checks.filter((check) => check.status === 'fail');
   const report = writeReports({
-    sourceCommit: manifest.sourceCommit,
+    sourceCommit,
+    contractSourceCommit,
+    sourceFingerprint,
     jarPath,
     javaVersion,
     checks,

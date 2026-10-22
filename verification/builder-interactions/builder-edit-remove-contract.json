@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "sourceProfile": "journey",
   "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
   "models": {
     "BuilderJourney": {
