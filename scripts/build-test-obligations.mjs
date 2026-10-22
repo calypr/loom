@@ -195,10 +195,16 @@ function isDiagnosticAssertionRecorder(lines, lineNumber, reporterSummary) {
 
 function buildRegistryCaseIndex(registry) {
   const cases = new Map();
+  const requiredChecks = (value) => {
+    if (Array.isArray(value)) return value.filter(nonEmptyString);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    return ['owned', 'custom'].flatMap((kind) =>
+      Array.isArray(value[kind]) ? value[kind].filter(nonEmptyString) : []);
+  };
   for (const scenario of registry) {
     for (const [caseName, caseData] of Object.entries(scenario.cases ?? {})) {
       cases.set(scenario.id + ':' + caseName, {
-        requiredChecks: new Set(Array.isArray(caseData.requiredChecks) ? caseData.requiredChecks : []),
+        requiredChecks: new Set(requiredChecks(caseData.requiredChecks)),
         focusedCheckIds: new Set((caseData.focusedChecks ?? []).map((check) => check.id).filter(Boolean)),
       });
     }
@@ -555,16 +561,28 @@ function selfTestCatalogValidation() {
   const sourcePath = 'scripts/example.test.mjs';
   const sourceCommit = 'b'.repeat(40);
   const sourceHash = 'a'.repeat(64);
+  const nestedRegistryCase = buildRegistryCaseIndex([{
+    id: 'example',
+    cases: {
+      case: {
+        requiredChecks: {
+          owned: ['shows source rows'],
+          custom: ['shows custom rows'],
+        },
+        focusedChecks: [{ id: 'row-oracle' }],
+      },
+    },
+  }]);
+  assert(nestedRegistryCase.get('example:case')?.requiredChecks.has('shows source rows')
+    && nestedRegistryCase.get('example:case')?.requiredChecks.has('shows custom rows'),
+  'registry case index should include known owned/custom required-check variants');
   const context = {
     currentPaths: new Set([sourcePath]),
     currentHashes: new Map([[sourcePath, sourceHash]]),
     baselinePaths: new Set([sourcePath]),
     baselineInventorySha256: 'c'.repeat(64),
     reviewedBlobInfos: new Map([[sourcePath, { sha256: sourceHash, lineCount: 2, sourceLines: ['assert.deepEqual(actual, expected);', 'cda.check(\'correctness\', \'status label\', true, evidence);'] }]]),
-    caseIndex: new Map([['example:case', {
-      requiredChecks: new Set(['shows source rows']),
-      focusedCheckIds: new Set(['row-oracle']),
-    }]]),
+    caseIndex: nestedRegistryCase,
     models: new Map([['ExampleModel', { actions: ['LoadRows'], invariants: ['RowsPreserved'] }]]),
     traceContract: { schedules: { 'load-rows': { model: 'ExampleModel' } } },
     journeyAudit: { journeys: [{ id: 'load-preview', model: 'ExampleModel' }] },
@@ -580,7 +598,7 @@ function selfTestCatalogValidation() {
       journeys: [{
         caseId: 'example:case',
         relation: 'direct',
-        requiredChecks: ['shows source rows'],
+        requiredChecks: ['shows source rows', 'shows custom rows'],
         focusedCheckIds: ['row-oracle'],
         evidence: [{ path: sourcePath, line: 1, kind: 'registered journey check' }],
       }],
@@ -808,7 +826,7 @@ function selfTestCatalogValidation() {
   diagnosticCallThrough.files[0].assertions[0].evidenceKind = 'call-through';
   assert(errorsFor(diagnosticCallThrough).length === 0, 'literal-true diagnostic may be catalogued as a call-through');
 
-  console.log('PASS semantic catalog validation self-test: 27 positive and negative fixtures');
+  console.log('PASS semantic catalog validation self-test: 28 positive and negative fixtures');
 }
 
 function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog) {
