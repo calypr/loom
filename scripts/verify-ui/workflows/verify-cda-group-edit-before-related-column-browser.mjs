@@ -692,6 +692,7 @@ FOR s IN (
   const statusCandidateIds = new Set(statusCandidates.map((candidate) => candidate.candidateId));
   const withFieldTyped = [[patient.id, contributorIDs.length, observationStatuses]];
   const relatedRouteLabel = 'Status: Specimen -[subject]-> Patient <-[subject]- Observation';
+  const relatedFieldOptionsRegion = '[data-testid="catalog-selection-options"]';
   const prepareRelatedFieldChooser = async () => {
     const alreadyOpen = await browserEval(page, () => Boolean(document.querySelector('[aria-label="Add columns editor"]')));
     if (!alreadyOpen) {
@@ -706,7 +707,7 @@ FOR s IN (
     if (!fieldPressed) await click(page, fieldSelector);
     await waitForControl(page, `${fieldSelector}[aria-pressed="true"]`);
     await click(page, '[aria-label="Selected feature action"] button', { includes: 'Add 1 selected feature' });
-    const optionsRegion = '[data-testid="catalog-selection-options"]';
+    const optionsRegion = relatedFieldOptionsRegion;
     await waitForControl(page, optionsRegion);
     const routeSelector = `${optionsRegion} input[aria-label=${JSON.stringify(relatedRouteLabel)}]`;
     const routeState = await browserEval(page, ({ selector }) => {
@@ -746,7 +747,7 @@ FOR s IN (
     const startedAt = Date.now();
     await prepareRelatedFieldChooser();
     const requestStart = nativeCapture.requests.length;
-    await click(page, '[role="dialog"] button', { name: 'Add 1 column' });
+    await click(page, `${relatedFieldOptionsRegion} button`, { name: 'Add 1 selected feature' });
     const proposal = await browserProposal({ requestStart, path: base + '/construction-proposals',
       expectedRows: withFieldTyped, state, label, startedAt });
     const match = relatedSourceProposalCandidate({ path: proposal.request.path, request: proposal.request.request }, {
