@@ -17,10 +17,10 @@ End to end ready: no.
 | routeActionEmpty | 27 |
 | routeActionCandidate | 8 |
 | traceTested | 1 |
-| modeledAndTracedWithoutBrowser | 0 |
+| modeledAndTracedWithoutBrowser | 3 |
 | browserCases | 1 |
-| browserCoveredRoutes | 11 |
-| ledgerRoutesWithBrowserCoverage | 11 |
+| browserCoveredRoutes | 0 |
+| ledgerRoutesWithBrowserCoverage | 0 |
 | obligations | 266 |
 | covered | 10 |
 | partial | 92 |
@@ -29,7 +29,7 @@ End to end ready: no.
 | missingCandidate | 70 |
 | missingUnbound | 75 |
 | tests | 907 |
-| testsWithoutExactObligations | 895 |
+| testsWithoutExactObligations | 896 |
 | models | 14 |
 | traceModels | 3 |
 | schedules | 5 |
@@ -77,8 +77,8 @@ End to end ready: no.
 | mutationProbeCandidatesWithoutTests | 47 |
 | mutationGuardCandidates | 11 |
 | mutationActionsWithGuardCandidates | 5 |
-| browserCaseProposals | 28 |
-| browserCaseProposalsHigh | 7 |
+| browserCaseProposals | 39 |
+| browserCaseProposalsHigh | 11 |
 | routeActionDecisions | 0 |
 | contractProofDecisions | 11 |
 | proposalDecisionsPending | 0 |

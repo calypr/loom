@@ -5,16 +5,148 @@
     "browser": "verification/builder-interactions/browser-evidence.json"
   },
   "summary": {
-    "routes": 28,
-    "tier1": 17,
-    "tier2": 11,
-    "stateful": 8,
-    "readLike": 20,
-    "high": 7,
-    "medium": 11,
-    "low": 10
+    "routes": 39,
+    "tier1": 21,
+    "tier2": 18,
+    "stateful": 13,
+    "readLike": 26,
+    "high": 11,
+    "medium": 12,
+    "low": 16
   },
   "proposals": [
+    {
+      "routeId": "get:api-v1-projects-project-explorers-explorerId-authoring-v2-builder",
+      "tier": 1,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
+      "status": "modeled-only",
+      "routeMode": "stateful",
+      "routeActions": [
+        "HydrateBuilder"
+      ],
+      "uiCallers": [
+        "builder.automatic_preview_refresh_and_recovery",
+        "builder.server_saved_draft_and_reconcile",
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+      ],
+      "proposedCaseId": "builder-get-builder",
+      "priority": "high",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-commands",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+      "status": "modeled-and-traced",
+      "routeMode": "stateful",
+      "routeActions": [
+        "BeginApply",
+        "ApplyAck"
+      ],
+      "uiCallers": [
+        "builder.add_columns.catalog_field",
+        "builder.add_columns.catalog_semantic",
+        "builder.add_columns.grouped_row_values",
+        "builder.add_columns.related_field",
+        "builder.calculate.derive",
+        "builder.calculate.table_shape_derived_column",
+        "builder.column.grouped_row_value_policy",
+        "builder.column.presentation",
+        "builder.column_filter_presentation",
+        "builder.column_selector.feature_policy",
+        "builder.column_selector.related_aggregate_source",
+        "builder.column_selector.remove_configured_column",
+        "builder.combine.append",
+        "builder.combine.key_join",
+        "builder.combine.membership",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.first_table_from_root",
+        "builder.frame_source.manage_existing",
+        "builder.interpretation.preview_and_apply_candidate",
+        "builder.population.attach_or_replace_selection",
+        "builder.population.clear_attached_selection",
+        "builder.population.exclude_unmapped_member",
+        "builder.population.review_and_remove_attached_member",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot",
+        "builder.restore_previous_draft_undo",
+        "builder.root.change_or_replace",
+        "builder.row_definition.expanded_source_rows",
+        "builder.row_definition.explicit_groups",
+        "builder.row_definition.rows_per_starting_record",
+        "builder.row_definition_proposal_apply_cancel",
+        "builder.server_saved_draft_and_reconcile",
+        "builder.table_route_and_occurrence_selection",
+        "legacy.table_shape.grouped_pivot",
+        "legacy.table_shape.unpivot"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ChoiceSelect.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ExplicitGroupAuthoring.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GroupedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationMemberRemoval.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeController.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/SourceCollectionExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "proposedCaseId": "builder-post-commands",
+      "priority": "high",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
     {
       "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-category-discoveries",
       "tier": 1,
@@ -228,6 +360,68 @@
       "reviewRequired": true
     },
     {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-preview",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+      "status": "modeled-and-traced",
+      "routeMode": "stateful",
+      "routeActions": [
+        "StartPreview",
+        "PreviewComplete"
+      ],
+      "uiCallers": [
+        "builder.add_columns.related_field",
+        "builder.automatic_preview_refresh_and_recovery",
+        "builder.calculate.derive",
+        "builder.combine.append",
+        "builder.combine.key_join",
+        "builder.combine.membership",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.first_table_from_root",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot",
+        "builder.root.change_or_replace"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionCombineEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+      ],
+      "proposedCaseId": "builder-post-preview",
+      "priority": "high",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
       "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-publish",
       "tier": 1,
       "method": "POST",
@@ -242,6 +436,42 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
       ],
       "proposedCaseId": "builder-post-publish",
+      "priority": "high",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-reconcile",
+      "tier": 1,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
+      "status": "modeled-and-traced",
+      "routeMode": "stateful",
+      "routeActions": [
+        "RequestReconcile",
+        "WorkspaceChangeStartsReconcile",
+        "ReconcileSuccess",
+        "LateReconcileIgnored",
+        "RequestReconcile(A)",
+        "WorkspaceChangeStartsReconcile(B)",
+        "ReconcileSuccess(B)",
+        "LateReconcileIgnored(A)"
+      ],
+      "uiCallers": [
+        "builder.automatic_preview_refresh_and_recovery",
+        "builder.first_table_from_root",
+        "builder.server_saved_draft_and_reconcile"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
+      ],
+      "proposedCaseId": "builder-post-reconcile",
       "priority": "high",
       "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
       "reviewRequired": true
@@ -452,6 +682,53 @@
       "reviewRequired": true
     },
     {
+      "routeId": "get:api-v1-projects-project-explorers",
+      "tier": 2,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers",
+      "status": "contract-tested",
+      "routeMode": "read",
+      "routeActions": [],
+      "uiCallers": [
+        "builder.delete_explorer_no_fallback",
+        "builder.explorer_create_delete",
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
+      ],
+      "proposedCaseId": "builder-get-explorers",
+      "priority": "low",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers",
+      "status": "modeled-only",
+      "routeMode": "stateful",
+      "routeActions": [
+        "CreateExplorer",
+        "SelectExplorer"
+      ],
+      "uiCallers": [
+        "builder.delete_explorer_no_fallback",
+        "builder.explorer_create_delete",
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx"
+      ],
+      "proposedCaseId": "builder-post-explorers",
+      "priority": "medium",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
       "routeId": "delete:api-v1-projects-project-explorers-explorerId",
       "tier": 2,
       "method": "DELETE",
@@ -475,6 +752,25 @@
       "reviewRequired": true
     },
     {
+      "routeId": "get:api-v1-projects-project-explorers-explorerId-authoring-v2-capability",
+      "tier": 2,
+      "method": "GET",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
+      "status": "contract-tested",
+      "routeMode": "read",
+      "routeActions": [],
+      "uiCallers": [
+        "builder.workspace_hydration_and_explorer_selection"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "proposedCaseId": "builder-get-capability",
+      "priority": "low",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
       "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-column-source",
       "tier": 2,
       "method": "POST",
@@ -491,6 +787,77 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx"
       ],
       "proposedCaseId": "builder-post-column-source",
+      "priority": "low",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-configured-column-context",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
+      "status": "contract-tested",
+      "routeMode": "read",
+      "routeActions": [],
+      "uiCallers": [
+        "builder.interpretation.configured_column_context"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+      ],
+      "proposedCaseId": "builder-post-configured-column-context",
+      "priority": "low",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-construction-capabilities",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+      "status": "contract-tested",
+      "routeMode": "read",
+      "routeActions": [],
+      "uiCallers": [
+        "builder.add_columns.grouped_row_values",
+        "builder.add_columns.related_field",
+        "builder.add_columns.source_selection",
+        "builder.calculate.derive",
+        "builder.construction_proposal_apply_cancel_retry",
+        "builder.construction_step_editor_routing",
+        "builder.filter_rows.related_eligibility",
+        "builder.filter_rows.scalar_condition",
+        "builder.related_source_column",
+        "builder.reshape.expand_scalar_list",
+        "builder.reshape.group_coded",
+        "builder.reshape.group_field",
+        "builder.reshape.pivot_coded",
+        "builder.reshape.pivot_values",
+        "builder.reshape.related_expand",
+        "builder.reshape.unpivot"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedSourceStepEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/operationFamilies.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/FrameSourcePanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts"
+      ],
+      "proposedCaseId": "builder-post-construction-capabilities",
       "priority": "low",
       "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
       "reviewRequired": true
@@ -684,6 +1051,57 @@
         "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
       ],
       "proposedCaseId": "builder-post-row-lineage",
+      "priority": "low",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-semantic-inventory",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+      "status": "contract-tested",
+      "routeMode": "read",
+      "routeActions": [],
+      "uiCallers": [
+        "builder.add_columns.catalog_field",
+        "builder.add_columns.catalog_semantic",
+        "builder.add_columns.source_selection",
+        "builder.reshape.pivot_coded"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/CodedPivotEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx"
+      ],
+      "proposedCaseId": "builder-post-semantic-inventory",
+      "priority": "low",
+      "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
+      "reviewRequired": true
+    },
+    {
+      "routeId": "post:api-v1-projects-project-explorers-explorerId-authoring-v2-suggestions",
+      "tier": 2,
+      "method": "POST",
+      "path": "/api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions",
+      "status": "contract-tested",
+      "routeMode": "read",
+      "routeActions": [],
+      "uiCallers": [
+        "builder.first_table_from_root",
+        "builder.table_route_and_occurrence_selection"
+      ],
+      "builderEvidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx"
+      ],
+      "proposedCaseId": "builder-post-suggestions",
       "priority": "low",
       "reason": "No recorded browser case covers this route. Add a browser lifecycle that exercises it, then regenerate browser-evidence.json from the passing report.",
       "reviewRequired": true

@@ -1526,11 +1526,16 @@
         },
         {
           "kind": "path-mention",
+          "source": "scripts/maintenance/playwright/tests/test_builder_browser_evidence.py",
+          "line": 19
+        },
+        {
+          "kind": "path-mention",
           "source": "scripts/verify-builder-formal.mjs",
           "line": 707
         }
       ],
-      "staticReferenceCandidateCount": 3,
+      "staticReferenceCandidateCount": 4,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Reads retained browser reports and generates or checks the normalized Builder browser-evidence ledger.",
@@ -48855,6 +48860,11 @@
           "line": 10
         },
         {
+          "kind": "path-mention",
+          "source": "scripts/maintenance/playwright/tests/test_builder_browser_evidence.py",
+          "line": 711
+        },
+        {
           "kind": "literal-import-candidate",
           "source": "scripts/measurements/construction-preview/construction_preview_bench.mjs",
           "line": 9
@@ -48873,14 +48883,9 @@
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/helpers/fixtures.mjs",
           "line": 8
-        },
-        {
-          "kind": "literal-import-candidate",
-          "source": "scripts/verify-ui/helpers/native-failure-evidence.mjs",
-          "line": 2
         }
       ],
-      "staticReferenceCandidateCount": 42,
+      "staticReferenceCandidateCount": 43,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Provides browser text and payload sanitization and bounded evidence handling for native Playwright workflows.",
@@ -137085,7 +137090,7 @@
           "line": 5
         }
       ],
-      "staticReferenceCandidateCount": 57,
+      "staticReferenceCandidateCount": 58,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Defines native verification cases, Group required checks, focused-check commands, trace requirements, fixture seeding options, and lookup/drift helpers consumed by the runners.",
@@ -260833,6 +260838,11 @@
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
+          "source": "scripts/maintenance/playwright/tests/test_builder_browser_evidence.py",
+          "line": 687
+        },
+        {
+          "kind": "path-mention",
           "source": "scripts/verify-ui/registry.mjs",
           "line": 649
         },
@@ -260847,7 +260857,7 @@
           "line": 5
         }
       ],
-      "staticReferenceCandidateCount": 3,
+      "staticReferenceCandidateCount": 4,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Runs the native Group lifecycle on either a fixture-authored three-column Patient table or the bootstrap-seeded five-column Basic table; checks the exact COUNT_ROWS proposal, keyed edits and Cancel, fixture-backed output, reload/removal restoration, and a source-pinned BuilderJourney replay.",

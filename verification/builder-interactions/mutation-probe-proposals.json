@@ -1031,10 +1031,10 @@
           "score": 3
         },
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx::formal mounted reconcile race keeps B visible after late A settles",
+          "kind": "vitest",
+          "name": "formal mounted reconcile race keeps B visible after late A settles",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
           "score": 3
         }
       ],
@@ -1082,10 +1082,10 @@
           "score": 3
         },
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+          "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx::formal mounted reconcile race keeps B visible after late A settles",
+          "kind": "vitest",
+          "name": "formal mounted reconcile race keeps B visible after late A settles",
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
           "score": 3
         }
       ],
