@@ -13,7 +13,6 @@ import { addField, isCdaDataset } from '../helpers/cda-journey-fields.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
-const SOURCE_LABELS = ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -37,6 +36,8 @@ const waitForProposalGone = async (page) => {
 };
 
 test('builder journey edits and removes a group, then reloads the source', async ({ fastPage, fastUrl }) => {
+  const cda = isCdaDataset();
+  expect(cda, 'Run the retained CDA Group lifecycle with LOOM_JOURNEY_DATASET=mini via run-builder-journey.mjs.').toBe(true);
   test.setTimeout(120_000);
   fastPage.setDefaultTimeout(30_000);
   fastPage.setDefaultNavigationTimeout(20_000);
@@ -68,20 +69,17 @@ test('builder journey edits and removes a group, then reloads the source', async
   await waitForPreviewReady(fastPage);
   const initialPreviewExchange = await initialPreviewAttempt.settled;
   const initialObservation = await captureBuilderObservation(fastPage);
-  const cda = isCdaDataset();
-  let sourceLabels = SOURCE_LABELS;
-  let sourceRows = 2;
-  let sourceIDs = ['dev-patient-001', 'dev-patient-002'];
+  let sourceLabels;
+  let sourceRows;
+  let sourceIDs;
   const setupActions = [];
-  if (cda) {
-    const added = await addFieldWithCommandTrace(fastPage, 'Select Patient.extension[].valueCode', setupActions, addField);
-    sourceLabels = (added.columns ?? []).map((column) => column.label);
-    sourceRows = Number(added.rowCount ?? added.rows?.length ?? 0);
-    const id = (added.columns ?? []).find((column) => column.label === 'id')?.column;
-    sourceIDs = (added.rows ?? []).slice(0, 2).map((row) => row[id]);
-    expect(sourceRows, 'CDA source rows').toBeGreaterThan(0);
-    expect(sourceLabels, 'CDA source columns').toContain('Extension Value Code');
-  }
+  const added = await addFieldWithCommandTrace(fastPage, 'Select Patient.extension[].valueCode', setupActions, addField);
+  sourceLabels = (added.columns ?? []).map((column) => column.label);
+  sourceRows = Number(added.rowCount ?? added.rows?.length ?? 0);
+  const id = (added.columns ?? []).find((column) => column.label === 'id')?.column;
+  sourceIDs = (added.rows ?? []).slice(0, 2).map((row) => row[id]);
+  expect(sourceRows, 'CDA source rows').toBeGreaterThan(0);
+  expect(sourceLabels, 'CDA source columns').toContain('Extension Value Code');
 
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
@@ -141,11 +139,7 @@ test('builder journey edits and removes a group, then reloads the source', async
   await waitForProposalGone(fastPage);
   const backToTable = fastPage.getByRole('button', { name: 'Back to table' });
   if (await backToTable.isVisible().catch(() => false)) await backToTable.click();
-  if (cda) {
-    expect(await fastPage.getByTestId('preview-table-scroll').getByRole('row').count(), 'CDA default group rows').toBeGreaterThan(1);
-  } else {
-    await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(2);
-  }
+  expect(await fastPage.getByTestId('preview-table-scroll').getByRole('row').count(), 'CDA default group rows').toBeGreaterThan(1);
   trace.traces[0].actions.push({
     label: 'Group',
     event: 'group',
@@ -156,7 +150,7 @@ test('builder journey edits and removes a group, then reloads the source', async
     observation: await captureBuilderObservation(fastPage),
   });
 
-  console.log('[journey] edit group to id and gender');
+  console.log('[journey] edit group to id and CDA extension value code');
   const history = fastPage.locator('[data-testid^="construction-history-step-"]').first();
   await expect(history).toBeVisible();
   const stepTestId = await history.getAttribute('data-testid');
@@ -164,10 +158,10 @@ test('builder journey edits and removes a group, then reloads the source', async
   await history.click();
   await fastPage.getByTestId(`construction-edit-step-${stepId}`).click();
   const idGroup = fastPage.getByRole('checkbox', { name: 'Group by id', exact: true });
-  const groupColumnLabel = cda ? 'Extension Value Code' : 'gender';
-  const genderGroup = fastPage.getByRole('checkbox', { name: `Group by ${groupColumnLabel}`, exact: true });
+  const groupColumnLabel = 'Extension Value Code';
+  const extensionGroup = fastPage.getByRole('checkbox', { name: `Group by ${groupColumnLabel}`, exact: true });
   await expect(idGroup).toBeVisible();
-  await expect(genderGroup).toBeVisible();
+  await expect(extensionGroup).toBeVisible();
   const beforeEdit = proposalBodies.length;
   const editProposalAttempts = [];
   const editProposalSettlements = [];
@@ -246,10 +240,10 @@ test('builder journey edits and removes a group, then reloads the source', async
     }));
   };
   await observeEditSelection(idGroup);
-  await observeEditSelection(genderGroup);
+  await observeEditSelection(extensionGroup);
   const editedBody = () => [...proposalBodies.slice(beforeEdit)].reverse().find((body) => {
     const labels = body?.preview?.columns?.map((column) => column.label) ?? [];
-    return body?.preview?.rowCount === (cda ? sourceRows : 2)
+    return body?.preview?.rowCount === sourceRows
       && labels.includes('id')
       && labels.includes(groupColumnLabel)
       && labels.includes('Row count');
@@ -262,7 +256,7 @@ test('builder journey edits and removes a group, then reloads the source', async
     .sort((left, right) => left.sequence - right.sequence)
     .map(({ action }) => action));
   await expect(fastPage.getByTestId('construction-proposal-panel')).toContainText(
-    cda ? `${sourceRows} rows and 3 columns` : '2 rows and 3 columns');
+    `${sourceRows} rows and 3 columns`);
   const renderedEditObservation = await captureBuilderObservation(fastPage);
   const renderedEditProposalId = renderedEditObservation.proposalId;
   const appliedEditSettlement = editProposalRows.find(({ action }) =>
@@ -280,22 +274,11 @@ test('builder journey edits and removes a group, then reloads the source', async
   const editedColumns = editedPreview.columns ?? [];
   const editedRows = editedPreview.rows ?? [];
   const editedLabels = editedColumns.map((column) => column.label);
-  const editedId = editedColumns.find((column) => column.label === 'id')?.column;
-  const editedGender = editedColumns.find((column) => column.label === groupColumnLabel)?.column;
   const editedCount = editedColumns.find((column) => column.label === 'Row count')?.column;
-  expect(Number(editedPreview.rowCount), 'edited group preview row count').toBe(cda ? sourceRows : 2);
+  expect(Number(editedPreview.rowCount), 'edited group preview row count').toBe(sourceRows);
   expect(editedLabels, 'edited group preview labels').toEqual(['id', groupColumnLabel, 'Row count']);
-  if (cda) {
-    expect(editedRows, 'CDA edited group rows').toHaveLength(sourceRows);
-    expect(editedRows.every((row) => row[editedCount] === 1), 'CDA groups contain one record each').toBe(true);
-  } else {
-    const femaleRow = editedRows.find((row) => row[editedGender] === 'female');
-    const missingRow = editedRows.find((row) => (row[editedGender] ?? null) === null);
-    expect(femaleRow?.[editedId], 'female group id').toBe('dev-patient-001');
-    expect(femaleRow?.[editedCount], 'female group count').toBe(1);
-    expect(missingRow?.[editedId], 'missing group id').toBe('dev-patient-002');
-    expect(missingRow?.[editedCount], 'missing group count').toBe(1);
-  }
+  expect(editedRows, 'CDA edited group rows').toHaveLength(sourceRows);
+  expect(editedRows.every((row) => row[editedCount] === 1), 'CDA groups contain one record each').toBe(true);
 
   const editCommandAttempt = observeAuthoringAttempt(fastPage, {
     method: 'POST',
@@ -307,7 +290,7 @@ test('builder journey edits and removes a group, then reloads the source', async
   const editCommandExchange = await editCommandAttempt.settled;
   expect(editCommandExchange.rawResponse.ok(), 'group edit persistence').toBe(true);
   await waitForProposalGone(fastPage);
-  await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(cda ? sourceRows + 1 : 3);
+  await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(sourceRows + 1);
   await expect(fastPage.getByRole('columnheader')).toHaveCount(3);
   await expect(fastPage.getByRole('columnheader', { name: /^id$/i })).toBeVisible();
   await expect(fastPage.getByRole('columnheader', { name: new RegExp(`^${groupColumnLabel}$`, 'i') })).toBeVisible();
@@ -344,7 +327,7 @@ test('builder journey edits and removes a group, then reloads the source', async
   await waitForProposalReady(fastPage);
   const removeProposalExchange = await removeProposalAttempt.settled;
   await expect(fastPage.getByTestId('construction-proposal-panel')).toContainText(
-    cda ? `${sourceRows} rows and ${sourceLabels.length} columns` : '2 rows and 5 columns');
+    `${sourceRows} rows and ${sourceLabels.length} columns`);
   const removeProposalObservation = await captureBuilderObservation(fastPage);
   trace.traces[0].actions.push({
     label: 'PreviewComplete',
@@ -365,8 +348,8 @@ test('builder journey edits and removes a group, then reloads the source', async
   const removeCommandExchange = await removeCommandAttempt.settled;
   expect(removeCommandExchange.rawResponse.ok(), 'group removal persistence').toBe(true);
   await waitForProposalGone(fastPage);
-  await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(cda ? sourceRows + 1 : 3);
-  await expect(fastPage.getByRole('columnheader')).toHaveCount(cda ? sourceLabels.length : 5);
+  await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(sourceRows + 1);
+  await expect(fastPage.getByRole('columnheader')).toHaveCount(sourceLabels.length);
   await expect(fastPage.getByTestId('preview-table-scroll').getByText(sourceIDs[0]).first()).toBeVisible();
   await expect(fastPage.getByTestId('preview-table-scroll').getByText(sourceIDs[1]).first()).toBeVisible();
   trace.traces[0].actions.push({
@@ -382,8 +365,8 @@ test('builder journey edits and removes a group, then reloads the source', async
   console.log('[journey] reload after removal');
   await fastPage.reload({ waitUntil: 'domcontentloaded' });
   await waitForPreviewReady(fastPage);
-  await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(cda ? sourceRows + 1 : 3);
-  await expect(fastPage.getByRole('columnheader')).toHaveCount(cda ? sourceLabels.length : 5);
+  await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(sourceRows + 1);
+  await expect(fastPage.getByRole('columnheader')).toHaveCount(sourceLabels.length);
   await expect(fastPage.getByTestId('preview-table-scroll').getByText(sourceIDs[0]).first()).toBeVisible();
   await expect(fastPage.getByTestId('preview-table-scroll').getByText(sourceIDs[1]).first()).toBeVisible();
   trace.traces[0].unmodeledEvents.push({
@@ -397,9 +380,9 @@ test('builder journey edits and removes a group, then reloads the source', async
   trace.traces[0].outcome = {
     kind: 'table-preview',
     status: 'ready',
-    rowCount: cda ? sourceRows : 2,
+    rowCount: sourceRows,
     columns: editedLabels,
-    restoredRowCount: cda ? sourceRows : 2,
+    restoredRowCount: sourceRows,
     restoredColumns: sourceLabels,
   };
   mkdirSync(dirname(tracePath), { recursive: true });

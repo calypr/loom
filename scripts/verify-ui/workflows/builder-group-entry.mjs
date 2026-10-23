@@ -333,7 +333,7 @@ export const openFreshPatientTable = async ({ page, report, check, action }, con
 
   if (populateBootstrap) {
     assert.equal(context.seed?.bootstrapWorkspace?.seeded, true,
-      'The legacy Basic case must use the fixture harness seeded bootstrap workspace.');
+      'The raw Basic case must use the fixture harness seeded bootstrap workspace.');
     const explorer = context.target.bootstrapExplorerId;
     const apiRoot = `${fixtureProjectExplorerCollectionPath(context.target.fixtureProject)}`
       + `/${encodeURIComponent(explorer)}`;
@@ -496,7 +496,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
       : 'three authored columns: Patient.id, Patient.name[].family ALL, Patient.gender',
     separateLegacyShape: rawBasicCase
       ? 'the authored three-column ALL-family native lifecycle remains a separate registered Group case'
-      : 'the five-column flattened Basic raw-table oracle remains in the legacy journey branch and is not replaced by this authored list-column evidence',
+      : 'the five-column flattened Basic raw-table oracle is covered by the separately registered group-entry-raw-basic case, which does not replace this authored list-column evidence',
   };
   report.target.fixtureRawOracle = fixtureOracle;
 
@@ -605,7 +605,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     );
     report.target.legacySourceShape = {
       status: 'proved-by-this-native-case',
-      source: 'fixture bootstrap default Patient source and scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs Basic branch',
+      source: 'fixture bootstrap default Patient source; the five-column Basic Group oracle migrated from the former Basic branch of scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs',
       columns: sourcePreviewLabels,
       rows: fixtureSourceRows,
     };
@@ -679,7 +679,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     report.target.qaIsolation.workflowMutations.push('native UI added Patient.name[].family with ALL projection and Patient.gender, producing the exact three authored source columns before Group entry');
     report.target.legacySourceShape = {
       status: 'not-covered-by-authored-three-column-case',
-      source: 'scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs Basic branch',
+      source: 'builder-authoring/group-entry-raw-basic native case',
       columns: legacyBasicSourceLabels,
     };
     check('correctness', 'fresh Patient source table renders exact authored ID, family-list, and gender values', true, {
