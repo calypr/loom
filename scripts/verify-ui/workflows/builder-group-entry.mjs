@@ -14,6 +14,7 @@ import {
 import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import {
   addFieldWithCommandTrace,
+  captureAuthoringExchange,
   captureBuilderObservation,
   combineAuthoringObservation,
   observeAuthoringAttempt,
@@ -29,6 +30,7 @@ const sourceManifestPath = join(repositoryRoot, 'verification/builder-interactio
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const proposalPreview = '[data-testid="construction-proposal-preview"]';
 const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
+const groupProposalDelayMs = 300; // useConstructionLifecycle.ts delays candidate proposals by 300 ms.
 
 const readNDJSON = path => readFileSync(path, 'utf8')
   .split(/\r?\n/)
@@ -63,15 +65,16 @@ const journeyTraceProvenance = () => {
   };
 };
 
-const recordPreviewStart = (actions, started) => actions.push({
+const recordPreviewStart = (actions, started, groupLifecycle) => actions.push({
   label: 'Preview',
   event: 'preview',
   owner: started.owner,
   request: started.request,
   observation: started.requestObservation,
+  groupLifecycle,
 });
 
-const previewSettlementAction = (started, exchange, observation = exchange.responseObservation, replacementStarted = null) => {
+const previewSettlementAction = (started, exchange, observation = exchange.responseObservation, replacementStarted = null, groupLifecycle) => {
   const cancelled = exchange.response === null
     && exchange.settlement?.kind === 'request-failed'
     && exchange.settlement.errorText === 'net::ERR_ABORTED';
@@ -97,11 +100,12 @@ const previewSettlementAction = (started, exchange, observation = exchange.respo
     response: exchange.response,
     settlement: exchange.settlement,
     observation: cancelled ? observation : combineAuthoringObservation(exchange, observation),
+    groupLifecycle,
   };
 };
 
-const recordPreviewSettlement = (actions, started, exchange, observation = exchange.responseObservation) =>
-  actions.push(previewSettlementAction(started, exchange, observation));
+const recordPreviewSettlement = (actions, started, exchange, observation = exchange.responseObservation, groupLifecycle) =>
+  actions.push(previewSettlementAction(started, exchange, observation, null, groupLifecycle));
 
 const sourceRowsFromPreview = (preview, idLabel) => {
   const columns = preview?.columns ?? [];
@@ -527,6 +531,9 @@ export const groupEntryWorkflow = async (workflow, context) => {
   };
   const initialObservation = await captureBuilderObservation(page);
   const traceActions = [];
+  let mountEpoch = 0;
+  let mountTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  const mountProvenance = () => ({ mountEpoch, documentTimeOrigin: mountTimeOrigin });
   const journeyTrace = {
     name: `builder-authoring:${context.args.caseName}`,
     model: 'BuilderJourney',
@@ -694,6 +701,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const groupProposalPath = `${apiRoot}/authoring/v2/construction-proposals`;
   const groupRequests = [];
   const groupRequestsByRequest = new Map();
+  const capturedGroupProposalRequests = new Set();
   let requestSequence = 0;
   page.on('request', request => {
     let url;
@@ -718,7 +726,132 @@ export const groupEntryWorkflow = async (workflow, context) => {
   });
   const proposalResponsePromise = page.waitForResponse(response =>
     groupRequestsByRequest.has(response.request()), { timeout: 5000 });
-  const captureProposalPreview = async (attemptNumber, trigger) => {
+  const readBuilder = async () => {
+    const response = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(`Builder read returned HTTP ${response.status}.`);
+    return value;
+  };
+  const groupStepFromBuilder = value => value.workspace.documents.find(item => item.output?.id === outputId)
+    ?.construction?.steps?.find(step => step.operation?.kind === 'GROUP') ?? null;
+  const groupRecordFromStep = step => {
+    if (!step) return null;
+    const group = step.operation?.group;
+    const aggregates = group?.aggregates ?? [];
+    assert.equal(aggregates.length, 1, 'The bounded Group lifecycle must retain its single observed aggregate.');
+    return {
+      stepId: step.id,
+      keys: (group.keys ?? []).map(key => key.inputColumnId),
+      aggregate: aggregates[0]?.operation ?? null,
+    };
+  };
+  const savedGroupEvidence = value => ({
+    outputId,
+    documentId: value.workspace.documents.find(item => item.output?.id === outputId)?.id ?? null,
+    group: groupRecordFromStep(groupStepFromBuilder(value)),
+    workspace: structuredClone(value.workspace),
+    draftVersion: value.draftVersion,
+    draftDigest: value.draftDigest,
+  });
+  const mountedGroupFromEditor = async (value, expectedRowActionStepId, confirmedMountedStepId, editSelector) => {
+    const mounted = await page.evaluate(({ editSelector }) => {
+      const editor = document.querySelector('[data-testid="construction-reshape-group"]');
+      if (!editor) return null;
+      const editButton = document.querySelector(editSelector);
+      const editTestId = editButton?.getAttribute('data-testid') ?? null;
+      const editPrefix = 'construction-row-edit-';
+      const targetStepId = editTestId?.startsWith(editPrefix) ? editTestId.slice(editPrefix.length) : null;
+      const operationEditor = document.querySelector('[data-testid="construction-operation-editor"]');
+      const selectedKeyLabels = [...editor.querySelectorAll('input[aria-label^="Group by"]:checked')]
+        .map(input => input.getAttribute('aria-label'));
+      return {
+        editorTarget: {
+          testId: editTestId,
+          stepId: targetStepId,
+          outputId: operationEditor?.getAttribute('data-output-id') ?? null,
+        },
+        selectedKeyLabels,
+        aggregate: document.querySelector('select[aria-label="Summary 1"]')?.value ?? null,
+      };
+    }, { editSelector });
+    assert(mounted, 'The reopened saved Group editor must expose its real mounted controls.');
+    assert(mounted.editorTarget.testId, 'The rendered saved-step Edit control must expose its actual target identity.');
+    assert.equal(mounted.editorTarget.stepId, expectedRowActionStepId,
+      'The rendered saved-step Edit control must target the expected persisted Group identity.');
+    assert.equal(mounted.editorTarget.outputId, outputId,
+      'The mounted operation editor must target the selected Builder output.');
+    if (confirmedMountedStepId !== null) {
+      assert.equal(confirmedMountedStepId, expectedRowActionStepId,
+        'The actual reloaded editor proposal must identify the clicked saved Group step.');
+    }
+    const documentColumns = value.workspace.documents.find(item => item.output?.id === outputId)?.columns ?? [];
+    const keys = mounted.selectedKeyLabels.map(label => {
+      const columnLabel = label?.replace(/^Group by /, '');
+      const column = documentColumns.find(item => item.label === columnLabel);
+      assert(column, `Mounted Group key ${String(label)} must map to a saved Builder column.`);
+      return column.columnId ?? column.id;
+    });
+    return {
+      group: {
+        stepId: mounted.editorTarget.stepId,
+        keys,
+        aggregate: mounted.aggregate,
+        selectedKeyLabels: mounted.selectedKeyLabels,
+      },
+      clickedRowTarget: {
+        evidence: 'clicked-row-action-provenance',
+        testId: mounted.editorTarget.testId,
+        stepId: mounted.editorTarget.stepId,
+      },
+      editorOutputId: mounted.editorTarget.outputId,
+    };
+  };
+  const candidateIntentFor = (started, kind, base) => {
+    const captured = groupRequestsByRequest.get(started.rawRequest);
+    const rawProposalBody = captured?.body ?? started.rawRequest.postDataJSON();
+    assert(rawProposalBody?.candidateConstruction || kind === 'remove',
+      'Captured Group proposal must retain its actual candidate construction body.');
+    const removeStepIds = rawProposalBody.removeStepIds ?? [];
+    const proposedStepId = kind === 'create'
+      ? rawProposalBody.changedStepId ?? null
+      : null;
+    const targetStepId = kind === 'create'
+      ? null
+      : kind === 'remove' ? removeStepIds[0] ?? null : rawProposalBody.changedStepId ?? null;
+    if (kind !== 'create') assert(targetStepId, `Captured ${kind} Group proposal must identify its target step.`);
+    const proposedStep = kind === 'remove'
+      ? null
+      : rawProposalBody.candidateConstruction?.steps?.find(candidate => candidate.id === (proposedStepId ?? targetStepId)
+        && candidate.operation?.kind === 'GROUP') ?? null;
+    if (kind !== 'remove') assert(proposedStep, 'Captured Group proposal must contain its exact changed Group step.');
+    const proposedGroup = proposedStep?.operation?.group;
+    const aggregates = proposedGroup?.aggregates ?? [];
+    if (proposedStep) assert.equal(aggregates.length, 1, 'The bounded Group proposal must retain its single aggregate.');
+    return {
+      kind,
+      targetStepId,
+      base: base ? structuredClone(base) : null,
+      proposed: proposedStep ? {
+        stepId: proposedStep.id,
+        keys: (proposedGroup.keys ?? []).map(key => key.inputColumnId),
+        aggregate: aggregates[0]?.operation ?? null,
+      } : null,
+      rawProposalBody: structuredClone(rawProposalBody),
+    };
+  };
+  const lifecycleForPreview = (started, kind, base) => {
+    assert(started.request.captureId, 'The captured proposal must retain its stable request captureId.');
+    capturedGroupProposalRequests.add(started.rawRequest);
+    const currentMount = mountProvenance();
+    return {
+      ...currentMount,
+      owner: { mountEpoch: currentMount.mountEpoch, captureId: started.request.captureId },
+      candidateIntent: candidateIntentFor(started, kind, base),
+    };
+  };
+  const captureProposalPreview = async (attemptNumber, trigger, { kind = 'edit', base = null } = {}) => {
     const attempt = observeAuthoringAttempt(page, {
       method: 'POST',
       path: 'construction-proposals',
@@ -727,11 +860,95 @@ export const groupEntryWorkflow = async (workflow, context) => {
     await trigger();
     const started = await attempt.started;
     const exchange = await attempt.settled;
-    recordPreviewStart(traceActions, started);
-    recordPreviewSettlement(traceActions, started, exchange, await captureBuilderObservation(page));
-    return { started, exchange };
+    const groupLifecycle = lifecycleForPreview(started, kind, base);
+    assert.equal(exchange.request.captureId, groupLifecycle.owner.captureId,
+      'Proposal settlement must pair with the exact captured request owner.');
+    recordPreviewStart(traceActions, started, groupLifecycle);
+    recordPreviewSettlement(traceActions, started, exchange, await captureBuilderObservation(page), groupLifecycle);
+    return { started, exchange, candidateIntent: groupLifecycle.candidateIntent, groupLifecycle };
   };
-  const captureApply = async (label, event, attemptNumber, trigger) => {
+  const captureOptionalProposalOnOpen = async (trigger, { kind = 'edit', base = null } = {}) => {
+    const requestCount = groupRequests.length;
+    let rawRequest = null;
+    let requestObservationPromise = null;
+    let resolveObservedRequest;
+    const observedRequest = new Promise(resolve => { resolveObservedRequest = resolve; });
+    const onRequest = request => {
+      const requestUrl = new URL(request.url());
+      if (rawRequest || request.method() !== 'POST'
+        || requestUrl.pathname.split('/authoring/v2/')[1] !== 'construction-proposals') return;
+      let body;
+      try { body = request.postDataJSON(); } catch { return; }
+      if (body?.outputId !== outputId) return;
+      rawRequest = request;
+      requestObservationPromise = captureBuilderObservation(page);
+      resolveObservedRequest(request);
+    };
+    page.on('request', onRequest);
+    await trigger();
+    await page.waitForTimeout(groupProposalDelayMs);
+    const readEditorOpenObservation = () => page.evaluate(() => {
+      const editor = document.querySelector('[data-testid="construction-reshape-group"]');
+      const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+      return {
+        groupEditorMounted: Boolean(editor),
+        proposalPanelPresent: Boolean(panel),
+        proposalStatus: panel?.getAttribute('data-proposal-status') ?? null,
+        proposalPreviewStatus: panel?.getAttribute('data-proposal-preview-status') ?? null,
+      };
+    });
+    let editorOpenObservation = await readEditorOpenObservation();
+    if (!rawRequest && editorOpenObservation.proposalStatus === 'previewing') {
+      const proposalSettled = page.waitForFunction(() => {
+        const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+        return !panel || panel.getAttribute('data-proposal-status') !== 'previewing';
+      }, undefined, { timeout: 5000 }).catch(() => null);
+      await Promise.race([observedRequest, proposalSettled]);
+      editorOpenObservation = await readEditorOpenObservation();
+    }
+    page.off('request', onRequest);
+    const newRequests = groupRequests.length - requestCount;
+    assert(newRequests <= 1, 'Opening one saved Group editor must not emit multiple unbound proposal requests.');
+    assert(editorOpenObservation.groupEditorMounted,
+      'The saved Group editor must be mounted at the end of the source proposal delay window.');
+    if (newRequests === 0) {
+      assert.equal(rawRequest, null, 'Optional proposal listener must agree with the workflow request observer.');
+      assert.notEqual(editorOpenObservation.proposalStatus, 'previewing',
+        'A previewing Group editor at the end of its source delay must have emitted its actual proposal request.');
+      return { started: null, exchange: null, candidateIntent: null, groupLifecycle: null, editorOpenObservation };
+    }
+    assert(rawRequest, 'Opening saved Group editor proposal must be captured from its actual request.');
+    const capturedExchange = await captureAuthoringExchange(rawRequest);
+    const started = {
+      owner: { kind: 'proposal', attempt: 'P1' },
+      request: capturedExchange.request,
+      requestObservation: await requestObservationPromise,
+      rawRequest,
+      sequence: 0,
+    };
+    const exchange = {
+      ...capturedExchange,
+      settlement: capturedExchange.rawResponse
+        ? { kind: 'http-response', captureId: capturedExchange.request.captureId }
+        : {
+          kind: 'request-failed',
+          captureId: capturedExchange.request.captureId,
+          ...(rawRequest.failure()?.errorText ? { errorText: rawRequest.failure().errorText } : {}),
+        },
+      responseObservation: await captureBuilderObservation(page),
+      responseSequence: 1,
+    };
+    const groupLifecycle = lifecycleForPreview(started, kind, base);
+    groupLifecycle.editorOpenObservation = editorOpenObservation;
+    assert.equal(exchange.request.captureId, groupLifecycle.owner.captureId,
+      'Opened-editor proposal settlement must pair with its exact captured request.');
+    recordPreviewStart(traceActions, started, groupLifecycle);
+    recordPreviewSettlement(traceActions, started, exchange, await captureBuilderObservation(page), groupLifecycle);
+    return { started, exchange, candidateIntent: groupLifecycle.candidateIntent, groupLifecycle, editorOpenObservation };
+  };
+  const captureApply = async (label, event, attemptNumber, trigger, candidateIntent, candidateOwner) => {
+    const savedBeforeBuilder = await readBuilder();
+    const savedBefore = savedGroupEvidence(savedBeforeBuilder);
     const attempt = observeAuthoringAttempt(page, {
       method: 'POST',
       path: 'commands',
@@ -742,6 +959,15 @@ export const groupEntryWorkflow = async (workflow, context) => {
     const exchange = await attempt.settled;
     assert(exchange.response?.status >= 200 && exchange.response.status < 300,
       `${label} must be captured as an accepted HTTP response.`);
+    const savedAfterBuilder = await readBuilder();
+    const savedAfter = savedGroupEvidence(savedAfterBuilder);
+    const currentMount = mountProvenance();
+    assert(candidateIntent, `${label} must bind the actual candidate intent that its preview owned.`);
+    assert(candidateOwner, `${label} must bind the exact Preview owner consumed by its Apply action.`);
+    assert.deepEqual(savedBefore.group, candidateIntent.base,
+      `${label} must start from the exact saved Group bound by its proposal request.`);
+    assert.deepEqual(savedAfter.group, candidateIntent.proposed,
+      `${label} must persist the exact Group candidate bound by its proposal request.`);
     traceActions.push({
       label,
       event,
@@ -750,8 +976,15 @@ export const groupEntryWorkflow = async (workflow, context) => {
       response: exchange.response,
       settlement: exchange.settlement,
       observation: await captureBuilderObservation(page),
+      groupLifecycle: {
+        ...currentMount,
+        candidateIntent,
+        candidateOwner,
+        savedBefore,
+        savedAfter,
+      },
     });
-    return { started, exchange };
+    return { started, exchange, savedBeforeBuilder, savedAfterBuilder };
   };
   const initialProposalAttempt = observeAuthoringAttempt(page, {
     method: 'POST',
@@ -832,9 +1065,11 @@ export const groupEntryWorkflow = async (workflow, context) => {
 
   const initialProposalStarted = await initialProposalAttempt.started;
   const initialProposalExchange = await initialProposalAttempt.settled;
-  recordPreviewStart(traceActions, initialProposalStarted);
+  const initialGroupPreviewLifecycle = lifecycleForPreview(initialProposalStarted, 'create', null);
+  assert.equal(initialProposalExchange.request.captureId, initialGroupPreviewLifecycle.owner.captureId);
+  recordPreviewStart(traceActions, initialProposalStarted, initialGroupPreviewLifecycle);
   recordPreviewSettlement(traceActions, initialProposalStarted, initialProposalExchange,
-    await captureBuilderObservation(page));
+    await captureBuilderObservation(page), initialGroupPreviewLifecycle);
 
   const proposalResponse = await proposalResponsePromise;
   assert.equal(proposalResponse.status(), 200,
@@ -930,29 +1165,12 @@ export const groupEntryWorkflow = async (workflow, context) => {
   ];
   report.target.qaIsolation.requiredEntryChecks = directGroupCheckNames;
 
-  const initialGroupApplyAttempt = observeAuthoringAttempt(page, {
-    method: 'POST',
-    path: 'commands',
-    owner: { kind: 'apply', attempt: 'P1' },
-  });
-  await action('Apply initial empty-key COUNT_ROWS Group', page.getByTestId('construction-apply-proposal'),
-    () => page.getByTestId('construction-apply-proposal').click(), {
-      after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
-        expectedRows: [{ 'Row count': String(fixtureIDs.length) }] }),
-    });
-  const initialGroupApplyStarted = await initialGroupApplyAttempt.started;
-  const initialGroupApplyExchange = await initialGroupApplyAttempt.settled;
-  assert(initialGroupApplyExchange.response?.status >= 200 && initialGroupApplyExchange.response.status < 300,
-    'Applying the initial empty-key Group must return an accepted HTTP response.');
-  traceActions.push({
-    label: 'Group',
-    event: 'group',
-    owner: initialGroupApplyStarted.owner,
-    request: initialGroupApplyExchange.request,
-    response: initialGroupApplyExchange.response,
-    settlement: initialGroupApplyExchange.settlement,
-    observation: await captureBuilderObservation(page),
-  });
+  const initialGroupApply = await captureApply('Group', 'group', 'P1', () =>
+    action('Apply initial empty-key COUNT_ROWS Group', page.getByTestId('construction-apply-proposal'),
+      () => page.getByTestId('construction-apply-proposal').click(), {
+        after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+          expectedRows: [{ 'Row count': String(fixtureIDs.length) }] }),
+      }), initialGroupPreviewLifecycle.candidateIntent, initialGroupPreviewLifecycle.owner);
   report.target.qaIsolation.workflowMutations.push('native UI applied the empty-key COUNT_ROWS Group');
 
   const rows = await page.evaluate(() => {
@@ -972,15 +1190,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     expectedCount: fixtureIDs.length,
   });
 
-  const readBuilder = async () => {
-    const response = await fetch(context.target.apiUrl + `${apiRoot}/authoring/v2/builder`, {
-      signal: AbortSignal.timeout(30000),
-    });
-    const value = await response.json();
-    if (!response.ok) throw new Error(`Builder read returned HTTP ${response.status}.`);
-    return value;
-  };
-  let savedBuilder = await readBuilder();
+  let savedBuilder = initialGroupApply.savedAfterBuilder;
   const savedDocument = savedBuilder.workspace.documents.find(item => item.output?.id === outputId);
   const originalGroup = savedDocument?.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
   assert(originalGroup?.id, 'applied Group must retain its exact saved step identity');
@@ -996,16 +1206,17 @@ export const groupEntryWorkflow = async (workflow, context) => {
     }
   };
   const editSelector = `[data-testid="construction-row-edit-${originalGroup.id}"]`;
+  const originalGroupRecord = groupRecordFromStep(originalGroup);
   await openRowsHistory();
-  await action('open saved Group edit', page.locator(editSelector), () => page.locator(editSelector).click(), {
+  await captureOptionalProposalOnOpen(() => action('open saved Group edit', page.locator(editSelector), () => page.locator(editSelector).click(), {
     after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
-  });
+  }), { kind: 'edit', base: originalGroupRecord });
   const sourceIdKey = page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true });
-  await captureProposalPreview('P1', () => action('preview keyed Patient Group edit', sourceIdKey,
+  const keyedEditPreviewCapture = await captureProposalPreview('P1', () => action('preview keyed Patient Group edit', sourceIdKey,
     () => sourceIdKey.check(), {
       after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
         && document.querySelector('[data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready'),
-    }));
+    }), { kind: 'edit', base: originalGroupRecord });
   const idOnlyPreview = await page.evaluate(() => {
     const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
     const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
@@ -1024,33 +1235,42 @@ export const groupEntryWorkflow = async (workflow, context) => {
   assert.deepEqual(idOnlyPreview.keys, [`Group by ${sourceIdColumn.label}`]);
   check('correctness', 'saved Group edit previews exact Patient IDs as one row per key', true, idOnlyPreview);
 
-  const beforeEdit = savedBuilder;
+  const savedBeforeEditCandidate = savedBuilder;
+  const beforeEdit = await readBuilder();
   await action('Cancel keyed Group edit', page.getByTestId('construction-cancel-proposal'),
     () => page.getByTestId('construction-cancel-proposal').click(), {
       after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
     });
   savedBuilder = await readBuilder();
+  assert.deepEqual(savedGroupEvidence(beforeEdit).group, keyedEditPreviewCapture.candidateIntent.base,
+    'Group edit Cancel must bind the saved Group observed before the user action.');
+  assert.deepEqual(savedGroupEvidence(savedBuilder).group, savedGroupEvidence(beforeEdit).group,
+    'Group edit Cancel must preserve the exact saved Group projection.');
   assert.deepEqual(savedBuilder.workspace, beforeEdit.workspace, 'Cancel must leave the saved empty-key Group unchanged');
   assert.equal(savedBuilder.draftVersion, beforeEdit.draftVersion, 'Cancel must preserve the exact saved draft version');
   assert.equal(savedBuilder.draftDigest, beforeEdit.draftDigest, 'Cancel must preserve the exact saved draft digest');
+  assert.deepEqual(savedBuilder.workspace, savedBeforeEditCandidate.workspace,
+    'Cancel must preserve the exact workspace from before the edit Preview.');
+  assert.equal(savedBuilder.draftVersion, savedBeforeEditCandidate.draftVersion,
+    'Cancel must preserve the exact draft version from before the edit Preview.');
+  assert.equal(savedBuilder.draftDigest, savedBeforeEditCandidate.draftDigest,
+    'Cancel must preserve the exact draft digest from before the edit Preview.');
+  traceActions.push({
+    label: 'GroupEditCancel',
+    event: 'group-edit-cancel',
+    groupLifecycle: {
+      ...mountProvenance(),
+      candidateIntent: keyedEditPreviewCapture.candidateIntent,
+      candidateOwner: keyedEditPreviewCapture.groupLifecycle.owner,
+      savedBefore: savedGroupEvidence(beforeEdit),
+      savedAfter: savedGroupEvidence(savedBuilder),
+    },
+  });
   check('persistence', 'Cancel preserves the saved empty-key Group and exact draft', true, {
     draftVersion: savedBuilder.draftVersion,
     draftDigest: savedBuilder.draftDigest,
     groupStepId: originalGroup.id,
   });
-  journeyTrace.unmodeledEvents.push({
-    kind: 'group-edit-cancel',
-    classification: 'unsupported',
-    reason: 'BuilderJourney does not model the Group-edit Cancel control; the native workflow compares exact saved workspace and draft identity.',
-    note: 'Cancelled the ID-only preview before the later ID-and-gender Apply; the exact empty-key Group remained saved.',
-    afterActionIndex: traceActions.length - 1,
-    afterActionLabel: traceActions.at(-1)?.label ?? null,
-    groupStepId: originalGroup.id,
-    assertions: ['workspace equality', 'draftVersion equality', 'draftDigest equality'],
-    draftVersion: savedBuilder.draftVersion,
-    draftDigest: savedBuilder.draftDigest,
-  });
-
   const genderColumn = builder.workspace.documents.find(item => item.output?.id === outputId)?.columns
     ?.find(column => column.source?.field?.path === 'gender');
   assert(genderColumn?.columnId || genderColumn?.id, 'Fresh Patient table must expose its raw gender column.');
@@ -1058,11 +1278,12 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const genderLabel = genderColumn.label;
   const genderKey = page.getByRole('checkbox', { name: `Group by ${genderLabel}`, exact: true });
   await openRowsHistory();
-  await action('reopen saved Group edit for the ID-and-gender oracle', page.locator(editSelector), () => page.locator(editSelector).click(), {
+  await captureOptionalProposalOnOpen(() => action('reopen saved Group edit for the ID-and-gender oracle', page.locator(editSelector), () => page.locator(editSelector).click(), {
     after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
-  });
+  }), { kind: 'edit', base: groupRecordFromStep(groupStepFromBuilder(savedBuilder)) });
   assert.equal(await sourceIdKey.isChecked(), false, 'The prior Cancel must preserve the empty-key Group before the ID-and-gender edit.');
   assert.equal(await genderKey.isChecked(), false, 'The empty-key Group must not acquire a gender key before Apply.');
+  const editBase = groupRecordFromStep(groupStepFromBuilder(savedBuilder));
   const idPreviewAttempt = observeAuthoringAttempt(page, {
     method: 'POST', path: 'construction-proposals', owner: { kind: 'proposal', attempt: 'P1' },
   });
@@ -1087,12 +1308,17 @@ export const groupEntryWorkflow = async (workflow, context) => {
   await page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
     && document.querySelector('[data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready', undefined, { timeout: 5000 });
   const idAndGenderObservation = await captureBuilderObservation(page);
+  const idPreviewLifecycle = lifecycleForPreview(idPreviewStarted, 'edit', editBase);
+  const idAndGenderPreviewLifecycle = lifecycleForPreview(idAndGenderPreviewStarted, 'edit', editBase);
+  assert.equal(idPreviewExchange.request.captureId, idPreviewLifecycle.owner.captureId);
+  assert.equal(idAndGenderPreviewExchange.request.captureId, idAndGenderPreviewLifecycle.owner.captureId);
   const proposalRaceEvents = [
     {
       sequence: idPreviewStarted.sequence,
       action: {
         label: 'Preview', event: 'preview', owner: idPreviewStarted.owner,
         request: idPreviewStarted.request, observation: idPreviewStarted.requestObservation,
+          groupLifecycle: idPreviewLifecycle,
       },
     },
     {
@@ -1102,6 +1328,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
         idPreviewExchange,
         idPreviewExchange.responseObservation,
         idAndGenderPreviewStarted,
+        idPreviewLifecycle,
       ),
     },
     {
@@ -1109,11 +1336,13 @@ export const groupEntryWorkflow = async (workflow, context) => {
       action: {
         label: 'Preview', event: 'preview', owner: idAndGenderPreviewStarted.owner,
         request: idAndGenderPreviewStarted.request, observation: idAndGenderPreviewStarted.requestObservation,
+          groupLifecycle: idAndGenderPreviewLifecycle,
       },
     },
     {
       sequence: idAndGenderPreviewExchange.responseSequence,
-      action: previewSettlementAction(idAndGenderPreviewStarted, idAndGenderPreviewExchange, idAndGenderObservation),
+      action: previewSettlementAction(idAndGenderPreviewStarted, idAndGenderPreviewExchange,
+        idAndGenderObservation, null, idAndGenderPreviewLifecycle),
     },
   ];
   proposalRaceEvents.sort((left, right) => left.sequence - right.sequence)
@@ -1162,7 +1391,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
       () => page.getByTestId('construction-apply-proposal').click(), {
         after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
           expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID, 'Row count': '1' })) }),
-      }));
+      }), idAndGenderPreviewLifecycle.candidateIntent, idAndGenderPreviewLifecycle.owner);
   report.target.qaIsolation.workflowMutations.push('native UI applied the Group edit with both Patient ID and gender keys');
   const idAndGenderAppliedRows = await page.evaluate(() => {
     const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
@@ -1192,17 +1421,18 @@ export const groupEntryWorkflow = async (workflow, context) => {
     ?.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
   assert.equal(idAndGenderGroup?.id, originalGroup.id, 'ID-and-gender edit must preserve the original Group identity.');
   assert.deepEqual(idAndGenderGroup.operation.group.keys.map(key => key.inputColumnId), [sourceIdColumnId, genderColumnId]);
+  const idAndGenderGroupRecord = groupRecordFromStep(idAndGenderGroup);
   await openRowsHistory();
-  await action('open ID-and-gender Group edit to restore ID-only output', page.locator(editSelector), () => page.locator(editSelector).click(), {
+  await captureOptionalProposalOnOpen(() => action('open ID-and-gender Group edit to restore ID-only output', page.locator(editSelector), () => page.locator(editSelector).click(), {
     after: () => page.getByRole('checkbox', { name: `Group by ${genderLabel}`, exact: true }).waitFor({ state: 'visible' }),
-  });
+  }), { kind: 'edit', base: idAndGenderGroupRecord });
   const savedGenderKey = page.getByRole('checkbox', { name: `Group by ${genderLabel}`, exact: true });
   assert.equal(await sourceIdKey.isChecked(), true);
   assert.equal(await savedGenderKey.isChecked(), true);
-  await captureProposalPreview('P1', () => action('preview saved Group returning to ID-only', savedGenderKey,
+  const restoredIDOnlyPreviewCapture = await captureProposalPreview('P1', () => action('preview saved Group returning to ID-only', savedGenderKey,
     () => savedGenderKey.uncheck(), {
       after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'),
-    }));
+    }), { kind: 'edit', base: idAndGenderGroupRecord });
   const restoredIDOnlyPreview = await page.evaluate(() => {
     const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
     const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
@@ -1222,7 +1452,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
       () => page.getByTestId('construction-apply-proposal').click(), {
         after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
           expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID, 'Row count': '1' })) }),
-      }));
+      }), restoredIDOnlyPreviewCapture.candidateIntent, restoredIDOnlyPreviewCapture.groupLifecycle.owner);
   report.target.qaIsolation.workflowMutations.push('native UI applied the keyed ID-only Group edit after the ID-and-gender result');
   check('correctness', 'saved Group edit applies one row per exact Patient ID', true, {
     stepId: originalGroup.id,
@@ -1234,13 +1464,36 @@ export const groupEntryWorkflow = async (workflow, context) => {
     ?.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
   assert.equal(keyedGroup?.id, originalGroup.id, 'editing Group must preserve its saved construction identity');
   assert.deepEqual(keyedGroup.operation.group.keys.map(key => key.inputColumnId), [sourceIdColumnId]);
+  const keyedGroupRecord = groupRecordFromStep(keyedGroup);
+  const keyedReloadSavedBeforeBuilder = savedBuilder;
 
   await page.reload({ waitUntil: 'domcontentloaded' });
+  const reloadedTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  assert.notEqual(reloadedTimeOrigin, mountTimeOrigin, 'A real page reload must mount a new browser document.');
+  mountEpoch += 1;
+  assert(mountEpoch <= 2, 'The bounded Group lifecycle must remain inside its finite mount epochs.');
+  mountTimeOrigin = reloadedTimeOrigin;
   await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible' });
   if (!await page.locator('[data-testid="preview-table-scroll"] [role="table"]').isVisible()) {
     await page.getByTestId(`construction-table-${outputId}`).click();
   }
   await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible' });
+  savedBuilder = await readBuilder();
+  const keyedReloadGroup = groupStepFromBuilder(savedBuilder);
+  assert.equal(keyedReloadGroup?.id, keyedGroup.id, 'Fresh postreload Builder read must retain the exact Group step identity.');
+  assert.deepEqual(groupRecordFromStep(keyedReloadGroup), keyedGroupRecord,
+    'Fresh postreload Builder read must retain the exact Group keys and aggregate.');
+  const keyedReloadTraceAction = {
+    label: 'Reload',
+    event: 'reload',
+    groupLifecycle: {
+      ...mountProvenance(),
+      savedBefore: savedGroupEvidence(keyedReloadSavedBeforeBuilder),
+      savedAfter: savedGroupEvidence(savedBuilder),
+      mountedGroup: null,
+    },
+  };
+  traceActions.push(keyedReloadTraceAction);
   await waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
     expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID, 'Row count': '1' })) });
   const keyedReload = await page.evaluate(({ tableSelector }) => {
@@ -1253,11 +1506,64 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const keyedReloadIDIndex = findRenderedBuilderHeaderIndex(keyedReload.headers, sourceIdColumn.label);
   const keyedReloadIDs = keyedReloadIDIndex < 0 ? [] : keyedReload.rows.map(row => row[keyedReloadIDIndex]).sort();
   assert.deepEqual(keyedReloadIDs, fixtureIDs, 'keyed Group output must retain exact Patient IDs after reload');
-  journeyTrace.unmodeledEvents.push({
-    kind: 'reload',
-    classification: 'unsupported',
-    reason: 'Page reload remounts the workspace; BuilderJourney models the same-mount proposal/apply lifecycle only.',
-    note: 'The native ID-only Group result retained both exact Patient IDs through reload.',
+  await openRowsHistory();
+  const reloadedGroupOpenCapture = await captureOptionalProposalOnOpen(() => action('open reloaded saved Group editor', page.locator(editSelector), () => page.locator(editSelector).click(), {
+    after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
+  }), { kind: 'edit', base: keyedGroupRecord });
+  const confirmedMountedStepId = reloadedGroupOpenCapture.candidateIntent?.proposed?.stepId ?? null;
+  const mountedReloadState = await mountedGroupFromEditor(savedBuilder, keyedGroup.id, confirmedMountedStepId, editSelector);
+  const mountedReloadGroup = mountedReloadState.group;
+  assert.equal(mountedReloadGroup.stepId, keyedGroup.id,
+    'The reloaded mounted Group step identity must follow the exact clicked rendered row target.');
+  assert.deepEqual(mountedReloadGroup.keys, [sourceIdColumnId],
+    'Reopened Group editor after reload must mount the saved ID-only key.');
+  assert.equal(mountedReloadGroup.aggregate, 'COUNT_ROWS',
+    'Reopened Group editor after reload must mount COUNT_ROWS.');
+  keyedReloadTraceAction.groupLifecycle.mountedGroup = mountedReloadGroup;
+  keyedReloadTraceAction.groupLifecycle.clickedRowTarget = mountedReloadState.clickedRowTarget;
+  keyedReloadTraceAction.groupLifecycle.mountedEditorOutputId = mountedReloadState.editorOutputId;
+  keyedReloadTraceAction.groupLifecycle.editorOpenObservation = reloadedGroupOpenCapture.editorOpenObservation;
+  check('persistence', 'reloaded Group editor mounts the exact saved ID-only key and COUNT_ROWS aggregate', true,
+    mountedReloadGroup);
+  const beforeReloadEditCancel = await readBuilder();
+  await action('Cancel reloaded saved Group editor', page.getByTestId('construction-cancel-proposal'),
+    () => page.getByTestId('construction-cancel-proposal').click(), {
+      after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
+    });
+  const afterReloadEditCancel = await readBuilder();
+  if (reloadedGroupOpenCapture?.candidateIntent) {
+    assert.deepEqual(savedGroupEvidence(beforeReloadEditCancel).group, reloadedGroupOpenCapture.candidateIntent.base,
+      'Postreload Group edit Cancel must bind the actual saved Group candidate base.');
+  }
+  assert.deepEqual(savedGroupEvidence(afterReloadEditCancel).group, savedGroupEvidence(beforeReloadEditCancel).group,
+    'Postreload Group edit Cancel must preserve the exact saved Group projection.');
+  assert.deepEqual(afterReloadEditCancel.workspace, beforeReloadEditCancel.workspace,
+    'Cancelling the reloaded Group editor must preserve the exact saved workspace.');
+  assert.equal(afterReloadEditCancel.draftVersion, beforeReloadEditCancel.draftVersion,
+    'Cancelling the reloaded Group editor must preserve the exact draft version.');
+  assert.equal(afterReloadEditCancel.draftDigest, beforeReloadEditCancel.draftDigest,
+    'Cancelling the reloaded Group editor must preserve the exact draft digest.');
+  assert.deepEqual(afterReloadEditCancel.workspace, savedBuilder.workspace,
+    'Cancelling the reloaded Group editor must preserve the fresh postreload workspace.');
+  assert.equal(afterReloadEditCancel.draftVersion, savedBuilder.draftVersion,
+    'Cancelling the reloaded Group editor must preserve the fresh postreload draft version.');
+  assert.equal(afterReloadEditCancel.draftDigest, savedBuilder.draftDigest,
+    'Cancelling the reloaded Group editor must preserve the fresh postreload draft digest.');
+  traceActions.push({
+    label: 'GroupEditCancel',
+    event: 'group-edit-cancel',
+    groupLifecycle: {
+      ...mountProvenance(),
+      candidateIntent: reloadedGroupOpenCapture?.candidateIntent ?? null,
+      candidateOwner: reloadedGroupOpenCapture?.groupLifecycle?.owner ?? null,
+      savedBefore: savedGroupEvidence(beforeReloadEditCancel),
+      savedAfter: savedGroupEvidence(afterReloadEditCancel),
+    },
+  });
+  check('persistence', 'Cancel after reloading the saved Group preserves the exact saved workspace and draft', true, {
+    groupStepId: keyedGroup.id,
+    draftVersion: afterReloadEditCancel.draftVersion,
+    draftDigest: afterReloadEditCancel.draftDigest,
   });
   check('persistence', 'keyed Group edit and exact Patient rows survive reload', true, {
     groupStepId: keyedGroup.id,
@@ -1275,7 +1581,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const removalPreviewCapture = await captureProposalPreview('P1', () => action('propose removing keyed Group', page.locator(removalSelector), () => page.locator(removalSelector).click(), {
     after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
       && Boolean(document.querySelector('[data-testid="construction-removal-summary"]'))),
-  }));
+  }), { kind: 'remove', base: keyedGroupRecord });
   const removalSourcePreview = removalPreviewCapture.exchange.payload?.preview;
   assert.deepEqual(removalSourcePreview?.columns?.map(column => column.label), sourcePreviewLabels,
     'Group removal proposal must restore the exact source preview columns for this registered fixture shape.');
@@ -1309,42 +1615,51 @@ export const groupEntryWorkflow = async (workflow, context) => {
     sourceRows: removalRestoredRows,
     patientIDs: fixtureIDs,
   });
+  const beforeRemovalCancel = await readBuilder();
   await action('Cancel keyed Group removal', page.getByTestId('construction-cancel-proposal'),
     () => page.getByTestId('construction-cancel-proposal').click(), {
       after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
     });
   const afterRemovalCancel = await readBuilder();
-  assert.deepEqual(afterRemovalCancel.workspace, savedBuilder.workspace, 'Cancel removal must preserve the saved keyed Group');
-  assert.equal(afterRemovalCancel.draftVersion, savedBuilder.draftVersion, 'Cancel removal must preserve the exact saved draft version');
-  assert.equal(afterRemovalCancel.draftDigest, savedBuilder.draftDigest, 'Cancel removal must preserve the exact saved draft digest');
+  assert.deepEqual(savedGroupEvidence(beforeRemovalCancel).group, removalPreviewCapture.candidateIntent.base,
+    'Group removal Cancel must bind the saved Group observed before the user action.');
+  assert.deepEqual(savedGroupEvidence(afterRemovalCancel).group, savedGroupEvidence(beforeRemovalCancel).group,
+    'Group removal Cancel must preserve the exact saved Group projection.');
+  assert.deepEqual(afterRemovalCancel.workspace, beforeRemovalCancel.workspace, 'Cancel removal must preserve the saved keyed Group');
+  assert.equal(afterRemovalCancel.draftVersion, beforeRemovalCancel.draftVersion, 'Cancel removal must preserve the exact saved draft version');
+  assert.equal(afterRemovalCancel.draftDigest, beforeRemovalCancel.draftDigest, 'Cancel removal must preserve the exact saved draft digest');
+  assert.deepEqual(afterRemovalCancel.workspace, beforeRemoval.workspace,
+    'Cancel removal must preserve the exact workspace from before the removal Preview.');
+  assert.equal(afterRemovalCancel.draftVersion, beforeRemoval.draftVersion,
+    'Cancel removal must preserve the exact draft version from before the removal Preview.');
+  assert.equal(afterRemovalCancel.draftDigest, beforeRemoval.draftDigest,
+    'Cancel removal must preserve the exact draft digest from before the removal Preview.');
+  traceActions.push({
+    label: 'GroupRemovalCancel',
+    event: 'group-removal-cancel',
+    groupLifecycle: {
+      ...mountProvenance(),
+      candidateIntent: removalPreviewCapture.candidateIntent,
+      candidateOwner: removalPreviewCapture.groupLifecycle.owner,
+      savedBefore: savedGroupEvidence(beforeRemovalCancel),
+      savedAfter: savedGroupEvidence(afterRemovalCancel),
+    },
+  });
   check('persistence', 'Cancel preserves the saved keyed Group and exact draft', true, {
     draftVersion: afterRemovalCancel.draftVersion,
     draftDigest: afterRemovalCancel.draftDigest,
     groupStepId: keyedGroup.id,
   });
-  journeyTrace.unmodeledEvents.push({
-    kind: 'group-removal-cancel',
-    classification: 'unsupported',
-    reason: 'BuilderJourney does not model the Group-removal Cancel control; the native workflow compares exact saved workspace and draft identity.',
-    note: 'Cancelled the first keyed-Group removal proposal; the exact ID-only Group remained saved before reapplying removal.',
-    afterActionIndex: traceActions.length - 1,
-    afterActionLabel: traceActions.at(-1)?.label ?? null,
-    groupStepId: keyedGroup.id,
-    assertions: ['workspace equality', 'draftVersion equality', 'draftDigest equality'],
-    draftVersion: afterRemovalCancel.draftVersion,
-    draftDigest: afterRemovalCancel.draftDigest,
-  });
-
   await openRowsHistory();
-  await captureProposalPreview('P1', () => action('reopen keyed Group removal', page.locator(removalSelector), () => page.locator(removalSelector).click(), {
+  const reappliedRemovalPreviewCapture = await captureProposalPreview('P1', () => action('reopen keyed Group removal', page.locator(removalSelector), () => page.locator(removalSelector).click(), {
     after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-removal-summary"]') !== null),
-  }));
+  }), { kind: 'remove', base: keyedGroupRecord });
   await captureApply('RemoveGroup', 'remove-group', 'P1', () =>
     action('Apply keyed Group removal', page.getByTestId('construction-apply-proposal'),
       () => page.getByTestId('construction-apply-proposal').click(), {
       after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
         expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })) }),
-      }));
+      }), reappliedRemovalPreviewCapture.candidateIntent, reappliedRemovalPreviewCapture.groupLifecycle.owner);
   report.target.qaIsolation.workflowMutations.push('native UI removed the keyed Group and restored source Patient rows');
   report.target.qaIsolation.cleanupMutations.push('native UI removed the case-owned Group step to restore the original Patient row shape');
   const removedBuilder = await readBuilder();
@@ -1358,24 +1673,48 @@ export const groupEntryWorkflow = async (workflow, context) => {
   }));
   assert.deepEqual(removedSourceColumnIdentity, report.target.table.sourceColumns,
     'Removed Builder document must retain each original source column identity, label, and field binding.');
+  const removedGroupRecord = groupRecordFromStep(groupStepFromBuilder(removedBuilder));
+  assert.equal(removedGroupRecord, null, 'Saved Group must be absent before the post-removal reload.');
   await page.reload({ waitUntil: 'domcontentloaded' });
+  const removalReloadTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  assert.notEqual(removalReloadTimeOrigin, mountTimeOrigin, 'The post-removal reload must mount a new browser document.');
+  mountEpoch += 1;
+  assert(mountEpoch <= 2, 'The bounded Group lifecycle must remain inside its finite mount epochs.');
+  mountTimeOrigin = removalReloadTimeOrigin;
   await page.getByTestId(`construction-table-${outputId}`).waitFor({ state: 'visible' });
   if (!await page.locator('[data-testid="preview-table-scroll"] [role="table"]').isVisible()) {
     await page.getByTestId(`construction-table-${outputId}`).click();
   }
   await page.locator('[data-testid="preview-table-scroll"] [role="table"]').waitFor({ state: 'visible' });
+  const restoredBuilder = await readBuilder();
+  assert.equal(groupStepFromBuilder(restoredBuilder), null,
+    'Fresh postreload Builder read must bind the saved Group absence.');
+  const removalReloadTraceAction = {
+    label: 'Reload',
+    event: 'reload',
+    groupLifecycle: {
+      ...mountProvenance(),
+      savedBefore: savedGroupEvidence(removedBuilder),
+      savedAfter: savedGroupEvidence(restoredBuilder),
+      mountedGroup: null,
+    },
+  };
+  traceActions.push(removalReloadTraceAction);
   await waitForBuilderRenderedGrid(page, {
     tableSelector: renderedTableSelector,
     expectedRows: renderedSourceExpectations(fixtureSourceRows),
   });
   const restoredRows = await readRenderedBuilderRows(page);
+  removalReloadTraceAction.groupLifecycle.renderedSourceRows = {
+    headers: restoredRows.headers,
+    rawRows: restoredRows.rawRows,
+  };
   assertRenderedHeaders(restoredRows.headers, sourcePreviewLabels,
     'Reload after Group removal must render the exact source columns for this registered fixture shape.');
   if (rawBasicCase) assert.deepEqual(flatSourceRowsFromRendered(restoredRows), expectedFlatSourceRows,
     'Reload after Group removal must restore both indexed values and the exact name__count values.');
   assert.deepEqual(sourceRowsForRendered(restoredRows), fixtureSourceRows,
     'Reload after Group removal must restore exact Patient.ndjson ID, family, count, and gender values.');
-  const restoredBuilder = await readBuilder();
   const restoredDocument = restoredBuilder.workspace.documents.find(item => item.output?.id === outputId);
   assert.deepEqual(restoredDocument?.columns?.map(column => ({
     id: column.columnId ?? column.id,
@@ -1387,15 +1726,11 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const restoredSourceRows = sourceRowsForRendered(restoredRows);
   const restoredIDs = restoredSourceRows.map(row => row.id);
   assert.deepEqual(restoredIDs, fixtureIDs, 'removing Group and reloading must restore both exact source Patient IDs');
-  journeyTrace.unmodeledEvents.push({
-    kind: 'reload',
-    classification: 'unsupported',
-    reason: 'Page reload remounts the workspace; BuilderJourney models the same-mount proposal/apply lifecycle only.',
-    note: 'The native Group removal restored both exact Patient source IDs through reload.',
-  });
+  assert.equal(groupStepFromBuilder(restoredBuilder), null,
+    'Fresh postreload Builder read must continue to show no saved Group.');
   check('persistence', 'removing keyed Group restores the exact source Patient rows after reload', true, {
-    draftVersion: removedBuilder.draftVersion,
-    draftDigest: removedBuilder.draftDigest,
+    draftVersion: restoredBuilder.draftVersion,
+    draftDigest: restoredBuilder.draftDigest,
     headers: restoredRows.headers,
     rows: restoredRows.rows,
     sourceRows: restoredSourceRows,
@@ -1412,6 +1747,22 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const minimumBackendCalls = Number(process.env.LOOM_JOURNEY_MIN_BACKEND_CALLS ?? 10);
   assert(backendCalls.length >= minimumBackendCalls,
     `Group lifecycle must capture at least ${minimumBackendCalls} actual authoring backend responses; found ${backendCalls.length}.`);
+  await page.waitForTimeout(groupProposalDelayMs);
+  const finalProposalUIState = await page.evaluate(() => ({
+    groupEditorMounted: Boolean(document.querySelector('[data-testid="construction-reshape-group"]')),
+    proposalStatus: document.querySelector('[data-testid="construction-proposal-panel"]')
+      ?.getAttribute('data-proposal-status') ?? null,
+  }));
+  assert.equal(finalProposalUIState.groupEditorMounted, false,
+    'The post-removal end-of-trace observation must have no mounted Group editor awaiting a delayed proposal.');
+  assert.notEqual(finalProposalUIState.proposalStatus, 'previewing',
+    'The post-removal end-of-trace observation must have no Group proposal still previewing.');
+  assert.equal(capturedGroupProposalRequests.size, groupRequests.length,
+    'Every actual Group construction-proposal request must have a trace Preview action with its request body and captureId.');
+  for (const request of groupRequestsByRequest.keys()) {
+    assert(capturedGroupProposalRequests.has(request),
+      'Every observed Group construction-proposal request must be bound into the model trace.');
+  }
   writeAndReplayGroupJourney(journeyTrace, report, {
     project: context.target.fixtureProject,
     generation: context.target.fixtureGeneration,
@@ -1428,6 +1779,8 @@ export const groupEntryWorkflow = async (workflow, context) => {
     'applied Group edit by id and gender has the exact two-row, three-column result',
     'saved Group edit applies one row per exact Patient ID',
     'keyed Group edit and exact Patient rows survive reload',
+    'reloaded Group editor mounts the exact saved ID-only key and COUNT_ROWS aggregate',
+    'Cancel after reloading the saved Group preserves the exact saved workspace and draft',
     'Group removal previews both literal source Patient rows',
     'Cancel preserves the saved keyed Group and exact draft',
     'removing keyed Group restores the exact source Patient rows after reload',
