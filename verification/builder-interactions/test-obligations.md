@@ -6,10 +6,10 @@ Status: generated from the TLA models and existing test metadata.
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
 678 are currently tracked; 0 baseline files have retained tombstones.
-13147 semantic claims are defined once; 9205 source occurrences are direct test assertions, out of 18903 total labeled occurrences.
-9698 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+13150 semantic claims are defined once; 9212 source occurrences are direct test assertions, out of 18926 total labeled occurrences.
+9714 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
-68 files are classified as independent tool/module purposes; 299 MJS files and 5308 semantic claims have no canonical journey mapping.
+68 files are classified as independent tool/module purposes; 297 MJS files and 5307 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.
 
 | Role | Files |
@@ -46,6 +46,7 @@ Status: generated from the TLA models and existing test metadata.
 | `builder-authoring:dataframe-contract-panel` | 3 | 0 | 0 | 3 | 17 | — |
 | `builder-authoring:explorer-selection` | 16 | 11 | 0 | 4 | 12 | BuilderPreview |
 | `builder-authoring:group-entry` | 5 | 8 | 0 | 7 | 18 | — |
+| `builder-authoring:group-entry-raw-basic` | 5 | 8 | 0 | 5 | 17 | — |
 | `builder-authoring:legacy-v9-rows` | 5 | 0 | 0 | 112 | 24 | BuilderOperations, BuilderPreview |
 | `builder-authoring:patient-one-disagreement` | 6 | 0 | 0 | 74 | 8 | BuilderOperations, BuilderPreview |
 | `builder-authoring:repeated-empty` | 5 | 12 | 0 | 7 | 54 | — |
@@ -170,10 +171,10 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Scope | Count |
 | --- | ---: |
 | Tool/module files | 68 |
-| Tool/module files with a canonical case mapping | 5 |
-| Tool/module files without a canonical case mapping | 63 |
-| All MJS files without a canonical case mapping | 299 |
-| Semantic claims without a canonical case mapping | 5308 |
+| Tool/module files with a canonical case mapping | 6 |
+| Tool/module files without a canonical case mapping | 62 |
+| All MJS files without a canonical case mapping | 297 |
+| Semantic claims without a canonical case mapping | 5307 |
 
 ### Explicit formal links
 
@@ -290,12 +291,12 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
 | missingUnbound | 75 |
-| tests | 906 |
+| tests | 907 |
 | testsWithObligations | 12 |
-| testsWithoutObligations | 894 |
+| testsWithoutObligations | 895 |
 | obligationsWithMultipleTests | 24 |
 | duplicateTestNames | 0 |
-| repeatedPlaywrightChecks | 231 |
+| repeatedPlaywrightChecks | 246 |
 | sharedProofs | 3 |
 | candidateRouteBindings | 162 |
 
@@ -444,7 +445,22 @@ No duplicate test names found.
 - `builder failure exposes an actionable in-app retry`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder recovered through in-app Retry`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder in-app Retry action-to-render within budget`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
-- `basic Patient fixture contains the two independently known records`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:legacy-v9-rows)
+- `basic Patient fixture contains the two independently known records`: 3 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic, playwright:builder-authoring:legacy-v9-rows)
+- `Direct Group action is actionable`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `direct standard Group entry defaults to empty-key COUNT_ROWS without an edit`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `native Builder automatically proposes the exact empty-key COUNT_ROWS GROUP`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `automatic Group proposal Preview returns one row with the independently expected count 2`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `applied empty-key Group renders the independently expected count 2`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `saved Group edit previews exact Patient IDs as one row per key`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `Cancel preserves the saved empty-key Group and exact draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `saved Group edit by id and gender preview matches exact fixture IDs, gender values, and row counts`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `applied Group edit by id and gender has the exact two-row, three-column result`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `saved Group edit applies one row per exact Patient ID`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `keyed Group edit and exact Patient rows survive reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `Group removal previews both literal source Patient rows`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `Cancel preserves the saved keyed Group and exact draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `removing keyed Group restores the exact source Patient rows after reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `independent fixture contains one Patient, four Observations, and three DiagnosticReports`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
 - `draft Combine uses the exact project, generation, Builder snapshot, and authorization scope`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
 - `Observation root Preview contains exact independent fixture IDs`: 6 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
@@ -454,21 +470,6 @@ No duplicate test names found.
 - `native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source`: 3 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:membership)
 - `removing Combine and reloading restores its rooted empty target`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
 - `create current-draft Observation source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `create current-draft DiagnosticReport source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `open native Combine and create a separate empty target action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `open saved Combine editor after draft input schemas resolve action-to-render within budget`: 6 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
-- `propose Combine removal and render the exact rooted empty output action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `apply Combine removal to restore the empty target action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `reload removed Combine and select its exact rooted empty output action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `No unexpected native HTTP or network errors occurred`: 4 cases (playwright:basic-unpivot-pivot-roundtrip:unpivot-to-pivot, playwright:standalone-reshape-related-field-after-unpivot-gender-all:related-field-after-unpivot-gender-all, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
-- `no unexpected browser or authoring errors occur and source, API build, project, and generation remain stable`: 2 cases (playwright:root-quantity-pivot:full-population-lifecycle, playwright:root-quantity-pivot:related-text-only-full-population-lifecycle)
-- `Observation native GROUP count rows match the direct fixture oracle`: 3 cases (playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit)
-- `DiagnosticReport native GROUP count rows match the direct fixture oracle`: 3 cases (playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit)
-- `automatic Combine proposal is bound to this exact draft CAS and UI proxy scope`: 6 cases (playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
-- `Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload`: 5 cases (playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append)
-- `Patient native GROUP count rows match the direct fixture oracle`: 2 cases (playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit)
-- `Patient gender counts persists its native Group→DERIVE output without pinning a revision`: 2 cases (playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit)
-- `Patient gender counts Group→DERIVE preview matches independent category/count arithmetic`: 2 cases (playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit)
 
 ## Tests with no exact obligation
 
@@ -486,6 +487,7 @@ No duplicate test names found.
 - `playwright` `cohort-expand` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `repeated-empty` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `standard Group entry proposes an empty-key COUNT_ROWS preview$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
+- `playwright` `Group edit and removal preserve the raw five-column Basic Patient table$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `selected Patient coverage preserves exact membership through detach, reattach, and reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `Explorer switching shows distinct tables and restores the selected Explorer after reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `Dataframe contract panel shows the exact Patient output and lineage$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
@@ -551,8 +553,7 @@ No duplicate test names found.
 - `playwright` `applies source expansion, verifies item values, and restores original Observation rows$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `medication-preserve-parent` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, RowDefinitionLifecycle, WorkspaceLifecycle
-- `playwright` `preserve and exclude exact positive Medication matches through native edit and reload$` in `scripts/verify-ui/specs/related-medication-positive-fixture.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, RowDefinitionLifecycle, WorkspaceLifecycle
-- 814 more in the JSON report.
+- 815 more in the JSON report.
 
 ## Shared route proof evidence
 
