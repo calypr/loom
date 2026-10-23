@@ -23,7 +23,7 @@ Make formal verification reflect the Builder's real API surface. Every UI-called
 - [x] Added batched behavioral coverage for proposal repair, local proposal cancellation, pivot-pair mismatch, stale source-expansion proposals, replacement-preview table identity, repeated selection cursors, stale-draft restore, and the Builder load-error predicate. The suite now has 50 probes: 47 killed, 3 equivalent, and 94 unprobed actions. The mutation strict allowlist remains empty.
 - [x] Added reconcile as a required trace action and event with a formal observation mapping and eight schedules. `ReconcileLifecycle` is now a required trace model.
 - [ ] Assign route-level proof to the 33 remaining `modeled-only` routes and resolve the 3 `unproven` override-only routes: `publish`, `configured-column-context`, and `table-shape-category-discoveries`. Then flip the route ledger to a strict gate.
-- [ ] Run the full browser lifecycle. The Recompile recovery case passes on the current checkout; the full edit, preview, publish, and reload lifecycle is still open.
+- [ ] Run the full browser lifecycle. The recorded Recompile case remains visible, but its report file is missing and it cannot support current route coverage. The full edit, preview, publish, and reload lifecycle is still open.
 - [x] Added a fast PR formal workflow and a full nightly/manual workflow.
 - [x] Renamed the `BuilderPreview` reset action to `AcceptCurrentDraft` and renamed the coarse `LifecycleEntry` reconcile actions to entry-level names.
 - [x] Extracted `reconcileResultIsCurrent`, `reconcileReceiptMatchesRequest`, and `reconcileRecoveryAction` with unit tests. The UI now uses the same recovery decisions as the model.
@@ -31,7 +31,7 @@ Make formal verification reflect the Builder's real API surface. Every UI-called
 - [x] Added the reconcile transition and guard table in `docs/verification/builder-reconcile-transitions.md`.
 - [x] Added a trace validator mutation self-test. It rejects a corrupted observation, a wrong model mapping, and a missing required event. The formal runner now runs it on every gate.
 - [x] Added a route ledger freshness and accounting check. The formal runner fails when the generated ledger is stale or when a generated authoring route is unaccounted.
-- [x] Rechecked the Recompile browser case on the current checkout. It passes and issues a successful reconcile request. The harness now uses the same canonical project encoding as the UI.
+- [x] Rechecked the Recompile recovery flow on the then-current checkout. It issued a successful reconcile request. The referenced report file is no longer retained, so the case is unavailable for current route coverage.
 - [x] Added a TLA-derived obligation report: `scripts/build-test-obligations.mjs` writes `verification/builder-interactions/test-obligations.json` and `.md`. The current pass finds 239 obligations across 153 actions and 86 invariants, with 15 exact-covered, 86 partial, and 138 missing. It also records 26 obligations with multiple same-level tests, 231 repeated Playwright checks, and 866 tests with no exact obligation.
 - [x] Added `scripts/generate-builder-browser-evidence.mjs` and made the route ledger verify the browser case `status` and `coveredRoutes`. `browser-evidence.json` now uses `builder-controls:recompile`.
 - [x] Added `coveredActions` to route proofs so the obligation map attaches only the TLA actions the trace and schedule exercise, not every action reachable by route callers. The route verifier checks covered actions against the model's action list.
@@ -45,7 +45,7 @@ Make formal verification reflect the Builder's real API surface. Every UI-called
 - [x] Added `propose-builder-mutation-probes.mjs`, a model-derived candidate queue for the 94 unprobed actions: 46 high, 24 medium, 24 low; 70 have at least one candidate test; 24 have none. No remaining unprobed action has a syntactic UI guard candidate because shared guards now map to every action that routes through them. The guard extractor still has its self-test for conjunction, disjunction, and non-guard fixtures.
 - [x] Reworked the mutation runner for the fast loop. Vitest probes run in place through a Vite overlay instead of copying the repository. Go probes run only the named regression test and reuse a persistent build cache. Evidence is cached by source, test, and probe hashes, so an unchanged full run skips in under a second. Independent probes run through a bounded worker pool.
 - [x] Added `propose-builder-browser-cases.mjs`, which lists the 28 routes without browser coverage: 17 Tier 1, 11 Tier 2, 8 stateful, 20 read-like; 7 high, 11 medium, 10 low. These are case targets, not evidence.
-- [x] Added evidence freshness checks. Mutation evidence fails when a source hash no longer matches; proposal decisions fail when a proposal digest changes; browser evidence re-derives from `generatedFrom` report hashes with `--from-evidence`; and mutation strict mode fails on missing, stale, untriaged, or unallowlisted evidence.
+- [x] Added evidence freshness checks. Mutation evidence fails when a source hash no longer matches, and proposal decisions fail when a proposal digest changes. Browser evidence validates its explicit audit inputs and retained artifact hashes. Current route coverage counts only evidence with current source status.
 - [x] Defined the readiness policy. `leverReady` requires current proposal/decision coverage and a passing strict bug-discovery gate. `endToEndReady` additionally requires zero pending proposal decisions, zero unprobed action obligations, route-action audits, obligation attribution, browser evidence, and the feature map. Current `leverReady` is yes; `endToEndReady` is no.
 - [ ] Triage the 68 candidate-bound missing obligations before adding new browser cases. The 50 unbound missing obligations are model setup actions, not route gaps.
 
@@ -141,6 +141,19 @@ Required work:
 ## Evidence rule
 
 A unit is done only when its model, trace, test, and browser evidence exist. A passing model alone is not route conformance.
+
+## Rerun the retained evidence check
+
+From the repository root, regenerate and check the retained evidence:
+
+```sh
+node scripts/generate-builder-browser-evidence.mjs --from-evidence
+node scripts/generate-builder-browser-evidence.mjs --from-evidence --check
+node scripts/generate-builder-browser-evidence.mjs --self-test
+python3 -m unittest discover -s scripts/maintenance/playwright/tests -p 'test_builder_browser_evidence.py'
+```
+
+The output records historical proof separately from source freshness. Route consumers count only cases whose `status` and `sourceStatus` are both `current`. The missing Recompile report remains visible as unavailable. These checks do not run a browser or establish current runtime behavior.
 
 ## Definition of done
 
