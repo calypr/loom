@@ -6,10 +6,10 @@ Status: generated from the TLA models and existing test metadata.
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
 678 are currently tracked; 0 baseline files have retained tombstones.
-13155 semantic claims are defined once; 9230 source occurrences are direct test assertions, out of 18949 total labeled occurrences.
-9719 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+13159 semantic claims are defined once; 9230 source occurrences are direct test assertions, out of 18961 total labeled occurrences.
+9731 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
-68 files are classified as independent tool/module purposes; 297 MJS files and 5312 semantic claims have no canonical journey mapping.
+68 files are classified as independent tool/module purposes; 297 MJS files and 5316 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.
 
 | Role | Files |
@@ -174,7 +174,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files with a canonical case mapping | 6 |
 | Tool/module files without a canonical case mapping | 62 |
 | All MJS files without a canonical case mapping | 297 |
-| Semantic claims without a canonical case mapping | 5312 |
+| Semantic claims without a canonical case mapping | 5316 |
 
 ### Explicit formal links
 
@@ -292,11 +292,11 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 | missingCandidate | 70 |
 | missingUnbound | 75 |
 | tests | 907 |
-| testsWithObligations | 12 |
-| testsWithoutObligations | 895 |
+| testsWithObligations | 11 |
+| testsWithoutObligations | 896 |
 | obligationsWithMultipleTests | 24 |
 | duplicateTestNames | 0 |
-| repeatedPlaywrightChecks | 246 |
+| repeatedPlaywrightChecks | 244 |
 | sharedProofs | 3 |
 | candidateRouteBindings | 162 |
 
@@ -386,16 +386,16 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 
 ## Obligations with exact tests
 
-- `BuilderPreview.ApplyAck`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
-- `BuilderPreview.BeginApply`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
+- `BuilderPreview.ApplyAck`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
+- `BuilderPreview.BeginApply`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
 - `BuilderPreview.DiscoveryComplete`: go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`
-- `BuilderPreview.PreviewComplete`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
+- `BuilderPreview.PreviewComplete`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
 - `BuilderPreview.ScheduleDiscovery`: go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`
-- `BuilderPreview.StartPreview`: playwright `recompile`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
-- `ReconcileLifecycle.LateReconcileIgnored`: playwright `recompile`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
-- `ReconcileLifecycle.ReconcileSuccess`: playwright `recompile`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
-- `ReconcileLifecycle.RequestReconcile`: playwright `recompile`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
-- `ReconcileLifecycle.WorkspaceChangeStartsReconcile`: playwright `recompile`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `BuilderPreview.StartPreview`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
+- `ReconcileLifecycle.LateReconcileIgnored`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `ReconcileLifecycle.ReconcileSuccess`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `ReconcileLifecycle.RequestReconcile`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `ReconcileLifecycle.WorkspaceChangeStartsReconcile`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
 
 ## Obligations with multiple tests
 
@@ -430,21 +430,15 @@ No duplicate test names found.
 
 ## Repeated Playwright checks
 
-- `API build identity stayed unchanged during browser run`: 5 cases (playwright:builder-controls:recompile, playwright:standalone-misc:semantic-construction-choice-route-fallback, playwright:cda-five-hop-related-expansion:medication-positive-fixture, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
 - `Preview renders both independent fixture Patients`: 3 cases (playwright:builder-controls:recompile, playwright:builder-controls:first-table, playwright:builder-authoring:authoring)
-- `create blank Explorer action-to-render within budget`: 3 cases (playwright:builder-controls:recompile, playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
-- `create blank Explorer completed`: 2 cases (playwright:builder-controls:recompile, playwright:builder-published-membership:membership)
-- `created a fresh Explorer distinct from the bootstrap`: 5 cases (playwright:builder-controls:recompile, playwright:builder-authoring:suggestions, playwright:builder-published-membership:membership, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-nullable:lifecycle)
-- `fixture browser observer reported no unexpected network or runtime errors`: 9 cases (playwright:builder-controls:recompile, playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable, playwright:builder-authoring:authoring, playwright:basic-unpivot-group:unpivot-to-group, playwright:viewer-query:dataset-zip, playwright:viewer-query:runtime-scope-isolation, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
-- `open Explorer creation action-to-render within budget`: 3 cases (playwright:builder-controls:recompile, playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
-- `open Explorer creation completed`: 2 cases (playwright:builder-controls:recompile, playwright:builder-published-membership:membership)
-- `watched source stayed unchanged during browser run`: 5 cases (playwright:builder-controls:recompile, playwright:standalone-misc:semantic-construction-choice-route-fallback, playwright:cda-five-hop-related-expansion:medication-positive-fixture, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
 - `open native Explorer creation action-to-render within budget`: 2 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable)
 - `create the disposable Explorer through the native control action-to-render within budget`: 2 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable)
+- `fixture browser observer reported no unexpected network or runtime errors`: 8 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable, playwright:builder-authoring:authoring, playwright:basic-unpivot-group:unpivot-to-group, playwright:viewer-query:dataset-zip, playwright:viewer-query:runtime-scope-isolation, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
 - `builder failure is exposed in an alert`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder failure exposes an actionable in-app retry`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder recovered through in-app Retry`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder in-app Retry action-to-render within budget`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
+- `created a fresh Explorer distinct from the bootstrap`: 4 cases (playwright:builder-authoring:suggestions, playwright:builder-published-membership:membership, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-nullable:lifecycle)
 - `basic Patient fixture contains the two independently known records`: 3 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic, playwright:builder-authoring:legacy-v9-rows)
 - `Direct Group action is actionable`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `direct standard Group entry defaults to empty-key COUNT_ROWS without an edit`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
@@ -469,11 +463,18 @@ No duplicate test names found.
 - `DiagnosticReport native source table establishes a versioned current draft under the exact scope`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 - `native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source`: 3 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:membership)
 - `removing Combine and reloading restores its rooted empty target`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
+- `open Explorer creation action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
+- `create blank Explorer action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
 - `create current-draft Observation source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
+- `create current-draft DiagnosticReport source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
+- `open native Combine and create a separate empty target action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
+- `open saved Combine editor after draft input schemas resolve action-to-render within budget`: 6 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
+- `propose Combine removal and render the exact rooted empty output action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 
 ## Tests with no exact obligation
 
 - `playwright` `Duplicate, rename, select, delete, copy, and reload tables$` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, ReconcileLifecycle, WorkspaceLifecycle
+- `playwright` `recompile` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `Add columns waits for a current-draft preview` in `scripts/verify-ui/specs/builder-controls.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `Explorer deletion removes the disposable Explorer, preserves the exact fallback URL, and blocks invalid deletes$` in `scripts/verify-ui/specs/builder-explorer-deletion.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `Explorer deletion stays hidden and preserves the exact Explorer list and URL across reload$` in `scripts/verify-ui/specs/builder-explorer-deletion-unavailable.spec.mjs`; suspected models: BuilderPreview, ConstructionLifecycle, ReconcileLifecycle, WorkspaceLifecycle
@@ -552,8 +553,7 @@ No duplicate test names found.
 - `playwright` `preserves missing-component owners through EXPANDED and GROUP removal Cancel$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `applies source expansion, verifies item values, and restores original Observation rows$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
-- `playwright` `medication-preserve-parent` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, RowDefinitionLifecycle, WorkspaceLifecycle
-- 815 more in the JSON report.
+- 816 more in the JSON report.
 
 ## Shared route proof evidence
 

@@ -23,11 +23,11 @@
     "missingCandidate": 70,
     "missingUnbound": 75,
     "tests": 907,
-    "testsWithObligations": 12,
-    "testsWithoutObligations": 895,
+    "testsWithObligations": 11,
+    "testsWithoutObligations": 896,
     "obligationsWithMultipleTests": 24,
     "duplicateTestNames": 0,
-    "repeatedPlaywrightChecks": 246,
+    "repeatedPlaywrightChecks": 244,
     "sharedProofs": 3,
     "candidateRouteBindings": 162
   },
@@ -346,7 +346,7 @@
         {
           "kind": "path-mention",
           "source": "scripts/build-builder-readiness.mjs",
-          "line": 136
+          "line": 139
         },
         {
           "kind": "path-mention",
@@ -556,7 +556,7 @@
       "path": "scripts/build-builder-readiness.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "3205c70e3ccd680fb7c71e38ca38c29674e726f21f8457a56feabd5ff63b6148",
+      "sha256": "5d51488972b4bf10ecf5e2e617e9bdb4878d11704a01682ce9487069613a785f",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -580,36 +580,41 @@
           },
           {
             "path": "scripts/build-builder-readiness.mjs",
-            "line": 295,
+            "line": 298,
             "kind": "check-mode output comparison branch"
           },
           {
             "path": "scripts/build-builder-readiness.mjs",
-            "line": 298,
+            "line": 301,
             "kind": "rejects stale generated output"
           },
           {
             "path": "scripts/build-builder-readiness.mjs",
-            "line": 21,
+            "line": 22,
             "kind": "check-mode selection"
           },
           {
             "path": "scripts/build-builder-readiness.mjs",
-            "line": 136,
+            "line": 139,
             "kind": "proposal-decision freshness gate"
           },
           {
             "path": "scripts/build-builder-readiness.mjs",
-            "line": 298,
+            "line": 301,
             "kind": "stale report comparison"
+          },
+          {
+            "path": "scripts/build-builder-readiness.mjs",
+            "line": 43,
+            "kind": "filters browser coverage by current report and source status"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59"
+        "reviewedCommit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633"
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "3205c70e3ccd680fb7c71e38ca38c29674e726f21f8457a56feabd5ff63b6148"
+        "commit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633",
+        "sha256": "5d51488972b4bf10ecf5e2e617e9bdb4878d11704a01682ce9487069613a785f"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -624,18 +629,30 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/build-builder-readiness.mjs:L295:runtime-guard-tool-builder-readiness-check-rejects-stale-reports",
+          "sourceAssertionId": "source:scripts/build-builder-readiness.mjs:L298:runtime-guard-tool-builder-readiness-check-rejects-stale-reports",
           "semanticClaimId": "tool.builder-readiness-check-rejects-stale-reports",
           "sourceLines": [
-            295,
             298,
-            300
+            301,
+            303
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/build-builder-readiness.mjs:L43:readiness-counts-only-current-browser-evidence",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            42,
+            43,
+            44
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         }
       ],
       "semanticClaimIds": [
+        "tool.browser-evidence-coverage-requires-current-source-pins",
         "tool.builder-readiness-check-rejects-stale-reports"
       ],
       "journeyMappings": [],
@@ -672,12 +689,12 @@
       "path": "scripts/build-test-obligations.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "b306b3c71cdab6ef37d558a3d6bac2a91c489737e6b3c46cf6501d54e09a8ae0",
+      "sha256": "de1d62174949e5a713038c15dd64823fbf7a741ca4e8445609b9b32555a1578c",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
           "source": ".github/workflows/mjs-test-catalogue.yml",
-          "line": 27
+          "line": 28
         },
         {
           "kind": "path-mention",
@@ -698,144 +715,149 @@
       "testLayer": "command-line",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "dd9429b4e665ee3d8842f73f1d90945b4108b1dd",
+        "reviewedCommit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633",
         "confidence": "high",
         "evidence": [
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 125,
+            "line": 126,
             "kind": "source-claim-evidence-parser"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 163,
+            "line": 164,
             "kind": "diagnostic-reporter-summary"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 186,
+            "line": 187,
             "kind": "reporter-predicate"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 198,
+            "line": 199,
             "kind": "registry-check-normalization"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 201,
+            "line": 202,
             "kind": "known-owned-custom-check-variants"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 207,
+            "line": 208,
             "kind": "case-index-construction"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 437,
+            "line": 438,
             "kind": "rejects-reporter-as-test-assertion"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 611,
+            "line": 612,
             "kind": "nested-registry-self-test"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 824,
+            "line": 825,
             "kind": "negative-same-file-reporter-self-test"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 215,
+            "line": 216,
             "kind": "per-case-journey-assembly-counts"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 247,
+            "line": 248,
             "kind": "sorts-assembled-canonical-cases"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 630,
+            "line": 631,
             "kind": "journey-summary-dedup-self-test"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1413,
+            "line": 1414,
             "kind": "builds-derived-journey-assembly"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1794,
+            "line": 1801,
             "kind": "reports-independent-tool-and-unmapped-counts"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1801,
+            "line": 1808,
             "kind": "emits-canonical-journey-assembly-table"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1809,
+            "line": 1816,
             "kind": "states-counting-and-formal-association-limitations"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1811,
+            "line": 1818,
             "kind": "emits-independent-tools-and-unmapped-source-table"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1053,
+            "line": 1054,
             "kind": "derives-disposition-counts-from-reviewed-catalogue"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1836,
+            "line": 1843,
             "kind": "labels-source-derived-disposition-review"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1840,
+            "line": 1847,
             "kind": "renders-disposition-counts"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1844,
+            "line": 1851,
             "kind": "selects-non-keep-files-from-catalogue"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1848,
+            "line": 1855,
             "kind": "renders-replacement-paths-evidence-and-gap"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1860,
+            "line": 1867,
             "kind": "separates-dispositions-from-runtime-proof"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1421,
+            "line": 1422,
             "kind": "derives-sorted-semantic-claim-ids-for-case"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1442,
+            "line": 1444,
             "kind": "test-rows-reference-top-level-semantic-claims"
           },
           {
             "path": "scripts/build-test-obligations.mjs",
-            "line": 1757,
+            "line": 1764,
             "kind": "serializes-semantic-claim-definitions-once"
+          },
+          {
+            "path": "scripts/build-test-obligations.mjs",
+            "line": 1430,
+            "kind": "adds browser obligations only from current report and source status"
           }
         ]
       },
       "sourceRevision": {
-        "commit": "dd9429b4e665ee3d8842f73f1d90945b4108b1dd",
-        "sha256": "b306b3c71cdab6ef37d558a3d6bac2a91c489737e6b3c46cf6501d54e09a8ae0"
+        "commit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633",
+        "sha256": "de1d62174949e5a713038c15dd64823fbf7a741ca4e8445609b9b32555a1578c"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -860,116 +882,131 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L422:tool-claim-occurrence-path-and-line-validation",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L423:tool-claim-occurrence-path-and-line-validation",
           "semanticClaimId": "tool.obligation-generator-validates-source-claim-occurrences",
           "sourceLines": [
-            419,
-            422,
+            420,
             423,
-            425,
-            426
+            424,
+            426,
+            427
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L437:tool-rejects-reporter-lines-as-behavioral-assertions",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L438:tool-rejects-reporter-lines-as-behavioral-assertions",
           "semanticClaimId": "tool.obligation-generator-rejects-recorder-lines-as-tests",
           "sourceLines": [
-            163,
-            186,
-            437,
-            439
+            164,
+            187,
+            438,
+            440
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L386:tool-requires-reviewed-source-anchors",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L387:tool-requires-reviewed-source-anchors",
           "semanticClaimId": "tool.obligation-generator-requires-reviewed-source-evidence",
           "sourceLines": [
-            386,
-            390,
+            387,
             391,
-            394
+            392,
+            395
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L198:tool-indexes-owned-and-custom-checks",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L199:tool-indexes-owned-and-custom-checks",
           "semanticClaimId": "tool.obligation-generator.indexes-owned-custom-checks",
           "sourceLines": [
-            198,
-            201,
-            204,
-            207,
-            611,
+            199,
+            202,
+            205,
+            208,
             612,
-            613
+            613,
+            614
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L186:tool-same-file-reporter-detection",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L187:tool-same-file-reporter-detection",
           "semanticClaimId": "tool.obligation-generator-detects-same-file-diagnostic-wrappers",
           "sourceLines": [
-            163,
-            166,
-            177,
+            164,
+            167,
             178,
-            182,
-            186,
-            192,
+            179,
+            183,
+            187,
             193,
-            437,
-            439
+            194,
+            438,
+            440
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L809:tool-reporter-self-tests-distinguish-predicates-from-status-labels",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L810:tool-reporter-self-tests-distinguish-predicates-from-status-labels",
           "semanticClaimId": "tool.obligation-generator-detects-same-file-diagnostic-wrappers",
           "sourceLines": [
-            809,
-            824,
-            860,
-            878,
-            884
+            810,
+            825,
+            861,
+            879,
+            885
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L630:tool-journey-assembly-dedup-self-test",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L631:tool-journey-assembly-dedup-self-test",
           "semanticClaimId": "tool.obligation-generator.summarizes-journey-assembly",
           "sourceLines": [
-            215,
-            225,
+            216,
             226,
             227,
             228,
-            230,
-            240,
+            229,
+            231,
             241,
             242,
             243,
             244,
             245,
-            614,
-            630,
+            246,
+            615,
             631,
             632,
             633,
-            634
+            634,
+            635
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L1430:obligations-count-only-current-browser-evidence",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            1429,
+            1430,
+            1440,
+            1445,
+            1456,
+            1606
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
         }
       ],
       "semanticClaimIds": [
+        "tool.browser-evidence-coverage-requires-current-source-pins",
         "tool.obligation-generator-detects-same-file-diagnostic-wrappers",
         "tool.obligation-generator-rejects-recorder-lines-as-tests",
         "tool.obligation-generator-requires-reviewed-source-evidence",
@@ -1475,8 +1512,13 @@
       "path": "scripts/generate-builder-browser-evidence.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "de2d49aefc9c4f5dc55d4bb6921f8306a0a0c808c05667bdf214107e179a6e84",
+      "sha256": "6dee4deb0517830775d59f323a9df7d6694d5a71691ba9a2c937fcaa4e782bd0",
       "staticReferenceCandidates": [
+        {
+          "kind": "path-mention",
+          "source": ".github/workflows/mjs-test-catalogue.yml",
+          "line": 31
+        },
         {
           "kind": "path-mention",
           "source": "docs/verification/BUILDER_FORMAL_VERIFICATION_PLAN.md",
@@ -1488,7 +1530,7 @@
           "line": 707
         }
       ],
-      "staticReferenceCandidateCount": 2,
+      "staticReferenceCandidateCount": 3,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Reads retained browser reports and generates or checks the normalized Builder browser-evidence ledger.",
@@ -1504,56 +1546,81 @@
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 57,
+            "line": 330,
             "kind": "passed report status guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 64,
+            "line": 334,
             "kind": "source fingerprint validation guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 68,
+            "line": 336,
             "kind": "API build identity validation guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 88,
+            "line": 344,
             "kind": "failed assertion rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 121,
+            "line": 871,
             "kind": "missing output rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 122,
+            "line": 872,
             "kind": "stale output rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 57,
+            "line": 330,
             "kind": "passed browser report guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 64,
+            "line": 334,
             "kind": "source fingerprint shape guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 88,
+            "line": 344,
             "kind": "failed assertion rejection"
+          },
+          {
+            "path": "scripts/generate-builder-browser-evidence.mjs",
+            "line": 345,
+            "kind": "classifies source status from the current watched-tree fingerprint"
+          },
+          {
+            "path": "scripts/generate-builder-browser-evidence.mjs",
+            "line": 132,
+            "kind": "imports and executes the sanitizer blob from the tested source commit"
+          },
+          {
+            "path": "scripts/generate-builder-browser-evidence.mjs",
+            "line": 353,
+            "kind": "resolves current read-only-custom cases with their custom registry checks"
+          },
+          {
+            "path": "scripts/generate-builder-browser-evidence.mjs",
+            "line": 548,
+            "kind": "requires audited trace identity to match the tested registry"
+          },
+          {
+            "path": "scripts/generate-builder-browser-evidence.mjs",
+            "line": 852,
+            "kind": "requires a present generatedFrom evidence input"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59"
+        "reviewedCommit": "e988e3f510f94b3a01c56d13122174875a5edeec"
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "de2d49aefc9c4f5dc55d4bb6921f8306a0a0c808c05667bdf214107e179a6e84"
+        "commit": "e988e3f510f94b3a01c56d13122174875a5edeec",
+        "sha256": "6dee4deb0517830775d59f323a9df7d6694d5a71691ba9a2c937fcaa4e782bd0"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -1568,76 +1635,145 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L57:runtime-guard-tool-browser-evidence-requires-passed-report-status",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L330:runtime-guard-tool-browser-evidence-requires-passed-report-status",
           "semanticClaimId": "tool.browser-evidence-requires-passed-report-status",
           "sourceLines": [
-            57
+            330
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L63:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L334:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
           "semanticClaimId": "invariant.browser-evidence-pins-source-and-api-build-identity",
           "sourceLines": [
-            63,
-            64,
-            65
+            334,
+            335,
+            336
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L67:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L336:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
           "semanticClaimId": "invariant.browser-evidence-pins-source-and-api-build-identity",
           "sourceLines": [
-            67,
-            68,
-            69
+            335,
+            336
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L72:runtime-guard-tool-browser-evidence-rejects-native-route-empty-report",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L341:runtime-guard-tool-browser-evidence-rejects-native-route-empty-report",
           "semanticClaimId": "tool.browser-evidence-rejects-native-route-empty-report",
           "sourceLines": [
-            72,
-            74,
-            80
+            339,
+            340,
+            341
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L82:runtime-guard-tool-browser-evidence-rejects-failed-report-assertions",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L344:runtime-guard-tool-browser-evidence-rejects-failed-report-assertions",
           "semanticClaimId": "tool.browser-evidence-rejects-failed-report-assertions",
           "sourceLines": [
-            82,
-            87,
-            88,
-            89
+            342,
+            343,
+            344
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L121:runtime-guard-tool-browser-evidence-check-requires-existing-output",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L871:runtime-guard-tool-browser-evidence-check-requires-existing-output",
           "semanticClaimId": "tool.browser-evidence-check-requires-existing-output",
           "sourceLines": [
-            120,
-            121
+            870,
+            871
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L122:runtime-guard-tool-browser-evidence-check-requires-current-serialized-output",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L872:runtime-guard-tool-browser-evidence-check-requires-current-serialized-output",
           "semanticClaimId": "tool.browser-evidence-check-requires-current-serialized-output",
           "sourceLines": [
-            120,
-            122,
-            123
+            870,
+            872
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L345:report-source-status-matches-current-watched-tree",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            345,
+            346,
+            348,
+            349
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L353:current-read-only-custom-case-uses-custom-checks",
+          "semanticClaimId": "tool.browser-evidence-validates-read-only-custom-checks",
+          "sourceLines": [
+            352,
+            353,
+            354,
+            355,
+            356
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L127:historical-manifest-uses-tested-sanitizer-blob",
+          "semanticClaimId": "tool.browser-evidence-uses-tested-sanitizer-for-historical-manifests",
+          "sourceLines": [
+            127,
+            128,
+            129,
+            130,
+            131,
+            132,
+            133,
+            134
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L852:from-evidence-requires-indexed-input-and-known-report-paths",
+          "semanticClaimId": "tool.browser-evidence-from-evidence-requires-indexed-reports",
+          "sourceLines": [
+            850,
+            851,
+            852,
+            853,
+            854,
+            860,
+            863,
+            864,
+            865
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L544:retained-trace-name-matches-tested-registry",
+          "semanticClaimId": "tool.builder-journey-trace-name-must-match-registered-case",
+          "sourceLines": [
+            544,
+            545,
+            546,
+            548,
+            549,
+            552
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
@@ -1647,9 +1783,14 @@
         "invariant.browser-evidence-pins-source-and-api-build-identity",
         "tool.browser-evidence-check-requires-current-serialized-output",
         "tool.browser-evidence-check-requires-existing-output",
+        "tool.browser-evidence-coverage-requires-current-source-pins",
+        "tool.browser-evidence-from-evidence-requires-indexed-reports",
         "tool.browser-evidence-rejects-failed-report-assertions",
         "tool.browser-evidence-rejects-native-route-empty-report",
-        "tool.browser-evidence-requires-passed-report-status"
+        "tool.browser-evidence-requires-passed-report-status",
+        "tool.browser-evidence-uses-tested-sanitizer-for-historical-manifests",
+        "tool.browser-evidence-validates-read-only-custom-checks",
+        "tool.builder-journey-trace-name-must-match-registered-case"
       ],
       "journeyMappings": [],
       "oracle": null,
@@ -1883,12 +2024,22 @@
       "path": "scripts/lib/builder-route-evidence.mjs",
       "roleHint": "helper-or-oracle",
       "present": true,
-      "sha256": "9db1a5f4f4e267f953f954034240734dd18d3da3aa0fc92284c4d3010fd9aa7a",
+      "sha256": "b0dd5fc8b8028f1963a2ff47d9dc1f921fe1ce5bdd00b8530d70974ffac0b19a",
       "staticReferenceCandidates": [
         {
           "kind": "literal-import-candidate",
           "source": "scripts/apply-builder-proposal-decisions.mjs",
           "line": 5
+        },
+        {
+          "kind": "literal-import-candidate",
+          "source": "scripts/build-builder-readiness.mjs",
+          "line": 5
+        },
+        {
+          "kind": "literal-import-candidate",
+          "source": "scripts/build-test-obligations.mjs",
+          "line": 7
         },
         {
           "kind": "literal-import-candidate",
@@ -1916,7 +2067,7 @@
           "line": 6
         }
       ],
-      "staticReferenceCandidateCount": 6,
+      "staticReferenceCandidateCount": 9,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Provides shared path, operation, mode, and test-source evidence extraction helpers used by Builder route proposal and bug-discovery tools.",
@@ -1932,26 +2083,36 @@
           },
           {
             "path": "scripts/lib/builder-route-evidence.mjs",
-            "line": 63,
+            "line": 67,
             "kind": "OpenAPI route operation scan"
           },
           {
             "path": "scripts/lib/builder-route-evidence.mjs",
-            "line": 184,
+            "line": 188,
             "kind": "route evidence API"
           },
           {
             "path": "scripts/lib/builder-route-evidence.mjs",
-            "line": 221,
+            "line": 225,
             "kind": "exported display path helper"
+          },
+          {
+            "path": "scripts/lib/builder-route-evidence.mjs",
+            "line": 19,
+            "kind": "current browser evidence requires both current statuses"
+          },
+          {
+            "path": "scripts/lib/builder-route-evidence.mjs",
+            "line": 191,
+            "kind": "route mapping excludes stale browser evidence"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59"
+        "reviewedCommit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633"
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "9db1a5f4f4e267f953f954034240734dd18d3da3aa0fc92284c4d3010fd9aa7a"
+        "commit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633",
+        "sha256": "b0dd5fc8b8028f1963a2ff47d9dc1f921fe1ce5bdd00b8530d70974ffac0b19a"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -1981,73 +2142,73 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L93:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L97:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
           "semanticClaimId": "oracle.builder-route-evidence.classifies-route-modes",
           "sourceLines": [
-            93
+            97
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L100:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L104:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
           "semanticClaimId": "oracle.builder-route-evidence.classifies-route-modes",
           "sourceLines": [
-            100
+            104
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L159:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L163:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "semanticClaimId": "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
           "sourceLines": [
-            159
+            163
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L165:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L169:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "semanticClaimId": "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
           "sourceLines": [
-            165
+            169
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L175:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L179:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "semanticClaimId": "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
           "sourceLines": [
-            175
+            179
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L184:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L188:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "semanticClaimId": "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
           "sourceLines": [
-            184
+            188
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L197:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L201:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "semanticClaimId": "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
           "sourceLines": [
-            197
+            201
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L218:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L222:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "semanticClaimId": "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
           "sourceLines": [
-            218
+            222
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
@@ -2071,19 +2232,41 @@
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L89:oracle-computation-tool-contract-builder-route-evidence-normalizes-evidence-identities",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L93:oracle-computation-tool-contract-builder-route-evidence-normalizes-evidence-identities",
           "semanticClaimId": "tool-contract.builder-route-evidence.normalizes-evidence-identities",
           "sourceLines": [
-            89
+            93
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L19:current-evidence-requires-current-run-and-source-status",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            19,
+            20
+          ],
+          "independence": "independent",
+          "evidenceKind": "oracle-computation"
+        },
+        {
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L191:route-evidence-maps-only-current-browser-cases",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            190,
+            191,
+            192
+          ],
+          "independence": "independent",
+          "evidenceKind": "oracle-computation"
         }
       ],
       "semanticClaimIds": [
         "oracle.builder-route-evidence.classifies-route-modes",
         "oracle.builder-route-evidence.maps-test-citations-to-route-evidence",
-        "tool-contract.builder-route-evidence.normalizes-evidence-identities"
+        "tool-contract.builder-route-evidence.normalizes-evidence-identities",
+        "tool.browser-evidence-coverage-requires-current-source-pins"
       ],
       "journeyMappings": [],
       "oracle": null,
@@ -13950,7 +14133,7 @@
       "path": "scripts/propose-builder-browser-cases.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "e26ac754ac709e9f64bc8990bcc9fc77c1f53778fcea67ad366a1a0191f604d5",
+      "sha256": "83063d983d0dbdcf854096c9b0e119b8682a57c0a357045ad3e1deafb37d7db4",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -13974,36 +14157,41 @@
           },
           {
             "path": "scripts/propose-builder-browser-cases.mjs",
-            "line": 90,
+            "line": 92,
             "kind": "check-mode generated-output comparison"
           },
           {
             "path": "scripts/propose-builder-browser-cases.mjs",
-            "line": 93,
+            "line": 95,
             "kind": "stale browser proposal output guard"
           },
           {
             "path": "scripts/propose-builder-browser-cases.mjs",
-            "line": 21,
+            "line": 23,
             "kind": "selects uncovered route entries"
           },
           {
             "path": "scripts/propose-builder-browser-cases.mjs",
-            "line": 90,
+            "line": 92,
             "kind": "check-mode output comparison"
           },
           {
             "path": "scripts/propose-builder-browser-cases.mjs",
-            "line": 93,
+            "line": 95,
             "kind": "stale proposal guard"
+          },
+          {
+            "path": "scripts/propose-builder-browser-cases.mjs",
+            "line": 15,
+            "kind": "browser case proposals ignore stale evidence"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59"
+        "reviewedCommit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633"
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "e26ac754ac709e9f64bc8990bcc9fc77c1f53778fcea67ad366a1a0191f604d5"
+        "commit": "69fa91898f18c71dd3b63c7c3f277cfae34cc633",
+        "sha256": "83063d983d0dbdcf854096c9b0e119b8682a57c0a357045ad3e1deafb37d7db4"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -14018,20 +14206,32 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/propose-builder-browser-cases.mjs:L90:runtime-guard-tool-browser-case-proposal-check-rejects-stale-output",
+          "sourceAssertionId": "source:scripts/propose-builder-browser-cases.mjs:L92:runtime-guard-tool-browser-case-proposal-check-rejects-stale-output",
           "semanticClaimId": "tool.browser-case-proposal-check-rejects-stale-output",
           "sourceLines": [
-            90,
-            93,
-            94,
-            95
+            92,
+            95,
+            96,
+            97
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/propose-builder-browser-cases.mjs:L15:browser-proposals-count-only-current-evidence",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            14,
+            15,
+            16
+          ],
+          "independence": "independent",
+          "evidenceKind": "oracle-computation"
         }
       ],
       "semanticClaimIds": [
-        "tool.browser-case-proposal-check-rejects-stale-output"
+        "tool.browser-case-proposal-check-rejects-stale-output",
+        "tool.browser-evidence-coverage-requires-current-source-pins"
       ],
       "journeyMappings": [],
       "oracle": null,
@@ -17489,12 +17689,12 @@
         {
           "kind": "path-mention",
           "source": "scripts/build-test-obligations.mjs",
-          "line": 15
+          "line": 16
         },
         {
           "kind": "path-mention",
           "source": "scripts/verify-builder-route-ledger.mjs",
-          "line": 9
+          "line": 10
         }
       ],
       "staticReferenceCandidateCount": 7,
@@ -18287,7 +18487,7 @@
       "path": "scripts/verify-builder-route-ledger.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "d7997951a396d285e8029c914b8943afeedb6d068331ea4a0cfe7b8aa7556aad",
+      "sha256": "b6214f16dee2c9638f8e31cd7f9752a06aaa90ccd2ed0605e50a78d0047f97e3",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -18316,51 +18516,61 @@
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 21,
+            "line": 22,
             "kind": "loads route proof ledger"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 61,
+            "line": 63,
             "kind": "proof status guard"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 97,
+            "line": 99,
             "kind": "requires executable test evidence"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 102,
+            "line": 104,
             "kind": "browser evidence link validation"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 208,
+            "line": 223,
             "kind": "strict-mode proof gate"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 61,
+            "line": 63,
             "kind": "validates proof status"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 97,
+            "line": 99,
             "kind": "requires executable test for trace proof"
           },
           {
             "path": "scripts/verify-builder-route-ledger.mjs",
-            "line": 208,
+            "line": 223,
             "kind": "strict proof gate"
+          },
+          {
+            "path": "scripts/verify-builder-route-ledger.mjs",
+            "line": 105,
+            "kind": "strict verification rejects stale evidence while report-only records its gap"
+          },
+          {
+            "path": "scripts/verify-builder-route-ledger.mjs",
+            "line": 185,
+            "kind": "route counts include only current, route-covering browser cases"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59"
+        "reviewedCommit": "429e55db0d77153de158fdbcddae777db56f1784"
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "d7997951a396d285e8029c914b8943afeedb6d068331ea4a0cfe7b8aa7556aad"
+        "commit": "429e55db0d77153de158fdbcddae777db56f1784",
+        "sha256": "b6214f16dee2c9638f8e31cd7f9752a06aaa90ccd2ed0605e50a78d0047f97e3"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -18375,15 +18585,6 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L61:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
-          "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
-          "sourceLines": [
-            61
-          ],
-          "independence": "shared",
-          "evidenceKind": "runtime-guard"
-        },
-        {
           "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L63:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
           "sourceLines": [
@@ -18393,60 +18594,60 @@
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L68:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L65:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
           "sourceLines": [
-            68,
-            69,
+            65
+          ],
+          "independence": "shared",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L70:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
+          "sourceLines": [
             70,
             71,
             72,
-            73
+            73,
+            74,
+            75
           ],
           "independence": "shared",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L76:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L78:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
           "sourceLines": [
-            76
+            78
           ],
           "independence": "shared",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L81:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L83:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
           "sourceLines": [
-            81
+            83
           ],
           "independence": "shared",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L84:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L86:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
           "sourceLines": [
-            84
+            86
           ],
           "independence": "shared",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L97:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L99:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
           "sourceLines": [
-            97
-          ],
-          "independence": "shared",
-          "evidenceKind": "runtime-guard"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L102:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
-          "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
-          "sourceLines": [
-            102
+            99
           ],
           "independence": "shared",
           "evidenceKind": "runtime-guard"
@@ -18461,27 +18662,67 @@
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L208:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L111:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "semanticClaimId": "tool.route-ledger-validates-proof-evidence-links",
+          "sourceLines": [
+            111
+          ],
+          "independence": "shared",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L223:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
           "semanticClaimId": "tool.route-ledger-strict-mode-rejects-unproven-proof-statuses",
           "sourceLines": [
-            208,
-            209
+            223,
+            224
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L211:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L226:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
           "semanticClaimId": "tool.route-ledger-strict-mode-rejects-unproven-proof-statuses",
           "sourceLines": [
-            211,
-            212
+            226,
+            227
           ],
           "independence": "shared",
           "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L105:route-ledger-surfaces-stale-browser-evidence-as-gap",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            103,
+            104,
+            105,
+            106,
+            108,
+            109
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L185:route-ledger-counts-only-current-browser-cases-as-coverage",
+          "semanticClaimId": "tool.browser-evidence-coverage-requires-current-source-pins",
+          "sourceLines": [
+            185,
+            186,
+            187,
+            188,
+            189,
+            190,
+            191,
+            192
+          ],
+          "independence": "independent",
+          "evidenceKind": "oracle-computation"
         }
       ],
       "semanticClaimIds": [
+        "tool.browser-evidence-coverage-requires-current-source-pins",
         "tool.route-ledger-strict-mode-rejects-unproven-proof-statuses",
         "tool.route-ledger-validates-proof-evidence-links"
       ],
@@ -48604,6 +48845,11 @@
           "line": 126
         },
         {
+          "kind": "path-mention",
+          "source": "scripts/generate-builder-browser-evidence.mjs",
+          "line": 16
+        },
+        {
           "kind": "literal-import-candidate",
           "source": "scripts/loom-dev.mjs",
           "line": 10
@@ -48632,14 +48878,9 @@
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/helpers/native-failure-evidence.mjs",
           "line": 2
-        },
-        {
-          "kind": "literal-import-candidate",
-          "source": "scripts/verify-ui/helpers/playwright-network-observer.mjs",
-          "line": 1
         }
       ],
-      "staticReferenceCandidateCount": 41,
+      "staticReferenceCandidateCount": 42,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Provides browser text and payload sanitization and bounded evidence handling for native Playwright workflows.",
@@ -58111,6 +58352,11 @@
       "staticReferenceCandidates": [
         {
           "kind": "literal-import-candidate",
+          "source": "scripts/generate-builder-browser-evidence.mjs",
+          "line": 7
+        },
+        {
+          "kind": "literal-import-candidate",
           "source": "scripts/loom-dev.mjs",
           "line": 14
         },
@@ -58143,14 +58389,9 @@
           "kind": "literal-import-candidate",
           "source": "scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-artifact.test.mjs",
           "line": 11
-        },
-        {
-          "kind": "literal-import-candidate",
-          "source": "scripts/verify-ui/helpers/tests/source-fingerprint.test.mjs",
-          "line": 6
         }
       ],
-      "staticReferenceCandidateCount": 22,
+      "staticReferenceCandidateCount": 23,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Hashes the configured watched source paths and reports the exact changed paths between captured manifests.",
@@ -136826,7 +137067,12 @@
         {
           "kind": "path-mention",
           "source": "scripts/build-test-obligations.mjs",
-          "line": 14
+          "line": 15
+        },
+        {
+          "kind": "path-mention",
+          "source": "scripts/generate-builder-browser-evidence.mjs",
+          "line": 13
         },
         {
           "kind": "path-mention",
@@ -136837,14 +137083,9 @@
           "kind": "literal-import-candidate",
           "source": "scripts/maintenance/playwright/check-native-playwright.mjs",
           "line": 5
-        },
-        {
-          "kind": "literal-import-candidate",
-          "source": "scripts/maintenance/playwright/check-standalone-playwright-ledger.test.mjs",
-          "line": 7
         }
       ],
-      "staticReferenceCandidateCount": 56,
+      "staticReferenceCandidateCount": 57,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Defines native verification cases, Group required checks, focused-check commands, trace requirements, fixture seeding options, and lookup/drift helpers consumed by the runners.",
@@ -471013,17 +471254,17 @@
     "sourceReviewed": 678,
     "runtimeUnverified": 678,
     "invocationUncertain": 38,
-    "semanticClaims": 13155,
-    "sourceAssertionOccurrences": 18949,
+    "semanticClaims": 13159,
+    "sourceAssertionOccurrences": 18961,
     "sourceAssertions": 9230,
-    "nonAssertionOccurrences": 9719,
-    "claimsWithoutSourceAssertions": 5421,
-    "claimsWithoutJourneyMappings": 5312,
+    "nonAssertionOccurrences": 9731,
+    "claimsWithoutSourceAssertions": 5425,
+    "claimsWithoutJourneyMappings": 5316,
     "assertionEvidenceKindCounts": {
       "call-through": 3538,
       "fixture-fact": 159,
-      "oracle-computation": 1007,
-      "runtime-guard": 4609,
+      "oracle-computation": 1011,
+      "runtime-guard": 4617,
       "test-assertion": 9230,
       "trace-capture": 406
     },
@@ -577555,23 +577796,22 @@
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L63:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L334:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            63,
-            64,
-            65
+            334,
+            335,
+            336
           ]
         },
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L67:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L336:runtime-guard-invariant-browser-evidence-pins-source-and-api-build-identity",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            67,
-            68,
-            69
+            335,
+            336
           ]
         }
       ]
@@ -872395,19 +872635,19 @@
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L100:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L104:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            100
+            104
           ]
         },
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L93:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L97:oracle-computation-oracle-builder-route-evidence-classifies-route-modes",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            93
+            97
           ]
         }
       ]
@@ -872421,55 +872661,55 @@
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L159:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L163:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            159
+            163
           ]
         },
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L165:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L169:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            165
+            169
           ]
         },
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L175:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L179:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            175
+            179
           ]
         },
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L184:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L188:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            184
+            188
           ]
         },
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L197:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L201:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            197
+            201
           ]
         },
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L218:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L222:oracle-computation-oracle-builder-route-evidence-maps-test-citations-to-route-evidence",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            218
+            222
           ]
         }
       ]
@@ -903575,10 +903815,10 @@
         {
           "path": "scripts/lib/builder-route-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L89:oracle-computation-tool-contract-builder-route-evidence-normalizes-evidence-identities",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L93:oracle-computation-tool-contract-builder-route-evidence-normalizes-evidence-identities",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            89
+            93
           ]
         }
       ]
@@ -909481,13 +909721,13 @@
         {
           "path": "scripts/propose-builder-browser-cases.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/propose-builder-browser-cases.mjs:L90:runtime-guard-tool-browser-case-proposal-check-rejects-stale-output",
+          "sourceAssertionId": "source:scripts/propose-builder-browser-cases.mjs:L92:runtime-guard-tool-browser-case-proposal-check-rejects-stale-output",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            90,
-            93,
-            94,
-            95
+            92,
+            95,
+            96,
+            97
           ]
         }
       ]
@@ -909501,12 +909741,11 @@
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L122:runtime-guard-tool-browser-evidence-check-requires-current-serialized-output",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L872:runtime-guard-tool-browser-evidence-check-requires-current-serialized-output",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            120,
-            122,
-            123
+            870,
+            872
           ]
         }
       ]
@@ -909520,11 +909759,143 @@
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L121:runtime-guard-tool-browser-evidence-check-requires-existing-output",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L871:runtime-guard-tool-browser-evidence-check-requires-existing-output",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            120,
-            121
+            870,
+            871
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool.browser-evidence-coverage-requires-current-source-pins",
+      "statement": "Browser evidence counts as route or journey coverage only when both its report status and its source status are current.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/build-builder-readiness.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/build-builder-readiness.mjs:L43:readiness-counts-only-current-browser-evidence",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            42,
+            43,
+            44
+          ]
+        },
+        {
+          "path": "scripts/build-test-obligations.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L1430:obligations-count-only-current-browser-evidence",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            1429,
+            1430,
+            1440,
+            1445,
+            1456,
+            1606
+          ]
+        },
+        {
+          "path": "scripts/generate-builder-browser-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L345:report-source-status-matches-current-watched-tree",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            345,
+            346,
+            348,
+            349
+          ]
+        },
+        {
+          "path": "scripts/lib/builder-route-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L19:current-evidence-requires-current-run-and-source-status",
+          "evidenceKind": "oracle-computation",
+          "sourceLines": [
+            19,
+            20
+          ]
+        },
+        {
+          "path": "scripts/lib/builder-route-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/lib/builder-route-evidence.mjs:L191:route-evidence-maps-only-current-browser-cases",
+          "evidenceKind": "oracle-computation",
+          "sourceLines": [
+            190,
+            191,
+            192
+          ]
+        },
+        {
+          "path": "scripts/propose-builder-browser-cases.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/propose-builder-browser-cases.mjs:L15:browser-proposals-count-only-current-evidence",
+          "evidenceKind": "oracle-computation",
+          "sourceLines": [
+            14,
+            15,
+            16
+          ]
+        },
+        {
+          "path": "scripts/verify-builder-route-ledger.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L105:route-ledger-surfaces-stale-browser-evidence-as-gap",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            103,
+            104,
+            105,
+            106,
+            108,
+            109
+          ]
+        },
+        {
+          "path": "scripts/verify-builder-route-ledger.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L185:route-ledger-counts-only-current-browser-cases-as-coverage",
+          "evidenceKind": "oracle-computation",
+          "sourceLines": [
+            185,
+            186,
+            187,
+            188,
+            189,
+            190,
+            191,
+            192
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool.browser-evidence-from-evidence-requires-indexed-reports",
+      "statement": "The --from-evidence mode requires an existing evidence artifact with a generatedFrom list and rejects missing referenced reports, except for the explicitly unavailable Recompile report.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/generate-builder-browser-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L852:from-evidence-requires-indexed-input-and-known-report-paths",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            850,
+            851,
+            852,
+            853,
+            854,
+            860,
+            863,
+            864,
+            865
           ]
         }
       ]
@@ -909538,13 +909909,12 @@
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L82:runtime-guard-tool-browser-evidence-rejects-failed-report-assertions",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L344:runtime-guard-tool-browser-evidence-rejects-failed-report-assertions",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            82,
-            87,
-            88,
-            89
+            342,
+            343,
+            344
           ]
         }
       ]
@@ -909558,12 +909928,12 @@
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L72:runtime-guard-tool-browser-evidence-rejects-native-route-empty-report",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L341:runtime-guard-tool-browser-evidence-rejects-native-route-empty-report",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            72,
-            74,
-            80
+            339,
+            340,
+            341
           ]
         }
       ]
@@ -909577,10 +909947,55 @@
         {
           "path": "scripts/generate-builder-browser-evidence.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L57:runtime-guard-tool-browser-evidence-requires-passed-report-status",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L330:runtime-guard-tool-browser-evidence-requires-passed-report-status",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            57
+            330
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool.browser-evidence-uses-tested-sanitizer-for-historical-manifests",
+      "statement": "Historical source manifests are sanitized with the helper blob from the tested source commit, and its hash must match the recorded manifest.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/generate-builder-browser-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L127:historical-manifest-uses-tested-sanitizer-blob",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            127,
+            128,
+            129,
+            130,
+            131,
+            132,
+            133,
+            134
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool.browser-evidence-validates-read-only-custom-checks",
+      "statement": "A current read-only-custom browser report is checked against the custom required checks registered for its case.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/generate-builder-browser-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L353:current-read-only-custom-case-uses-custom-checks",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            352,
+            353,
+            354,
+            355,
+            356
           ]
         }
       ]
@@ -909850,6 +910265,20 @@
       "journeys": [],
       "sourceAssertions": [
         {
+          "path": "scripts/generate-builder-browser-evidence.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/generate-builder-browser-evidence.mjs:L544:retained-trace-name-matches-tested-registry",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            544,
+            545,
+            546,
+            548,
+            549,
+            552
+          ]
+        },
+        {
           "path": "scripts/run-builder-journey.mjs",
           "lifecycle": "active",
           "sourceAssertionId": "source:scripts/run-builder-journey.mjs:L157:runtime-guard-tool-builder-journey-trace-name-must-match-registered-case",
@@ -909907,12 +910336,12 @@
         {
           "path": "scripts/build-builder-readiness.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-builder-readiness.mjs:L295:runtime-guard-tool-builder-readiness-check-rejects-stale-reports",
+          "sourceAssertionId": "source:scripts/build-builder-readiness.mjs:L298:runtime-guard-tool-builder-readiness-check-rejects-stale-reports",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            295,
             298,
-            300
+            301,
+            303
           ]
         }
       ]
@@ -912138,32 +912567,32 @@
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L186:tool-same-file-reporter-detection",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L187:tool-same-file-reporter-detection",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            163,
-            166,
-            177,
+            164,
+            167,
             178,
-            182,
-            186,
-            192,
+            179,
+            183,
+            187,
             193,
-            437,
-            439
+            194,
+            438,
+            440
           ]
         },
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L809:tool-reporter-self-tests-distinguish-predicates-from-status-labels",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L810:tool-reporter-self-tests-distinguish-predicates-from-status-labels",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            809,
-            824,
-            860,
-            878,
-            884
+            810,
+            825,
+            861,
+            879,
+            885
           ]
         }
       ]
@@ -912177,13 +912606,13 @@
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L437:tool-rejects-reporter-lines-as-behavioral-assertions",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L438:tool-rejects-reporter-lines-as-behavioral-assertions",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            163,
-            186,
-            437,
-            439
+            164,
+            187,
+            438,
+            440
           ]
         }
       ]
@@ -912197,13 +912626,13 @@
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L386:tool-requires-reviewed-source-anchors",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L387:tool-requires-reviewed-source-anchors",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            386,
-            390,
+            387,
             391,
-            394
+            392,
+            395
           ]
         }
       ]
@@ -912217,14 +912646,14 @@
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L422:tool-claim-occurrence-path-and-line-validation",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L423:tool-claim-occurrence-path-and-line-validation",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            419,
-            422,
+            420,
             423,
-            425,
-            426
+            424,
+            426,
+            427
           ]
         }
       ]
@@ -912238,16 +912667,16 @@
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L198:tool-indexes-owned-and-custom-checks",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L199:tool-indexes-owned-and-custom-checks",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            198,
-            201,
-            204,
-            207,
-            611,
+            199,
+            202,
+            205,
+            208,
             612,
-            613
+            613,
+            614
           ]
         }
       ]
@@ -912261,27 +912690,27 @@
         {
           "path": "scripts/build-test-obligations.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L630:tool-journey-assembly-dedup-self-test",
+          "sourceAssertionId": "source:scripts/build-test-obligations.mjs:L631:tool-journey-assembly-dedup-self-test",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            215,
-            225,
+            216,
             226,
             227,
             228,
-            230,
-            240,
+            229,
+            231,
             241,
             242,
             243,
             244,
             245,
-            614,
-            630,
+            246,
+            615,
             631,
             632,
             633,
-            634
+            634,
+            635
           ]
         }
       ]
@@ -913437,21 +913866,21 @@
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L208:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L223:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            208,
-            209
+            223,
+            224
           ]
         },
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L211:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L226:runtime-guard-tool-route-ledger-strict-mode-rejects-unproven-proof-statuses",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            211,
-            212
+            226,
+            227
           ]
         }
       ]
@@ -913465,15 +913894,6 @@
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L102:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
-          "evidenceKind": "runtime-guard",
-          "sourceLines": [
-            102
-          ]
-        },
-        {
-          "path": "scripts/verify-builder-route-ledger.mjs",
-          "lifecycle": "active",
           "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L104:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
@@ -913483,10 +913903,10 @@
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L61:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L111:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            61
+            111
           ]
         },
         {
@@ -913501,51 +913921,60 @@
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L68:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L65:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            68,
-            69,
+            65
+          ]
+        },
+        {
+          "path": "scripts/verify-builder-route-ledger.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L70:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
             70,
             71,
             72,
-            73
+            73,
+            74,
+            75
           ]
         },
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L76:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L78:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            76
+            78
           ]
         },
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L81:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L83:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            81
+            83
           ]
         },
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L84:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L86:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            84
+            86
           ]
         },
         {
           "path": "scripts/verify-builder-route-ledger.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L97:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
+          "sourceAssertionId": "source:scripts/verify-builder-route-ledger.mjs:L99:runtime-guard-tool-route-ledger-validates-proof-evidence-links",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            97
+            99
           ]
         }
       ]
@@ -1062444,14 +1062873,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
           "level": "server",
@@ -1062519,14 +1062940,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
         {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
@@ -1062683,14 +1063096,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
         {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
@@ -1062851,14 +1063256,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
           "level": "server",
@@ -1062952,14 +1063349,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
@@ -1063058,14 +1063447,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
           "level": "server",
@@ -1063162,14 +1063543,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
@@ -1063268,14 +1063641,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
           "level": "server",
@@ -1063373,14 +1063738,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
           "level": "server",
@@ -1063477,14 +1063834,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_row_change_route_test.go::TestAssessAndApplyRowChangeThroughPublicAPI",
           "kind": "go",
@@ -1065280,14 +1065629,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1065383,14 +1065724,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1065437,14 +1065770,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
@@ -1065529,14 +1065854,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "route-proof"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1065583,14 +1065900,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
@@ -1065641,14 +1065950,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1065697,14 +1065998,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
@@ -1065755,14 +1066048,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1065811,14 +1066096,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
@@ -1065869,14 +1066146,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1065925,14 +1066194,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
@@ -1065983,14 +1066244,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1066040,14 +1066293,6 @@
       ],
       "tests": [
         {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
-        {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
           "level": "server",
@@ -1066096,14 +1066341,6 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
       "tests": [
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "level": "browser",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "mapping": "model-action"
-        },
         {
           "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
           "kind": "go",
@@ -1068596,6 +1068833,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1068731,6 +1068969,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1068797,6 +1069036,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1068889,6 +1069129,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069000,6 +1069241,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069129,6 +1069371,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069243,6 +1069486,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069299,6 +1069543,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069355,6 +1069600,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069546,6 +1069792,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069670,6 +1069917,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069790,6 +1070038,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1069973,6 +1070222,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070137,6 +1070387,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070289,6 +1070540,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070374,6 +1070626,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070556,6 +1070809,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070721,6 +1070975,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070862,6 +1071117,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070933,6 +1071189,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1070976,6 +1071233,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071018,6 +1071276,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071088,6 +1071347,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071212,6 +1071472,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071384,6 +1071645,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071649,6 +1071911,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071745,6 +1072008,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071899,6 +1072163,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1071989,6 +1072254,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072092,6 +1072358,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072140,6 +1072407,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072246,6 +1072514,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072445,6 +1072714,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072623,6 +1072893,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072689,6 +1072960,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072810,6 +1073082,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072924,6 +1073197,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1072983,6 +1073257,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1073061,6 +1073336,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1073138,6 +1073414,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1073269,6 +1073546,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1073429,6 +1073707,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1073579,6 +1073858,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1073665,6 +1073945,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074120,6 +1074401,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074198,6 +1074480,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074338,6 +1074621,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074486,6 +1074770,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074634,6 +1074919,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074908,6 +1075194,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1074988,6 +1075275,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075065,6 +1075353,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075131,6 +1075420,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075347,6 +1075637,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075489,6 +1075780,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075611,6 +1075903,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075696,6 +1075989,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075781,6 +1076075,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075851,6 +1076146,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1075985,6 +1076281,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076159,6 +1076456,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076237,6 +1076535,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076319,6 +1076618,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076411,6 +1076711,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076521,6 +1076822,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076640,6 +1076942,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1076936,6 +1077239,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077038,6 +1077342,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077146,6 +1077451,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077230,6 +1077536,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077405,6 +1077712,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077537,6 +1077845,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077625,6 +1077934,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077774,6 +1078084,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077829,6 +1078140,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1077957,6 +1078269,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078050,6 +1078363,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078231,6 +1078545,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078310,6 +1078625,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078454,6 +1078770,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078694,6 +1079011,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078770,6 +1079088,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1078954,6 +1079273,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079081,6 +1079401,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079224,6 +1079545,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079278,6 +1079600,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079345,6 +1079668,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079433,6 +1079757,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079603,6 +1079928,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079682,6 +1080008,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079751,6 +1080078,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1079977,6 +1080305,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080041,6 +1080370,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080213,6 +1080543,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080332,6 +1080663,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080424,6 +1080756,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080553,6 +1080886,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080757,6 +1081091,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1080906,6 +1081241,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1081027,6 +1081363,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1081186,6 +1081523,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1081270,6 +1081608,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1081292,16 +1081631,7 @@
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
       ],
-      "obligations": [
-        "BuilderPreview.ApplyAck",
-        "BuilderPreview.BeginApply",
-        "BuilderPreview.PreviewComplete",
-        "BuilderPreview.StartPreview",
-        "ReconcileLifecycle.LateReconcileIgnored",
-        "ReconcileLifecycle.ReconcileSuccess",
-        "ReconcileLifecycle.RequestReconcile",
-        "ReconcileLifecycle.WorkspaceChangeStartsReconcile"
-      ],
+      "obligations": [],
       "suspectedModels": [
         "BuilderJourney",
         "BuilderOperations",
@@ -1081312,29 +1081642,9 @@
         "WorkspaceLifecycle"
       ],
       "checks": [
-        "API build identity baseline captured before browser lifecycle",
-        "API build identity stayed unchanged during browser run",
         "Preview renders both independent fixture Patients",
-        "Recompile invokes the backend compiler action-to-render within budget",
         "Recompile invokes the backend compiler completed",
-        "Recompile returned a successful compilation response",
-        "automatic Preview is visible after authoring",
-        "controlled automatic compilation failure is visible",
-        "controlled compilation rejection was injected exactly once",
-        "create blank Explorer action-to-render within budget",
-        "create blank Explorer completed",
-        "created a fresh Explorer distinct from the bootstrap",
-        "fixture browser observer reported no unexpected network or runtime errors",
-        "incidental asset failures are explicitly recorded",
-        "independent Patient source stayed unchanged during Builder verification",
-        "name Patient table for Recompile recovery completed",
-        "name blank Explorer completed",
-        "open Explorer creation action-to-render within budget",
-        "open Explorer creation completed",
-        "trigger automatic compilation rejection action-to-render within budget",
-        "trigger automatic compilation rejection completed",
-        "watched source fingerprint baseline captured before browser lifecycle",
-        "watched source stayed unchanged during browser run"
+        "Recompile returned a successful compilation response"
       ],
       "focusedChecks": [],
       "semanticClaimIds": [
@@ -1081348,8 +1081658,12 @@
         "workflow.assert.preview-row-must-identify-one-independent-fixture-patient-value",
         "workflow.assert.reloaded-preview-renders-both-exact-independent-fixture-patients"
       ],
-      "mapping": "route-proof",
+      "mapping": "unmapped",
       "evidence": "verification/builder-interactions/browser-evidence.json",
+      "browserEvidenceStatus": {
+        "status": "unavailable",
+        "sourceStatus": "unavailable"
+      },
       "suspectedActions": []
     },
     {
@@ -1081752,6 +1082066,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1081893,6 +1082208,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082031,6 +1082347,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082229,6 +1082546,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082427,6 +1082745,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082513,6 +1082832,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082578,6 +1082898,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082642,6 +1082963,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082754,6 +1083076,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1082957,6 +1083280,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1083097,6 +1083421,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1083278,6 +1083603,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1083429,6 +1083755,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1083502,6 +1083829,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1083676,6 +1084004,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1083835,6 +1084164,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084022,6 +1084352,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084137,6 +1084468,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084236,6 +1084568,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084363,6 +1084696,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084523,6 +1084857,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084683,6 +1085018,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1084851,6 +1085187,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085040,6 +1085377,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085207,6 +1085545,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085279,6 +1085618,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085361,6 +1085701,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085536,6 +1085877,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085665,6 +1086007,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085803,6 +1086146,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1085963,6 +1086307,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1086132,6 +1086477,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1086288,6 +1086634,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1086400,6 +1086747,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1086546,6 +1086894,7 @@
       ],
       "mapping": "registry-endpoints",
       "evidence": "scripts/verify-ui/registry.mjs",
+      "browserEvidenceStatus": null,
       "suspectedActions": []
     },
     {
@@ -1100109,85 +1100458,11 @@
     "testNames": [],
     "checks": [
       {
-        "check": "API build identity stayed unchanged during browser run",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:standalone-misc:semantic-construction-choice-route-fallback",
-          "playwright:cda-five-hop-related-expansion:medication-positive-fixture",
-          "playwright:basic-related-field-after-unpivot:gender-all",
-          "playwright:basic-related-field-after-unpivot:gender-missing-all"
-        ]
-      },
-      {
         "check": "Preview renders both independent fixture Patients",
         "tests": [
           "playwright:builder-controls:recompile",
           "playwright:builder-controls:first-table",
           "playwright:builder-authoring:authoring"
-        ]
-      },
-      {
-        "check": "create blank Explorer action-to-render within budget",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:builder-published-membership:membership",
-          "playwright:builder-combine-nullable:lifecycle"
-        ]
-      },
-      {
-        "check": "create blank Explorer completed",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:builder-published-membership:membership"
-        ]
-      },
-      {
-        "check": "created a fresh Explorer distinct from the bootstrap",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:builder-authoring:suggestions",
-          "playwright:builder-published-membership:membership",
-          "playwright:builder-combine-draft:append-derived-edit",
-          "playwright:builder-combine-nullable:lifecycle"
-        ]
-      },
-      {
-        "check": "fixture browser observer reported no unexpected network or runtime errors",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:builder-controls:explorer-deletion",
-          "playwright:builder-controls:explorer-deletion-unavailable",
-          "playwright:builder-authoring:authoring",
-          "playwright:basic-unpivot-group:unpivot-to-group",
-          "playwright:viewer-query:dataset-zip",
-          "playwright:viewer-query:runtime-scope-isolation",
-          "playwright:basic-related-field-after-unpivot:gender-all",
-          "playwright:basic-related-field-after-unpivot:gender-missing-all"
-        ]
-      },
-      {
-        "check": "open Explorer creation action-to-render within budget",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:builder-published-membership:membership",
-          "playwright:builder-combine-nullable:lifecycle"
-        ]
-      },
-      {
-        "check": "open Explorer creation completed",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:builder-published-membership:membership"
-        ]
-      },
-      {
-        "check": "watched source stayed unchanged during browser run",
-        "tests": [
-          "playwright:builder-controls:recompile",
-          "playwright:standalone-misc:semantic-construction-choice-route-fallback",
-          "playwright:cda-five-hop-related-expansion:medication-positive-fixture",
-          "playwright:basic-related-field-after-unpivot:gender-all",
-          "playwright:basic-related-field-after-unpivot:gender-missing-all"
         ]
       },
       {
@@ -1100202,6 +1100477,19 @@
         "tests": [
           "playwright:builder-controls:explorer-deletion",
           "playwright:builder-controls:explorer-deletion-unavailable"
+        ]
+      },
+      {
+        "check": "fixture browser observer reported no unexpected network or runtime errors",
+        "tests": [
+          "playwright:builder-controls:explorer-deletion",
+          "playwright:builder-controls:explorer-deletion-unavailable",
+          "playwright:builder-authoring:authoring",
+          "playwright:basic-unpivot-group:unpivot-to-group",
+          "playwright:viewer-query:dataset-zip",
+          "playwright:viewer-query:runtime-scope-isolation",
+          "playwright:basic-related-field-after-unpivot:gender-all",
+          "playwright:basic-related-field-after-unpivot:gender-missing-all"
         ]
       },
       {
@@ -1100230,6 +1100518,15 @@
         "tests": [
           "playwright:builder-load:list",
           "playwright:builder-load:state"
+        ]
+      },
+      {
+        "check": "created a fresh Explorer distinct from the bootstrap",
+        "tests": [
+          "playwright:builder-authoring:suggestions",
+          "playwright:builder-published-membership:membership",
+          "playwright:builder-combine-draft:append-derived-edit",
+          "playwright:builder-combine-nullable:lifecycle"
         ]
       },
       {
@@ -1100428,6 +1100725,20 @@
           "playwright:builder-combine-draft:group-pivot",
           "playwright:builder-combine-draft:group-pivot-append",
           "playwright:builder-combine-draft:membership"
+        ]
+      },
+      {
+        "check": "open Explorer creation action-to-render within budget",
+        "tests": [
+          "playwright:builder-published-membership:membership",
+          "playwright:builder-combine-nullable:lifecycle"
+        ]
+      },
+      {
+        "check": "create blank Explorer action-to-render within budget",
+        "tests": [
+          "playwright:builder-published-membership:membership",
+          "playwright:builder-combine-nullable:lifecycle"
         ]
       },
       {
@@ -1100731,6 +1101042,24 @@
         "tests": [
           "playwright:viewer-query:row-details",
           "playwright:viewer-query:configured-output-action-csv"
+        ]
+      },
+      {
+        "check": "watched source stayed unchanged during browser run",
+        "tests": [
+          "playwright:standalone-misc:semantic-construction-choice-route-fallback",
+          "playwright:cda-five-hop-related-expansion:medication-positive-fixture",
+          "playwright:basic-related-field-after-unpivot:gender-all",
+          "playwright:basic-related-field-after-unpivot:gender-missing-all"
+        ]
+      },
+      {
+        "check": "API build identity stayed unchanged during browser run",
+        "tests": [
+          "playwright:standalone-misc:semantic-construction-choice-route-fallback",
+          "playwright:cda-five-hop-related-expansion:medication-positive-fixture",
+          "playwright:basic-related-field-after-unpivot:gender-all",
+          "playwright:basic-related-field-after-unpivot:gender-missing-all"
         ]
       },
       {
