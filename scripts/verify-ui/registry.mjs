@@ -6452,6 +6452,7 @@ export const registry = Object.freeze([
               'scripts/verify-ui/helpers/tests/related-choice-stage-context.test.mjs',
               'scripts/verify-ui/helpers/tests/group-edit-raw-fields-summary.test.mjs',
               'scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs',
+              'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/created-explorer-scope.mjs',
@@ -6460,6 +6461,8 @@ export const registry = Object.freeze([
               'scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs',
               'scripts/loom-dev.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
+              'scripts/verify-ui/helpers/cda-row-oracle.mjs',
+              'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
               'ui/apps/demo/src/main.tsx',
             ],
