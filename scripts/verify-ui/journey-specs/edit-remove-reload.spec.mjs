@@ -13,6 +13,7 @@ import { addField, isCdaDataset } from '../helpers/cda-journey-fields.mjs';
 
 const TRACE_SCHEMA_VERSION = 1;
 const AUTHORING_PREFIX = '/authoring/v2/';
+const SOURCE_LABELS = ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
 
 const isAuthoringResponse = (response) => new URL(response.url()).pathname.includes(AUTHORING_PREFIX);
 const authoringPath = (response) => new URL(response.url()).pathname.split(AUTHORING_PREFIX)[1] ?? '';
@@ -37,7 +38,10 @@ const waitForProposalGone = async (page) => {
 
 test('builder journey edits and removes a group, then reloads the source', async ({ fastPage, fastUrl }) => {
   const cda = isCdaDataset();
-  expect(cda, 'Run the retained CDA Group lifecycle with LOOM_JOURNEY_DATASET=mini via run-builder-journey.mjs.').toBe(true);
+  const basicBudgetProbe = process.env.LOOM_JOURNEY_DATASET === 'basic-budget';
+  expect(cda || basicBudgetProbe,
+    'Select the retained CDA lifecycle with LOOM_JOURNEY_DATASET=mini or the Basic call-budget probe with LOOM_JOURNEY_DATASET=basic-budget.')
+    .toBe(true);
   test.setTimeout(120_000);
   fastPage.setDefaultTimeout(30_000);
   fastPage.setDefaultNavigationTimeout(20_000);
@@ -69,23 +73,25 @@ test('builder journey edits and removes a group, then reloads the source', async
   await waitForPreviewReady(fastPage);
   const initialPreviewExchange = await initialPreviewAttempt.settled;
   const initialObservation = await captureBuilderObservation(fastPage);
-  let sourceLabels;
-  let sourceRows;
-  let sourceIDs;
+  let sourceLabels = SOURCE_LABELS;
+  let sourceRows = 2;
+  let sourceIDs = ['dev-patient-001', 'dev-patient-002'];
   const setupActions = [];
-  const added = await addFieldWithCommandTrace(fastPage, 'Select Patient.extension[].valueCode', setupActions, addField);
-  sourceLabels = (added.columns ?? []).map((column) => column.label);
-  sourceRows = Number(added.rowCount ?? added.rows?.length ?? 0);
-  const id = (added.columns ?? []).find((column) => column.label === 'id')?.column;
-  sourceIDs = (added.rows ?? []).slice(0, 2).map((row) => row[id]);
-  expect(sourceRows, 'CDA source rows').toBeGreaterThan(0);
-  expect(sourceLabels, 'CDA source columns').toContain('Extension Value Code');
+  if (cda) {
+    const added = await addFieldWithCommandTrace(fastPage, 'Select Patient.extension[].valueCode', setupActions, addField);
+    sourceLabels = (added.columns ?? []).map((column) => column.label);
+    sourceRows = Number(added.rowCount ?? added.rows?.length ?? 0);
+    const id = (added.columns ?? []).find((column) => column.label === 'id')?.column;
+    sourceIDs = (added.rows ?? []).slice(0, 2).map((row) => row[id]);
+    expect(sourceRows, 'CDA source rows').toBeGreaterThan(0);
+    expect(sourceLabels, 'CDA source columns').toContain('Extension Value Code');
+  }
 
   const trace = {
     schemaVersion: TRACE_SCHEMA_VERSION,
     ...provenance,
     traces: [{
-      name: 'journey/edit-remove-reload',
+      name: basicBudgetProbe ? 'journey/edit-remove-reload-basic-budget' : 'journey/edit-remove-reload-cda-manual',
       model: 'BuilderJourney',
       initialObservation,
       initialPreview: {
@@ -139,7 +145,11 @@ test('builder journey edits and removes a group, then reloads the source', async
   await waitForProposalGone(fastPage);
   const backToTable = fastPage.getByRole('button', { name: 'Back to table' });
   if (await backToTable.isVisible().catch(() => false)) await backToTable.click();
-  expect(await fastPage.getByTestId('preview-table-scroll').getByRole('row').count(), 'CDA default group rows').toBeGreaterThan(1);
+  if (cda) {
+    expect(await fastPage.getByTestId('preview-table-scroll').getByRole('row').count(), 'CDA default group rows').toBeGreaterThan(1);
+  } else {
+    await expect(fastPage.getByTestId('preview-table-scroll').getByRole('row')).toHaveCount(sourceRows);
+  }
   trace.traces[0].actions.push({
     label: 'Group',
     event: 'group',
@@ -150,7 +160,8 @@ test('builder journey edits and removes a group, then reloads the source', async
     observation: await captureBuilderObservation(fastPage),
   });
 
-  console.log('[journey] edit group to id and CDA extension value code');
+  const groupColumnLabel = cda ? 'Extension Value Code' : 'gender';
+  console.log(`[journey] ${basicBudgetProbe ? 'Basic call-budget probe' : 'CDA lifecycle'}: edit group by id and ${groupColumnLabel}`);
   const history = fastPage.locator('[data-testid^="construction-history-step-"]').first();
   await expect(history).toBeVisible();
   const stepTestId = await history.getAttribute('data-testid');
@@ -158,10 +169,9 @@ test('builder journey edits and removes a group, then reloads the source', async
   await history.click();
   await fastPage.getByTestId(`construction-edit-step-${stepId}`).click();
   const idGroup = fastPage.getByRole('checkbox', { name: 'Group by id', exact: true });
-  const groupColumnLabel = 'Extension Value Code';
-  const extensionGroup = fastPage.getByRole('checkbox', { name: `Group by ${groupColumnLabel}`, exact: true });
+  const secondaryGroup = fastPage.getByRole('checkbox', { name: `Group by ${groupColumnLabel}`, exact: true });
   await expect(idGroup).toBeVisible();
-  await expect(extensionGroup).toBeVisible();
+  await expect(secondaryGroup).toBeVisible();
   const beforeEdit = proposalBodies.length;
   const editProposalAttempts = [];
   const editProposalSettlements = [];
@@ -240,7 +250,7 @@ test('builder journey edits and removes a group, then reloads the source', async
     }));
   };
   await observeEditSelection(idGroup);
-  await observeEditSelection(extensionGroup);
+  await observeEditSelection(secondaryGroup);
   const editedBody = () => [...proposalBodies.slice(beforeEdit)].reverse().find((body) => {
     const labels = body?.preview?.columns?.map((column) => column.label) ?? [];
     return body?.preview?.rowCount === sourceRows
@@ -277,8 +287,8 @@ test('builder journey edits and removes a group, then reloads the source', async
   const editedCount = editedColumns.find((column) => column.label === 'Row count')?.column;
   expect(Number(editedPreview.rowCount), 'edited group preview row count').toBe(sourceRows);
   expect(editedLabels, 'edited group preview labels').toEqual(['id', groupColumnLabel, 'Row count']);
-  expect(editedRows, 'CDA edited group rows').toHaveLength(sourceRows);
-  expect(editedRows.every((row) => row[editedCount] === 1), 'CDA groups contain one record each').toBe(true);
+  expect(editedRows, 'edited group rows').toHaveLength(sourceRows);
+  expect(editedRows.every((row) => row[editedCount] === 1), 'each edited group contains one record').toBe(true);
 
   const editCommandAttempt = observeAuthoringAttempt(fastPage, {
     method: 'POST',
@@ -388,6 +398,7 @@ test('builder journey edits and removes a group, then reloads the source', async
   mkdirSync(dirname(tracePath), { recursive: true });
   writeFileSync(tracePath, `${JSON.stringify(trace, null, 2)}\n`);
 
-  expect(backendCalls.length, 'lifecycle journey must exercise ten to thirty authoring backend calls').toBeGreaterThanOrEqual(10);
-  expect(backendCalls.length, 'lifecycle journey must exercise ten to thirty authoring backend calls').toBeLessThanOrEqual(45);
+  const callBudgetLabel = basicBudgetProbe ? 'Basic call-budget probe' : 'CDA Group journey';
+  expect(backendCalls.length, `${callBudgetLabel} must capture at least ten authoring backend responses`).toBeGreaterThanOrEqual(10);
+  expect(backendCalls.length, `${callBudgetLabel} must capture no more than forty-five authoring backend responses`).toBeLessThanOrEqual(45);
 });
