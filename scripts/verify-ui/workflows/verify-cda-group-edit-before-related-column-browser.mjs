@@ -609,7 +609,6 @@ FOR s IN (
   const initialGroupProposal = await browserProposal({ requestStart: groupStartIndex, path: base + '/construction-proposals',
     expectedRows: groupedRows, state: builder, label: 'group-by-Specimen-ID-count-rows', startedAt: groupStartedAt });
   builder = await applyGroupProposal(initialGroupProposal.response, builder, groupedRows, 'apply-initial-Group');
-  await closeRowSettings();
   const groupBaseline = structuredClone(builder);
   const groupDocumentBaseline = structuredClone(doc(builder));
   assertSourceBinding(builder, selectedPopulationRoute);
