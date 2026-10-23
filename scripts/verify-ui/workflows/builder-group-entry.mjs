@@ -1275,6 +1275,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     () => page.getByTestId('construction-cancel-proposal').click(), {
       after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
     });
+  const editCancelObservation = await captureBuilderObservation(page);
   savedBuilder = await readBuilder();
   assert.deepEqual(savedGroupEvidence(beforeEdit).group, keyedEditPreviewCapture.candidateIntent.base,
     'Group edit Cancel must bind the saved Group observed before the user action.');
@@ -1292,6 +1293,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   traceActions.push({
     label: 'GroupEditCancel',
     event: 'group-edit-cancel',
+    observation: editCancelObservation,
     groupLifecycle: {
       ...mountProvenance(),
       candidateIntent: keyedEditPreviewCapture.candidateIntent,
@@ -1540,6 +1542,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   const keyedReloadIDIndex = findRenderedBuilderHeaderIndex(keyedReload.headers, sourceIdColumn.label);
   const keyedReloadIDs = keyedReloadIDIndex < 0 ? [] : keyedReload.rows.map(row => row[keyedReloadIDIndex]).sort();
   assert.deepEqual(keyedReloadIDs, fixtureIDs, 'keyed Group output must retain exact Patient IDs after reload');
+  keyedReloadTraceAction.observation = await captureBuilderObservation(page);
   await openRowsHistory();
   const reloadedGroupOpenCapture = await captureOptionalProposalOnOpen(() => action('open reloaded saved Group editor', page.locator(editSelector), () => page.locator(editSelector).click(), {
     after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
@@ -1564,6 +1567,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     () => page.getByTestId('construction-cancel-proposal').click(), {
       after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
     });
+  const reloadedEditCancelObservation = await captureBuilderObservation(page);
   const afterReloadEditCancel = await readBuilder();
   if (reloadedGroupOpenCapture?.candidateIntent) {
     assert.deepEqual(savedGroupEvidence(beforeReloadEditCancel).group, reloadedGroupOpenCapture.candidateIntent.base,
@@ -1586,6 +1590,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   traceActions.push({
     label: 'GroupEditCancel',
     event: 'group-edit-cancel',
+    observation: reloadedEditCancelObservation,
     groupLifecycle: {
       ...mountProvenance(),
       candidateIntent: reloadedGroupOpenCapture?.candidateIntent ?? null,
@@ -1654,6 +1659,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     () => page.getByTestId('construction-cancel-proposal').click(), {
       after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
     });
+  const removalCancelObservation = await captureBuilderObservation(page);
   const afterRemovalCancel = await readBuilder();
   assert.deepEqual(savedGroupEvidence(beforeRemovalCancel).group, removalPreviewCapture.candidateIntent.base,
     'Group removal Cancel must bind the saved Group observed before the user action.');
@@ -1671,6 +1677,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
   traceActions.push({
     label: 'GroupRemovalCancel',
     event: 'group-removal-cancel',
+    observation: removalCancelObservation,
     groupLifecycle: {
       ...mountProvenance(),
       candidateIntent: removalPreviewCapture.candidateIntent,
@@ -1739,6 +1746,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     expectedRows: renderedSourceExpectations(fixtureSourceRows),
   });
   const restoredRows = await readRenderedBuilderRows(page);
+  removalReloadTraceAction.observation = await captureBuilderObservation(page);
   removalReloadTraceAction.groupLifecycle.renderedSourceRows = {
     headers: restoredRows.headers,
     rawRows: restoredRows.rawRows,
@@ -1778,6 +1786,18 @@ export const groupEntryWorkflow = async (workflow, context) => {
     restoredRowCount: fixtureIDs.length,
     restoredColumns: restoredRows.headers,
   };
+  const requiredLifecycleObservationCounts = new Map([
+    ['GroupEditCancel', 2],
+    ['GroupRemovalCancel', 1],
+    ['Reload', 2],
+  ]);
+  for (const [label, expectedCount] of requiredLifecycleObservationCounts) {
+    const observedActions = traceActions.filter(action => action.label === label);
+    assert.equal(observedActions.length, expectedCount,
+      `Group lifecycle trace must retain exactly ${expectedCount} ${label} actions.`);
+    assert(observedActions.every(action => action.observation && typeof action.observation === 'object'),
+      `Every ${label} action must carry its actual page observation.`);
+  }
   const minimumBackendCalls = Number(process.env.LOOM_JOURNEY_MIN_BACKEND_CALLS ?? 10);
   assert(backendCalls.length >= minimumBackendCalls,
     `Group lifecycle must capture at least ${minimumBackendCalls} actual authoring backend responses; found ${backendCalls.length}.`);
