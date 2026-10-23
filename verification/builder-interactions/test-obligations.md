@@ -6,7 +6,7 @@ Status: generated from the TLA models and existing test metadata.
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
 678 are currently tracked; 0 baseline files have retained tombstones.
-13159 semantic claims are defined once; 9230 source occurrences are direct test assertions, out of 18961 total labeled occurrences.
+13161 semantic claims are defined once; 9232 source occurrences are direct test assertions, out of 18963 total labeled occurrences.
 9731 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
 68 files are classified as independent tool/module purposes; 297 MJS files and 5316 semantic claims have no canonical journey mapping.
@@ -45,8 +45,8 @@ Status: generated from the TLA models and existing test metadata.
 | `builder-authoring:condition-specimen-route-ambiguity` | 6 | 82 | 0 | 4 | 18 | — |
 | `builder-authoring:dataframe-contract-panel` | 3 | 0 | 0 | 3 | 17 | — |
 | `builder-authoring:explorer-selection` | 16 | 11 | 0 | 4 | 12 | BuilderPreview |
-| `builder-authoring:group-entry` | 5 | 8 | 0 | 7 | 18 | — |
-| `builder-authoring:group-entry-raw-basic` | 5 | 8 | 0 | 5 | 17 | — |
+| `builder-authoring:group-entry` | 6 | 9 | 0 | 8 | 20 | — |
+| `builder-authoring:group-entry-raw-basic` | 5 | 9 | 0 | 6 | 19 | — |
 | `builder-authoring:legacy-v9-rows` | 5 | 0 | 0 | 112 | 24 | BuilderOperations, BuilderPreview |
 | `builder-authoring:patient-one-disagreement` | 6 | 0 | 0 | 74 | 8 | BuilderOperations, BuilderPreview |
 | `builder-authoring:repeated-empty` | 5 | 12 | 0 | 7 | 54 | — |
@@ -185,11 +185,11 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/run-builder-bug-discovery.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/run-builder-journey.mjs`: direct-trace → BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter]; gap: The runner delegates finite trace checking to verify-builder-traces.mjs; it does not execute the standalone BuilderJourney .cfg safety-invariant suite. Model actions do not cover browser reload, persistence, or concrete row-value assertions.
 - `scripts/run-builder-mutation-probe.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
-- `scripts/self-test-builder-traces.mjs`: candidate; gap: Static source review only; no mutation self-test or TLC result is represented as passing.
+- `scripts/self-test-builder-traces.mjs`: trace-support → BuilderJourney [EditGroup, EditGroupAgain, RemoveGroup, GroupEditCancel, GroupRemovalCancel, Reload, LatePreviewErrorIgnored]; gap: The Group-specific controls require a real captured trace and only run when one is supplied; no fresh native trace or passing Group mutation result is asserted by this source catalogue.
 - `scripts/verify-builder-formal.mjs`: direct-trace → BuilderOperations; BuilderPreview; WorkspaceLifecycle; RowDefinitionLifecycle; DraftRestore; RootChange; ColumnPresentation; Population; Interpretation; SupportingSurfaces; LifecycleEntry; ReconcileLifecycle; BuilderJourney; gap: TLC only covers finite states and bounds encoded by the checked-in .cfg files; the source itself states that this is not an unbounded refinement proof of the React or Go application.
 - `scripts/verify-builder-interactions.mjs`: direct-trace → ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; gap: The model is finite and explicitly stops at beginApply; source model comments exclude persistence/finishApply callback behavior and define the bounded proposal-attempt space.
 - `scripts/verify-builder-operation-history.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
-- `scripts/verify-builder-traces.mjs`: direct-trace → BuilderPreview [StartProposal, ReplaceProposal, ProposalComplete, ProposalError, LateProposalComplete, CancelProposal, RetryProposal, StartPreview, PreviewComplete, LatePreviewComplete, BeginApply, ApplyAck, ChangeDraft, AcceptCurrentDraft, SetPivotPair, ScheduleDiscovery, DiscoveryComplete, ChangePivotKey, UnmountEditor, AdoptDiscovery]; ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; ReconcileLifecycle [RequestReconcile, RetryReconcile, ReconcileSuccess, LateReconcileIgnored, ReconcileStale, ReconcileConflict, ReconcileInvalid, ReconcileFailure, WorkspaceChangeStartsReconcile, DraftChange, AuthoredChange, ChangeExplorer, SetTablesRooted, SetSnapshotPresent, ClearReceipt]; BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter]; gap: The static binding records source transition operators and trace observation guards; it does not claim a runtime trace passed or that the original .cfg safety-invariant suites were executed by this command.
+- `scripts/verify-builder-traces.mjs`: direct-trace → BuilderPreview [StartProposal, ReplaceProposal, ProposalComplete, ProposalError, LateProposalComplete, CancelProposal, RetryProposal, StartPreview, PreviewComplete, LatePreviewComplete, BeginApply, ApplyAck, ChangeDraft, AcceptCurrentDraft, SetPivotPair, ScheduleDiscovery, DiscoveryComplete, ChangePivotKey, UnmountEditor, AdoptDiscovery]; ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; ReconcileLifecycle [RequestReconcile, RetryReconcile, ReconcileSuccess, LateReconcileIgnored, ReconcileStale, ReconcileConflict, ReconcileInvalid, ReconcileFailure, WorkspaceChangeStartsReconcile, DraftChange, AuthoredChange, ChangeExplorer, SetTablesRooted, SetSnapshotPresent, ClearReceipt]; BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter, GroupEditCancel, GroupRemovalCancel, Reload]; gap: This is a bounded trace replay, not an exploration of arbitrary browser state. Group row values and UI controls remain native assertions; a native trace is required for the Group controls.
 - `scripts/verify-cda-pivot-oracle.mjs`: candidate; gap: The diagnostic relies on an operator-supplied report and hardcoded local CDA runtime identity; it does not run or prove a complete native lifecycle.
 - `scripts/verify-construction-removals.mjs`: candidate; gap: The tool does not perform or prove an applied removal lifecycle; no runtime outcome is claimed.
 - `scripts/verify-population-row.mjs`: candidate; gap: The retained selection-evidence fixture and command invocation are not statically located, so its intended end-to-end runner remains unresolved.
@@ -282,23 +282,23 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 | Measure | Count |
 | --- | ---: |
 | models | 14 |
-| actions | 174 |
-| invariants | 92 |
-| obligations | 266 |
+| actions | 177 |
+| invariants | 96 |
+| obligations | 273 |
 | covered | 10 |
-| partial | 92 |
-| missing | 164 |
+| partial | 96 |
+| missing | 167 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 75 |
+| missingUnbound | 78 |
 | tests | 907 |
 | testsWithObligations | 11 |
 | testsWithoutObligations | 896 |
 | obligationsWithMultipleTests | 24 |
 | duplicateTestNames | 0 |
-| repeatedPlaywrightChecks | 244 |
+| repeatedPlaywrightChecks | 246 |
 | sharedProofs | 3 |
-| candidateRouteBindings | 162 |
+| candidateRouteBindings | 166 |
 
 ## Obligations with no exact test
 
@@ -311,6 +311,8 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 - `BuilderJourney.EditGroupAgain` (0 route(s))
 - `BuilderJourney.Group` (0 route(s))
 - `BuilderJourney.GroupAgain` (0 route(s))
+- `BuilderJourney.GroupEditCancel` (0 route(s))
+- `BuilderJourney.GroupRemovalCancel` (0 route(s))
 - `BuilderJourney.LatePreviewCompleteIgnored` (0 route(s))
 - `BuilderJourney.LatePreviewErrorIgnored` (0 route(s))
 - `BuilderJourney.Pivot` (0 route(s))
@@ -318,6 +320,7 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 - `BuilderJourney.PreviewComplete` (6 route(s))
 - `BuilderJourney.PreviewError` (0 route(s))
 - `BuilderJourney.PreviewRequestCancelled` (0 route(s))
+- `BuilderJourney.Reload` (0 route(s))
 - `BuilderJourney.RemoveGroup` (0 route(s))
 - `BuilderJourney.Stutter` (0 route(s))
 - `BuilderOperations.AuthorStep` (16 route(s))
@@ -379,10 +382,7 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 - `LifecycleEntry.AuthoredChange` (0 route(s))
 - `LifecycleEntry.CommandStale` (0 route(s))
 - `LifecycleEntry.CommandSuccess` (0 route(s))
-- `LifecycleEntry.GateReconcile` (0 route(s))
-- `LifecycleEntry.ParseRoute` (1 route(s))
-- `LifecycleEntry.ReconcileNeedsRepair` (0 route(s))
-- 84 more in the JSON report.
+- 87 more in the JSON report.
 
 ## Obligations with exact tests
 
@@ -451,6 +451,8 @@ No duplicate test names found.
 - `applied Group edit by id and gender has the exact two-row, three-column result`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `saved Group edit applies one row per exact Patient ID`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `keyed Group edit and exact Patient rows survive reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `reloaded Group editor mounts the exact saved ID-only key and COUNT_ROWS aggregate`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `Cancel after reloading the saved Group preserves the exact saved workspace and draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `Group removal previews both literal source Patient rows`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `Cancel preserves the saved keyed Group and exact draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `removing keyed Group restores the exact source Patient rows after reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
@@ -468,8 +470,6 @@ No duplicate test names found.
 - `create current-draft Observation source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 - `create current-draft DiagnosticReport source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 - `open native Combine and create a separate empty target action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `open saved Combine editor after draft input schemas resolve action-to-render within budget`: 6 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
-- `propose Combine removal and render the exact rooted empty output action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 
 ## Tests with no exact obligation
 

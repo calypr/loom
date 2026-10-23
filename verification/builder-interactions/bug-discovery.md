@@ -18,9 +18,9 @@ Status: generated from the mutation probes, retained evidence, source hashes, an
 | staleSources | 0 |
 | triageErrors | 0 |
 | strictPass | yes |
-| actionObligations | 174 |
+| actionObligations | 177 |
 | probedActions | 59 |
-| unprobedActions | 115 |
+| unprobedActions | 118 |
 
 ## Probes
 
@@ -93,9 +93,9 @@ Every retained probe has a current source hash.
 
 | Measure | Count |
 | --- | ---: |
-| actionObligations | 174 |
+| actionObligations | 177 |
 | probedActions | 59 |
-| unprobedActions | 115 |
+| unprobedActions | 118 |
 
 Covered actions:
 
@@ -170,6 +170,8 @@ Actions without a mutation probe:
 - `BuilderJourney.EditGroupAgain`
 - `BuilderJourney.Group`
 - `BuilderJourney.GroupAgain`
+- `BuilderJourney.GroupEditCancel`
+- `BuilderJourney.GroupRemovalCancel`
 - `BuilderJourney.LatePreviewCompleteIgnored`
 - `BuilderJourney.LatePreviewErrorIgnored`
 - `BuilderJourney.Pivot`
@@ -177,6 +179,7 @@ Actions without a mutation probe:
 - `BuilderJourney.PreviewComplete`
 - `BuilderJourney.PreviewError`
 - `BuilderJourney.PreviewRequestCancelled`
+- `BuilderJourney.Reload`
 - `BuilderJourney.RemoveGroup`
 - `BuilderJourney.Stutter`
 - `BuilderOperations.AuthorStep`
@@ -198,10 +201,7 @@ Actions without a mutation probe:
 - `ConstructionLifecycle.LatePreviewSettlementIgnored`
 - `ConstructionLifecycle.PreviewComplete`
 - `ConstructionLifecycle.PreviewError`
-- `ConstructionLifecycle.ProposalComplete`
-- `ConstructionLifecycle.ProposalError`
-- `ConstructionLifecycle.RetryProposal`
-- 75 more in the JSON report.
+- 78 more in the JSON report.
 
 ## Bounds
 

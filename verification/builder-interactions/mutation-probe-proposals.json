@@ -6,14 +6,14 @@
     "ledger": "verification/builder-interactions/route-contract.json"
   },
   "summary": {
-    "actions": 115,
+    "actions": 118,
     "high": 44,
     "medium": 24,
-    "low": 47,
+    "low": 50,
     "withCandidateTests": 68,
-    "withoutCandidateTests": 47,
-    "guardCandidates": 11,
-    "withGuardCandidates": 5
+    "withoutCandidateTests": 50,
+    "guardCandidates": 12,
+    "withGuardCandidates": 6
   },
   "proposals": [
     {
@@ -2259,6 +2259,34 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "BuilderJourney.GroupEditCancel",
+      "model": "BuilderJourney",
+      "action": "GroupEditCancel",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-groupeditcancel",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.GroupRemovalCancel",
+      "model": "BuilderJourney",
+      "action": "GroupRemovalCancel",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-groupremovalcancel",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "BuilderJourney.LatePreviewCompleteIgnored",
       "model": "BuilderJourney",
       "action": "LatePreviewCompleteIgnored",
@@ -2427,6 +2455,33 @@
       ],
       "priority": "low",
       "proposedProbeId": "model-builderjourney-previewrequestcancelled",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.Reload",
+      "model": "BuilderJourney",
+      "action": "Reload",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts",
+          "line": 49,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "&&",
+          "dropped": "settledRef.current?.key === request.key",
+          "find": "      if (!options?.reload && settledRef.current?.key === request.key) {",
+          "replace": "      if (!options?.reload) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-reload",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {

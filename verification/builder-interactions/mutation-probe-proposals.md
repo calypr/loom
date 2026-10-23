@@ -6,14 +6,14 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 
 | Measure | Count |
 | --- | ---: |
-| actions | 115 |
+| actions | 118 |
 | high | 44 |
 | medium | 24 |
-| low | 47 |
+| low | 50 |
 | withCandidateTests | 68 |
-| withoutCandidateTests | 47 |
-| guardCandidates | 11 |
-| withGuardCandidates | 5 |
+| withoutCandidateTests | 50 |
+| guardCandidates | 12 |
+| withGuardCandidates | 6 |
 
 ## Review queue
 
@@ -72,14 +72,14 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | low | `BuilderJourney.EditGroupAgain` | 0 | none | none |
 | low | `BuilderJourney.Group` | 0 | none | none |
 | low | `BuilderJourney.GroupAgain` | 0 | none | none |
+| low | `BuilderJourney.GroupEditCancel` | 0 | none | none |
+| low | `BuilderJourney.GroupRemovalCancel` | 0 | none | none |
 | low | `BuilderJourney.LatePreviewCompleteIgnored` | 0 | none | none |
 | low | `BuilderJourney.LatePreviewErrorIgnored` | 0 | none | none |
 | low | `BuilderJourney.Pivot` | 0 | none | none |
 | low | `BuilderJourney.Preview` | 0 | none | none |
 | low | `BuilderJourney.PreviewError` | 0 | none | none |
-| low | `BuilderJourney.PreviewRequestCancelled` | 0 | none | none |
-| low | `BuilderJourney.RemoveGroup` | 0 | none | none |
-| ... | 55 more in the JSON report | | | |
+| ... | 58 more in the JSON report | | | |
 
 ## Guard candidates
 
@@ -96,6 +96,7 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | `BuilderJourney.Preview` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/peripheral.tsx` | 470 | `if (stepKind === 'preview' || screenAction(values) === 'review') {` -> `if (stepKind === 'preview') {` |
 | `BuilderJourney.Preview` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1908 | `if (response.preview.rows === null || response.preview.outputId !== table.outputId) {` -> `if (response.preview.rows === null) {` |
 | `BuilderJourney.PreviewRequestCancelled` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 2901 | `if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {` -> `if (execution.previewRequest) {` |
+| `BuilderJourney.Reload` | `ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts` | 49 | `if (!options?.reload && settledRef.current?.key === request.key) {` -> `if (!options?.reload) {` |
 
 ## Bounds
 
