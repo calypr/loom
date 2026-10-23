@@ -39,13 +39,13 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "98a422caa9a7790612a0d220c15a1b5491a6e7486672b6a7db78300c3afc75ac",
-      "contract": "Runtime-bound hook/formal trace observation, model, and validator behavior."
+      "sha256": "6eb6cae040963b0670426d9f0afc54e6a6084995ce33188622576dde309d1b32",
+      "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and per-trace action counts."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "7e4237ce1caec53f3d5151d88c0b84ce3a607ede608c9d96371b4d603ff5a245",
-      "contract": "Trace mutation controls for reconcile stale receipt/output takeover, request ownership, response binding, and settlement order."
+      "sha256": "da2fbfe0bce853fa8f74035c6ef58945f1519400604f58755657add5db8e2a11",
+      "contract": "Trace mutation controls for request ownership, persistence, same-cardinality reload keys, step identity, stale Group candidates/owners, exact action counts, and generic non-Group routes."
     },
     {
       "path": "scripts/verify-ui/helpers/cda-journey-fields.mjs",
@@ -189,13 +189,18 @@
     },
     {
       "path": "verification/builder-interactions/BuilderJourney.cfg",
-      "sha256": "f16b8c5fe17a3d1cc99c3f45c0d942e8c805dcb7ac481fb41dc81f16ecee4932",
-      "contract": "BuilderJourney TLC bounds and invariants."
+      "sha256": "f5dc41c4a30c42aeb725032a4be99b36743e0d08d8bf8a618a40985e9a3be269",
+      "contract": "Full BuilderJourney Spec safety gate with one symbolic capture token, including existing preview and Group lifecycle invariants."
+    },
+    {
+      "path": "verification/builder-interactions/BuilderJourneyGroupSafety.cfg",
+      "sha256": "3deace658c51d6882ae1501ede452d93cc97bb237c42dc7ac964a1444f0c26a3",
+      "contract": "Exhaustive two-token Group lifecycle safety gate over the existing BuilderJourney transition operators."
     },
     {
       "path": "verification/builder-interactions/BuilderJourney.tla",
-      "sha256": "f71d933c2ebc92962a9816fdd1e561f4acafe5703cb2b8bc9d38e9a37ebf5d5a",
-      "contract": "BuilderJourney lifecycle model for source preview, choice and proposal preview, AddColumn, apply, and stale settlements."
+      "sha256": "9e14717194c49a325bfbd7b8d83ff032c999f68cec935736af90c53b77c81ab4",
+      "contract": "BuilderJourney source/proposal model with persisted, candidate, and mounted Group state, mount/capture ownership, ordered keys, apply, Cancel, Reload, and safety invariants."
     },
     {
       "path": "verification/builder-interactions/BuilderOperations.cfg",
@@ -334,8 +339,8 @@
     },
     {
       "path": "verification/builder-interactions/builder-edit-remove-contract.json",
-      "sha256": "f948a27c3af1c32cfc0afe49ed85f8c8d015a5ccf77928ea34f0b4b1a6cf79d4",
-      "contract": "Selected edit/remove Journey actions and expected trace contract."
+      "sha256": "1faf33a5022b772f2b41f84ebf37c280b3868212572e8eb70ea59b241cb7962e",
+      "contract": "Selected Group edit/remove lifecycle events, exact per-trace action counts, evidence requirements, and trace contracts."
     },
     {
       "path": "verification/builder-interactions/builder-filter-contract.json",
@@ -349,8 +354,8 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-contract.json",
-      "sha256": "5798d1c381bd99c31892e1ba886b7d69ada01b043f59aa605cdb2c8482aa7499",
-      "contract": "BuilderJourney action bindings and selected contract baseline."
+      "sha256": "f3b51dc43788a65817a9aae557c755e33a37739b3604abf73276df53b6112c94",
+      "contract": "BuilderJourney action bindings and the shared generic contract; Group lifecycle replay is scoped to selected Group trace names."
     },
     {
       "path": "verification/builder-interactions/builder-pivot-contract.json",
@@ -374,13 +379,13 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "7a6f085e243c7a5a4ebdfe6daf4071e62c75e722e7a1d774dbb51c183224c38a",
-      "contract": "Registered native cases, trace requirements, focused checks, and Group-entry behavioral assertions."
+      "sha256": "fd4a6fcb57b95d79acf3743018c145a4e6cafd75dfd4724ac827add8f7baeeb0",
+      "contract": "Registered native cases, focused checks, and exact Group lifecycle action requirements for both Group variants."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "9460f46cbaa37231d63f948202a1ba3865694b1104325decda4e4ea2373e2fcc",
-      "contract": "Registered native Group lifecycles with exact authored-three and raw Basic Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
+      "sha256": "f1e67c92d2b6ec692ad874de75f47f6aafc02f193863c6baceba33b674ee5375",
+      "contract": "Registered authored-three and raw-Basic native Group lifecycles with captured candidate ownership, actual Builder reads, reload-mounted controls, removal, TLA replay, and trace-bound mutation controls."
     }
   ]
 }

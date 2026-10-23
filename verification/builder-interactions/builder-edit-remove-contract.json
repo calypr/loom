@@ -23,7 +23,10 @@
         "PreviewError",
         "LatePreviewCompleteIgnored",
         "LatePreviewErrorIgnored",
-        "PreviewRequestCancelled"
+        "PreviewRequestCancelled",
+        "GroupEditCancel",
+        "GroupRemovalCancel",
+        "Reload"
       ]
     }
   },
@@ -95,6 +98,18 @@
     "PreviewRequestCancelled": {
       "event": "preview-request-cancelled",
       "trigger": "a current pending proposal-preview request was cancelled by net::ERR_ABORTED without changing the public preview observation"
+    },
+    "GroupEditCancel": {
+      "event": "group-edit-cancel",
+      "trigger": "the user cancels Group edit and an actual before/after Builder read proves saved Group and draft identity are unchanged"
+    },
+    "GroupRemovalCancel": {
+      "event": "group-removal-cancel",
+      "trigger": "the user cancels Group removal and an actual before/after Builder read proves saved Group and draft identity are unchanged"
+    },
+    "Reload": {
+      "event": "reload",
+      "trigger": "a fresh postreload Builder read and mounted Group UI projection agree on the persisted Group configuration"
     }
   },
   "observationFields": [
@@ -103,7 +118,8 @@
     "proposalIdPresent",
     "previewReceiptPresent",
     "rowsPresent",
-    "receiptPresent"
+    "receiptPresent",
+    "groupLifecycle"
   ],
   "phase1": {
     "expectedTraceCount": 1,
@@ -121,10 +137,16 @@
     ],
     "requiredActionsByTrace": {
       "builder-authoring:group-entry": [
-        "EditGroupAgain"
+        "EditGroupAgain",
+        "GroupEditCancel",
+        "GroupRemovalCancel",
+        "Reload"
       ],
       "builder-authoring:group-entry-raw-basic": [
-        "EditGroupAgain"
+        "EditGroupAgain",
+        "GroupEditCancel",
+        "GroupRemovalCancel",
+        "Reload"
       ]
     },
     "requiredEvents": [
@@ -132,8 +154,23 @@
       "preview-response",
       "group",
       "edit-group",
-      "remove-group"
-    ]
+      "remove-group",
+      "group-edit-cancel",
+      "group-removal-cancel",
+      "reload"
+    ],
+    "requiredActionCountsByTrace": {
+      "builder-authoring:group-entry": {
+        "GroupEditCancel": 2,
+        "GroupRemovalCancel": 1,
+        "Reload": 2
+      },
+      "builder-authoring:group-entry-raw-basic": {
+        "GroupEditCancel": 2,
+        "GroupRemovalCancel": 1,
+        "Reload": 2
+      }
+    }
   },
   "unmodeledEventPolicy": {
     "capability-read": "The journey model does not own capability discovery.",
@@ -142,9 +179,6 @@
     "construction-capabilities": "The journey model does not own reshape capability discovery.",
     "reconcile": "The journey model does not own draft reconciliation.",
     "commands": "Draft command persistence is below the row-definition journey boundary.",
-    "row-definition-choices": "The journey model does not own row-choice inventory.",
-    "group-edit-cancel": "BuilderJourney does not model the Group-edit Cancel control; native checks compare the exact stored workspace, draft version, and digest.",
-    "group-removal-cancel": "BuilderJourney does not model the Group-removal Cancel control; native checks compare the exact stored workspace, draft version, and digest.",
-    "reload": "Page reload is a lifecycle event outside the in-memory journey model."
+    "row-definition-choices": "The journey model does not own row-choice inventory."
   }
 }

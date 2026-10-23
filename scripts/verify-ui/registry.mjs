@@ -637,7 +637,7 @@ export const registry = Object.freeze([
         playwrightGrep: 'standard Group entry proposes an empty-key COUNT_ROWS preview$',
         journeyTrace: {
           name: 'builder-authoring:group-entry',
-          requiredActions: ['EditGroupAgain'],
+          requiredActions: ['EditGroupAgain', 'GroupEditCancel', 'GroupRemovalCancel', 'Reload'],
         },
         focusedChecks: [
           {
@@ -676,7 +676,7 @@ export const registry = Object.freeze([
         populateBootstrap: true,
         journeyTrace: {
           name: 'builder-authoring:group-entry-raw-basic',
-          requiredActions: ['EditGroupAgain'],
+          requiredActions: ['EditGroupAgain', 'GroupEditCancel', 'GroupRemovalCancel', 'Reload'],
         },
         focusedChecks: [
           {

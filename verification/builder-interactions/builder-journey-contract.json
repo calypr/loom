@@ -15,6 +15,7 @@
         "AddColumn",
         "CancelFilter",
         "EditGroup",
+        "EditGroupAgain",
         "RemoveGroup",
         "Pivot",
         "Preview",
@@ -22,7 +23,10 @@
         "PreviewError",
         "LatePreviewCompleteIgnored",
         "LatePreviewErrorIgnored",
-        "PreviewRequestCancelled"
+        "PreviewRequestCancelled",
+        "GroupEditCancel",
+        "GroupRemovalCancel",
+        "Reload"
       ]
     }
   },
@@ -90,6 +94,22 @@
     "PreviewRequestCancelled": {
       "event": "preview-request-cancelled",
       "trigger": "a current pending proposal-preview request was cancelled by net::ERR_ABORTED without changing the public preview observation"
+    },
+    "EditGroupAgain": {
+      "event": "edit-group",
+      "trigger": "the same saved Group is edited again after an earlier applied edit"
+    },
+    "GroupEditCancel": {
+      "event": "group-edit-cancel",
+      "trigger": "the user cancels Group edit and an actual before/after Builder read proves saved Group and draft identity are unchanged"
+    },
+    "GroupRemovalCancel": {
+      "event": "group-removal-cancel",
+      "trigger": "the user cancels Group removal and an actual before/after Builder read proves saved Group and draft identity are unchanged"
+    },
+    "Reload": {
+      "event": "reload",
+      "trigger": "a fresh postreload Builder read and mounted Group UI projection agree on the persisted Group configuration"
     }
   },
   "observationFields": [
@@ -98,7 +118,8 @@
     "proposalIdPresent",
     "previewReceiptPresent",
     "rowsPresent",
-    "receiptPresent"
+    "receiptPresent",
+    "groupLifecycle"
   ],
   "phase1": {
     "expectedTraceCount": 1,
