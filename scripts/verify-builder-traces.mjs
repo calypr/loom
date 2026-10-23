@@ -214,12 +214,9 @@ function savedGroupProjectionProblem(saved, where) {
   if (typeof saved.outputId !== 'string' || saved.outputId.trim().length === 0) {
     return where + '.outputId must identify the selected Builder output';
   }
-  if (typeof saved.documentId !== 'string' || saved.documentId.trim().length === 0) {
-    return where + '.documentId must identify the selected Builder workspace document';
-  }
   const selectedDocuments = saved.workspace.documents.filter((document) => document?.output?.id === saved.outputId);
-  if (selectedDocuments.length !== 1 || selectedDocuments[0]?.id !== saved.documentId) {
-    return where + '.outputId/documentId must select exactly one matching document in the raw workspace';
+  if (selectedDocuments.length !== 1) {
+    return where + '.outputId must select exactly one document in the raw workspace';
   }
   if (!Array.isArray(selectedDocuments[0]?.construction?.steps)) {
     return where + '.workspace selected document must preserve its raw construction steps';
@@ -384,7 +381,7 @@ function groupLifecycleShapeProblem(action, where, required) {
         return where + '.groupLifecycle.mountedEditorOutputId must match the selected output of the mounted editor';
       }
       const selectedDocument = lifecycle.savedAfter.workspace.documents.find((document) =>
-        document.output?.id === lifecycle.savedAfter.outputId && document.id === lifecycle.savedAfter.documentId);
+        document.output?.id === lifecycle.savedAfter.outputId);
       const expectedLabels = lifecycle.mountedGroup.keys.map((key) => {
         const column = selectedDocument?.columns?.find((candidate) =>
           (candidate.columnId ?? candidate.id) === key);

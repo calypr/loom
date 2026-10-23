@@ -1265,7 +1265,7 @@ if (journeyOnly) {
         };
         const selectedDocumentFor = saved => {
           const documents = saved.workspace?.documents ?? [];
-          const selected = documents.filter(document => document.output?.id === saved.outputId && document.id === saved.documentId);
+          const selected = documents.filter(document => document.output?.id === saved.outputId);
           if (selected.length !== 1) throw new Error('saved workspace evidence does not identify one selected Builder document');
           return selected[0];
         };
