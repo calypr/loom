@@ -1223,13 +1223,81 @@ if (journeyOnly) {
         const trace = mutated.traces?.find(candidate => candidate.name === groupTraceName);
         if (trace) trace.actions = trace.actions.filter(action => action.label !== 'EditGroupAgain');
       }, `trace "${groupTraceName}" missing required actions: EditGroupAgain`);
-      const lateAbortedPreview = findTraceAction(payload.traces, (trace, action) =>
+      const lifecycleContractEnabled = Object.keys(contract.phase1?.requiredActionCountsByTrace ?? {})
+        .some(traceName => groupTraceNames.has(traceName));
+      if (lifecycleContractEnabled) {
+        const findSameAttemptLateAbortPair = trace => {
+          for (let lateIndex = 0; lateIndex < trace.actions.length; lateIndex += 1) {
+            const late = trace.actions[lateIndex];
+            if (late.label !== 'LatePreviewErrorIgnored' || late.response !== null ||
+                late.settlement?.kind !== 'request-failed' || late.settlement.errorText !== 'net::ERR_ABORTED') continue;
+            const oldCaptureId = late.request?.captureId;
+            const oldStartIndex = trace.actions.findIndex(action => action.label === 'Preview' &&
+              action.request?.captureId === oldCaptureId);
+            if (oldStartIndex < 0) continue;
+            const oldStart = trace.actions[oldStartIndex];
+            const replacement = trace.actions.slice(oldStartIndex + 1, lateIndex)
+              .filter(action => action.label === 'Preview' &&
+                typeof action.request?.captureId === 'string' && action.request.captureId !== oldCaptureId)
+              .at(-1);
+            if (replacement && oldStart.owner?.attempt === late.owner?.attempt &&
+                replacement.owner?.attempt === oldStart.owner.attempt) {
+              return { oldCaptureId, replacementCaptureId: replacement.request.captureId };
+            }
+          }
+          return null;
+        };
+        const sameAttemptReplacement = findSameAttemptLateAbortPair(groupTrace);
+        if (!sameAttemptReplacement) {
+          console.log('SKIP late-aborted-preview-current-error-control: captured Group trace has no LatePreviewErrorIgnored paired with a distinct later Preview using the same P1/P2 attempt; this stale-current error behavior remains model-only and needs observation.');
+        } else {
+          lateAbortOwnerPassed = runMutation('late-aborted-preview-as-current-error-must-reject-old-capture', mutated => {
+            const hit = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
+              trace.name === groupTraceName
+              && action.label === 'LatePreviewErrorIgnored'
+              && action.request?.captureId === sameAttemptReplacement.oldCaptureId
+              && action.response === null
+              && action.settlement?.kind === 'request-failed'
+              && action.settlement.errorText === 'net::ERR_ABORTED'));
+            if (!hit) throw new Error('captured late-abort request disappeared before the stale-capture control');
+            const oldStartIndex = hit.trace.actions.findIndex(action => action.label === 'Preview' &&
+              action.request?.captureId === sameAttemptReplacement.oldCaptureId);
+            const replacement = hit.trace.actions.slice(oldStartIndex + 1, hit.actionIndex)
+              .filter(action => action.label === 'Preview' &&
+                action.request?.captureId === sameAttemptReplacement.replacementCaptureId)
+              .at(-1);
+            if (!replacement || replacement.owner?.attempt !== hit.action.owner?.attempt) {
+              throw new Error('same-attempt replacement Preview is absent from the selected late-abort schedule');
+            }
+            hit.action.label = 'PreviewError';
+            hit.action.observation = {
+              ...hit.action.observation,
+              status: 'error',
+              proposalPreviewStatus: 'error',
+              proposalIdPresent: false,
+              proposalId: null,
+              proposalOutputId: null,
+              proposalSnapshotToken: null,
+              proposalDraftVersion: null,
+              proposalDraftDigest: null,
+              proposalPreviewSurface: 'unknown',
+              previewReceiptPresent: false,
+              rowsPresent: false,
+              receiptPresent: false,
+              previewReceiptId: null,
+              previewOutputId: null,
+              embeddedProposalPreview: null,
+              canApply: false,
+              apply: { available: false, enabled: false, applying: false },
+            };
+          }, semanticFailureFor('PreviewError'), { allowPartial: true });
+        }
+      } else if (findTraceAction(payload.traces, (trace, action) =>
         trace.name === groupTraceName
         && action.label === 'LatePreviewErrorIgnored'
         && action.response === null
         && action.settlement?.kind === 'request-failed'
-        && action.settlement.errorText === 'net::ERR_ABORTED');
-      if (lateAbortedPreview) {
+        && action.settlement.errorText === 'net::ERR_ABORTED')) {
         lateAbortOwnerPassed = runMutation('late-aborted-preview-must-be-noncurrent-owner', mutated => {
           const hit = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
             trace.name === groupTraceName
@@ -1247,8 +1315,6 @@ if (journeyOnly) {
         }, semanticFailureFor('LatePreviewErrorIgnored'), { allowPartial: true });
       }
 
-      const lifecycleContractEnabled = Object.keys(contract.phase1?.requiredActionCountsByTrace ?? {})
-        .some(traceName => groupTraceNames.has(traceName));
       if (lifecycleContractEnabled) {
         const runGroupLifecycleMutation = (label, actionLabel, predicate, mutate) => {
           const hit = findTraceAction(payload.traces, (trace, action) =>
