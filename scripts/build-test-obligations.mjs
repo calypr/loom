@@ -1418,32 +1418,9 @@ const journeyAssemblyRows = buildJourneyAssemblyRows({
 const toolModuleFiles = scripts.filter((script) => script.role === 'tool-or-module');
 const unmappedJourneyFiles = scripts.filter((script) => script.journeyMappings.length === 0);
 const unmappedJourneyClaims = scriptCatalog.semanticClaims.filter((claim) => claim.journeys.length === 0);
-const semanticClaimsById = new Map(scriptCatalog.semanticClaims.map((claim) => [claim.id, claim]));
-const semanticClaimsForCase = (caseId) => (scriptCatalog.claimMappingsByCase.get(caseId) ?? []).map((mapping) => {
-  const claim = semanticClaimsById.get(mapping.claimId);
-  const sourceFiles = (scriptCatalog.sourceFilesByClaim.get(mapping.claimId) ?? []);
-  const groupedSources = new Map();
-  for (const source of sourceFiles) {
-    if (!groupedSources.has(source.path)) groupedSources.set(source.path, { path: source.path, lifecycle: source.lifecycle, sourceAssertionIds: [], evidenceKinds: [] });
-    const target = groupedSources.get(source.path);
-    target.sourceAssertionIds.push(source.sourceAssertionId);
-    target.evidenceKinds.push(source.evidenceKind);
-  }
-  return {
-    id: claim.id,
-    statement: claim.statement,
-    category: claim.category,
-    relation: mapping.relation,
-    requiredChecks: mapping.requiredChecks ?? [],
-    focusedCheckIds: mapping.focusedCheckIds ?? [],
-    sourceFiles: [...groupedSources.values()].map((source) => ({
-      ...source,
-      sourceAssertionIds: uniqueSorted(source.sourceAssertionIds),
-      evidenceKinds: uniqueSorted(source.evidenceKinds),
-      formalApplicability: scriptRowsByPath.get(source.path)?.formalApplicability ?? null,
-    })),
-  };
-});
+const semanticClaimIdsForCase = (caseId) => uniqueSorted(
+  (scriptCatalog.claimMappingsByCase.get(caseId) ?? []).map((mapping) => mapping.claimId),
+);
 for (const entry of registry) {
   const entryRoutes = uniqueSorted((entry.endpoints ?? []).map(parseEndpoint).filter(Boolean));
   for (const [caseName, caseData] of Object.entries(entry.cases ?? {})) {
@@ -1462,7 +1439,7 @@ for (const entry of registry) {
       suspectedModels: suspectedModelsForRoutes(routes),
       checks: Array.isArray(caseData.requiredChecks) ? caseData.requiredChecks : [],
       focusedChecks: uniqueSorted((caseData.focusedChecks ?? []).map((check) => check.id)),
-      semanticClaims: semanticClaimsForCase(id),
+      semanticClaimIds: semanticClaimIdsForCase(id),
       mapping: evidence ? 'browser-evidence' : 'registry-endpoints',
       evidence: evidence ? BROWSER_EVIDENCE : REGISTRY,
     });
