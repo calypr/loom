@@ -6,16 +6,68 @@
     "ledger": "verification/builder-interactions/route-contract.json"
   },
   "summary": {
-    "actions": 94,
-    "high": 46,
+    "actions": 115,
+    "high": 44,
     "medium": 24,
-    "low": 24,
-    "withCandidateTests": 70,
-    "withoutCandidateTests": 24,
-    "guardCandidates": 0,
-    "withGuardCandidates": 0
+    "low": 47,
+    "withCandidateTests": 68,
+    "withoutCandidateTests": 47,
+    "guardCandidates": 11,
+    "withGuardCandidates": 5
   },
   "proposals": [
+    {
+      "modelAction": "BuilderJourney.PreviewComplete",
+      "model": "BuilderJourney",
+      "action": "PreviewComplete",
+      "status": "missing",
+      "routeBinding": "candidate",
+      "routeCount": 6,
+      "candidateTests": [
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
+          "kind": "go",
+          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+          "kind": "go",
+          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
+          "kind": "go",
+          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "kind": "go",
+          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        }
+      ],
+      "candidateSourceFiles": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
+      ],
+      "guardCandidates": [],
+      "priority": "high",
+      "proposedProbeId": "model-builderjourney-previewcomplete",
+      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
+    },
     {
       "modelAction": "BuilderOperations.AuthorStep",
       "model": "BuilderOperations",
@@ -689,6 +741,58 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
+      "modelAction": "ConstructionLifecycle.StartPreview",
+      "model": "ConstructionLifecycle",
+      "action": "StartPreview",
+      "status": "missing",
+      "routeBinding": "candidate",
+      "routeCount": 6,
+      "candidateTests": [
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
+          "kind": "go",
+          "name": "TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+          "kind": "go",
+          "name": "TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
+          "kind": "go",
+          "name": "TestBuilderFullUIRowDefinitionProposalDispatchUsesRealService",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        },
+        {
+          "id": "go:internal/explorer/lifecycle/builder_full_ui_replay_test.go::TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "kind": "go",
+          "name": "TestBuilderFullUIScalarFilterAndDeriveRequestsReplayThroughRealService",
+          "file": "internal/explorer/lifecycle/builder_full_ui_replay_test.go",
+          "score": 2
+        }
+      ],
+      "candidateSourceFiles": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reducer.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/rootChangeSelection.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx"
+      ],
+      "guardCandidates": [],
+      "priority": "high",
+      "proposedProbeId": "model-constructionlifecycle-startpreview",
+      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
+    },
+    {
       "modelAction": "ConstructionLifecycle.StartProposal",
       "model": "ConstructionLifecycle",
       "action": "StartProposal",
@@ -898,60 +1002,9 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "LifecycleEntry.AuthoredChange",
-      "model": "LifecycleEntry",
-      "action": "AuthoredChange",
-      "status": "missing",
-      "routeBinding": "route",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 2
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 2
-        },
-        {
-          "id": "playwright:basic-coded-pivot:integer-lifecycle",
-          "kind": "playwright",
-          "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
-          "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
-          "score": 1
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-lifecycleentry-authoredchange",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.AuthoredChange",
+      "modelAction": "ReconcileLifecycle.LateReconcileIgnored",
       "model": "ReconcileLifecycle",
-      "action": "AuthoredChange",
+      "action": "LateReconcileIgnored",
       "status": "covered",
       "routeBinding": "route",
       "routeCount": 1,
@@ -996,13 +1049,13 @@
       ],
       "guardCandidates": [],
       "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-authoredchange",
+      "proposedProbeId": "model-reconcilelifecycle-latereconcileignored",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
-      "modelAction": "ReconcileLifecycle.ClearReceipt",
+      "modelAction": "ReconcileLifecycle.WorkspaceChangeStartsReconcile",
       "model": "ReconcileLifecycle",
-      "action": "ClearReceipt",
+      "action": "WorkspaceChangeStartsReconcile",
       "status": "covered",
       "routeBinding": "route",
       "routeCount": 1,
@@ -1047,152 +1100,7 @@
       ],
       "guardCandidates": [],
       "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-clearreceipt",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.ReconcileConflict",
-      "model": "ReconcileLifecycle",
-      "action": "ReconcileConflict",
-      "status": "covered",
-      "routeBinding": "route",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-reconcileconflict",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.ReconcileFailure",
-      "model": "ReconcileLifecycle",
-      "action": "ReconcileFailure",
-      "status": "covered",
-      "routeBinding": "unbound",
-      "routeCount": 0,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-reconcilefailure",
-      "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
-    },
-    {
-      "modelAction": "ReconcileLifecycle.RetryReconcile",
-      "model": "ReconcileLifecycle",
-      "action": "RetryReconcile",
-      "status": "covered",
-      "routeBinding": "route",
-      "routeCount": 1,
-      "candidateTests": [
-        {
-          "id": "go:internal/server/explorer_receipt_contract_test.go::TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "kind": "go",
-          "name": "TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt",
-          "file": "internal/server/explorer_receipt_contract_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/explorer_reconcile_scope_test.go::TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "kind": "go",
-          "name": "TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer",
-          "file": "internal/server/explorer_reconcile_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "go:internal/server/openapi_explorer_write_scope_test.go::TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "kind": "go",
-          "name": "TestGeneratedExplorerMutationRoutesForwardAuthResourcePath",
-          "file": "internal/server/openapi_explorer_write_scope_test.go",
-          "score": 3
-        },
-        {
-          "id": "playwright:builder-controls:recompile",
-          "kind": "playwright",
-          "name": "recompile",
-          "file": "scripts/verify-ui/specs/builder-controls.spec.mjs",
-          "score": 3
-        }
-      ],
-      "candidateSourceFiles": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/initialTablePlan.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/model.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts"
-      ],
-      "guardCandidates": [],
-      "priority": "high",
-      "proposedProbeId": "model-reconcilelifecycle-retryreconcile",
+      "proposedProbeId": "model-reconcilelifecycle-workspacechangestartsreconcile",
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
@@ -2175,6 +2083,381 @@
       "reason": "Pick a guard that implements this action and use one of the candidate tests for the mutation failure."
     },
     {
+      "modelAction": "BuilderJourney.AddColumn",
+      "model": "BuilderJourney",
+      "action": "AddColumn",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-addcolumn",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CancelFilter",
+      "model": "BuilderJourney",
+      "action": "CancelFilter",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cancelfilter",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.ChoicePreview",
+      "model": "BuilderJourney",
+      "action": "ChoicePreview",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-choicepreview",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.ChoicePreviewComplete",
+      "model": "BuilderJourney",
+      "action": "ChoicePreviewComplete",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+          "line": 1560,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "&&",
+          "dropped": "choicesForCurrentTable(finalGroup).length === 0",
+          "find": "    if (!resolved.complete && !nextCursor && choicesForCurrentTable(finalGroup).length === 0) {",
+          "replace": "    if (!resolved.complete && !nextCursor) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-choicepreviewcomplete",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.ChoicePreviewError",
+      "model": "BuilderJourney",
+      "action": "ChoicePreviewError",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-choicepreviewerror",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.EditGroup",
+      "model": "BuilderJourney",
+      "action": "EditGroup",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-editgroup",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.EditGroupAgain",
+      "model": "BuilderJourney",
+      "action": "EditGroupAgain",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-editgroupagain",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.Group",
+      "model": "BuilderJourney",
+      "action": "Group",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts",
+          "line": 342,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "&&",
+          "dropped": "screen.queryByLabelText('Unmatched record policy')",
+          "find": "  if (choiceKind === 'EXPLICIT_GROUP' && screen.queryByLabelText('Unmatched record policy')) {",
+          "replace": "  if (choiceKind === 'EXPLICIT_GROUP') {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts",
+          "line": 373,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "||",
+          "dropped": "groupIndexes.some((value) => typeof value !== 'number')",
+          "find": "    if (!memberId || !label || !Array.isArray(groupIndexes) || groupIndexes.some((value) => typeof value !== 'number')) {",
+          "replace": "    if (!memberId || !label || !Array.isArray(groupIndexes)) {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 3293,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "&&",
+          "dropped": "constructionLifecycle.capabilities.status === 'ready'",
+          "find": "    if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {",
+          "replace": "    if ((kind === 'expand' || kind === 'group') && table) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-group",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.GroupAgain",
+      "model": "BuilderJourney",
+      "action": "GroupAgain",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-groupagain",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.LatePreviewCompleteIgnored",
+      "model": "BuilderJourney",
+      "action": "LatePreviewCompleteIgnored",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-latepreviewcompleteignored",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.LatePreviewErrorIgnored",
+      "model": "BuilderJourney",
+      "action": "LatePreviewErrorIgnored",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-latepreviewerrorignored",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.Pivot",
+      "model": "BuilderJourney",
+      "action": "Pivot",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+          "line": 168,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "||",
+          "dropped": "!pivotPairMatches(discovery, pair)",
+          "find": "          if (discovery.catalogId !== capabilities.catalogId || !pivotPairMatches(discovery, pair)) {",
+          "replace": "          if (discovery.catalogId !== capabilities.catalogId) {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
+          "line": 222,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "||",
+          "dropped": "!pivotPairMatches(discovery, pair)",
+          "find": "      if (discovery.catalogId !== session.catalogId || !pivotPairMatches(discovery, pair)) {",
+          "replace": "      if (discovery.catalogId !== session.catalogId) {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
+          "line": 2288,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "&&",
+          "dropped": "previousRequestIdentity !== nextRequestIdentity",
+          "find": "    if (form.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {",
+          "replace": "    if (form.kind === 'pivot' && next.kind === 'pivot') {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-pivot",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.Preview",
+      "model": "BuilderJourney",
+      "action": "Preview",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts",
+          "line": 691,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "||",
+          "dropped": "action === 'refresh_preview_catalog'",
+          "find": "  if (action === 'retry_preview_once' || action === 'refresh_preview_catalog') {",
+          "replace": "  if (action === 'retry_preview_once') {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/peripheral.tsx",
+          "line": 470,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "||",
+          "dropped": "screenAction(values) === 'review'",
+          "find": "  if (stepKind === 'preview' || screenAction(values) === 'review') {",
+          "replace": "  if (stepKind === 'preview') {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 1908,
+          "score": 1,
+          "specific": true,
+          "occurrences": 1,
+          "confidence": "medium",
+          "operator": "||",
+          "dropped": "response.preview.outputId !== table.outputId",
+          "find": "      if (response.preview.rows === null || response.preview.outputId !== table.outputId) {",
+          "replace": "      if (response.preview.rows === null) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-preview",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.PreviewError",
+      "model": "BuilderJourney",
+      "action": "PreviewError",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-previewerror",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.PreviewRequestCancelled",
+      "model": "BuilderJourney",
+      "action": "PreviewRequestCancelled",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 2901,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "&&",
+          "dropped": "execution.previewGeneration === previewGeneration.current",
+          "find": "        if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {",
+          "replace": "        if (execution.previewRequest) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-previewrequestcancelled",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.RemoveGroup",
+      "model": "BuilderJourney",
+      "action": "RemoveGroup",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-removegroup",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.Stutter",
+      "model": "BuilderJourney",
+      "action": "Stutter",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-stutter",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "BuilderOperations.ResetWorkspace",
       "model": "BuilderOperations",
       "action": "ResetWorkspace",
@@ -2357,6 +2640,20 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "LifecycleEntry.AuthoredChange",
+      "model": "LifecycleEntry",
+      "action": "AuthoredChange",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-lifecycleentry-authoredchange",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "LifecycleEntry.CommandStale",
       "model": "LifecycleEntry",
       "action": "CommandStale",
@@ -2441,6 +2738,20 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "ReconcileLifecycle.AuthoredChange",
+      "model": "ReconcileLifecycle",
+      "action": "AuthoredChange",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-reconcilelifecycle-authoredchange",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "ReconcileLifecycle.ChangeExplorer",
       "model": "ReconcileLifecycle",
       "action": "ChangeExplorer",
@@ -2452,6 +2763,62 @@
       "guardCandidates": [],
       "priority": "low",
       "proposedProbeId": "model-reconcilelifecycle-changeexplorer",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "ReconcileLifecycle.ClearReceipt",
+      "model": "ReconcileLifecycle",
+      "action": "ClearReceipt",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-reconcilelifecycle-clearreceipt",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "ReconcileLifecycle.ReconcileConflict",
+      "model": "ReconcileLifecycle",
+      "action": "ReconcileConflict",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-reconcilelifecycle-reconcileconflict",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "ReconcileLifecycle.ReconcileFailure",
+      "model": "ReconcileLifecycle",
+      "action": "ReconcileFailure",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-reconcilelifecycle-reconcilefailure",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "ReconcileLifecycle.RetryReconcile",
+      "model": "ReconcileLifecycle",
+      "action": "RetryReconcile",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-reconcilelifecycle-retryreconcile",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {

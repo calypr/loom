@@ -21,13 +21,13 @@ End to end ready: no.
 | browserCases | 1 |
 | browserCoveredRoutes | 11 |
 | ledgerRoutesWithBrowserCoverage | 11 |
-| obligations | 265 |
+| obligations | 266 |
 | covered | 10 |
 | partial | 92 |
-| missing | 163 |
+| missing | 164 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 74 |
+| missingUnbound | 75 |
 | tests | 906 |
 | testsWithoutExactObligations | 894 |
 | models | 14 |
@@ -70,13 +70,13 @@ End to end ready: no.
 | mutationKilled | 47 |
 | mutationSurvived | 0 |
 | mutationEquivalent | 3 |
-| mutationUnprobedActions | 94 |
+| mutationUnprobedActions | 115 |
 | mutationStrictPass | yes |
-| mutationProbeCandidates | 94 |
-| mutationProbeCandidatesHigh | 46 |
-| mutationProbeCandidatesWithoutTests | 24 |
-| mutationGuardCandidates | 0 |
-| mutationActionsWithGuardCandidates | 0 |
+| mutationProbeCandidates | 115 |
+| mutationProbeCandidatesHigh | 44 |
+| mutationProbeCandidatesWithoutTests | 47 |
+| mutationGuardCandidates | 11 |
+| mutationActionsWithGuardCandidates | 5 |
 | browserCaseProposals | 28 |
 | browserCaseProposalsHigh | 7 |
 | routeActionDecisions | 0 |
@@ -109,7 +109,7 @@ End to end ready: no.
 | --- | ---: |
 | route | 19 |
 | candidate | 70 |
-| unbound | 74 |
+| unbound | 75 |
 
 ## Next worklist
 

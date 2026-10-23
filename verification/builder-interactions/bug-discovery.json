@@ -20,9 +20,9 @@
     "staleSources": 0,
     "triageErrors": 0,
     "strictPass": true,
-    "actionObligations": 153,
+    "actionObligations": 174,
     "probedActions": 59,
-    "unprobedActions": 94
+    "unprobedActions": 115
   },
   "allowlist": [],
   "probes": [
@@ -943,6 +943,132 @@
   },
   "actionCoverage": [
     {
+      "id": "BuilderJourney.AddColumn",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CancelFilter",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.ChoicePreview",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.ChoicePreviewComplete",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.ChoicePreviewError",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.EditGroup",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.EditGroupAgain",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.Group",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.GroupAgain",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.LatePreviewCompleteIgnored",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.LatePreviewErrorIgnored",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.Pivot",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.Preview",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.PreviewComplete",
+      "model": "BuilderJourney",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.PreviewError",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.PreviewRequestCancelled",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.RemoveGroup",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.Stutter",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
       "id": "BuilderOperations.AuthorStep",
       "model": "BuilderOperations",
       "routeBinding": "candidate",
@@ -1313,6 +1439,13 @@
       "covered": false
     },
     {
+      "id": "ConstructionLifecycle.StartPreview",
+      "model": "ConstructionLifecycle",
+      "routeBinding": "candidate",
+      "probes": [],
+      "covered": false
+    },
+    {
       "id": "ConstructionLifecycle.StartProposal",
       "model": "ConstructionLifecycle",
       "routeBinding": "candidate",
@@ -1428,7 +1561,7 @@
     {
       "id": "LifecycleEntry.AuthoredChange",
       "model": "LifecycleEntry",
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "probes": [],
       "covered": false
     },
@@ -1639,7 +1772,7 @@
     {
       "id": "ReconcileLifecycle.AuthoredChange",
       "model": "ReconcileLifecycle",
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "probes": [],
       "covered": false
     },
@@ -1653,7 +1786,7 @@
     {
       "id": "ReconcileLifecycle.ClearReceipt",
       "model": "ReconcileLifecycle",
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "probes": [],
       "covered": false
     },
@@ -1668,9 +1801,16 @@
       "covered": true
     },
     {
-      "id": "ReconcileLifecycle.ReconcileConflict",
+      "id": "ReconcileLifecycle.LateReconcileIgnored",
       "model": "ReconcileLifecycle",
       "routeBinding": "route",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "ReconcileLifecycle.ReconcileConflict",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "unbound",
       "probes": [],
       "covered": false
     },
@@ -1684,7 +1824,7 @@
     {
       "id": "ReconcileLifecycle.ReconcileInvalid",
       "model": "ReconcileLifecycle",
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "probes": [
         "reconcile-output-whitespace-guard"
       ],
@@ -1693,7 +1833,7 @@
     {
       "id": "ReconcileLifecycle.ReconcileStale",
       "model": "ReconcileLifecycle",
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "probes": [
         "reconcile-draft-identity-guard"
       ],
@@ -1720,7 +1860,7 @@
     {
       "id": "ReconcileLifecycle.RetryReconcile",
       "model": "ReconcileLifecycle",
-      "routeBinding": "route",
+      "routeBinding": "unbound",
       "probes": [],
       "covered": false
     },
@@ -1739,6 +1879,13 @@
         "dataset-review-single-scope-guard"
       ],
       "covered": true
+    },
+    {
+      "id": "ReconcileLifecycle.WorkspaceChangeStartsReconcile",
+      "model": "ReconcileLifecycle",
+      "routeBinding": "route",
+      "probes": [],
+      "covered": false
     },
     {
       "id": "RootChange.ApplyPreview",
@@ -2134,6 +2281,24 @@
     }
   ],
   "unprobedActions": [
+    "BuilderJourney.AddColumn",
+    "BuilderJourney.CancelFilter",
+    "BuilderJourney.ChoicePreview",
+    "BuilderJourney.ChoicePreviewComplete",
+    "BuilderJourney.ChoicePreviewError",
+    "BuilderJourney.EditGroup",
+    "BuilderJourney.EditGroupAgain",
+    "BuilderJourney.Group",
+    "BuilderJourney.GroupAgain",
+    "BuilderJourney.LatePreviewCompleteIgnored",
+    "BuilderJourney.LatePreviewErrorIgnored",
+    "BuilderJourney.Pivot",
+    "BuilderJourney.Preview",
+    "BuilderJourney.PreviewComplete",
+    "BuilderJourney.PreviewError",
+    "BuilderJourney.PreviewRequestCancelled",
+    "BuilderJourney.RemoveGroup",
+    "BuilderJourney.Stutter",
     "BuilderOperations.AuthorStep",
     "BuilderOperations.ResetWorkspace",
     "BuilderOperations.RouteSavedStep",
@@ -2156,6 +2321,7 @@
     "ConstructionLifecycle.ProposalComplete",
     "ConstructionLifecycle.ProposalError",
     "ConstructionLifecycle.RetryProposal",
+    "ConstructionLifecycle.StartPreview",
     "ConstructionLifecycle.StartProposal",
     "DraftRestore.CancelRestore",
     "DraftRestore.RestoreComplete",
@@ -2195,10 +2361,12 @@
     "ReconcileLifecycle.AuthoredChange",
     "ReconcileLifecycle.ChangeExplorer",
     "ReconcileLifecycle.ClearReceipt",
+    "ReconcileLifecycle.LateReconcileIgnored",
     "ReconcileLifecycle.ReconcileConflict",
     "ReconcileLifecycle.ReconcileFailure",
     "ReconcileLifecycle.RetryReconcile",
     "ReconcileLifecycle.SetSnapshotPresent",
+    "ReconcileLifecycle.WorkspaceChangeStartsReconcile",
     "RootChange.ApplyPreview",
     "RootChange.AssessmentBlocked",
     "RootChange.AssessmentNoChange",

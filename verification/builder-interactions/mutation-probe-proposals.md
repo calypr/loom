@@ -6,19 +6,20 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 
 | Measure | Count |
 | --- | ---: |
-| actions | 94 |
-| high | 46 |
+| actions | 115 |
+| high | 44 |
 | medium | 24 |
-| low | 24 |
-| withCandidateTests | 70 |
-| withoutCandidateTests | 24 |
-| guardCandidates | 0 |
-| withGuardCandidates | 0 |
+| low | 47 |
+| withCandidateTests | 68 |
+| withoutCandidateTests | 47 |
+| guardCandidates | 11 |
+| withGuardCandidates | 5 |
 
 ## Review queue
 
 | Priority | Model action | Routes | Candidate tests | Candidate source |
 | --- | --- | ---: | --- | --- |
+| high | `BuilderJourney.PreviewComplete` | 6 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `BuilderOperations.AuthorStep` | 16 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `BuilderOperations.RouteSavedStep` | 1 | `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly` internal/server/openapi_explorer_construction_proposal_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `BuilderPreview.BeginApply` | 6 | `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
@@ -32,6 +33,7 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | high | `ConstructionLifecycle.ProposalComplete` | 6 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `ConstructionLifecycle.ProposalError` | 2 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `ConstructionLifecycle.RetryProposal` | 2 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
+| high | `ConstructionLifecycle.StartPreview` | 6 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `ConstructionLifecycle.StartProposal` | 6 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `Interpretation.BeginCreate` | 1 | `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath` internal/server/openapi_explorer_write_scope_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `Interpretation.CancelCreate` | 1 | `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath` internal/server/openapi_explorer_write_scope_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
@@ -39,12 +41,8 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | high | `Interpretation.CreateFailed` | 1 | `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath` internal/server/openapi_explorer_write_scope_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `Interpretation.CreateRevision` | 1 | `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath` internal/server/openapi_explorer_write_scope_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `Interpretation.ReviewStale` | 1 | `TestInterpretationPreviewRouteRejectsMissingBody` internal/server/openapi_interpretation_routes_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
-| high | `LifecycleEntry.AuthoredChange` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
-| high | `ReconcileLifecycle.AuthoredChange` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
-| high | `ReconcileLifecycle.ClearReceipt` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
-| high | `ReconcileLifecycle.ReconcileConflict` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
-| high | `ReconcileLifecycle.ReconcileFailure` | 0 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | none |
-| high | `ReconcileLifecycle.RetryReconcile` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
+| high | `ReconcileLifecycle.LateReconcileIgnored` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
+| high | `ReconcileLifecycle.WorkspaceChangeStartsReconcile` | 1 | `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt` internal/server/explorer_receipt_contract_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `RootChange.ApplyPreview` | 1 | `TestAssessAndApplyRowChangeThroughPublicAPI` internal/server/explorer_row_change_route_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `RootChange.AssessmentBlocked` | 1 | `TestAssessAndApplyRowChangeThroughPublicAPI` internal/server/explorer_row_change_route_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `RootChange.AssessmentNoChange` | 1 | `TestAssessAndApplyRowChangeThroughPublicAPI` internal/server/explorer_row_change_route_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
@@ -65,25 +63,39 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | high | `WorkspaceLifecycle.RemoveRoute` | 1 | `TestBuilderFullUIRequestDecoderPreservesNullableBodyAndEndpoint` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `WorkspaceLifecycle.SelectExplorer` | 3 | `TestMigrateLegacyWorkspaceForCurrentAPIUsesScopedCatalogAndReusesPublishBody` internal/acceptance/scenario_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | high | `WorkspaceLifecycle.StartPreview` | 6 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
-| low | `BuilderOperations.ResetWorkspace` | 0 | none | none |
-| low | `BuilderOperations.UndoLastStep` | 0 | none | none |
-| low | `BuilderPreview.AdoptDiscovery` | 0 | none | none |
-| low | `BuilderPreview.ChangeDraft` | 0 | none | none |
-| low | `BuilderPreview.ChangePivotKey` | 0 | none | none |
-| low | `BuilderPreview.LatePreviewComplete` | 0 | none | none |
-| low | `BuilderPreview.UnmountEditor` | 0 | none | none |
-| low | `ConstructionLifecycle.LatePreviewSettlementIgnored` | 0 | none | none |
-| low | `ConstructionLifecycle.PreviewError` | 0 | none | none |
-| low | `DraftRestore.CancelRestore` | 0 | none | none |
-| low | `DraftRestore.RestoreComplete` | 0 | none | none |
-| low | `DraftRestore.SaveDraft` | 0 | none | none |
-| low | `DraftRestore.StartRestore` | 0 | none | none |
-| low | `LifecycleEntry.CommandStale` | 0 | none | none |
-| ... | 34 more in the JSON report | | | |
+| low | `BuilderJourney.AddColumn` | 0 | none | none |
+| low | `BuilderJourney.CancelFilter` | 0 | none | none |
+| low | `BuilderJourney.ChoicePreview` | 0 | none | none |
+| low | `BuilderJourney.ChoicePreviewComplete` | 0 | none | none |
+| low | `BuilderJourney.ChoicePreviewError` | 0 | none | none |
+| low | `BuilderJourney.EditGroup` | 0 | none | none |
+| low | `BuilderJourney.EditGroupAgain` | 0 | none | none |
+| low | `BuilderJourney.Group` | 0 | none | none |
+| low | `BuilderJourney.GroupAgain` | 0 | none | none |
+| low | `BuilderJourney.LatePreviewCompleteIgnored` | 0 | none | none |
+| low | `BuilderJourney.LatePreviewErrorIgnored` | 0 | none | none |
+| low | `BuilderJourney.Pivot` | 0 | none | none |
+| low | `BuilderJourney.Preview` | 0 | none | none |
+| low | `BuilderJourney.PreviewError` | 0 | none | none |
+| low | `BuilderJourney.PreviewRequestCancelled` | 0 | none | none |
+| low | `BuilderJourney.RemoveGroup` | 0 | none | none |
+| ... | 55 more in the JSON report | | | |
 
 ## Guard candidates
 
-No syntactic guard candidate matched an unprobed action.
+| Model action | File | Line | Mutation |
+| --- | --- | ---: | --- |
+| `BuilderJourney.ChoicePreviewComplete` | `ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx` | 1560 | `if (!resolved.complete && !nextCursor && choicesForCurrentTable(finalGroup).length === 0) {` -> `if (!resolved.complete && !nextCursor) {` |
+| `BuilderJourney.Group` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts` | 342 | `if (choiceKind === 'EXPLICIT_GROUP' && screen.queryByLabelText('Unmatched record policy')) {` -> `if (choiceKind === 'EXPLICIT_GROUP') {` |
+| `BuilderJourney.Group` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts` | 373 | `if (!memberId || !label || !Array.isArray(groupIndexes) || groupIndexes.some((value) => typeof value !== 'number')) {` -> `if (!memberId || !label || !Array.isArray(groupIndexes)) {` |
+| `BuilderJourney.Group` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 3293 | `if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {` -> `if ((kind === 'expand' || kind === 'group') && table) {` |
+| `BuilderJourney.Pivot` | `ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx` | 168 | `if (discovery.catalogId !== capabilities.catalogId || !pivotPairMatches(discovery, pair)) {` -> `if (discovery.catalogId !== capabilities.catalogId) {` |
+| `BuilderJourney.Pivot` | `ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx` | 222 | `if (discovery.catalogId !== session.catalogId || !pivotPairMatches(discovery, pair)) {` -> `if (discovery.catalogId !== session.catalogId) {` |
+| `BuilderJourney.Pivot` | `ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx` | 2288 | `if (form.kind === 'pivot' && next.kind === 'pivot' && previousRequestIdentity !== nextRequestIdentity) {` -> `if (form.kind === 'pivot' && next.kind === 'pivot') {` |
+| `BuilderJourney.Preview` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts` | 691 | `if (action === 'retry_preview_once' || action === 'refresh_preview_catalog') {` -> `if (action === 'retry_preview_once') {` |
+| `BuilderJourney.Preview` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/peripheral.tsx` | 470 | `if (stepKind === 'preview' || screenAction(values) === 'review') {` -> `if (stepKind === 'preview') {` |
+| `BuilderJourney.Preview` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1908 | `if (response.preview.rows === null || response.preview.outputId !== table.outputId) {` -> `if (response.preview.rows === null) {` |
+| `BuilderJourney.PreviewRequestCancelled` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 2901 | `if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {` -> `if (execution.previewRequest) {` |
 
 ## Bounds
 

@@ -18,9 +18,9 @@ Status: generated from the mutation probes, retained evidence, source hashes, an
 | staleSources | 0 |
 | triageErrors | 0 |
 | strictPass | yes |
-| actionObligations | 153 |
+| actionObligations | 174 |
 | probedActions | 59 |
-| unprobedActions | 94 |
+| unprobedActions | 115 |
 
 ## Probes
 
@@ -93,9 +93,9 @@ Every retained probe has a current source hash.
 
 | Measure | Count |
 | --- | ---: |
-| actionObligations | 153 |
+| actionObligations | 174 |
 | probedActions | 59 |
-| unprobedActions | 94 |
+| unprobedActions | 115 |
 
 Covered actions:
 
@@ -161,6 +161,24 @@ Covered actions:
 
 Actions without a mutation probe:
 
+- `BuilderJourney.AddColumn`
+- `BuilderJourney.CancelFilter`
+- `BuilderJourney.ChoicePreview`
+- `BuilderJourney.ChoicePreviewComplete`
+- `BuilderJourney.ChoicePreviewError`
+- `BuilderJourney.EditGroup`
+- `BuilderJourney.EditGroupAgain`
+- `BuilderJourney.Group`
+- `BuilderJourney.GroupAgain`
+- `BuilderJourney.LatePreviewCompleteIgnored`
+- `BuilderJourney.LatePreviewErrorIgnored`
+- `BuilderJourney.Pivot`
+- `BuilderJourney.Preview`
+- `BuilderJourney.PreviewComplete`
+- `BuilderJourney.PreviewError`
+- `BuilderJourney.PreviewRequestCancelled`
+- `BuilderJourney.RemoveGroup`
+- `BuilderJourney.Stutter`
 - `BuilderOperations.AuthorStep`
 - `BuilderOperations.ResetWorkspace`
 - `BuilderOperations.RouteSavedStep`
@@ -183,25 +201,7 @@ Actions without a mutation probe:
 - `ConstructionLifecycle.ProposalComplete`
 - `ConstructionLifecycle.ProposalError`
 - `ConstructionLifecycle.RetryProposal`
-- `ConstructionLifecycle.StartProposal`
-- `DraftRestore.CancelRestore`
-- `DraftRestore.RestoreComplete`
-- `DraftRestore.SaveDraft`
-- `DraftRestore.StartRestore`
-- `Interpretation.BeginCreate`
-- `Interpretation.CancelCreate`
-- `Interpretation.CreateBlocked`
-- `Interpretation.CreateFailed`
-- `Interpretation.CreateRevision`
-- `Interpretation.ReviewStale`
-- `LifecycleEntry.AuthoredChange`
-- `LifecycleEntry.CommandStale`
-- `LifecycleEntry.CommandSuccess`
-- `LifecycleEntry.GateReconcile`
-- `LifecycleEntry.ParseRoute`
-- `LifecycleEntry.ReconcileNeedsRepair`
-- `LifecycleEntry.ReconcileReceiptBound`
-- 54 more in the JSON report.
+- 75 more in the JSON report.
 
 ## Bounds
 
