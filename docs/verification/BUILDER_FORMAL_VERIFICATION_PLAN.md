@@ -155,6 +155,8 @@ python3 -m unittest discover -s scripts/maintenance/playwright/tests -p 'test_bu
 
 The output records historical proof separately from source freshness. Route consumers count only cases whose `status` and `sourceStatus` are both `current`. The missing Recompile report remains visible as unavailable. These checks do not run a browser or establish current runtime behavior.
 
+The 76-file proof scope includes `builder-journey-audit.json`, which stores the retained result descriptors. Later edits to that metadata can therefore make the historical runs stale against current source. This unit validates the retained results and reports that gap honestly; it does not mask the audit file or claim a fresh runtime. A future fresh-run integration needs separate behavioral-contract inputs from observed result metadata within the existing pipeline.
+
 ## Definition of done
 
 - Every UI-called Builder route is in the ledger.

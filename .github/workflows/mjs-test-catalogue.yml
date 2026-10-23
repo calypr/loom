@@ -27,7 +27,9 @@ jobs:
       - name: Validate catalogue metadata
         run: node scripts/build-test-obligations.mjs --self-test
       - name: Check retained browser evidence
-        run: node scripts/generate-builder-browser-evidence.mjs --self-test
+        run: |
+          node scripts/generate-builder-browser-evidence.mjs --self-test
+          node scripts/generate-builder-browser-evidence.mjs --from-evidence --check
       - name: Exercise retained browser evidence controls
         run: python3 -m unittest discover -s scripts/maintenance/playwright/tests -p 'test_builder_browser_evidence.py'
       - name: Verify generated obligations are current

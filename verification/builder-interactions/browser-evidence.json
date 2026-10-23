@@ -1,7 +1,37 @@
 {
-  "schemaVersion": 2,
-  "generatedFrom": [
-    ".artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json"
+  "schemaVersion": 3,
+  "generatedFrom": [],
+  "retainedGeneratedFrom": [
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/bracket-summary.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/native-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/tla-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/trace.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/tla-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/trace.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/bracket-summary.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/journey-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/native-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/tla-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/trace-controls.log",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/trace.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/api-after.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/api-before.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/docs-after.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/docs-before.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/health-after.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/health-before.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/mounts-after.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/mounts-before.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/precheck-before.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/source-after.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/source-before.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/bracket-summary.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/native-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/tla-report.json",
+    "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/trace.json",
+    "verification/builder-interactions/builder-journey-audit.json",
+    "verification/builder-interactions/cda-mini-journeys.json"
   ],
   "cases": [
     {
@@ -9,11 +39,9 @@
       "scenario": "builder-controls",
       "case": "recompile",
       "name": "builder-controls recompile",
-      "status": "passed",
-      "recordedAt": "2026-10-21T17:07:50.837Z",
-      "sourceFingerprint": "273156f27e0cd878b09f92388251a7b39ccb0676ddb9374fdc08c29c28957f59",
-      "sourceFileCount": 2040,
-      "apiBuildIdentity": "3967c46c0737b2b039f94e6775e2bc4455b3f08fed292a637fd03182167b9ca3:3967c46c0737b2b039f94e6775e2bc4455b3f08fed292a637fd03182167b9ca3:03b8085d60523649b5a27dc2d3150fb6d5b5ca59dd762682ffa66729882ecdfb",
+      "status": "unavailable",
+      "sourceStatus": "unavailable",
+      "sourceStatusReason": "the report path pinned by the accepted Git baseline is not retained: .artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json",
       "coveredRoutes": [
         "GET /api/v1/projects/{project}/explorers",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
@@ -30,125 +58,288 @@
       "injectedRoutes": [
         "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile"
       ],
-      "assertions": [
-        {
-          "name": "watched source fingerprint baseline captured before browser lifecycle",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "API build identity baseline captured before browser lifecycle",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "open Explorer creation completed",
-          "status": "passed",
-          "dimension": "usability"
-        },
-        {
-          "name": "open Explorer creation action-to-render within budget",
-          "status": "passed",
-          "dimension": "performance"
-        },
-        {
-          "name": "name blank Explorer completed",
-          "status": "passed",
-          "dimension": "usability"
-        },
-        {
-          "name": "create blank Explorer completed",
-          "status": "passed",
-          "dimension": "usability"
-        },
-        {
-          "name": "create blank Explorer action-to-render within budget",
-          "status": "passed",
-          "dimension": "performance"
-        },
-        {
-          "name": "created a fresh Explorer distinct from the bootstrap",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "name Patient table for Recompile recovery completed",
-          "status": "passed",
-          "dimension": "usability"
-        },
-        {
-          "name": "trigger automatic compilation rejection completed",
-          "status": "passed",
-          "dimension": "usability"
-        },
-        {
-          "name": "trigger automatic compilation rejection action-to-render within budget",
-          "status": "passed",
-          "dimension": "performance"
-        },
-        {
-          "name": "controlled automatic compilation failure is visible",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "controlled compilation rejection was injected exactly once",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "Recompile invokes the backend compiler completed",
-          "status": "passed",
-          "dimension": "usability"
-        },
-        {
-          "name": "Recompile invokes the backend compiler action-to-render within budget",
-          "status": "passed",
-          "dimension": "performance"
-        },
-        {
-          "name": "Recompile returned a successful compilation response",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "Preview renders both independent fixture Patients",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "automatic Preview is visible after authoring",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "independent Patient source stayed unchanged during Builder verification",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "incidental asset failures are explicitly recorded",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "fixture browser observer reported no unexpected network or runtime errors",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "watched source stayed unchanged during browser run",
-          "status": "passed",
-          "dimension": "correctness"
-        },
-        {
-          "name": "API build identity stayed unchanged during browser run",
-          "status": "passed",
-          "dimension": "correctness"
-        }
-      ],
-      "report": ".artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json",
-      "reportSha256": "fb41e8e3d811a2524598d50357fc78c6174c370e196d3f50935d096ebe7d8f1b"
+      "historicalMetadata": {
+        "source": "c6b6382aff0736f02eb5f8355ba3730ccf999ee6:verification/builder-interactions/browser-evidence.json",
+        "gitBlobObjectId": "3b2dcba0017149bd1ba8b6b695938ee2aabbd34d",
+        "recordedStatus": "passed",
+        "recordedSourceFingerprint": "273156f27e0cd878b09f92388251a7b39ccb0676ddb9374fdc08c29c28957f59",
+        "recordedReport": ".artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json",
+        "recordedReportSha256": "fb41e8e3d811a2524598d50357fc78c6174c370e196d3f50935d096ebe7d8f1b",
+        "authority": "unverified preservation metadata; excluded from current route coverage"
+      }
     }
-  ]
+  ],
+  "retainedJourneys": [
+    {
+      "id": "edit-remove-reload:authored-three:0b383cda0ac70f735180de4b669e4d9e2a551b35",
+      "runId": "authored-three",
+      "journey": "edit-remove-reload",
+      "scenario": "builder-authoring",
+      "case": "group-entry",
+      "traceName": "builder-authoring:group-entry",
+      "status": "historical",
+      "sourceStatus": "stale",
+      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs, scripts/verify-ui/workflows/builder-group-entry.mjs, verification/builder-interactions/builder-journey-audit.json",
+      "recordedAt": "2026-10-23T00:23:20.950Z",
+      "sourceIdentity": {
+        "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+        "proofSourceFingerprint": "57cb347f63a7172ded456477b33d7d947f9a581cede3e3e5689531317df6a7ec",
+        "watchedTreeFingerprint": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86",
+        "watchedTreeFileCount": 2092,
+        "currentBracketFingerprint": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86"
+      },
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "counts": {
+        "nativeAssertionsPassed": 70,
+        "requiredChecksPassed": 17,
+        "traceActionCount": 24,
+        "tlcGeneratedStates": 26,
+        "tlcDistinctStates": 25,
+        "tlcDepth": 25
+      },
+      "requiredActions": [
+        "EditGroupAgain"
+      ],
+      "unsupportedNativeEvents": {
+        "group-edit-cancel": 1,
+        "group-removal-cancel": 1,
+        "reload": 2
+      },
+      "artifacts": {
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/native-report.json",
+          "sha256": "01a109b2133d990d4d35184a44b677039165551385e66f232e8172afe76a3638"
+        },
+        "bracketSummary": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/bracket-summary.json",
+          "sha256": "3b546bd765f96b9cfb4113615d9ecbddd6236487e6d04569690558f6f971b2f9"
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/trace.json",
+          "sha256": "e3c283c6af9ea2e6c5c0d69922153a53ed02f0553ef94957f4a0ac352c39f149"
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/tla-report.json",
+          "sha256": "0b5b2f168731ac564302d611111b7bbf1f35f58c0af0033e07924f72f3ace84c"
+        }
+      }
+    },
+    {
+      "id": "edit-remove-reload:basic-budget-28:908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+      "runId": "basic-budget-28",
+      "journey": "edit-remove-reload",
+      "nativeCase": null,
+      "traceName": "journey/edit-remove-reload-basic-budget",
+      "status": "historical",
+      "sourceStatus": "stale",
+      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: verification/builder-interactions/builder-journey-audit.json",
+      "recordedAt": null,
+      "sourceIdentity": {
+        "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+        "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78"
+      },
+      "budget": {
+        "backendResponses": 28,
+        "requiredRange": [
+          10,
+          45
+        ],
+        "rangeAuthority": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4:verification/builder-interactions/builder-journey-audit.json",
+        "passed": true
+      },
+      "model": "BuilderJourney",
+      "traceActionCount": 11,
+      "unsupportedEvents": {
+        "reload": 1
+      },
+      "artifacts": {
+        "report": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/report.json",
+          "sha256": "5ae36b5d558613835babcc97caacc1075bca87475c0db2e7d2e8a26e2fa3c071"
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/trace.json",
+          "sha256": "f05ed6fbb09a7f033b83c05985f4a384e7b4986f809d6b6096e98cb7f13240e3"
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/tla-report.json",
+          "sha256": "099495ddfc8700147c87d432e5a5a7580f651dff6d9fb60be5bfd075e6213157"
+        }
+      }
+    },
+    {
+      "id": "edit-remove-reload:raw-basic-alias-908:908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+      "runId": "raw-basic-alias-908",
+      "journey": "edit-remove-reload",
+      "scenario": "builder-authoring",
+      "case": "group-entry-raw-basic",
+      "traceName": "builder-authoring:group-entry-raw-basic",
+      "status": "historical",
+      "sourceStatus": "stale",
+      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: verification/builder-interactions/builder-journey-audit.json",
+      "recordedAt": "2026-10-23T00:52:04.753Z",
+      "sourceIdentity": {
+        "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+        "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+        "watchedTreeFingerprint": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995f",
+        "watchedTreeFileCount": 2092,
+        "currentBracketFingerprint": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995f"
+      },
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "counts": {
+        "nativeAssertionsPassed": 62,
+        "requiredChecksPassed": 17,
+        "traceActionCount": 18,
+        "tlcGeneratedStates": 20,
+        "tlcDistinctStates": 19,
+        "tlcDepth": 19
+      },
+      "requiredActions": [
+        "EditGroupAgain"
+      ],
+      "unsupportedNativeEvents": {
+        "group-edit-cancel": 1,
+        "group-removal-cancel": 1,
+        "reload": 2
+      },
+      "artifacts": {
+        "journeyReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/journey-report.json",
+          "sha256": "21e39a55c930ee1316993288ab8d7c41034611b19ce77f00ab1fa654c79b7515"
+        },
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/native-report.json",
+          "sha256": "49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e"
+        },
+        "bracketSummary": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/bracket-summary.json",
+          "sha256": "7a72bb91ed225994c6531ebd04d71c5de9821e48dff8d7c3c37e776b24996443"
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/trace.json",
+          "sha256": "cb3ac182756dfea5e91327f719949526aa54b2f7a9af69275d3860ac15e93a9b"
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/tla-report.json",
+          "sha256": "4aba90342a40c3ebe5b8b4cbd23b9777e403e62a3dd35193236a3ddc115cb9cc"
+        },
+        "freeze.precheck-before": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/precheck-before.json",
+          "sha256": "d3da0ba9da99fa18438dba01173b9783936d1efe7356de9fd2e8339195196319"
+        },
+        "freeze.source-before": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/source-before.json",
+          "sha256": "98ce70bb2b49fa6de6e4936541036b92b4b0a7c43f863ac8d0228648b884bd83"
+        },
+        "freeze.source-after": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/source-after.json",
+          "sha256": "c84afc1cceaf2ac4601e867da7bf2e2836c2197a2bfd1bac62792f0acd0b838b"
+        },
+        "freeze.docs-before": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/docs-before.json",
+          "sha256": "3b1f70f802bff6dd20a10130018633681ed56a85af9a8b4d3ac879970224f3b2"
+        },
+        "freeze.docs-after": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/docs-after.json",
+          "sha256": "a8ee7aa7696d04495a0a7bf1fac1c838abf26917620ee6ec0e105497897bb9ce"
+        },
+        "freeze.api-before": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/api-before.json",
+          "sha256": "29b5cbcc915436aad240c58c1c54735993b168181097ce961d290c3bcfb666f7"
+        },
+        "freeze.api-after": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/api-after.json",
+          "sha256": "35732da2cc209d0f54138e7176c4ecdd48c552cf740ff197acfd2cff5b164be4"
+        },
+        "freeze.mounts-before": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/mounts-before.json",
+          "sha256": "ea6b6e5b9fb4f172a1fb0d31e7983e407f96c583287e38afa676c699e395a565"
+        },
+        "freeze.mounts-after": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/mounts-after.json",
+          "sha256": "ba75ac5e6f5921050bccd915af0cac594481dcc6b3dee81f5ee3bf98640ec558"
+        },
+        "freeze.health-before": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/health-before.json",
+          "sha256": "1d243393418eeba8ec259b40b278b1b061206f444321909ab606ed97acbad367"
+        },
+        "freeze.health-after": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/health-after.json",
+          "sha256": "db314305aa4ac3aada39ce8f96a185a134e3e34a9c59e076248e8c9d6dd42077"
+        },
+        "traceControls": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/trace-controls.log",
+          "sha256": "cc79d65ff85e1ef72a5f31d106c771917b1994f0a53388fec05b1887748124bb"
+        }
+      }
+    },
+    {
+      "id": "edit-remove-reload:raw-basic:0b383cda0ac70f735180de4b669e4d9e2a551b35",
+      "runId": "raw-basic",
+      "journey": "edit-remove-reload",
+      "scenario": "builder-authoring",
+      "case": "group-entry-raw-basic",
+      "traceName": "builder-authoring:group-entry-raw-basic",
+      "status": "historical",
+      "sourceStatus": "stale",
+      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs, scripts/verify-ui/workflows/builder-group-entry.mjs, verification/builder-interactions/builder-journey-audit.json",
+      "recordedAt": "2026-10-23T00:24:27.787Z",
+      "sourceIdentity": {
+        "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+        "proofSourceFingerprint": "57cb347f63a7172ded456477b33d7d947f9a581cede3e3e5689531317df6a7ec",
+        "watchedTreeFingerprint": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86",
+        "watchedTreeFileCount": 2092,
+        "currentBracketFingerprint": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86"
+      },
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "counts": {
+        "nativeAssertionsPassed": 62,
+        "requiredChecksPassed": 17,
+        "traceActionCount": 18,
+        "tlcGeneratedStates": 20,
+        "tlcDistinctStates": 19,
+        "tlcDepth": 19
+      },
+      "requiredActions": [
+        "EditGroupAgain"
+      ],
+      "unsupportedNativeEvents": {
+        "group-edit-cancel": 1,
+        "group-removal-cancel": 1,
+        "reload": 2
+      },
+      "artifacts": {
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/native-report.json",
+          "sha256": "0f6065a9e96929ced2126ccfdea1b393bb399e2d1bcf80d5a089cf7797eba7cf"
+        },
+        "bracketSummary": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/bracket-summary.json",
+          "sha256": "140cb72abc60fb6c64576162fbac03d428581d76402d76119f4487483860eae0"
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/trace.json",
+          "sha256": "7dd800eca5dc18af77188f3c2de1505230f02b407b1462122eda1f4dd89e55d4"
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/tla-report.json",
+          "sha256": "a94089c716dde9bdee56e3d436fa9dd6890a59019e5fd1a18c27658108e1744e"
+        }
+      }
+    }
+  ],
+  "boundaries": {
+    "groupCancelAndReload": "Native assertions only. BuilderJourney reports these exact events as unsupported.",
+    "currentRuntime": {
+      "status": "unavailable",
+      "reason": "No retained journey row proves a current runtime, and this generator does not claim a fresh browser run."
+    },
+    "cda": {
+      "manifest": "verification/builder-interactions/cda-mini-journeys.json",
+      "id": "edit-remove-reload-cda-manual",
+      "status": "not-run",
+      "manualOnly": true,
+      "automationCoverage": false
+    }
+  }
 }
