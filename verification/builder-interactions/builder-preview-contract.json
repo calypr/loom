@@ -89,7 +89,7 @@
     },
     {
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-      "sha256": "b65245edcb2523291571fb2146e476fe945eb0a7b13f0736ddb1aa63d1b9913f",
+      "sha256": "e1f48bd13d20a8ff3275ddb655e148f771097253fca717ec5ea66fb134ec1172",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
@@ -344,7 +344,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-audit.json",
-      "sha256": "f746b4274e214c036c9c8e5f910a43cd7ec86df3f9483800ee3055e286e1fe47",
+      "sha256": "43c6a417cb9a04486a708e29f1c91b6b845f894feb1e195aef55bee384d36aa5",
       "contract": "Journey selection and declared action manifest for the selected synthetic capture run."
     },
     {
@@ -379,7 +379,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "84101424264c5591fd2e2e151ff7a7669c0c18743f42e6685e77dbe204add7db",
+      "sha256": "9460f46cbaa37231d63f948202a1ba3865694b1104325decda4e4ea2373e2fcc",
       "contract": "Registered native Group lifecycles with exact authored-three and raw Basic Patient source values, ID-only and ID-plus-gender edits, removal, persistence, and trace capture."
     }
   ]

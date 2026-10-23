@@ -3,28 +3,37 @@
 ## Status
 
 The historical journey audit completed all eight inventory requirements as of
-2026-10-21. The registered `builder-authoring/group-entry` lifecycle now has a
-passing native browser run at source commit
-`0f16d0bf38c400313d640c7ca9c4585d25004714`; its exact report and proof-source
-fingerprint are recorded in `verification/builder-interactions/builder-journey-audit.json`.
-That run covers the authored three-column Patient source. The legacy five-column
-flattened Basic oracle and the CDA extension-grouping assertions remain in the
-legacy spec and are not run by this native case. This case-specific evidence
-does not establish browser-ledger freshness or global readiness; multi-report
-browser-evidence generation remains blocked by a missing historical
-`builder-controls` report and external-path basename handling. F-001 and F-004 remain
-open product findings; their journey specs stay red as evidence. A failing
-journey is evidence about the product, not a blocked goal.
+2026-10-21. The Group lifecycle now has two independently registered native
+cases that passed on source `0b383cda0ac70f735180de4b669e4d9e2a551b35`: the
+authored three-column Patient source passed 70/70 assertions, and the raw Basic
+five-column source passed 62/62 assertions. Both passed all 17 required
+checks, emitted distinct traces, and replayed through BuilderJourney. Their
+reports and source fingerprints are recorded in
+`verification/builder-interactions/builder-journey-audit.json`.
+
+The retirement candidate maps the public `edit-remove-reload` alias to the
+raw-Basic native case while keeping the authored-three case separately
+registered. It preserves the retired Basic route's 10–45 authoring-response
+guard as a distinct standalone budget probe; that probe has not yet run on
+the candidate. The CDA extension-grouping branch remains a separate
+manual-only, unrun entry with its original count/shape and first-two-ID
+assertions. This case-specific evidence does not establish browser-ledger
+freshness or global readiness; multi-report browser-evidence generation
+remains blocked by a missing historical `builder-controls` report and
+external-path basename handling. F-001 and F-004 remain open product findings;
+their journey specs stay red as evidence. A failing journey is evidence about
+the product, not a blocked goal.
 
 Progress: every inventory row has a journey spec or registered native case.
 `group-twice-preview`, `load-preview`, and `add-column-preview` pass on
-synthetic and CDA. `filter-preview` passes on synthetic. The registered native
-`edit-remove-reload` route passed with the three-column authored source oracle
-(Patient ID, the ALL-projected family list, and gender), ID-only and
-ID-plus-gender edits, removal Cancel, and reload restoration. The legacy
-five-column flattened Basic source oracle remains in the legacy spec, as does
-the independent CDA extension-field variant. Neither set of assertions runs
-in or is replaced by the native authored-three-column case.
+synthetic and CDA. `filter-preview` passes on synthetic. The raw-Basic native
+case proves the five-column source and values, ID-plus-gender edit, ID-only
+edit persistence, and exact source restoration. The authored-three case
+separately proves the ALL-projected family-list lifecycle. The two Group
+source shapes are not interchangeable. The raw-Basic native case records 59
+authoring responses, above the legacy 45-response ceiling; its minimal-flow
+budget probe remains distinct and unrun. The CDA Group variant remains
+manual-only and unrun.
 `group-pivot-preview` and `pivot-error` are red and reproduce F-001.
 `unpivot-preview` is red and reproduces F-004. Three rows have terminal CDA
 runs: `group-twice-preview`, `load-preview`, and `add-column-preview`.
@@ -45,10 +54,13 @@ Requirements:
    generation, drives the real UI, and makes 10 to 20 `/authoring/v2/` calls.
    A successful action changes the table at least once. A typed-error journey
    must reach the product action and record the error; it may leave the table
-   unchanged. The historical standalone `edit-remove-reload` runner allowed up
-   to 30 calls. The registered native Group lifecycle recorded 79 authoring
-   backend responses, so it remains above that historical call-count target.
-   The read-only `load-preview` baseline records at least 8 calls.
+   unchanged. The historical standalone Basic Group path asserted 10–45
+   `/authoring/v2/` responses; its prior synthetic run recorded 28. The new
+   raw-Basic native lifecycle records 59 because it includes additional
+   owner, cancellation, and repeat-edit checks. A separate minimal Basic
+   budget probe preserves the legacy census and must remain within 10–45; it
+   is not a second exact-data acceptance case. The read-only `load-preview`
+   baseline records at least 8 calls.
 3. Every terminal run records every authoring call and asserts an exact visible
    outcome or a typed product error.
 4. Every modeled trace replays through the matching TLA model.
@@ -81,10 +93,10 @@ integration audit.
 - The journey suite is not a CI-blocking gate. Run it with
   `npm run verify:builder-journey` or the CDA command below.
 - A journey is not a per-action probe. Single-operation journeys have 10 to 20
-  backend calls; the historical standalone `edit-remove-reload` runner used a
-  30-call allowance. The registered native Group route recorded 79 authoring
-  backend responses and remains above that target. Every journey has at least
-  one visible outcome.
+  backend calls. The historical standalone Group route asserts a 10–45 call
+  range; its budget-only probe remains separate from the exact raw-Basic native
+  lifecycle, which recorded 59 responses. Every full journey has at least one
+  visible outcome.
 
 ## Test contract
 
@@ -131,34 +143,36 @@ The machine-readable list is
 | `add-column-preview` | Select rows, add a scalar column, preview. | Exact source columns and added values survive preview. | passing on synthetic and CDA |
 | `filter-preview` | Select rows, filter, preview, cancel. | Exact filtered rows, then the original rows after cancel. | passing on synthetic |
 | `unpivot-preview` | Select rows, stack columns, preview. | Exact field and value rows. | product-failure; red spec exists, F-004 |
-| `edit-remove-reload` | Registered Group-entry case enters empty-key Group, previews and cancels ID-only edit, applies ID-plus-gender, edits back to ID-only, then cancels and applies removal. | Native pass at source `0f16d0bf`: the three authored columns bind Patient `id`, `name[].family` with `ALL` projection, and `gender`; source identity and fixture values are checked through removal and reload. Empty-key `COUNT_ROWS` is 2; ID-plus-gender matches the fixture; the same Group identity returns to ID-only and survives reload. Five-column Basic and CDA assertions remain in the legacy spec but are not run here. TLA models abstract request/apply-owner chronology; Cancel and reload remain native-only checks. | passing native authored-three-column case; five-column Basic and CDA assertions retained but not covered by this case |
+| `edit-remove-reload` | Native raw-Basic Group lifecycle, with authored-three independently registered. | Raw Basic passed 62/62 assertions on source `0b383cda`: exact five-column `Patient.ndjson` source values; ID-plus-gender preview/apply; second ID-only edit; exact source restoration after reload. Authored-three separately passed 70/70. TLA models proposal/apply owner chronology; Cancel and reload remain native-only checks. | both native Group source shapes passed on 0b; final Basic-branch retirement candidate still awaits its two standalone follow-up routes |
+| `edit-remove-reload-basic-budget` | Minimal standalone Basic Group/edit/remove/reload flow. | Captures the same `/authoring/v2/` response census as the retired Basic branch and asserts 10–45 responses. It makes no raw-data claim; the native raw-Basic case owns that oracle. | manual-only, not run on the candidate |
+| `edit-remove-reload-cda-manual` | CDA extension-value-code Group/edit/remove/reload flow. | Checks CDA source setup, grouped row/count shape, restored row/column counts, and visibility of the first two source IDs. It does not compare every raw source row. | manual-only, unrun, and outside CI automation coverage |
 | `pivot-error` | Pivot with error policies. | Typed 4xx product error, no applied draft change. | product-failure; red spec exists, F-001 |
 
 ## Completion check
 
-The registered authored-three-column `edit-remove-reload` lifecycle is closed
-for the native case recorded in the audit manifest. The wider Group-fragment
-consolidation remains open: the separate five-column Basic oracle and CDA
-extension-grouping assertions remain in the legacy spec and are not run by
-that case. The native run also recorded 79 authoring backend responses, above
-the historical 30-call allowance. The open
-product findings F-001 and F-004 do not block coverage because the goal
-requires real evidence, not green tests.
+The authored-three and raw-Basic native Group lifecycles are closed on source
+`0b383cda`. The retirement candidate keeps the CDA extension branch available
+as a manual-only route and preserves the legacy Basic 10–45 response guard in
+a distinct budget-only route. The raw-Basic native case records 59 responses,
+so it does not by itself satisfy that guard. The candidate's budget-only and
+raw-Basic alias reruns remain required before the branch retirement is closed.
+The open product findings F-001 and F-004 do not block coverage because the
+goal requires real evidence, not green tests.
 
 ## Requirement audit (updated 2026-10-22; historical audit dated 2026-10-21)
 
 1. Specs: the historical audit had eight journey specs. The current manifest
    maps `edit-remove-reload` to the registered native
-   `builder-authoring/group-entry` case; that authored-three-column lifecycle
-   passed at source commit `0f16d0bf38c400313d640c7ca9c4585d25004714`.
-   The five-column Basic oracle and CDA extension-field assertions remain in
-   the legacy spec and are not run by this native case.
+   `builder-authoring/group-entry-raw-basic` case; the authored-three case is
+   separately registered. Both passed on source commit `0b383cda`. The
+   retirement candidate adds a manual Basic budget-only row and retains the
+   separate manual CDA row; neither is native or CI automation coverage.
 2. Call counts: `load-preview` 8; `group-twice-preview` 17; `group-pivot-preview`
    11; `add-column-preview` 13 synthetic and 14 CDA; `filter-preview` 14;
-   `unpivot-preview` 10; the historical `edit-remove-reload` Basic run had 28;
-   the native report recorded 79 authoring backend responses, above the
-   historical standalone runner's 30-call allowance; `pivot-error` 11. This
-   native run closes the lifecycle outcome, not the earlier call-count target.
+   `unpivot-preview` 10; the historical standalone Basic run had 28; the
+   raw-Basic native report has 59 authoring responses, above the retained
+   10–45 budget; `pivot-error` 11. The separate budget-only probe is present
+   in the retirement candidate and awaits a fresh run.
    Typed-error
    journeys reach the product action and record the error; `pivot-error`
    additionally asserts no draft command and an unchanged table.
@@ -174,19 +188,19 @@ requires real evidence, not green tests.
    distinct states.
 5. Findings: F-001 and F-004 are open with request IDs, HTTP status, finding
    artifacts, and red specs. F-003 was not reproduced by the historical
-   ID+gender rerun; the registered authored-three-column route now also passes
-   the ID-and-gender preview and Apply. This does not replace the separate
-   five-column Basic or CDA assertions. No journey spec uses `test.skip`,
+   ID+gender rerun; both native Group shapes now pass that independent
+   preview-and-Apply check. CDA remains a separate unrun manual route. No
+   journey spec uses `test.skip`,
    `test.fixme`, or `test.fail`.
 6. CDA: `group-twice-preview`, `load-preview`, and `add-column-preview` have
    terminal CDA runs with distinct `*-cda-trace.json` and `*-cda-report.json`
    artifacts.
-7. Runner: every run above used `node scripts/run-builder-journey.mjs
-   --journey <id>`; the runner resolves exactly one manifest row. The
-   `edit-remove-reload` alias selects the registered
-   `builder-authoring/group-entry` case. The historical 28-call Basic run
-   below belongs to the retained legacy branch; the native run and its exact
-   source identity are recorded separately below.
+7. Runner: the `edit-remove-reload` alias selects the registered
+   `builder-authoring/group-entry-raw-basic` case; `group-entry` remains a
+   separate authored-three native case. The Basic budget-only row selects the
+   same standalone spec with `LOOM_JOURNEY_DATASET=basic-budget`, and the CDA
+   manual row selects it with `LOOM_JOURNEY_DATASET=mini` from the CDA manifest.
+   Both standalone routes use distinct trace names and contracts.
 8. Fast lane: `scripts/verify-ui/fast-specs/` contains only
    `builder-preview-read-only.spec.mjs`.
 
@@ -237,8 +251,8 @@ requires real evidence, not green tests.
 
 ### F-003 Field-based Group proposal returns HTTP 500
 
-- Journey: historical Basic branch of `edit-remove-reload`; the standalone spec
-  retains its CDA extension-field branch
+- Journey: historical Basic branch of `edit-remove-reload`; the CDA
+  extension-field branch remains a separate manual-only journey
 - Request: `POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals`
 - Input: group by `id` and `gender` on a fresh synthetic Patient table
 - Historical result: HTTP 500 `INTERNAL_ERROR`
@@ -246,24 +260,22 @@ requires real evidence, not green tests.
 - Historical rerun: HTTP 200 with two rows and three columns (`id`, `gender`, `Row count`)
 - Artifact: `docs/verification/playwright/runtime/builder-journey-F-003.json`
 - Trace: `.artifacts/builder-journey/edit-remove-reload-trace.json`
-- Status: the error was not reproduced in the historical rerun. That ID+gender
-  result remains historical regression evidence; the registered native route
-  independently checked the ID-and-gender preview and applied result, followed
-  by the separate ID-only persistence oracle. The distinct five-column Basic
-  and CDA extension-field assertions remain in the legacy spec, outside this
-  native case.
-- Next step: retain the old source-shape and CDA assertions until each is
-  independently migrated or otherwise covered; do not treat the native
-  authored-three-column run as proof for either branch.
+- Status: the error was not reproduced in the historical rerun. The registered
+  raw-Basic native case now independently proves the five-column values and
+  ID-and-gender preview/apply, followed by ID-only persistence and exact source
+  restoration. The authored-three native case remains a distinct source shape.
+- Next step: run the candidate's Basic budget-only probe and raw-Basic alias on
+  the promoted source. Keep the CDA Group route manual-only and unrun until its
+  own browser evidence exists.
 
 ## Recorded evidence
 
 Most runs below are historical evidence. In particular, the 28-call Basic
-`edit-remove-reload` artifacts come from the standalone spec. The registered
-native authored-three-column case has a separate passing browser report and
-trace recorded below. The standalone spec retains the distinct five-column
-Basic oracle and CDA extension-field assertions; neither is run by or replaced
-by this native case.
+`edit-remove-reload` artifacts come from the standalone spec before the native
+Group cases were introduced. The 0f authored-three report below records only
+that source snapshot. The later 0b source has distinct authored-three and raw
+Basic native reports; the current candidate keeps the CDA extension-field
+assertions in a manual-only entry.
 
 - `group-twice-preview` on a fresh synthetic fixture: 10.2 s, 17 authoring
   calls, exact `{ row_count: 1 }`, trace validation pass.
@@ -332,11 +344,24 @@ by this native case.
     (SHA-256 `80fb4b1940e5e07c080a8aa5515add7fccb27a3b8b4763890eacc0de8571c7ab`).
   This report is tied to commit `0f16d0bf` and the fingerprints above; it is
   historical evidence for that tested source identity, not a pass claim for
-  the metadata revision that records it. The updated source pins now compute to
+  the metadata revision that records it. At the 0f closeout, the selected
+  source pins computed to
   `2f8e9eeb273d46c5d6bee1f85e0a2621ff83a0d2c2a9e49e6600fdcb6420731f`; that
-  metadata fingerprint has not been browser-tested. The five-column flattened Basic
-  oracle and the independent CDA extension-grouping assertions remain in the
-  legacy spec, outside this run.
+  historical metadata fingerprint was not browser-tested. At this 0f source snapshot,
+  the five-column Basic and CDA extension-grouping assertions remained in the
+  standalone spec; this run covered only the authored-three native case.
+- The later two-case native Group verification on source commit
+  `0b383cda0ac70f735180de4b669e4d9e2a551b35` passed 70/70 assertions for
+  `builder-authoring:group-entry` and 62/62 for
+  `builder-authoring:group-entry-raw-basic`, with 17/17 required checks per
+  case. The authored-three case recorded 79 authoring responses and 24 actions;
+  the raw Basic case recorded 59 responses and 18 actions. Both trace replays
+  passed, and the wrong-owner and missing-`EditGroupAgain` controls rejected
+  their mutants. Full report, trace, and TLA artifact hashes are recorded under
+  `docs/verification/playwright/runtime/builder-group-entry-20261023/` and in
+  the audit manifest. The raw Basic response count is above the standalone
+  route's 45-response ceiling; the budget-only probe is separate and remains
+  not-run on the retirement candidate.
 - `pivot-error` on a fresh synthetic fixture: red as designed, 11 authoring
   calls, HTTP 500 `CONSTRUCTION_RECEIPT_INPUT_MISSING` instead of a typed 4xx, no `commands` call,
   trace validation pass.
@@ -375,7 +400,7 @@ node scripts/run-builder-journey.mjs --journey edit-remove-reload
 ```
 
 `edit-remove-reload` is a compatibility ID for the registered native
-`builder-authoring/group-entry` case. The runner gets the exact Playwright spec
+`builder-authoring/group-entry-raw-basic` case. The runner gets the exact Playwright spec
 and grep from `scripts/verify-ui/registry.mjs`, then calls the native
 verification bracket and validates its emitted trace against
 `builder-edit-remove-contract.json`. Configure the validated native environment
@@ -383,14 +408,26 @@ expected by the native bracket (`LOOM_CDA_*` capture values and `LOOM_DEV_*`
 fixture values); `LOOM_CDA_SOURCE_ROOT` must resolve to the checkout running
 the command. `docs/verification/playwright/NATIVE_RUN_PLAN.md` records an owned
 stack example whose values must match the selected checkout and stack. The
-native fixture owns the fresh synthetic project. It checks the empty-key
-`COUNT_ROWS` preview, previews and cancels an ID-only edit, applies the
-ID-and-gender edit, then edits the same Group back to ID-only and reloads its
-exact rows. It previews and cancels removal, applies removal, and reloads the
-restored three-column authored source with exact ID, family-list, and gender
-values. The legacy five-column flattened Basic source oracle remains a
-separate retained branch. The legacy `--project`, `--generation`, and
-`--bootstrap` options do not apply to this mapped case.
+native fixture owns the fresh synthetic project. It checks the raw five-column
+Patient source and all fixture values, applies the ID-and-gender edit, then
+edits the same Group back to ID-only and checks the rows after reload. It
+previews and cancels removal, applies removal, and checks exact source
+restoration. The authored-three-column ALL-family lifecycle remains separately
+registered as `builder-authoring/group-entry`. The legacy `--project`,
+`--generation`, and `--bootstrap` options do not apply to this mapped case.
+
+Run the distinct Basic budget-only probe on its fresh synthetic fixture with:
+
+```sh
+LOOM_JOURNEY_DATASET=basic-budget \
+node scripts/run-builder-journey.mjs --journey edit-remove-reload-basic-budget
+```
+
+This standalone path drives the minimal Group/edit/remove/reload flow and checks
+the original 10–45 authoring-response range. It does not claim the raw-value
+oracle already covered by the native raw-Basic case. The CDA manual-only route
+is listed in `verification/builder-interactions/cda-mini-journeys.json` and
+requires `LOOM_JOURNEY_DATASET=mini`.
 
 The pivot journey exits 1 while F-001 is open. That is the intended red result.
 
@@ -408,10 +445,12 @@ The pivot journey exits 1 while F-001 is open. That is the intended red result.
 
 All eight inventory rows have journey specs or registered native cases, and
 three rows have terminal CDA runs: `group-twice-preview`, `load-preview`, and
-`add-column-preview`. The registered Group native lifecycle has terminal
-evidence for its authored-three-column fixture, but its 79 responses exceed
-the historical 30-call allowance. The five-column Basic and CDA assertions
-remain unrun by that case until each has a replacement proof. The historical F-003 ID+gender rerun did not
+`add-column-preview`. The authored-three and raw-Basic Group cases both have
+terminal native evidence on source `0b383cda`. The retirement candidate keeps
+the independent CDA checks manual-only and preserves the legacy Basic call
+budget in its own route. Before closing this unit, promote the reviewed
+candidate and run the Basic budget probe plus the `edit-remove-reload` raw-Basic
+alias against the owned stack. The historical F-003 ID+gender rerun did not
 reproduce the error. Keep F-001 and F-004 red until the product fixes the pivot
 and unpivot proposal errors, then finish the requirement-by-requirement
 completion audit.

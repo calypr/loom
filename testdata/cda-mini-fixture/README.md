@@ -78,6 +78,35 @@ Reports and traces land in `.artifacts/builder-journey/cda-mini/`.
 The GitHub Actions workflow `.github/workflows/builder-cda-mini.yml` runs the
 same five journeys.
 
+The retained CDA Group edit/remove/reload branch is a manual-only entry in the
+same journey manifest. It has not been run and is not part of the fixed journey
+list above or CI automation. With the owned development stack running on its
+published loopback ports, invoke it directly through the existing runner:
+
+```sh
+LOOM_JOURNEY_DATASET=mini \
+LOOM_DEV_SOURCE_ROOT="$PWD" \
+LOOM_DEV_COMPOSE_PROJECT=loom-dev-fcbf4d7d11f4 \
+LOOM_DEV_PROJECT=loom_dev_cda_manual \
+LOOM_DEV_GENERATION=fixture-v1 \
+LOOM_DEV_HOST=127.0.0.1 \
+LOOM_DEV_API_PORT=8180 \
+LOOM_DEV_UI_PORT=3180 \
+LOOM_DEV_FIXTURE_DIR="$PWD/testdata/cda-mini-fixture" \
+node scripts/run-builder-journey.mjs \
+  --manifest verification/builder-interactions/cda-mini-journeys.json \
+  --journey edit-remove-reload-cda-manual \
+  --trace .artifacts/builder-journey/cda-mini/edit-remove-reload-cda-manual-trace.json \
+  --report .artifacts/builder-journey/cda-mini/edit-remove-reload-cda-manual-report.json
+```
+
+The manual entry sets no native case and selects the edit/remove contract, so
+the runner invokes the retained Playwright branch without imposing native
+`EditGroupAgain` trace requirements. `LOOM_JOURNEY_DATASET=mini` is required to
+select its CDA extension-field assertions. Its removal and reload checks verify
+the restored row/column counts and visibility of the first two source IDs; they
+do not compare every raw source row. This branch remains unrun and manual-only.
+
 Regenerate the deterministic NDJSON files with:
 
 ```sh

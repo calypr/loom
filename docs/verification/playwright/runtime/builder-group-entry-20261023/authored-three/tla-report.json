@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+  "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "sourceFingerprint": "57cb347f63a7172ded456477b33d7d947f9a581cede3e3e5689531317df6a7ec",
+  "traceCount": 1,
+  "uniqueTraceCount": 1,
+  "validatedCount": 1,
+  "invalidCount": 0,
+  "modelCounts": {
+    "BuilderJourney": 1
+  },
+  "coverage": {
+    "requiredModels": {
+      "missing": []
+    },
+    "requiredActions": {
+      "missing": []
+    },
+    "requiredActionsByTrace": {
+      "missing": {}
+    },
+    "requiredEvents": {
+      "missing": []
+    }
+  },
+  "traces": [
+    {
+      "name": "builder-authoring:group-entry",
+      "model": "BuilderJourney",
+      "status": "pass",
+      "actionCount": 24,
+      "tlc": {
+        "stateCount": 26,
+        "distinctStateCount": 25,
+        "depth": 25
+      }
+    }
+  ],
+  "unmodeledEvents": {
+    "total": 4,
+    "byKind": {
+      "group-edit-cancel": 1,
+      "group-removal-cancel": 1,
+      "reload": 2
+    },
+    "unclassified": {
+      "total": 0,
+      "byKind": {}
+    },
+    "traces": [
+      {
+        "name": "builder-authoring:group-entry",
+        "model": "BuilderJourney",
+        "events": [
+          {
+            "kind": "group-edit-cancel",
+            "classification": "unsupported",
+            "reason": "BuilderJourney does not model the Group-edit Cancel control; the native workflow compares exact saved workspace and draft identity.",
+            "note": "Cancelled the ID-only preview before the later ID-and-gender Apply; the exact empty-key Group remained saved.",
+            "afterActionIndex": 10,
+            "afterActionLabel": "PreviewComplete",
+            "groupStepId": "group_eaf882ec-e88b-41af-afbb-a1dcd6db0f09",
+            "assertions": [
+              "workspace equality",
+              "draftVersion equality",
+              "draftDigest equality"
+            ],
+            "draftVersion": 5,
+            "draftDigest": "sha256:630ebff4f8ada6a8367643f8b286b94487aebe9fc3507c249b12a64280aea802"
+          },
+          {
+            "kind": "reload",
+            "classification": "unsupported",
+            "reason": "Page reload remounts the workspace; BuilderJourney models the same-mount proposal/apply lifecycle only.",
+            "note": "The native ID-only Group result retained both exact Patient IDs through reload."
+          },
+          {
+            "kind": "group-removal-cancel",
+            "classification": "unsupported",
+            "reason": "BuilderJourney does not model the Group-removal Cancel control; the native workflow compares exact saved workspace and draft identity.",
+            "note": "Cancelled the first keyed-Group removal proposal; the exact ID-only Group remained saved before reapplying removal.",
+            "afterActionIndex": 20,
+            "afterActionLabel": "PreviewComplete",
+            "groupStepId": "group_eaf882ec-e88b-41af-afbb-a1dcd6db0f09",
+            "assertions": [
+              "workspace equality",
+              "draftVersion equality",
+              "draftDigest equality"
+            ],
+            "draftVersion": 7,
+            "draftDigest": "sha256:e2819a41e800325f210cf1caa87215251df5fb91b6ff5e5331421cd7e3421ea6"
+          },
+          {
+            "kind": "reload",
+            "classification": "unsupported",
+            "reason": "Page reload remounts the workspace; BuilderJourney models the same-mount proposal/apply lifecycle only.",
+            "note": "The native Group removal restored both exact Patient source IDs through reload."
+          }
+        ]
+      }
+    ]
+  },
+  "tool": {
+    "name": "TLC",
+    "version": "1.7.4",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+    "java": "java version \"17.0.7\" 2023-04-18 LTS"
+  }
+}

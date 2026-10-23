@@ -204,14 +204,14 @@
       "id": "edit-remove-reload",
       "priority": "P1",
       "status": "passing",
-      "nativeEvidenceStatus": "passed-authored-three-column-group-entry-on-tested-source-commit",
-      "nativeCallBudgetStatus": "79-authoring-backend-responses-exceed-historical-30-call-allowance",
-      "legacyEvidenceStatus": "retained-but-not-run-by-current-native-case: five-column flattened Basic oracle and independent CDA extension-grouping assertions remain in legacy spec",
+      "nativeEvidenceStatus": "passed-raw-five-column-basic-and-authored-three-column-group-entry-on-source-0b383cda",
+      "nativeCallBudgetStatus": "native-authored-three-79-and-raw-basic-59-responses-exceed-the-legacy-10-to-45-standalone-range; separate-basic-budget-probe-is-not-run",
+      "legacyEvidenceStatus": "CDA Group branch is manual-only, unrun, and outside CI automation coverage; see cda-mini-journeys.json#edit-remove-reload-cda-manual. Basic 10-to-45 response coverage has a separate not-run budget entry.",
       "legacySpec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "spec": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
       "nativeCase": {
         "scenario": "builder-authoring",
-        "case": "group-entry"
+        "case": "group-entry-raw-basic"
       },
       "actions": [
         "Group",
@@ -220,7 +220,7 @@
         "RemoveGroup",
         "Reload"
       ],
-      "oracle": "The registered native Group-entry case passed on the source identity recorded in evidence.native. It authored the exact three-column Patient source (id, name[].family with ALL projection, gender), checked empty-key COUNT_ROWS = 2, preserved the saved Group on edit Cancel, checked the P1 abort/P2 ID-and-gender preview and two-row/three-column Apply against fixture IDs and genders, reapplied ID-only to the same Group identity and checked both IDs/counts after reload, then checked removal Cancel and exact source restoration after reload. The five-column flattened Basic oracle and CDA extension-field branch remain separate and are not replaced by this authored-three-column run. TLA models abstract request/apply owner chronology only; the two Cancel controls and two reloads are native-only checks.",
+      "oracle": "The registered native raw-Basic Group case passed on source 0b383cda. It uses the fixture harness bootstrap table and compares all five flattened Patient source values, including both indexed family values and name__count, against Patient.ndjson. It checks empty-key COUNT_ROWS = 2, the saved ID-only Group and edit Cancel, the P1-abort/P2 ID-and-gender preview and exact two-row/three-column Apply, a second ID-only Apply to the same Group identity with reload persistence, then removal Cancel and exact five-column/value restoration after reload. The authored three-column Group case remains independently registered and passed on the same source. TLA models proposal/apply owner chronology; both Cancel controls and both reloads remain native-only unsupported events. The CDA extension-grouping branch remains separate, manual-only, unrun, and outside CI automation coverage.",
       "model": "BuilderJourney",
       "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
       "evidence": {
@@ -241,6 +241,86 @@
           "report": ".artifacts/builder-journey/edit-remove-reload-report.json"
         },
         "native": {
+          "result": "pass",
+          "recordedAt": {
+            "startedAt": "2026-10-23T00:23:37.977Z",
+            "finishedAt": "2026-10-23T00:24:27.787Z",
+            "durationMs": 49809,
+            "playwrightDurationMs": 30300
+          },
+          "sourceIdentity": {
+            "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+            "proofSourceFingerprint": "57cb347f63a7172ded456477b33d7d947f9a581cede3e3e5689531317df6a7ec",
+            "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+            "watchedTreeFingerprint": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86",
+            "watchedTreeFileCount": 2092
+          },
+          "target": {
+            "project": "loom_dev_verify_mvk88qka-15c9c79",
+            "generation": "fixture-v1",
+            "explorer": "loom-dev-bootstrap",
+            "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41"
+          },
+          "counts": {
+            "nativeAssertionsPassed": 62,
+            "requiredChecksPassed": 17,
+            "missingRequiredChecks": 0,
+            "authoringBackendResponses": 59,
+            "traceCount": 1,
+            "uniqueTraceCount": 1,
+            "validatedTraceCount": 1,
+            "invalidTraceCount": 0,
+            "traceActionCount": 18,
+            "tlcGeneratedStates": 20,
+            "tlcDistinctStates": 19,
+            "tlcDepth": 19,
+            "maximumMeasuredActionLatencyMs": 1433
+          },
+          "nativeReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/native-report.json",
+            "sha256": "0f6065a9e96929ced2126ccfdea1b393bb399e2d1bcf80d5a089cf7797eba7cf"
+          },
+          "bracketSummary": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/bracket-summary.json",
+            "sha256": "140cb72abc60fb6c64576162fbac03d428581d76402d76119f4487483860eae0"
+          },
+          "trace": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/trace.json",
+            "sha256": "7dd800eca5dc18af77188f3c2de1505230f02b407b1462122eda1f4dd89e55d4"
+          },
+          "tlaReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/tla-report.json",
+            "sha256": "a94089c716dde9bdee56e3d436fa9dd6890a59019e5fd1a18c27658108e1744e"
+          },
+          "formalBoundary": {
+            "tlaStatus": "pass",
+            "model": "BuilderJourney",
+            "unsupportedNativeEvents": {
+              "group-edit-cancel": 1,
+              "group-removal-cancel": 1,
+              "reload": 2
+            },
+            "nativeChecks": "Group edit Cancel, Group removal Cancel, and the two reload checks are native assertions and are recorded as unsupported trace events; BuilderJourney models the proposal/apply owner chronology."
+          },
+          "coverageBoundary": [
+            "This run exercises the five-column flattened Basic Patient source and compares each indexed family value, family count, gender, and ID with independent Patient.ndjson values.",
+            "The other Group source-shape case is independently registered and passed on the same source commit.",
+            "The retained CDA extension-grouping branch is a separate manual-only journey marked not-run; it is not CI automation coverage."
+          ],
+          "traceMutationControls": {
+            "result": "passed",
+            "expectedRejections": [
+              "edit-group-again-noncurrent-owner",
+              "group-entry-raw-basic-repeat-edit-required"
+            ],
+            "positiveTraceName": "builder-authoring:group-entry-raw-basic",
+            "requiredAction": "EditGroupAgain",
+            "testedSourceCommit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+            "traceArtifact": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/trace.json",
+            "traceArtifactSha256": "7dd800eca5dc18af77188f3c2de1505230f02b407b1462122eda1f4dd89e55d4"
+          }
+        },
+        "historicalNativeAuthoredThree": {
           "result": "pass",
           "recordedAt": {
             "startedAt": "2026-10-22T22:54:15.440Z",
@@ -321,10 +401,135 @@
             "testedSourceCommit": "0f16d0bf38c400313d640c7ca9c4585d25004714",
             "traceArtifact": "docs/verification/playwright/runtime/builder-group-entry-native-20261022/trace.json",
             "traceArtifactSha256": "1897d24d8154d74269574f02b277a8a6bbc6c08fca8b5cdcefb672b43a70274a"
+          },
+          "historicalOnly": true
+        },
+        "nativeAuthoredThree": {
+          "result": "pass",
+          "recordedAt": {
+            "startedAt": "2026-10-23T00:22:15.696Z",
+            "finishedAt": "2026-10-23T00:23:20.950Z",
+            "durationMs": 65253,
+            "playwrightDurationMs": 44650
+          },
+          "sourceIdentity": {
+            "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+            "proofSourceFingerprint": "57cb347f63a7172ded456477b33d7d947f9a581cede3e3e5689531317df6a7ec",
+            "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+            "watchedTreeFingerprint": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86",
+            "watchedTreeFileCount": 2092
+          },
+          "target": {
+            "project": "loom_dev_verify_mvk87412-0505bc1",
+            "generation": "fixture-v1",
+            "explorer": "verify-12-0505bc1-group-entry",
+            "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41"
+          },
+          "counts": {
+            "nativeAssertionsPassed": 70,
+            "requiredChecksPassed": 17,
+            "missingRequiredChecks": 0,
+            "authoringBackendResponses": 79,
+            "traceCount": 1,
+            "uniqueTraceCount": 1,
+            "validatedTraceCount": 1,
+            "invalidTraceCount": 0,
+            "traceActionCount": 24,
+            "tlcGeneratedStates": 26,
+            "tlcDistinctStates": 25,
+            "tlcDepth": 25,
+            "maximumMeasuredActionLatencyMs": 1424
+          },
+          "nativeReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/native-report.json",
+            "sha256": "01a109b2133d990d4d35184a44b677039165551385e66f232e8172afe76a3638"
+          },
+          "bracketSummary": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/bracket-summary.json",
+            "sha256": "3b546bd765f96b9cfb4113615d9ecbddd6236487e6d04569690558f6f971b2f9"
+          },
+          "trace": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/trace.json",
+            "sha256": "e3c283c6af9ea2e6c5c0d69922153a53ed02f0553ef94957f4a0ac352c39f149"
+          },
+          "tlaReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/tla-report.json",
+            "sha256": "0b5b2f168731ac564302d611111b7bbf1f35f58c0af0033e07924f72f3ace84c"
+          },
+          "formalBoundary": {
+            "tlaStatus": "pass",
+            "model": "BuilderJourney",
+            "unsupportedNativeEvents": {
+              "group-edit-cancel": 1,
+              "group-removal-cancel": 1,
+              "reload": 2
+            },
+            "nativeChecks": "Group edit Cancel, Group removal Cancel, and the two reload checks are native assertions and are recorded as unsupported trace events; BuilderJourney models the proposal/apply owner chronology."
+          },
+          "coverageBoundary": [
+            "This run exercises the separately registered authored three-column source: Patient ID, the ALL-projected family list, and gender.",
+            "The other Group source-shape case is independently registered and passed on the same source commit.",
+            "The retained CDA extension-grouping branch is a separate manual-only journey marked not-run; it is not CI automation coverage."
+          ],
+          "traceMutationControls": {
+            "result": "passed",
+            "expectedRejections": [
+              "edit-group-again-noncurrent-owner",
+              "group-entry-repeat-edit-required"
+            ],
+            "positiveTraceName": "builder-authoring:group-entry",
+            "requiredAction": "EditGroupAgain",
+            "testedSourceCommit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
+            "traceArtifact": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/trace.json",
+            "traceArtifactSha256": "e3c283c6af9ea2e6c5c0d69922153a53ed02f0553ef94957f4a0ac352c39f149"
           }
         }
       },
-      "minBackendCalls": 10
+      "minBackendCalls": 10,
+      "manualCdaJourney": {
+        "manifest": "verification/builder-interactions/cda-mini-journeys.json",
+        "id": "edit-remove-reload-cda-manual",
+        "status": "not-run",
+        "manualOnly": true,
+        "automationCoverage": false
+      },
+      "manualBasicBudgetProbe": {
+        "id": "edit-remove-reload-basic-budget",
+        "status": "not-run",
+        "manualOnly": true,
+        "automationCoverage": false,
+        "traceName": "journey/edit-remove-reload-basic-budget",
+        "backendResponseRange": [10, 45]
+      }
+    },
+    {
+      "id": "edit-remove-reload-basic-budget",
+      "priority": "P2",
+      "status": "not-run",
+      "manualOnly": true,
+      "automationCoverage": false,
+      "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "dataset": "basic-budget",
+      "actions": [
+        "Group",
+        "EditGroup",
+        "RemoveGroup",
+        "Reload"
+      ],
+      "oracle": "This distinct standalone Basic probe preserves the retired route's ten-to-forty-five /authoring/v2 response census on the minimal Group/edit/remove/reload flow. The raw-Basic native case owns the exact five-column source and value oracle; this budget-only route adds no competing source-data claim.",
+      "model": "BuilderJourney",
+      "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
+      "minBackendCalls": 10,
+      "maxBackendCalls": 45,
+      "traceName": "journey/edit-remove-reload-basic-budget",
+      "evidence": {
+        "synthetic": {
+          "result": "not-run",
+          "automationCoverage": false,
+          "trace": ".artifacts/builder-journey/edit-remove-reload-basic-budget-trace.json",
+          "report": ".artifacts/builder-journey/edit-remove-reload-basic-budget-report.json"
+        }
+      }
     },
     {
       "id": "pivot-error",
@@ -381,11 +586,11 @@
       "journey": "edit-remove-reload",
       "status": "not-reproducible",
       "request": "POST /api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
-      "result": "Historical HTTP 500; a later historical field-based Group by id+gender run returned HTTP 200 with 2 rows and 3 columns. The registered native authored-three-column Group case also passed its ID-and-gender preview and Apply; the separate five-column Basic and CDA branches are not covered by that run.",
+      "result": "Historical HTTP 500 was not reproduced by the later field-based ID+gender run. On source 0b383cda, the registered raw-Basic native Group lifecycle passed its exact five-column Patient.ndjson oracle, ID+gender preview/apply, ID-only persistence, and source restoration. The CDA extension-grouping branch remains a separate manual-only, unrun journey whose original checks compare row/column shape and visibility of the first two source IDs, not every raw source value.",
       "requestId": "construction-proposal-e8f37264-d8f5-46c5-adf6-738f0b1e53ff",
       "input": "Group by id and gender on a fresh synthetic Patient table.",
       "artifact": "docs/verification/playwright/runtime/builder-journey-F-003.json",
-      "next": "The historical error was not reproduced by the ID+gender rerun or the registered native authored-three-column case. Keep the five-column Basic and CDA extension-grouping checks as separate coverage until independently migrated or otherwise covered."
+      "next": "Keep the CDA extension-grouping branch discoverable through the manual-only cda-mini manifest entry; do not claim it as browser or CI coverage until it is run."
     },
     {
       "id": "F-004",

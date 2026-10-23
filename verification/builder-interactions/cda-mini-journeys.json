@@ -135,6 +135,34 @@
           "report": ".artifacts/builder-journey/cda-mini/cda-mini-birthsex-filter-report.json"
         }
       }
+    },
+    {
+      "id": "edit-remove-reload-cda-manual",
+      "priority": "P1",
+      "status": "not-run",
+      "manualOnly": true,
+      "automationCoverage": false,
+      "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "AddColumn",
+        "Group",
+        "EditGroup",
+        "RemoveGroup",
+        "Reload"
+      ],
+      "oracle": "Retained CDA extension-value-code Group branch. It checks the CDA source and added Extension Value Code column, groups by id and extension value code, and verifies the Grouped row/count shape. Removal and reload checks restore the source column count and row count and confirm the first two source IDs remain visible; they do not compare every raw source row. This manual case is unrun and is not CI automation coverage.",
+      "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
+      "model": "BuilderJourney",
+      "minBackendCalls": 10,
+      "evidence": {
+        "cdaMini": {
+          "result": "not-run",
+          "automationCoverage": false,
+          "trace": ".artifacts/builder-journey/cda-mini/edit-remove-reload-cda-manual-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/edit-remove-reload-cda-manual-report.json"
+        }
+      }
     }
   ]
 }
