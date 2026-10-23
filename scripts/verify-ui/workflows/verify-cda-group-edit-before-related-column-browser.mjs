@@ -362,9 +362,8 @@ const closeRowSettings = async () => {
   await click(page, `${dialog} button`, { name: 'Back to table' });
   await waitForControl(page, dialog, { hidden: true });
 };
-const closeSavedStepEditor = async () => {
+const waitForSavedStepEditorClosed = async () => {
   const editor = '[data-testid="construction-operation-editor"]';
-  await click(page, '[data-testid="construction-close-operation-editor"]');
   await waitForControl(page, editor, { hidden: true });
 };
 const applyGroupProposal = async (proposal, savedBefore, expectedRows, label) => {
@@ -643,7 +642,7 @@ FOR s IN (
 
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
-  await closeSavedStepEditor();
+  await waitForSavedStepEditorClosed();
   await mountedRows(groupedRows, 2);
   const afterEditCancel = await api(base + '/builder');
   assert.equal(afterEditCancel.draftVersion, beforeFirstEdit.draftVersion);
@@ -662,7 +661,7 @@ FOR s IN (
     'reapply-Group-count-distinct-before-column');
   builder = await applyGroupProposal(appliedDistinctProposal.response, afterEditCancel, distinctRows,
     'apply-Group-edit-before-column');
-  await closeSavedStepEditor();
+  await waitForSavedStepEditorClosed();
   const distinctDocument = structuredClone(doc(builder));
   const reloadedDistinct = await open(distinctRows, 2, 'reload-Group-edit-before-column');
   assert.deepEqual(doc(reloadedDistinct).construction, distinctDocument.construction);
@@ -880,7 +879,7 @@ FOR s IN (
 
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
-  await closeSavedStepEditor();
+  await waitForSavedStepEditorClosed();
   await mountedRows(withFieldTyped, 3);
   const afterRestoreCancel = await api(base + '/builder');
   assert.deepEqual(afterRestoreCancel.workspace, beforeRestoreEdit.workspace);
@@ -898,7 +897,7 @@ FOR s IN (
     'reapply-Group-count-rows-with-related-column');
   builder = await applyGroupProposal(restoreProposal.response, afterRestoreCancel, withFieldTyped,
     'apply-Group-round-trip-with-related-column');
-  await closeSavedStepEditor();
+  await waitForSavedStepEditorClosed();
   assert.deepEqual(doc(builder).columns, withFieldDocument.columns,
     'Editing Group must preserve the exact downstream field occurrence and ALL source binding');
   assert.equal(doc(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_SOURCE')?.id, relatedStep.id,
