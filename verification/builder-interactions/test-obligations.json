@@ -260955,7 +260955,7 @@
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
       "roleHint": "browser-workflow",
       "present": true,
-      "sha256": "6c614e165afe0f31a26f766810282a2e4b9c258165920c0f0c79df1cb5d0efdb",
+      "sha256": "452818aa50f6bc9d4c8aa4c8ac0a42052efa98d2a1b9cdd963ce8a42723f3f65",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -260986,7 +260986,7 @@
       "testLayer": "browser-workflow",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "366721d1e57a9373878ef8c7a4bf0b7d18fbc10f",
+        "reviewedCommit": "339f67285290cecbe12de9d989c28f7754232187",
         "evidence": [
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
@@ -261045,7 +261045,7 @@
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-            "line": 1820,
+            "line": 1827,
             "kind": "trace-replay-call"
           },
           {
@@ -261055,17 +261055,17 @@
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-            "line": 1555,
+            "line": 1562,
             "kind": "checks reloaded mounted Group keys"
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-            "line": 1576,
+            "line": 1583,
             "kind": "checks Cancel after reload against actual Builder reads"
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-            "line": 1666,
+            "line": 1673,
             "kind": "checks removal Cancel saved Group equality"
           },
           {
@@ -261077,8 +261077,8 @@
         "confidence": "high"
       },
       "sourceRevision": {
-        "commit": "366721d1e57a9373878ef8c7a4bf0b7d18fbc10f",
-        "sha256": "6c614e165afe0f31a26f766810282a2e4b9c258165920c0f0c79df1cb5d0efdb"
+        "commit": "339f67285290cecbe12de9d989c28f7754232187",
+        "sha256": "452818aa50f6bc9d4c8aa4c8ac0a42052efa98d2a1b9cdd963ce8a42723f3f65"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -261343,12 +261343,12 @@
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1801:minimum-backend-responses-before-trace",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1808:minimum-backend-responses-before-trace",
           "semanticClaimId": "group.trace.provenance-bound-builderjourney-replay",
           "sourceLines": [
-            1801,
-            1802,
-            1803
+            1808,
+            1809,
+            1810
           ],
           "independence": "derived",
           "evidenceKind": "runtime-guard"
@@ -261379,8 +261379,8 @@
             264,
             281,
             283,
-            1820,
-            1827
+            1827,
+            1834
           ],
           "independence": "derived",
           "evidenceKind": "trace-capture"
@@ -261402,48 +261402,48 @@
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1625:removal-preview-restores-authored-source-values",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1632:removal-preview-restores-authored-source-values",
           "semanticClaimId": "group.remove.restores-authored-source",
           "sourceLines": [
-            1625,
-            1629,
-            1642,
-            1646,
-            1649
+            1632,
+            1636,
+            1649,
+            1653,
+            1656
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1668:removal-cancel-preserves-workspace-and-draft",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1675:removal-cancel-preserves-workspace-and-draft",
           "semanticClaimId": "group.remove.restores-authored-source",
           "sourceLines": [
-            1668,
-            1669,
-            1670
+            1675,
+            1676,
+            1677
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1708:apply-removal-restores-source-document",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1715:apply-removal-restores-source-document",
           "semanticClaimId": "group.remove.restores-authored-source",
           "sourceLines": [
-            1708,
-            1715
+            1715,
+            1722
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1754:removal-restoration-survives-reload",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1761:removal-restoration-survives-reload",
           "semanticClaimId": "group.remove.restores-authored-source",
           "sourceLines": [
-            1754,
-            1758,
             1761,
-            1766,
-            1770
+            1765,
+            1768,
+            1773,
+            1777
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
@@ -261471,59 +261471,59 @@
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1625:raw-basic-removal-preview-restores-five-columns",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1632:raw-basic-removal-preview-restores-five-columns",
           "semanticClaimId": "group.remove.restores-raw-basic-source",
           "sourceLines": [
-            1625,
-            1627,
-            1629
+            1632,
+            1634,
+            1636
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1642:raw-basic-rendered-removal-preview-restores-five-columns",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1649:raw-basic-rendered-removal-preview-restores-five-columns",
           "semanticClaimId": "group.remove.restores-raw-basic-source",
           "sourceLines": [
-            1642,
-            1644,
-            1646,
-            1649
+            1649,
+            1651,
+            1653,
+            1656
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1668:raw-basic-removal-cancel-preserves-workspace-and-draft",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1675:raw-basic-removal-cancel-preserves-workspace-and-draft",
           "semanticClaimId": "group.remove.restores-raw-basic-source",
           "sourceLines": [
-            1668,
-            1669,
-            1670
+            1675,
+            1676,
+            1677
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1708:raw-basic-apply-removal-restores-source-identities",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1715:raw-basic-apply-removal-restores-source-identities",
           "semanticClaimId": "group.remove.restores-raw-basic-source",
           "sourceLines": [
-            1708,
-            1715
+            1715,
+            1722
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1754:raw-basic-removal-reload-restores-five-columns-and-values",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1761:raw-basic-removal-reload-restores-five-columns-and-values",
           "semanticClaimId": "group.remove.restores-raw-basic-source",
           "sourceLines": [
-            1754,
-            1756,
-            1758,
             1761,
-            1766,
-            1770
+            1763,
+            1765,
+            1768,
+            1773,
+            1777
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
@@ -261551,15 +261551,15 @@
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1555:reload-mounted-group-matches-saved-projection",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1562:reload-mounted-group-matches-saved-projection",
           "semanticClaimId": "behavior.reloaded-group-editor-must-match-saved-group-projection",
           "sourceLines": [
-            1555,
-            1557,
-            1576,
-            1578,
-            1580,
-            1582
+            1562,
+            1564,
+            1583,
+            1585,
+            1587,
+            1589
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
@@ -261847,7 +261847,7 @@
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-            "line": 1820,
+            "line": 1827,
             "kind": "trace-verifier-invocation"
           },
           {
@@ -540998,7 +540998,7 @@
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1607,
+              "line": 1614,
               "kind": "behavior-source"
             },
             {
@@ -542015,32 +542015,27 @@
           "evidence": [
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1625,
+              "line": 1632,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1629,
+              "line": 1636,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1642,
+              "line": 1649,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1646,
+              "line": 1653,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1668,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1708,
+              "line": 1675,
               "kind": "behavior-source"
             },
             {
@@ -542050,12 +542045,7 @@
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1754,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1758,
+              "line": 1722,
               "kind": "behavior-source"
             },
             {
@@ -542065,12 +542055,22 @@
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1766,
+              "line": 1765,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1770,
+              "line": 1768,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1773,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1777,
               "kind": "behavior-source"
             }
           ]
@@ -542091,48 +542091,48 @@
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1625:removal-preview-restores-authored-source-values",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1632:removal-preview-restores-authored-source-values",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1625,
-            1629,
-            1642,
-            1646,
-            1649
+            1632,
+            1636,
+            1649,
+            1653,
+            1656
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1668:removal-cancel-preserves-workspace-and-draft",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1675:removal-cancel-preserves-workspace-and-draft",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1668,
-            1669,
-            1670
+            1675,
+            1676,
+            1677
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1708:apply-removal-restores-source-document",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1715:apply-removal-restores-source-document",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1708,
-            1715
+            1715,
+            1722
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1754:removal-restoration-survives-reload",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1761:removal-restoration-survives-reload",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1754,
-            1758,
             1761,
-            1766,
-            1770
+            1765,
+            1768,
+            1773,
+            1777
           ]
         }
       ]
@@ -542154,67 +542154,52 @@
           "evidence": [
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1625,
+              "line": 1632,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1627,
+              "line": 1634,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1629,
+              "line": 1636,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1642,
+              "line": 1649,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1644,
+              "line": 1651,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1646,
+              "line": 1653,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1668,
+              "line": 1675,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1669,
+              "line": 1676,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1670,
+              "line": 1677,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1715,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1754,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1756,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1758,
+              "line": 1722,
               "kind": "behavior-source"
             },
             {
@@ -542224,12 +542209,27 @@
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1766,
+              "line": 1763,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1770,
+              "line": 1765,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1768,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1773,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1777,
               "kind": "behavior-source"
             },
             {
@@ -542260,59 +542260,59 @@
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1625:raw-basic-removal-preview-restores-five-columns",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1632:raw-basic-removal-preview-restores-five-columns",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1625,
-            1627,
-            1629
+            1632,
+            1634,
+            1636
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1642:raw-basic-rendered-removal-preview-restores-five-columns",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1649:raw-basic-rendered-removal-preview-restores-five-columns",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1642,
-            1644,
-            1646,
-            1649
+            1649,
+            1651,
+            1653,
+            1656
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1668:raw-basic-removal-cancel-preserves-workspace-and-draft",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1675:raw-basic-removal-cancel-preserves-workspace-and-draft",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1668,
-            1669,
-            1670
+            1675,
+            1676,
+            1677
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1708:raw-basic-apply-removal-restores-source-identities",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1715:raw-basic-apply-removal-restores-source-identities",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1708,
-            1715
+            1715,
+            1722
           ]
         },
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1754:raw-basic-removal-reload-restores-five-columns-and-values",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1761:raw-basic-removal-reload-restores-five-columns-and-values",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1754,
-            1756,
-            1758,
             1761,
-            1766,
-            1770
+            1763,
+            1765,
+            1768,
+            1773,
+            1777
           ]
         }
       ]
@@ -542355,12 +542355,12 @@
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1801,
+              "line": 1808,
               "kind": "behavior-source"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1820,
+              "line": 1827,
               "kind": "behavior-source"
             }
           ]
@@ -542378,7 +542378,7 @@
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1820,
+              "line": 1827,
               "kind": "trace-replay-call"
             },
             {
@@ -542420,12 +542420,12 @@
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1801:minimum-backend-responses-before-trace",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1808:minimum-backend-responses-before-trace",
           "evidenceKind": "runtime-guard",
           "sourceLines": [
-            1801,
-            1802,
-            1803
+            1808,
+            1809,
+            1810
           ]
         },
         {
@@ -542442,8 +542442,8 @@
             264,
             281,
             283,
-            1820,
-            1827
+            1827,
+            1834
           ]
         },
         {
@@ -1062596,17 +1062596,17 @@
           "evidence": [
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1555,
+              "line": 1562,
               "kind": "native assertion for reloaded key identity"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1557,
+              "line": 1564,
               "kind": "native assertion for reloaded aggregate"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1576,
+              "line": 1583,
               "kind": "native assertion for postreload Cancel preservation"
             },
             {
@@ -1062627,17 +1062627,17 @@
           "evidence": [
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1555,
+              "line": 1562,
               "kind": "native assertion for reloaded key identity"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1557,
+              "line": 1564,
               "kind": "native assertion for reloaded aggregate"
             },
             {
               "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1576,
+              "line": 1583,
               "kind": "native assertion for postreload Cancel preservation"
             },
             {
@@ -1062652,15 +1062652,15 @@
         {
           "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1555:reload-mounted-group-matches-saved-projection",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1562:reload-mounted-group-matches-saved-projection",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            1555,
-            1557,
-            1576,
-            1578,
-            1580,
-            1582
+            1562,
+            1564,
+            1583,
+            1585,
+            1587,
+            1589
           ]
         }
       ]
