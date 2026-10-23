@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Callable
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+REPOSITORY_ROOT = Path(
+    os.environ.get("LOOM_BROWSER_EVIDENCE_REPOSITORY_ROOT", Path(__file__).resolve().parents[4])
+).resolve()
 GENERATOR = Path(os.environ.get(
     "LOOM_BROWSER_EVIDENCE_GENERATOR",
     REPOSITORY_ROOT / "scripts/generate-builder-browser-evidence.mjs",
@@ -43,6 +45,18 @@ def write_text_atomically(path: Path, content: str) -> None:
     descriptor, temporary_path = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def write_bytes_atomically(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
         os.replace(temporary_path, path)
     finally:
@@ -138,14 +152,59 @@ def mutate_json(path: Path, mutation: Callable[[dict], None]) -> dict:
     return value
 
 
+def registry_checks(root: Path, scenario: str, case_name: str, custom: bool) -> list[str]:
+    registry_url = (root / "scripts/verify-ui/registry.mjs").resolve().as_uri()
+    script = """const registry = await import(process.argv[1]);
+const checks = registry.scenarioCaseFor(process.argv[2], process.argv[3], process.argv[4] === 'true').requiredChecks;
+process.stdout.write(JSON.stringify(checks));"""
+    output = subprocess.check_output(
+        ["node", "--input-type=module", "-e", script, registry_url, scenario, case_name, str(custom).lower()],
+        cwd=REPOSITORY_ROOT,
+        text=True,
+    )
+    return json.loads(output)
+
+
+def replace_string_values(value: object, original: str, replacement: str) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if nested == original:
+                value[key] = replacement
+            else:
+                replace_string_values(nested, original, replacement)
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            if nested == original:
+                value[index] = replacement
+            else:
+                replace_string_values(nested, original, replacement)
+
+
 def copy_fixture_inputs(destination: Path) -> None:
     destination.mkdir(parents=True)
     source_manifest = read_json(REPOSITORY_ROOT / SOURCE_AFTER)["manifest"]
-    for relative_path in source_manifest:
+    source_audit = read_json(REPOSITORY_ROOT / AUDIT_PATH)
+    journey = next(item for item in source_audit["journeys"] if item["id"] == "edit-remove-reload")
+    runs = journey["evidence"]
+    raw_alias_commit = runs[RAW_ALIAS_RUN]["sourceIdentity"]["commit"]
+
+    for relative_path, expected_hash in source_manifest.items():
         source = REPOSITORY_ROOT / relative_path
         target = destination / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        link_or_copy(source, target)
+        if source.is_file() and sha256(source) == expected_hash:
+            link_or_copy(source, target)
+            continue
+        source_bytes = subprocess.check_output(
+            ["git", "-C", str(REPOSITORY_ROOT), "show", f"{raw_alias_commit}:{relative_path}"]
+        )
+        actual_hash = hashlib.sha256(source_bytes).hexdigest()
+        if actual_hash != expected_hash:
+            raise AssertionError(
+                f"pinned 908 source blob hash mismatch for {relative_path}: "
+                f"expected {expected_hash}, found {actual_hash}"
+            )
+        write_bytes_atomically(target, source_bytes)
 
     shutil.copytree(
         REPOSITORY_ROOT / RUNTIME_ROOT,
@@ -154,39 +213,33 @@ def copy_fixture_inputs(destination: Path) -> None:
     )
 
     contract_path = "verification/builder-interactions/builder-preview-contract.json"
-    journey_audit_data = read_json(REPOSITORY_ROOT / AUDIT_PATH)
-    journey = next(item for item in journey_audit_data["journeys"] if item["id"] == "edit-remove-reload")
-    runs = journey["evidence"]
-    source_commits = {
-        run["sourceIdentity"]["commit"]
-        for run in (
-            runs["nativeAuthoredThree"],
-            runs["native"],
-            runs[RAW_ALIAS_RUN],
-            runs["manualBasicBudgetProbe908"],
-        )
-    }
-    for source_commit in source_commits:
-        contract_bytes = subprocess.check_output(
-            ["git", "-C", str(REPOSITORY_ROOT), "show", f"{source_commit}:{contract_path}"]
-        )
-        contract = json.loads(contract_bytes)
-        for source in contract["sources"]:
-            relative_path = Path(source["path"])
-            target = destination / relative_path
-            if target.exists():
-                continue
-            source_path = REPOSITORY_ROOT / relative_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            link_or_copy(source_path, target)
-
-    raw_alias_commit = runs[RAW_ALIAS_RUN]["sourceIdentity"]["commit"]
     pinned_contract = subprocess.check_output(
         ["git", "-C", str(REPOSITORY_ROOT), "show", f"{raw_alias_commit}:{contract_path}"]
     )
+    contract = json.loads(pinned_contract)
+    for source in contract["sources"]:
+        relative_path = source["path"]
+        if relative_path in source_manifest and source_manifest[relative_path] != source["sha256"]:
+            raise AssertionError(
+                f"908 watched/proof manifests disagree for {relative_path}: "
+                f"{source_manifest[relative_path]} vs {source['sha256']}"
+            )
+        target = destination / relative_path
+        if target.is_file() and sha256(target) == source["sha256"]:
+            continue
+        source_bytes = subprocess.check_output(
+            ["git", "-C", str(REPOSITORY_ROOT), "show", f"{raw_alias_commit}:{relative_path}"]
+        )
+        actual_hash = hashlib.sha256(source_bytes).hexdigest()
+        if actual_hash != source["sha256"]:
+            raise AssertionError(
+                f"pinned 908 proof-source blob hash mismatch for {relative_path}: "
+                f"expected {source['sha256']}, found {actual_hash}"
+            )
+        write_bytes_atomically(target, source_bytes)
+
     contract_target = destination / contract_path
-    contract_target.parent.mkdir(parents=True, exist_ok=True)
-    contract_target.write_bytes(pinned_contract)
+    write_bytes_atomically(contract_target, pinned_contract)
 
     for relative_path in (
         AUDIT_PATH,
@@ -196,8 +249,9 @@ def copy_fixture_inputs(destination: Path) -> None:
     ):
         source = REPOSITORY_ROOT / relative_path
         target = destination / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        link_or_copy(source, target)
+        current_bytes = source.read_bytes()
+        if not target.is_file() or target.read_bytes() != current_bytes:
+            write_bytes_atomically(target, current_bytes)
 
 
 class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
@@ -315,6 +369,25 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
             self.assertIn(run["id"], diagnostic)
         self.assertIn("builder-controls:recompile", diagnostic)
 
+    def test_from_evidence_missing_report_fails_without_changing_output(self) -> None:
+        root = self.fixture("from-evidence-missing-report")
+        report_path = root / RAW_NATIVE_REPORT
+        generated = self.run_generator(root, "--report", RAW_NATIVE_REPORT.as_posix())
+        self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
+        output = root / "generated-browser-evidence.json"
+        original_output = output.read_bytes()
+        self.assertTrue(report_path.exists())
+
+        report_path.unlink()
+        result = self.run_generator(root, "--from-evidence")
+        diagnostic = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, diagnostic)
+        self.assertIn(
+            "--from-evidence report path is missing: " + RAW_NATIVE_REPORT.as_posix(),
+            diagnostic,
+        )
+        self.assertEqual(output.read_bytes(), original_output)
+
     def test_direct_report_input_rejects_a_missing_registered_assertion_by_name(self) -> None:
         root = self.fixture("direct-report-missing-assertion")
         report_path = root / RAW_NATIVE_REPORT
@@ -328,6 +401,58 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
         )
 
         result = self.run_generator(root, "--report", RAW_NATIVE_REPORT.as_posix())
+        diagnostic = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, diagnostic)
+        self.assertIn("registered required check has no native assertion", diagnostic)
+        self.assertIn(missing_check, diagnostic)
+
+    def test_direct_read_only_custom_report_uses_custom_registered_check_variant(self) -> None:
+        root = self.fixture("direct-read-only-custom-report")
+        source_report = root / RAW_NATIVE_REPORT
+        report_path = root / "custom-current-report.json"
+        report = read_json(source_report)
+        custom_checks = registry_checks(root, "viewer-query", "output", custom=True)
+        owned_checks = registry_checks(root, "viewer-query", "output", custom=False)
+        self.assertNotEqual(custom_checks, owned_checks)
+        report["scenario"] = "viewer-query"
+        report["case"] = "output"
+        report["target"]["kind"] = "read-only-custom"
+        report["requiredChecks"] = custom_checks
+        report["missingRequiredChecks"] = []
+        report["assertions"] = [
+            {"name": name, "status": "passed"}
+            for name in custom_checks
+        ]
+        write_json(report_path, report)
+
+        result = self.run_generator(root, "--report", report_path.relative_to(root).as_posix())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        evidence = read_json(root / "generated-browser-evidence.json")
+        custom_case = next(case for case in evidence["cases"] if case["id"] == "viewer-query:output")
+        self.assertEqual(custom_case["status"], "current")
+        self.assertEqual(custom_case["sourceStatus"], "current")
+        self.assertEqual({item["name"] for item in custom_case["assertions"]}, set(custom_checks))
+
+    def test_direct_read_only_custom_report_rejects_missing_custom_assertion_by_name(self) -> None:
+        root = self.fixture("direct-read-only-custom-missing-assertion")
+        source_report = root / RAW_NATIVE_REPORT
+        report_path = root / "custom-current-report.json"
+        report = read_json(source_report)
+        custom_checks = registry_checks(root, "viewer-query", "output", custom=True)
+        missing_check = custom_checks[-1]
+        report["scenario"] = "viewer-query"
+        report["case"] = "output"
+        report["target"]["kind"] = "read-only-custom"
+        report["requiredChecks"] = custom_checks
+        report["missingRequiredChecks"] = []
+        report["assertions"] = [
+            {"name": name, "status": "passed"}
+            for name in custom_checks
+            if name != missing_check
+        ]
+        write_json(report_path, report)
+
+        result = self.run_generator(root, "--report", report_path.relative_to(root).as_posix())
         diagnostic = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, diagnostic)
         self.assertIn("registered required check has no native assertion", diagnostic)
@@ -386,6 +511,28 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
         self.assert_rejected(
             root,
             f"retained run raw-basic-alias-908: trace/TLA journey identity mismatch; expected {EXPECTED_RAW_TRACE}",
+        )
+
+    def test_audited_trace_name_cannot_override_the_tested_registry(self) -> None:
+        root = self.fixture("wrong-audited-trace-name")
+        wrong_name = "builder-authoring:wrong-journey"
+        audit, journey = journey_audit(root)
+        run = journey["evidence"][RAW_ALIAS_RUN]
+        run["traceMutationControls"]["positiveTraceName"] = wrong_name
+        run["selectedNativeCase"]["traceName"] = wrong_name
+        write_json(root / AUDIT_PATH, audit)
+
+        for artifact_name in ("trace", "tlaReport", "journeyReport"):
+            path = artifact_path(root, RAW_ALIAS_RUN, artifact_name)
+            document = read_json(path)
+            replace_string_values(document, EXPECTED_RAW_TRACE, wrong_name)
+            write_json(path, document)
+            refresh_artifact_hash(root, RAW_ALIAS_RUN, artifact_name)
+
+        self.assert_rejected(
+            root,
+            "retained run raw-basic-alias-908: audited trace name differs from tested registry: "
+            + f"expected {EXPECTED_RAW_TRACE}, recorded {wrong_name}",
         )
 
     def test_missing_registered_repeat_edit_action_is_rejected_after_trace_and_receipt_rehash(self) -> None:
@@ -558,6 +705,26 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0, rejected.stdout + rejected.stderr)
         self.assertIn("--require-current rejected evidence row(s)", rejected.stdout + rejected.stderr)
         self.assertIn(f"{EXPECTED_RAW_TRACE} (historical/stale:", rejected.stdout + rejected.stderr)
+
+    def test_current_sanitizer_mutation_leaves_retained_proof_valid_but_stale(self) -> None:
+        root = self.fixture("mutated-current-sanitizer")
+        sanitizer_path = root / "scripts/verify-ui/helpers/playwright-browser.mjs"
+        original = sanitizer_path.read_text(encoding="utf-8")
+        write_text_atomically(
+            sanitizer_path,
+            original + "\nexport const fixtureSanitizerMutation = true;\n",
+        )
+
+        result = self.run_generator(root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        evidence = read_json(root / "generated-browser-evidence.json")
+        raw_alias = next(
+            item for item in evidence["retainedJourneys"]
+            if item["runId"] == "raw-basic-alias-908"
+        )
+        self.assertEqual(raw_alias["status"], "historical")
+        self.assertEqual(raw_alias["sourceStatus"], "stale")
+        self.assertTrue(raw_alias["sourceStatusReason"])
 
     def test_truncated_watched_fingerprints_are_rejected_as_a_recurrence_control(self) -> None:
         cases = (
