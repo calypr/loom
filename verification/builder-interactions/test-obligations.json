@@ -676,6 +676,11 @@
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
+          "source": ".github/workflows/mjs-test-catalogue.yml",
+          "line": 27
+        },
+        {
+          "kind": "path-mention",
           "source": "docs/verification/BUILDER_FORMAL_VERIFICATION_PLAN.md",
           "line": 35
         },
@@ -685,7 +690,7 @@
           "line": 701
         }
       ],
-      "staticReferenceCandidateCount": 2,
+      "staticReferenceCandidateCount": 3,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Validates source-backed test-obligation evidence and emits JSON/Markdown inventories with deduplicated journey assembly, unmapped-source counts, catalog-derived dispositions, and per-test claim IDs that reference top-level claim definitions.",
