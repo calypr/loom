@@ -2600,6 +2600,7 @@ async function main() {
   const actionCountMismatchesByTrace = {};
   for (const [traceName, expectedCountsByAction] of Object.entries(contract.phase1.requiredActionCountsByTrace ?? {})) {
     const trace = traces.find((candidate) => candidate.name === traceName);
+    if (!trace) continue;
     const modelActions = new Set(contract.models[trace?.model]?.actions ?? []);
     const actualCounts = new Map();
     for (const action of trace?.actions ?? []) {
