@@ -362,6 +362,11 @@ const closeRowSettings = async () => {
   await click(page, `${dialog} button`, { name: 'Back to table' });
   await waitForControl(page, dialog, { hidden: true });
 };
+const closeSavedStepEditor = async () => {
+  const editor = '[data-testid="construction-operation-editor"]';
+  await click(page, '[data-testid="construction-close-operation-editor"]');
+  await waitForControl(page, editor, { hidden: true });
+};
 const applyGroupProposal = async (proposal, savedBefore, expectedRows, label) => {
   const startedAt = Date.now();
   const requestStart = nativeCapture.requests.length;
@@ -638,6 +643,7 @@ FOR s IN (
 
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
+  await closeSavedStepEditor();
   await mountedRows(groupedRows, 2);
   const afterEditCancel = await api(base + '/builder');
   assert.equal(afterEditCancel.draftVersion, beforeFirstEdit.draftVersion);
@@ -656,6 +662,7 @@ FOR s IN (
     'reapply-Group-count-distinct-before-column');
   builder = await applyGroupProposal(appliedDistinctProposal.response, afterEditCancel, distinctRows,
     'apply-Group-edit-before-column');
+  await closeSavedStepEditor();
   const distinctDocument = structuredClone(doc(builder));
   const reloadedDistinct = await open(distinctRows, 2, 'reload-Group-edit-before-column');
   assert.deepEqual(doc(reloadedDistinct).construction, distinctDocument.construction);
@@ -690,48 +697,49 @@ FOR s IN (
     const alreadyOpen = await browserEval(page, () => Boolean(document.querySelector('[aria-label="Add columns editor"]')));
     if (!alreadyOpen) {
       await click(page, '[data-testid="construction-action-add-columns"]');
-      await click(page, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
+      await click(page, '[aria-label="Column types"] button', { name: 'Other fields' });
     }
     await waitForControl(page, '[data-testid="construction-add-columns-source"]');
-    const relatedOpen = await browserEval(page, () => document.querySelector('[aria-label="Related resources"]')?.open === true);
-    if (!relatedOpen) await click(page, '[aria-label="Related resources"] summary');
-    await click(page, '[data-testid="construction-add-columns-source-option"][aria-label="Observation, Related resource"]');
-    const rawFieldsOpen = await browserEval(page, () => document.querySelector('[data-testid="feature-catalog-raw-fields"]')?.open === true);
-    if (!rawFieldsOpen) await click(page, groupEditRawFieldsSummarySelector);
-    const fieldSelector = 'input[aria-label="Select Observation.status"]';
+    await click(page, '[data-testid="construction-add-columns-source-option"][data-source-kind="RELATED"][aria-label="Observation, Related resource"]');
+    const fieldSelector = 'button[aria-label="Select Observation.status"]';
     await waitForControl(page, `${fieldSelector}:not(:disabled)`);
-    const fieldChecked = await browserEval(page, ({ selector }) => document.querySelector(selector)?.checked === true, { selector: fieldSelector });
-    if (!fieldChecked) await click(page, fieldSelector);
-    const selectedFieldEvidence = await browserEval(page, ({ selector }) => {
-      const selectedPanel = [...document.querySelectorAll('aside')]
-        .find((panel) => panel.querySelector('h3')?.innerText.trim() === 'Selected features');
-      const heading = selectedPanel?.querySelector('h3');
+    const fieldPressed = await browserEval(page, ({ selector }) => document.querySelector(selector)?.getAttribute('aria-pressed') === 'true', { selector: fieldSelector });
+    if (!fieldPressed) await click(page, fieldSelector);
+    await waitForControl(page, `${fieldSelector}[aria-pressed="true"]`);
+    await click(page, '[aria-label="Selected feature action"] button', { includes: 'Add 1 selected feature' });
+    const optionsRegion = '[data-testid="catalog-selection-options"]';
+    await waitForControl(page, optionsRegion);
+    const routeSelector = `${optionsRegion} input[aria-label=${JSON.stringify(relatedRouteLabel)}]`;
+    const routeState = await browserEval(page, ({ selector }) => {
+      const route = document.querySelector(selector);
+      const alternatives = route?.closest('details[data-testid^="catalog-route-alternatives-"]');
       return {
-        checked: document.querySelector(selector)?.checked === true,
-        count: heading?.nextElementSibling?.textContent?.trim(),
-        removeActionCount: selectedPanel?.querySelectorAll('button[aria-label^="Remove "]').length ?? 0,
+        count: document.querySelectorAll(selector).length,
+        visible: Boolean(route?.getClientRects().length),
+        alternativesOpen: alternatives?.open ?? false,
+        alternativeSummary: alternatives?.querySelector('summary')?.innerText ?? '',
       };
-    }, { selector: fieldSelector });
-    const uniqueSelectedField = statusCandidates.length === 1 &&
-      selectedFieldEvidence.checked === true && selectedFieldEvidence.count === '1' &&
-      selectedFieldEvidence.removeActionCount === 1
-      ? statusCandidates[0] : undefined;
-    await click(page, '[aria-label="Add columns editor"] button', { includes: 'Add 1 selected feature' });
-    await waitForControl(page, '[role="dialog"]');
-    const otherPaths = await browserEval(page, () => [...document.querySelectorAll('[role="dialog"] summary')]
-      .some(item => item.innerText.includes('Other relationship paths')));
-    if (otherPaths) await click(page, '[role="dialog"] summary', { includes: 'Other relationship paths' });
-    const routeSelector = `[role="dialog"] input[aria-label=${JSON.stringify(relatedRouteLabel)}]`;
+    }, { selector: routeSelector });
+    assert.equal(routeState.count, 1, 'Advanced choices must contain exactly one radio for the intended route');
+    if (!routeState.visible) {
+      assert(routeState.alternativeSummary.toLowerCase().includes('relationship path'),
+        'The intended route must be inside the native relationship path disclosure');
+      if (!routeState.alternativesOpen) {
+        await click(page, `${optionsRegion} [data-testid^="catalog-route-alternatives-"] > summary`, { includes: 'relationship path' });
+      }
+    }
     await waitForControl(page, routeSelector);
     await click(page, routeSelector);
-    const formSelector = '[role="dialog"] input[aria-label="Status: Keep all matching values"]';
+    const formSelector = `${optionsRegion} input[aria-label="Status: Keep all matching values"]`;
     await waitForControl(page, formSelector);
     await click(page, formSelector);
-    await selectOption(page, '[role="dialog"] select[aria-label="Values per grouped row"]', 'ALL');
+    const policySelector = '[data-testid="construction-operation-editor"] select[aria-label="Values per grouped row"]';
+    await selectOption(page, policySelector, 'ALL');
     const selected = await browserEval(page, ({ routeSelector: route, formSelector: form }) => {
-      const dialog = document.querySelector('[role="dialog"]');
-      return { route: dialog?.querySelector(route)?.checked, form: dialog?.querySelector(form)?.checked,
-        policy: dialog?.querySelector('select[aria-label="Values per grouped row"]')?.value };
+      const options = document.querySelector('[data-testid="catalog-selection-options"]');
+      const editor = document.querySelector('[data-testid="construction-operation-editor"]');
+      return { route: options?.querySelector(route)?.checked, form: options?.querySelector(form)?.checked,
+        policy: editor?.querySelector('select[aria-label="Values per grouped row"]')?.value };
     }, { routeSelector, formSelector });
     assert.deepEqual(selected, { route: true, form: true, policy: 'ALL' }, 'Chooser must bind exact source route, ALL matches, and grouped-row ALL policy');
   };
@@ -872,6 +880,7 @@ FOR s IN (
 
   await click(page, '[data-testid="construction-cancel-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { hidden: true });
+  await closeSavedStepEditor();
   await mountedRows(withFieldTyped, 3);
   const afterRestoreCancel = await api(base + '/builder');
   assert.deepEqual(afterRestoreCancel.workspace, beforeRestoreEdit.workspace);
@@ -889,6 +898,7 @@ FOR s IN (
     'reapply-Group-count-rows-with-related-column');
   builder = await applyGroupProposal(restoreProposal.response, afterRestoreCancel, withFieldTyped,
     'apply-Group-round-trip-with-related-column');
+  await closeSavedStepEditor();
   assert.deepEqual(doc(builder).columns, withFieldDocument.columns,
     'Editing Group must preserve the exact downstream field occurrence and ALL source binding');
   assert.equal(doc(builder).construction.steps.find((step) => step.operation.kind === 'RELATED_SOURCE')?.id, relatedStep.id,
