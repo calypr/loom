@@ -784,7 +784,6 @@ export const groupEntryWorkflow = async (workflow, context) => {
   };
   const savedGroupEvidence = value => ({
     outputId,
-    documentId: value.workspace.documents.find(item => item.output?.id === outputId)?.id ?? null,
     group: groupRecordFromStep(groupStepFromBuilder(value)),
     workspace: structuredClone(value.workspace),
     draftVersion: value.draftVersion,
