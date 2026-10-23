@@ -2159,7 +2159,7 @@ function actionGroupLifecycleMatches(enabled) {
   ].join('\n');
 }
 
-function actionOwnerMatches(model) {
+function actionOwnerMatches(model, hasGroupLifecycle = false) {
   if (model === 'ConstructionLifecycle') {
     return [
       'ActionOwnerMatches(index) ==',
@@ -2198,6 +2198,9 @@ function actionOwnerMatches(model) {
     ].join('\n');
   }
   if (model === 'BuilderJourney') {
+    const latePreviewOwnerMatch = hasGroupLifecycle
+      ? '/\\ proposalPreviewOwner \\in {"P1", "P2"}'
+      : '/\\ proposalPreviewOwner \\in {"P1", "P2"} /\\ proposalPreviewOwner # attempt';
     return [
       'ActionOwnerMatches(index) ==',
       '  LET label == TraceActions[index]',
@@ -2205,7 +2208,7 @@ function actionOwnerMatches(model) {
       '  IN CASE label = "Preview" -> /\\ attempt \\in {"P1", "P2"} /\\ proposalPreviewOwner\' = attempt',
       '       [] label \\in {"PreviewComplete", "PreviewError"} -> proposalPreviewOwner = attempt',
       '       [] label = "PreviewRequestCancelled" -> /\\ attempt \\in {"P1", "P2"} /\\ proposalPreviewOwner = attempt',
-      '       [] label \\in {"LatePreviewCompleteIgnored", "LatePreviewErrorIgnored"} -> /\\ proposalPreviewOwner \\in {"P1", "P2"} /\\ proposalPreviewOwner # attempt',
+      '       [] label \\in {"LatePreviewCompleteIgnored", "LatePreviewErrorIgnored"} -> ' + latePreviewOwnerMatch,
       '       [] label = "ChoicePreview" -> /\\ attempt \\in {"P1", "P2"} /\\ choicePreviewOwner\' = attempt',
       '       [] label \\in {"ChoicePreviewComplete", "ChoicePreviewError"} -> choicePreviewOwner = attempt',
       '       [] label = "AddColumn" -> /\\ attempt = choicePreviewOwner /\\ choicePreview = "ready"',
@@ -2371,7 +2374,7 @@ function generateModule(trace, moduleName, hasGroupLifecycle) {
     '',
     actionLabelMatches(trace.model),
     '',
-    actionOwnerMatches(trace.model),
+    actionOwnerMatches(trace.model, hasGroupLifecycle),
     '',
     actionGroupLifecycleMatches(hasGroupLifecycle),
     '',
