@@ -218,10 +218,13 @@ function savedGroupProjectionProblem(saved, where) {
   if (selectedDocuments.length !== 1) {
     return where + '.outputId must select exactly one document in the raw workspace';
   }
-  if (!Array.isArray(selectedDocuments[0]?.construction?.steps)) {
+  const construction = selectedDocuments[0]?.construction;
+  const rawSteps = construction?.steps;
+  const omittedEmptyConstruction = construction === undefined && saved.group === null;
+  if (!Array.isArray(rawSteps) && !omittedEmptyConstruction) {
     return where + '.workspace selected document must preserve its raw construction steps';
   }
-  const groupSteps = selectedDocuments[0].construction.steps
+  const groupSteps = (rawSteps ?? [])
     .filter((step) => step?.operation?.kind === 'GROUP');
   if (groupSteps.length > 1) return where + '.workspace selected document must contain at most one GROUP step';
   if (saved.group === null) {
