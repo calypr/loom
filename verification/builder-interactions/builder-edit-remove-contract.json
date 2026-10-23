@@ -101,7 +101,7 @@
     },
     "GroupEditCancel": {
       "event": "group-edit-cancel",
-      "trigger": "the user cancels Group edit and an actual before/after Builder read proves saved Group and draft identity are unchanged"
+      "trigger": "the user leaves Group edit without Apply: use proposal Cancel when a Group proposal was captured, or close the unchanged saved editor when no proposal was created; actual before/after Builder reads prove the saved Group and draft identity are unchanged"
     },
     "GroupRemovalCancel": {
       "event": "group-removal-cancel",

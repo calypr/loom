@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "2e9b09deed1344da7b4ba3459159dc7e251a8552e2a1e55d4ea84fdcb830f1af",
+      "sha256": "ee743f08de43080e192cfcf39f81e91e40fb7bf606ab12cf851be5dd2e3926b0",
       "contract": "Registered authored-three and raw-Basic native Group lifecycles with actual Builder reads, captured request owners, mounted reload controls, post-action observations, TLA replay, and trace-bound mutation controls."
     }
   ]

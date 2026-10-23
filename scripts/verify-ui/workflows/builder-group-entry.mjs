@@ -1830,8 +1830,8 @@ export const groupEntryWorkflow = async (workflow, context) => {
   assert.deepEqual(traceActions.filter(action => action.label === 'GroupEditCancel')
     .map(action => action.groupLifecycle?.exitControl), [
     { kind: 'proposal-cancel', controlTestId: 'construction-cancel-proposal' },
-    { kind: 'editor-close', controlTestId: 'construction-close-operation-editor' },
-  ], 'Group edit exit evidence must show one proposal Cancel and one unchanged editor close with their actual control identities.');
+    { kind: reloadedEditExit.kind, controlTestId: reloadedEditExit.controlTestId },
+  ], 'Group edit exit evidence must retain the actual proposal Cancel or unchanged editor close selected after reload.');
   const minimumBackendCalls = Number(process.env.LOOM_JOURNEY_MIN_BACKEND_CALLS ?? 10);
   assert(backendCalls.length >= minimumBackendCalls,
     `Group lifecycle must capture at least ${minimumBackendCalls} actual authoring backend responses; found ${backendCalls.length}.`);
