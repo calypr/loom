@@ -127,12 +127,9 @@ const blobsAtTestedCommit = (root, commit, paths) => gitBlobs(root, commit, path
 const sanitizerAtCommit = async (root, commit, manifest, label) => {
   const helper = blobAtTestedCommit(root, commit, PLAYWRIGHT_SANITIZER);
   requireValue(helper, label + ': sanitizer source is unavailable at tested source commit');
-  const helperPath = pathWithin(root, PLAYWRIGHT_SANITIZER, 'tested sanitizer');
-  requireValue(existsSync(helperPath), label + ': current sanitizer source is missing');
-  const currentBytes = readFileSync(helperPath);
-  requireValue(sha256(currentBytes) === sha256(helper.bytes), label + ': current sanitizer bytes differ from tested source commit');
-  requireValue(manifest?.[PLAYWRIGHT_SANITIZER] === sha256(currentBytes), label + ': native manifest sanitizer hash differs from tested helper bytes');
-  const sanitizerModule = await import(pathToFileURL(helperPath).href);
+  const helperHash = sha256(helper.bytes);
+  requireValue(manifest?.[PLAYWRIGHT_SANITIZER] === helperHash, label + ': native manifest sanitizer hash differs from tested source blob');
+  const sanitizerModule = await import('data:text/javascript;base64,' + helper.bytes.toString('base64'));
   requireValue(typeof sanitizerModule.sanitizePayload === 'function', label + ': tested sanitizer does not export sanitizePayload');
   return sanitizerModule;
 };
@@ -352,7 +349,8 @@ const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistr
         : { status: 'unavailable', reason: 'current watched-tree fingerprint is unavailable' };
     if (sourceStatus.status === 'current') {
       requireValue(currentRegistry, reportPath + ': current-source report cannot be bound to the current tested registry');
-      const registeredCase = currentRegistry.scenarioCaseFor(report.scenario, report.case);
+      const readOnlyCustom = report.target?.kind === 'read-only-custom';
+      const registeredCase = currentRegistry.scenarioCaseFor(report.scenario, report.case, readOnlyCustom);
       requireValue(registeredCase, reportPath + ': case is absent from the current registry: ' + report.scenario + ':' + report.case);
       requireValue(Array.isArray(registeredCase.requiredChecks) && registeredCase.requiredChecks.length > 0, reportPath + ': current registry case has no required checks');
       assertReportAssertions(report, registeredCase.requiredChecks, reportPath);
@@ -543,8 +541,12 @@ const makeRetainedNativeRow = async (root, journey, runId, run, expectedCase) =>
   assertBracket(bracket, native, registeredChecks, expectedCase, label);
   await assertFreeze(root, run, native, sourceCommit, sourceManifest, label);
 
-  const expectedTraceName = run.traceMutationControls?.positiveTraceName ?? run.selectedNativeCase?.traceName;
-  requireValue(typeof expectedTraceName === 'string' && expectedTraceName.length > 0, label + ': expected trace name is missing');
+  const registeredTraceName = registeredCase.journeyTrace?.name;
+  requireValue(typeof registeredTraceName === 'string' && registeredTraceName.length > 0, label + ': tested registry case has no journey trace name');
+  const auditedTraceNames = [run.traceMutationControls?.positiveTraceName, run.selectedNativeCase?.traceName].filter((name) => name !== undefined);
+  requireValue(auditedTraceNames.length > 0, label + ': expected trace name is missing');
+  requireValue(auditedTraceNames.every((name) => name === registeredTraceName), label + ': audited trace name differs from tested registry: expected ' + registeredTraceName + ', recorded ' + auditedTraceNames.filter((name) => name !== registeredTraceName).join(', '));
+  const expectedTraceName = registeredTraceName;
   const unsupported = run.formalBoundary?.unsupportedNativeEvents;
   requireValue(unsupported && typeof unsupported === 'object' && Object.keys(unsupported).length > 0, label + ': explicit unsupported native-event boundary is missing');
   const { trace, receipt } = assertTlaReceipt(traceDocument, tla, sourceCommit, proofFingerprint, expectedTraceName, journey.model, unsupported, label);
@@ -849,9 +851,18 @@ async function main() {
     if (reportPaths.length > 0) fail('--from-evidence cannot be combined with --report');
     requireValue(existsSync(outputPath), options.output + ' does not exist; cannot read --from-evidence');
     const current = jsonFromBytes(readFileSync(outputPath), options.output);
-    reportPaths = asArray(current.generatedFrom).filter((path) => {
-      try { return existsSync(pathWithin(options.root, path, 'generated browser report')); }
-      catch { return false; }
+    requireValue(Array.isArray(current.generatedFrom), options.output + ' --from-evidence input must contain a generatedFrom path list');
+    const audit = readJson(options.root, JOURNEY_AUDIT, 'Builder journey audit');
+    const legacyRecompile = historicalRecompileRow(options.root, audit);
+    const unavailableRecompileReport = legacyRecompile.status === 'unavailable'
+      ? legacyRecompile.historicalMetadata.recordedReport
+      : null;
+    reportPaths = current.generatedFrom.flatMap((path) => {
+      requireValue(typeof path === 'string' && path.length > 0, options.output + ' --from-evidence contains a malformed report path');
+      const absolute = isAbsolute(path) ? resolve(path) : pathWithin(options.root, path, 'generated browser report');
+      if (existsSync(absolute)) return [path];
+      if (path === unavailableRecompileReport) return [];
+      fail(options.output + ' --from-evidence report path is missing: ' + path);
     });
   }
   const payload = await buildBuilderBrowserEvidence({ root: options.root, reportPaths, requireCurrent: options.requireCurrent });
