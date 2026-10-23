@@ -5,11 +5,11 @@ Status: generated from the TLA models and existing test metadata.
 ## Script quality inventory
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
-678 are currently tracked; 0 baseline files have retained tombstones.
-13161 semantic claims are defined once; 9232 source occurrences are direct test assertions, out of 18963 total labeled occurrences.
-9731 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+676 are currently tracked; 2 baseline files have retained tombstones.
+13171 semantic claims are defined once; 9239 source occurrences are direct test assertions, out of 18979 total labeled occurrences.
+9740 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
-68 files are classified as independent tool/module purposes; 297 MJS files and 5316 semantic claims have no canonical journey mapping.
+68 files are classified as independent tool/module purposes; 292 MJS files and 5316 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.
 
 | Role | Files |
@@ -144,7 +144,7 @@ Status: generated from the TLA models and existing test metadata.
 | `standalone-reshape-coded-pivot:coded-pivot-integer` | 12 | 1 | 54 | 60 | 10 | BuilderOperations, BuilderPreview |
 | `standalone-reshape-coded-pivot:coded-pivot-string` | 12 | 1 | 54 | 60 | 10 | BuilderOperations, BuilderPreview |
 | `standalone-reshape-group-add-fields:group-add-fields` | 30 | 55 | 0 | 27 | 16 | — |
-| `standalone-reshape-group-edit-before-related-column:group-edit-before-related-column` | 22 | 17 | 78 | 24 | 17 | BuilderPreview |
+| `standalone-reshape-group-edit-before-related-column:group-edit-before-related-column` | 27 | 17 | 81 | 31 | 17 | BuilderPreview |
 | `standalone-reshape-group-one-conflict:group-one-conflict` | 16 | 20 | 0 | 13 | 11 | — |
 | `standalone-reshape-related-field-after-unpivot-gender-all:related-field-after-unpivot-gender-all` | 15 | 82 | 0 | 3 | 22 | — |
 | `standalone-reshape-related-source-after-pivot:related-resource-type-after-pivot` | 4 | 79 | 0 | 27 | 24 | — |
@@ -171,9 +171,9 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Scope | Count |
 | --- | ---: |
 | Tool/module files | 68 |
-| Tool/module files with a canonical case mapping | 6 |
-| Tool/module files without a canonical case mapping | 62 |
-| All MJS files without a canonical case mapping | 297 |
+| Tool/module files with a canonical case mapping | 7 |
+| Tool/module files without a canonical case mapping | 61 |
+| All MJS files without a canonical case mapping | 292 |
 | Semantic claims without a canonical case mapping | 5316 |
 
 ### Explicit formal links
@@ -266,11 +266,14 @@ These are source associations, not passing runs. Model actions, invariants, sche
 
 | Disposition | Files |
 | --- | ---: |
-| keep | 677 |
+| integrate | 2 |
+| keep | 675 |
 | merge-candidate | 1 |
 
 | MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |
 | --- | --- | --- | --- | --- |
+| `scripts/verify-ui/helpers/group-related-multiset.mjs` | retired / integrate | Compares complete row-value multisets so duplicate counts and values must match exactly. The four complete-population guards now live in cda-row-oracle.mjs; the bounded preview API remains unchanged. | scripts/verify-ui/helpers/cda-row-oracle.mjs; scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs; scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs; scripts/verify-ui/helpers/cda-row-oracle.mjs [shared complete-population row oracle with duplicate and ALL-item multiplicity checks]; scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs [focused controls accept legitimate ordering and reject duplicate, missing, extra, and ALL-multiplicity damage]; scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs [all four actual Group workflow comparison call sites migrated to the shared oracle] | No remaining proof gap recorded. |
+| `scripts/verify-ui/helpers/tests/group-related-multiset.test.mjs` | retired / integrate | Exercises the exact related-row multiset helper for order-independent matching and duplicate-sensitive mismatch rejection, including typed ALL values. Its row-order, duplicate-row, and duplicate ALL-item controls now live in cda-row-oracle.test.mjs and are registered in the CDA Group case. | scripts/verify-ui/helpers/cda-row-oracle.mjs; scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs; scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs; scripts/verify-ui/helpers/cda-row-oracle.mjs [shared complete-population row oracle with duplicate and ALL-item multiplicity checks]; scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs [focused controls accept legitimate ordering and reject duplicate, missing, extra, and ALL-multiplicity damage]; scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs [all four actual Group workflow comparison call sites migrated to the shared oracle] | No remaining proof gap recorded. |
 | `ui/packages/loom-ui/scripts/verify-cda-contributor-exists-browser.mjs` | active / merge-candidate | Drives a standalone native CDA Contributor EXISTS flow and compares UI previews, saved policy changes, and source restoration against project/generation-scoped raw Arango witnesses. Keep as a merge candidate for the registered `cda-contributor-exists:contributor-exists` route: both workflows cover zero/one/many Contributor EXISTS policies, but the candidate uses an unbounded many-witness query while the canonical oracle is limited to the first 2,000 Patients and 2–22 many rows. The candidate only checks proposal DOM rows; the canonical path checks native request/response CAS, receipt and candidate binding, plus complete non-sampled preview evidence. Retain until parity is proved. | scripts/verify-ui/specs/standalone-cda-fields.spec.mjs; scripts/verify-ui/workflows/contributor-exists-workflow.mjs; scripts/verify-ui/registry.mjs; scripts/verify-ui/registry.mjs [registered-canonical-case-checks-and-focus-binding]; scripts/verify-ui/workflows/contributor-exists-workflow.mjs [bounded-canonical-oracle-native-request-response-and-persistence-assertions]; scripts/verify-ui/specs/standalone-cda-fields.spec.mjs [registered-spec-dispatches-canonical-workflow] | Before any consolidation, prove that the legacy zero/one/many witness IDs and every related Observation row fit the canonical first-2,000-Patient, 2-to-22-many contract. Preserve exact ALL_MATCHES and EXISTS ERROR/PRESERVE_PARENT/EXCLUDE results, diagnostics, policy edits, source identities, Cancel/Apply, and reload/removal restoration. The legacy workflow only checks proposal DOM rows; establish equivalent native request/response CAS, receipt, candidate-construction equivalence, complete and non-sampled preview checks, and an error/performance census in the registered route. Also decide whether the generic-Playwright-only `standalone-misc-cda-unmapped` invocation must remain; it has no registry `requiredChecks` contract. |
 
 Disposition labels and replacement evidence come from the source catalog. They do not turn a candidate into runtime proof; independent oracles and replacement gates remain explicit in purpose, evidence, and any nonempty gap.

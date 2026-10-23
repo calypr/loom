@@ -379,7 +379,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "9325337f490e7d1d87b1667dd1043074165fa5562a3b0bd2edc95996d5309d5e",
+      "sha256": "f4d7980d1e3517ce2f046f23a98b0d742cce7a3142ee13f9d42efa360de2be07",
       "contract": "Registered native Group variants require edit Cancel, removal Cancel, exact reload counts, and postreload mounted-key/draft checks."
     },
     {
