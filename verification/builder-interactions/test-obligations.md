@@ -6,10 +6,10 @@ Status: generated from the TLA models and existing test metadata.
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
 678 are currently tracked; 0 baseline files have retained tombstones.
-13150 semantic claims are defined once; 9212 source occurrences are direct test assertions, out of 18926 total labeled occurrences.
-9714 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+13155 semantic claims are defined once; 9230 source occurrences are direct test assertions, out of 18949 total labeled occurrences.
+9719 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
-68 files are classified as independent tool/module purposes; 297 MJS files and 5307 semantic claims have no canonical journey mapping.
+68 files are classified as independent tool/module purposes; 297 MJS files and 5312 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.
 
 | Role | Files |
@@ -174,7 +174,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files with a canonical case mapping | 6 |
 | Tool/module files without a canonical case mapping | 62 |
 | All MJS files without a canonical case mapping | 297 |
-| Semantic claims without a canonical case mapping | 5307 |
+| Semantic claims without a canonical case mapping | 5312 |
 
 ### Explicit formal links
 

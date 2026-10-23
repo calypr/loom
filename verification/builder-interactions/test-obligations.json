@@ -1252,7 +1252,7 @@
         {
           "kind": "path-mention",
           "source": "testdata/cda-mini-fixture/README.md",
-          "line": 84
+          "line": 113
         }
       ],
       "staticReferenceCandidateCount": 2,
@@ -14689,7 +14689,7 @@
         {
           "kind": "path-mention",
           "source": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
-          "line": 184
+          "line": 387
         },
         {
           "kind": "path-mention",
@@ -14703,11 +14703,16 @@
         },
         {
           "kind": "path-mention",
+          "source": "testdata/cda-mini-fixture/README.md",
+          "line": 96
+        },
+        {
+          "kind": "path-mention",
           "source": "verification/builder-interactions/BuilderTraceValidation.md",
           "line": 36
         }
       ],
-      "staticReferenceCandidateCount": 6,
+      "staticReferenceCandidateCount": 7,
       "lifecycle": "active",
       "origin": "baseline",
       "purpose": "Runs either the selected registered native case or the standalone Builder journey spec, then validates the emitted trace identity, actions, backend-call minimum, outcome fields, and formal trace evidence.",
@@ -17469,7 +17474,7 @@
         {
           "kind": "path-mention",
           "source": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
-          "line": 215
+          "line": 229
         },
         {
           "kind": "path-mention",
@@ -134716,7 +134721,7 @@
       "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "roleHint": "browser-spec",
       "present": true,
-      "sha256": "b65245edcb2523291571fb2146e476fe945eb0a7b13f0736ddb1aa63d1b9913f",
+      "sha256": "e1f48bd13d20a8ff3275ddb655e148f771097253fca717ec5ea66fb134ec1172",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -134727,203 +134732,662 @@
       "staticReferenceCandidateCount": 1,
       "lifecycle": "active",
       "origin": "baseline",
-      "purpose": "Edits and removes a saved Group, checks the exact candidate preview, then reloads the original source rows.",
+      "purpose": "Retains a manual CDA extension-value Group lifecycle and a separate Basic call-budget probe; the registered raw-Basic native case owns the full five-column fixture-value oracle.",
       "role": "browser-spec",
       "testLayer": "browser-spec",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
+        "reviewedCommit": "d4e8cbe447eb0dccc348795941d6e429201d4067",
+        "confidence": "high",
         "evidence": [
           {
             "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 140,
-            "kind": "visible UI, persistence, or preview behavior assertion reviewed"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 161,
-            "kind": "visible UI, persistence, or preview behavior assertion reviewed"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 286,
-            "kind": "visible UI, persistence, or preview behavior assertion reviewed"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 308,
-            "kind": "visible UI, persistence, or preview behavior assertion reviewed"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 366,
-            "kind": "visible UI, persistence, or preview behavior assertion reviewed"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 385,
-            "kind": "visible UI, persistence, or preview behavior assertion reviewed"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 406,
-            "kind": "journey trace write"
-          },
-          {
-            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
             "line": 39,
-            "kind": "Playwright case registration"
+            "kind": "standalone Playwright spec body"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 42,
+            "kind": "explicit CDA-or-Basic-budget route guard"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 54,
+            "kind": "/authoring/v2/ response census capture"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 76,
+            "kind": "Basic static source shape and CDA extension branch"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 81,
+            "kind": "CDA extension source add and preview assertions"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 144,
+            "kind": "default Group command response guard"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 149,
+            "kind": "CDA default Group row-count assertion"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 151,
+            "kind": "Basic budget route default Group row-count assertion"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 166,
+            "kind": "saved Group editor and selected grouping fields"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 230,
+            "kind": "edit proposal settlement classification guard"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 260,
+            "kind": "matching edit proposal body assertion"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 288,
+            "kind": "edit preview row, header, and per-group count assertions"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 301,
+            "kind": "edit command persistence and rendered output assertions"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 339,
+            "kind": "removal proposal source-shape assertion"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 359,
+            "kind": "removal persistence and source visibility assertions"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 378,
+            "kind": "reload row/column and source-ID assertions"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 398,
+            "kind": "trace write and backend-call budget predicates"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 402,
+            "kind": "10–45 backend-call assertions"
           }
-        ],
-        "confidence": "high"
+        ]
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "b65245edcb2523291571fb2146e476fe945eb0a7b13f0736ddb1aa63d1b9913f"
+        "commit": "d4e8cbe447eb0dccc348795941d6e429201d4067",
+        "sha256": "e1f48bd13d20a8ff3275ddb655e148f771097253fca717ec5ea66fb134ec1172"
       },
       "executionDiscovery": {
         "status": "static-path-found",
         "evidence": [
           {
-            "path": "scripts/playwright.journey.config.mjs",
-            "line": 4,
-            "kind": "Playwright test directory and spec pattern"
+            "path": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
+            "line": 421,
+            "kind": "documented Basic budget CLI sets LOOM_JOURNEY_DATASET=basic-budget"
+          },
+          {
+            "path": "scripts/run-builder-journey.mjs",
+            "line": 73,
+            "kind": "manifest journey lookup"
+          },
+          {
+            "path": "scripts/run-builder-journey.mjs",
+            "line": 100,
+            "kind": "entry-selected trace contract"
+          },
+          {
+            "path": "scripts/run-builder-journey.mjs",
+            "line": 103,
+            "kind": "direct Playwright invocation for non-native entries"
+          },
+          {
+            "path": "scripts/run-builder-journey.mjs",
+            "line": 412,
+            "kind": "trace validation through selected contract"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 42,
+            "kind": "environment guard selects supported standalone modes"
+          },
+          {
+            "path": "testdata/cda-mini-fixture/README.md",
+            "line": 87,
+            "kind": "documented CDA CLI sets LOOM_JOURNEY_DATASET=mini"
           },
           {
             "path": "verification/builder-interactions/builder-journey-audit.json",
-            "line": 207,
-            "kind": "journey manifest registration"
+            "line": 506,
+            "kind": "manual Basic call-budget manifest entry with explicit dataset mode"
           },
           {
-            "path": "scripts/run-builder-journey.mjs",
-            "line": 72,
-            "kind": "manifest spec selection"
-          },
-          {
-            "path": "scripts/run-builder-journey.mjs",
-            "line": 83,
-            "kind": "Playwright spec runner invocation"
+            "path": "verification/builder-interactions/cda-mini-journeys.json",
+            "line": 140,
+            "kind": "manual-only CDA manifest entry"
           }
         ],
         "unresolvedFacts": []
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L161:test-assertion-journey-edit-remove-reload-group-editor-is-visible",
-          "semanticClaimId": "journey.edit-remove-reload.group-editor-is-visible",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L42:runtime-guard-requires-explicit-dataset-mode",
+          "semanticClaimId": "journey.edit-remove-reload.requires-explicit-dataset-mode",
           "sourceLines": [
-            161,
-            169,
-            170
+            40,
+            41,
+            42,
+            43,
+            44
           ],
           "independence": "independent",
-          "evidenceKind": "test-assertion"
+          "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L286:test-assertion-journey-edit-remove-reload-edited-group-preview-is-exact",
-          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
-          "sourceLines": [
-            286,
-            287,
-            289,
-            290,
-            294,
-            295,
-            296,
-            297
-          ],
-          "independence": "independent",
-          "evidenceKind": "test-assertion"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L308:test-assertion-journey-edit-remove-reload-edit-remove-persist-and-source-restores",
-          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
-          "sourceLines": [
-            308,
-            310,
-            311,
-            312,
-            313,
-            314,
-            366,
-            368,
-            369,
-            370,
-            371,
-            385,
-            386,
-            387,
-            388
-          ],
-          "independence": "independent",
-          "evidenceKind": "test-assertion"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L406:trace-capture-journey-edit-remove-reload-captures-builder-trace",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L50:runtime-guard-trace-path-is-provided",
           "semanticClaimId": "journey.edit-remove-reload.captures-builder-trace",
           "sourceLines": [
-            406
+            49,
+            50
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L52:runtime-guard-trace-source-commit-is-valid",
+          "semanticClaimId": "journey.edit-remove-reload.captures-builder-trace",
+          "sourceLines": [
+            51,
+            52
+          ],
+          "independence": "independent",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L86:test-assertion-cda-source-has-rows",
+          "semanticClaimId": "journey.edit-remove-reload.cda-extension-source-selected",
+          "sourceLines": [
+            80,
+            82,
+            83,
+            86
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L87:test-assertion-cda-source-has-extension-column",
+          "semanticClaimId": "journey.edit-remove-reload.cda-extension-source-selected",
+          "sourceLines": [
+            81,
+            87
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L144:test-assertion-default-group-command-succeeds",
+          "semanticClaimId": "journey.edit-remove-reload.default-group-applies",
+          "sourceLines": [
+            143,
+            144
+          ],
+          "independence": "independent",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L149:test-assertion-cda-default-group-has-multiple-output-rows",
+          "semanticClaimId": "journey.edit-remove-reload.default-group-applies",
+          "sourceLines": [
+            148,
+            149
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L151:test-assertion-basic-default-group-retains-two-output-rows",
+          "semanticClaimId": "journey.edit-remove-reload.default-group-applies",
+          "sourceLines": [
+            150,
+            151
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L166:test-assertion-saved-group-editor-visible",
+          "semanticClaimId": "journey.edit-remove-reload.group-editor-is-visible",
+          "sourceLines": [
+            165,
+            166
+          ],
+          "independence": "independent",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L173:test-assertion-id-and-secondary-field-controls-visible",
+          "semanticClaimId": "journey.edit-remove-reload.group-editor-is-visible",
+          "sourceLines": [
+            171,
+            172,
+            173,
+            174
+          ],
+          "independence": "independent",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L230:runtime-guard-edit-proposal-settlement-classifies-owner-and-state",
+          "semanticClaimId": "journey.edit-remove-reload.edit-preview-settlement-classified",
+          "sourceLines": [
+            201,
+            203,
+            207,
+            210,
+            214,
+            227,
+            230
+          ],
+          "independence": "derived",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L260:test-assertion-matching-edit-proposal-body-is-found",
+          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
+          "sourceLines": [
+            253,
+            254,
+            255,
+            256,
+            257,
+            258,
+            260
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L268:test-assertion-rendered-edit-proposal-row-and-column-summary",
+          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
+          "sourceLines": [
+            268,
+            269
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L281:runtime-guard-apply-target-is-ready-rendered-edit-proposal",
+          "semanticClaimId": "journey.edit-remove-reload.edit-preview-settlement-classified",
+          "sourceLines": [
+            270,
+            271,
+            272,
+            275,
+            276,
+            278,
+            279,
+            280,
+            281
+          ],
+          "independence": "derived",
+          "evidenceKind": "runtime-guard"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L288:test-assertion-edit-preview-row-count",
+          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
+          "sourceLines": [
+            288
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L289:test-assertion-edit-preview-exact-header-labels",
+          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
+          "sourceLines": [
+            289
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L290:test-assertion-edit-preview-source-row-count",
+          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
+          "sourceLines": [
+            290
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L291:test-assertion-edit-preview-one-row-per-group",
+          "semanticClaimId": "journey.edit-remove-reload.edited-group-preview-is-exact",
+          "sourceLines": [
+            291
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L301:test-assertion-edit-command-response-succeeds",
+          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+          "sourceLines": [
+            299,
+            300,
+            301
+          ],
+          "independence": "independent",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L303:test-assertion-edited-table-rendered-shape",
+          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+          "sourceLines": [
+            302,
+            303,
+            304,
+            305,
+            306,
+            307
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L339:test-assertion-removal-preview-has-source-shape",
+          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+          "sourceLines": [
+            338,
+            339
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L359:test-assertion-remove-command-response-succeeds",
+          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+          "sourceLines": [
+            357,
+            358,
+            359
+          ],
+          "independence": "independent",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L361:test-assertion-removal-shape-and-source-ids-visible",
+          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+          "sourceLines": [
+            360,
+            361,
+            362,
+            363,
+            364
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L378:test-assertion-reload-retains-source-shape-and-first-two-ids",
+          "semanticClaimId": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+          "sourceLines": [
+            377,
+            378,
+            379,
+            380,
+            381
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L399:trace-capture-trace-records-actions-provenance-and-calls",
+          "semanticClaimId": "journey.edit-remove-reload.captures-builder-trace",
+          "sourceLines": [
+            51,
+            90,
+            94,
+            102,
+            153,
+            161,
+            264,
+            267,
+            330,
+            349,
+            365,
+            373,
+            389,
+            399
           ],
           "independence": "derived",
           "evidenceKind": "trace-capture"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L402:test-assertion-basic-response-budget-lower-bound",
+          "semanticClaimId": "journey.edit-remove-reload.basic-call-budget",
+          "sourceLines": [
+            401,
+            402
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L403:test-assertion-basic-response-budget-upper-bound",
+          "semanticClaimId": "journey.edit-remove-reload.basic-call-budget",
+          "sourceLines": [
+            401,
+            403
+          ],
+          "independence": "derived",
+          "evidenceKind": "test-assertion"
         }
       ],
       "semanticClaimIds": [
+        "journey.edit-remove-reload.basic-call-budget",
         "journey.edit-remove-reload.captures-builder-trace",
+        "journey.edit-remove-reload.cda-extension-source-selected",
+        "journey.edit-remove-reload.default-group-applies",
+        "journey.edit-remove-reload.edit-preview-settlement-classified",
         "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
         "journey.edit-remove-reload.edited-group-preview-is-exact",
-        "journey.edit-remove-reload.group-editor-is-visible"
+        "journey.edit-remove-reload.group-editor-is-visible",
+        "journey.edit-remove-reload.requires-explicit-dataset-mode"
       ],
       "journeyMappings": [],
-      "oracle": null,
-      "formalApplicability": {
-        "kind": "trace-support",
-        "rationale": "The spec captures browser action/response observations for the named BuilderJourney model actions and the journey runner passes its trace to the separate validator; this source review does not claim the trace passed.",
+      "oracle": {
+        "kind": "route-specific literal shape and preview-derived source identifiers",
+        "dataScope": "The Basic route sets an expected source shape of two rows, five columns, and two literal Patient IDs; it checks row/column counts and visibility of those IDs, not every source value. CDA row count, labels, and first two IDs are derived from the preview under test. The registered raw-Basic native workflow owns the independent Patient.ndjson value oracle.",
         "evidence": [
           {
             "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
-            "line": 406,
-            "kind": "model-bound journey trace capture"
+            "line": 16,
+            "kind": "literal Basic five-column label list"
           },
           {
-            "path": "verification/builder-interactions/builder-journey-contract.json",
-            "line": 1,
-            "kind": "BuilderJourney action/event contract"
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 76,
+            "kind": "Basic expected rows and IDs initialized; CDA branch obtains preview values"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 86,
+            "kind": "CDA row-count check"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 87,
+            "kind": "CDA extension-column check"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 361,
+            "kind": "removal row/column and ID visibility checks"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 378,
+            "kind": "reload row/column and ID visibility checks"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "line": 564,
+            "kind": "independent raw-Basic Patient.ndjson preview oracle"
+          }
+        ]
+      },
+      "formalApplicability": {
+        "kind": "trace-support",
+        "rationale": "The two manually selected routes record BuilderJourney actions and the runner validates their trace with the explicit edit/remove contract. The spec emits one Group, one EditGroup, and one RemoveGroup; it does not emit GroupAgain or EditGroupAgain. This is source applicability only and claims no browser/TLA run.",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 90,
+            "kind": "BuilderJourney trace construction"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 153,
+            "kind": "Group action capture"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 307,
+            "kind": "EditGroup action capture"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 365,
+            "kind": "RemoveGroup action capture"
+          },
+          {
+            "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+            "line": 398,
+            "kind": "trace serialization"
+          },
+          {
+            "path": "verification/builder-interactions/builder-edit-remove-contract.json",
+            "line": 108,
+            "kind": "contract trace and schedule requirements"
+          },
+          {
+            "path": "verification/builder-interactions/builder-edit-remove-contract.json",
+            "line": 115,
+            "kind": "required edit/remove actions"
+          },
+          {
+            "path": "verification/builder-interactions/builder-edit-remove-contract.json",
+            "line": 146,
+            "kind": "Group Cancel remains outside model"
           },
           {
             "path": "scripts/run-builder-journey.mjs",
-            "line": 99,
-            "kind": "separate trace validation call"
+            "line": 100,
+            "kind": "manifest contract selection"
+          },
+          {
+            "path": "scripts/run-builder-journey.mjs",
+            "line": 412,
+            "kind": "separate contract validator invocation"
           }
         ],
         "bindings": [
           {
             "model": "BuilderJourney",
             "actions": [
+              "AddColumn",
+              "ChoicePreview",
+              "ChoicePreviewComplete",
+              "ChoicePreviewError",
               "Group",
               "EditGroup",
               "RemoveGroup",
               "Preview",
               "PreviewComplete",
-              "GroupAgain",
-              "LatePreviewErrorIgnored"
+              "PreviewError",
+              "LatePreviewCompleteIgnored",
+              "LatePreviewErrorIgnored",
+              "PreviewRequestCancelled"
             ],
             "invariants": [],
             "scheduleIds": []
           }
         ],
-        "limitation": "Trace support is bounded to captured source-profile and named actions; it is not proof of the full browser/application state space."
+        "limitation": "Both routes are declared manual-only and not-run. Group Cancel and reload remain native/UI assertions outside the model, and the CDA route derives its first two IDs from the preview under test rather than an independent full-row oracle."
       },
       "disposition": {
         "kind": "keep",
-        "reason": "Retains a distinct user-facing browser workflow with separate visible UI, exact data, persistence/error, and trace-capture evidence."
+        "reason": "The file still serves two explicit manual purposes: the CDA extension-value lifecycle and the Basic 10–45 response-budget probe. The registered raw-Basic native case owns the independent five-column value oracle; neither manual route is deleted or claimed as run."
       },
       "replacementProof": {
-        "paths": [],
-        "evidence": [],
-        "gap": ""
+        "paths": [
+          "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+          "scripts/verify-ui/registry.mjs",
+          "verification/builder-interactions/builder-edit-remove-contract.json"
+        ],
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "sha256": "9460f46cbaa37231d63f948202a1ba3865694b1104325decda4e4ea2373e2fcc",
+            "kind": "registered raw-Basic source-value and Group lifecycle assertions"
+          },
+          {
+            "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+            "sha256": "885af1bbffba315b6dfc88471f8789aa988515e5c359684fe1dd3d89b938942b",
+            "kind": "registered raw-Basic case dispatch"
+          },
+          {
+            "path": "scripts/verify-ui/registry.mjs",
+            "sha256": "7a6f085e243c7a5a4ebdfe6daf4071e62c75e722e7a1d774dbb51c183224c38a",
+            "kind": "raw-Basic native required-check and trace contract"
+          },
+          {
+            "path": "verification/builder-interactions/builder-journey-audit.json",
+            "sha256": "43c6a417cb9a04486a708e29f1c91b6b845f894feb1e195aef55bee384d36aa5",
+            "kind": "audit row binds the accepted native run to source 0b and records the separate manual budget gap"
+          },
+          {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/native-report.json",
+            "sha256": "0f6065a9e96929ced2126ccfdea1b393bb399e2d1bcf80d5a089cf7797eba7cf",
+            "kind": "accepted raw-Basic lifecycle result with independent Patient.ndjson oracle"
+          },
+          {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/trace.json",
+            "sha256": "7dd800eca5dc18af77188f3c2de1505230f02b407b1462122eda1f4dd89e55d4",
+            "kind": "validated raw-Basic trace; it records 59 calls and does not satisfy the old 10–45 census"
+          },
+          {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/tla-report.json",
+            "sha256": "a94089c716dde9bdee56e3d436fa9dd6890a59019e5fd1a18c27658108e1744e",
+            "kind": "accepted BuilderJourney owner-chronology report; not coverage of native call budget"
+          }
+        ],
+        "gap": "The separate Basic call-budget route preserves the 10–45 predicate in source but remains manual-only and not-run; no runtime budget result is claimed."
       },
-      "duplicateCandidates": [],
+      "duplicateCandidates": [
+        "scripts/verify-ui/workflows/builder-group-entry.mjs"
+      ],
       "runtimeEvidence": {
         "status": "unverified",
         "reason": "No exact current run artifact is joined to this MJS SHA-256."
@@ -135399,7 +135863,7 @@
         {
           "kind": "path-mention",
           "source": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
-          "line": 205
+          "line": 219
         }
       ],
       "staticReferenceCandidateCount": 1,
@@ -135779,7 +136243,7 @@
         {
           "kind": "path-mention",
           "source": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
-          "line": 205
+          "line": 219
         }
       ],
       "staticReferenceCandidateCount": 1,
@@ -135966,7 +136430,7 @@
         {
           "kind": "path-mention",
           "source": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
-          "line": 231
+          "line": 245
         }
       ],
       "staticReferenceCandidateCount": 1,
@@ -136352,7 +136816,7 @@
         {
           "kind": "path-mention",
           "source": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
-          "line": 379
+          "line": 404
         },
         {
           "kind": "path-mention",
@@ -260124,7 +260588,7 @@
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
       "roleHint": "browser-workflow",
       "present": true,
-      "sha256": "84101424264c5591fd2e2e151ff7a7669c0c18743f42e6685e77dbe204add7db",
+      "sha256": "9460f46cbaa37231d63f948202a1ba3865694b1104325decda4e4ea2373e2fcc",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -260150,7 +260614,7 @@
       "testLayer": "browser-workflow",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "df941cc5cee6506fa7111ebf0ea4c5d24cad5908",
+        "reviewedCommit": "d4e8cbe447eb0dccc348795941d6e429201d4067",
         "evidence": [
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
@@ -260164,6 +260628,11 @@
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "line": 336,
+            "kind": "seeded raw Basic bootstrap precondition wording"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
             "line": 462,
             "kind": "Group-workflow-entry"
           },
@@ -260174,13 +260643,28 @@
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "line": 499,
+            "kind": "separate authored-three and raw-Basic source-shape descriptions"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
             "line": 553,
             "kind": "bootstrap-five-column-branch"
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "line": 608,
+            "kind": "migrated raw-Basic source-oracle provenance"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
             "line": 612,
             "kind": "raw-Basic-required-check-emission"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "line": 682,
+            "kind": "authored-three row points to the registered raw-Basic case"
           },
           {
             "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
@@ -260196,8 +260680,8 @@
         "confidence": "high"
       },
       "sourceRevision": {
-        "commit": "df941cc5cee6506fa7111ebf0ea4c5d24cad5908",
-        "sha256": "84101424264c5591fd2e2e151ff7a7669c0c18743f42e6685e77dbe204add7db"
+        "commit": "d4e8cbe447eb0dccc348795941d6e429201d4067",
+        "sha256": "9460f46cbaa37231d63f948202a1ba3865694b1104325decda4e4ea2373e2fcc"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -470529,18 +471013,18 @@
     "sourceReviewed": 678,
     "runtimeUnverified": 678,
     "invocationUncertain": 38,
-    "semanticClaims": 13150,
-    "sourceAssertionOccurrences": 18926,
-    "sourceAssertions": 9212,
-    "nonAssertionOccurrences": 9714,
-    "claimsWithoutSourceAssertions": 5419,
-    "claimsWithoutJourneyMappings": 5307,
+    "semanticClaims": 13155,
+    "sourceAssertionOccurrences": 18949,
+    "sourceAssertions": 9230,
+    "nonAssertionOccurrences": 9719,
+    "claimsWithoutSourceAssertions": 5421,
+    "claimsWithoutJourneyMappings": 5312,
     "assertionEvidenceKindCounts": {
       "call-through": 3538,
       "fixture-fact": 159,
       "oracle-computation": 1007,
-      "runtime-guard": 4604,
-      "test-assertion": 9212,
+      "runtime-guard": 4609,
+      "test-assertion": 9230,
       "trace-capture": 406
     },
     "roleCounts": {
@@ -540768,6 +541252,98 @@
       ]
     },
     {
+      "id": "group.entry.raw-basic.bootstrap-five-column-values",
+      "statement": "The raw Basic Group case starts from the fixture-seeded Patient workspace and checks its five flattened source columns and exact values against Patient.ndjson before Group edits.",
+      "category": "oracle",
+      "journeys": [
+        {
+          "caseId": "builder-authoring:group-entry-raw-basic",
+          "relation": "direct",
+          "requiredChecks": [
+            "legacy Basic bootstrap renders the exact five-column Patient source values"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 553,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 564,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 574,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 576,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 579,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 581,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 583,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 695,
+              "kind": "required-check-registration"
+            }
+          ]
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/specs/builder-authoring.spec.mjs:L20:raw-basic-dispatch-group-entry-raw-basic-bootstrap-five-column-values",
+          "evidenceKind": "call-through",
+          "sourceLines": [
+            20,
+            37,
+            39
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L564:raw-basic-preview-matches-patient-ndjson",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            564,
+            574,
+            576
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L579:raw-basic-rendered-rows-match-patient-ndjson",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            579,
+            581,
+            583
+          ]
+        }
+      ]
+    },
+    {
       "id": "group.fixture.exact-patient-identities",
       "statement": "The fresh Group fixture contains exactly dev-patient-001 and dev-patient-002, which are the independent identity oracle for later previews.",
       "category": "oracle",
@@ -540850,6 +541426,137 @@
             293,
             315,
             316
+          ]
+        }
+      ]
+    },
+    {
+      "id": "group.raw-basic.bootstrap-fixture-routing",
+      "statement": "The raw Basic case opts into bootstrap seeding in the registry, passes that option through Playwright fixture setup into fresh-fixture creation, and selects the matching bootstrap workflow branch.",
+      "category": "tool-contract",
+      "journeys": [
+        {
+          "caseId": "builder-authoring:group-entry-raw-basic",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 676,
+              "kind": "fixture-seed-option"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/fixtures.mjs",
+              "line": 70,
+              "kind": "case-contract-lookup"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/fixtures.mjs",
+              "line": 74,
+              "kind": "fixture-context-call"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/fixtures.mjs",
+              "line": 76,
+              "kind": "bootstrap-option-forwarding"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/fixture-context.mjs",
+              "line": 32,
+              "kind": "fixture-context-option"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/fixture-context.mjs",
+              "line": 37,
+              "kind": "fresh-fixture-seed-call"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 477,
+              "kind": "raw-case-selection"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 479,
+              "kind": "bootstrap-branch-call"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 334,
+              "kind": "bootstrap-branch"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 335,
+              "kind": "bootstrap-seed-assertion"
+            },
+            {
+              "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+              "line": 37,
+              "kind": "raw-case-registration"
+            },
+            {
+              "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+              "line": 39,
+              "kind": "workflow-dispatch"
+            }
+          ]
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/fixture-context.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/fixture-context.mjs:L32:raw-basic-bootstrap-option-forwarded",
+          "evidenceKind": "call-through",
+          "sourceLines": [
+            32,
+            37
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/helpers/fixtures.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/fixtures.mjs:L70:raw-basic-bootstrap-option-forwarded",
+          "evidenceKind": "call-through",
+          "sourceLines": [
+            70,
+            74,
+            76
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/specs/builder-authoring.spec.mjs:L20:raw-basic-dispatch-group-raw-basic-bootstrap-fixture-routing",
+          "evidenceKind": "call-through",
+          "sourceLines": [
+            20,
+            37,
+            39
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L335:raw-basic-requires-seeded-bootstrap",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            335,
+            341,
+            344,
+            346
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L477:raw-basic-selects-bootstrap-workflow",
+          "evidenceKind": "call-through",
+          "sourceLines": [
+            477,
+            479
           ]
         }
       ]
@@ -540985,6 +541692,186 @@
           "evidenceKind": "test-assertion",
           "sourceLines": [
             1372,
+            1376,
+            1380,
+            1385,
+            1389
+          ]
+        }
+      ]
+    },
+    {
+      "id": "group.remove.restores-raw-basic-source",
+      "statement": "Removing Group previews both literal Patient rows in the five-column flattened Basic shape; Cancel preserves the keyed Group and exact draft, and Apply plus reload restores the same source bindings and indexed values.",
+      "category": "behavior",
+      "journeys": [
+        {
+          "caseId": "builder-authoring:group-entry-raw-basic",
+          "relation": "direct",
+          "requiredChecks": [
+            "Group removal previews both literal source Patient rows",
+            "Cancel preserves the saved keyed Group and exact draft",
+            "removing keyed Group restores the exact source Patient rows after reload"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1280,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1282,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1284,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1297,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1299,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1301,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1317,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1318,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1319,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1359,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1372,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1374,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1376,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1380,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1385,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+              "line": 1389,
+              "kind": "behavior-source"
+            },
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 706,
+              "kind": "required-check-registration"
+            },
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 708,
+              "kind": "required-check-registration"
+            }
+          ]
+        }
+      ],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/specs/builder-authoring.spec.mjs:L20:raw-basic-dispatch-group-remove-restores-raw-basic-source",
+          "evidenceKind": "call-through",
+          "sourceLines": [
+            20,
+            37,
+            39
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1280:raw-basic-removal-preview-restores-five-columns",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            1280,
+            1282,
+            1284
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1297:raw-basic-rendered-removal-preview-restores-five-columns",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            1297,
+            1299,
+            1301,
+            1304
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1317:raw-basic-removal-cancel-preserves-workspace-and-draft",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            1317,
+            1318,
+            1319
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1352:raw-basic-apply-removal-restores-source-identities",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            1352,
+            1359
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1372:raw-basic-removal-reload-restores-five-columns-and-values",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            1372,
+            1374,
             1376,
             1380,
             1385,
@@ -607005,92 +607892,387 @@
       ]
     },
     {
-      "id": "journey.edit-remove-reload.captures-builder-trace",
-      "statement": "The browser spec records a source-fingerprinted BuilderJourney trace for the separate trace validator.",
+      "id": "journey.edit-remove-reload.basic-call-budget",
+      "statement": "The Basic call-budget probe requires between 10 and 45 captured /authoring/v2/ responses for its Group/edit/remove/reload run.",
       "category": "tool-contract",
       "journeys": [],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L406:trace-capture-journey-edit-remove-reload-captures-builder-trace",
-          "evidenceKind": "trace-capture",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L402:test-assertion-basic-response-budget-lower-bound",
+          "evidenceKind": "test-assertion",
           "sourceLines": [
-            406
+            401,
+            402
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L403:test-assertion-basic-response-budget-upper-bound",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            401,
+            403
           ]
         }
       ]
     },
     {
-      "id": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
-      "statement": "Edit and Remove commands persist; after removal/reload the original source row count, columns, and IDs return.",
+      "id": "journey.edit-remove-reload.captures-builder-trace",
+      "statement": "The selected manual CDA or Basic-budget route writes its observed BuilderJourney actions, backend responses, outcome, and source provenance for the runner’s separate trace validator.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L399:trace-capture-trace-records-actions-provenance-and-calls",
+          "evidenceKind": "trace-capture",
+          "sourceLines": [
+            51,
+            90,
+            94,
+            102,
+            153,
+            161,
+            264,
+            267,
+            330,
+            349,
+            365,
+            373,
+            389,
+            399
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L50:runtime-guard-trace-path-is-provided",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            49,
+            50
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L52:runtime-guard-trace-source-commit-is-valid",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            51,
+            52
+          ]
+        }
+      ]
+    },
+    {
+      "id": "journey.edit-remove-reload.cda-extension-source-selected",
+      "statement": "CDA mode adds Patient.extension[].valueCode and checks for a nonempty source preview containing the Extension Value Code column.",
+      "category": "behavior",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L86:test-assertion-cda-source-has-rows",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            80,
+            82,
+            83,
+            86
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L87:test-assertion-cda-source-has-extension-column",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            81,
+            87
+          ]
+        }
+      ]
+    },
+    {
+      "id": "journey.edit-remove-reload.default-group-applies",
+      "statement": "The default Group command succeeds and the resulting table has multiple rows in CDA mode or exactly two rows in Basic budget mode.",
+      "category": "behavior",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L144:test-assertion-default-group-command-succeeds",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            143,
+            144
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L149:test-assertion-cda-default-group-has-multiple-output-rows",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            148,
+            149
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L151:test-assertion-basic-default-group-retains-two-output-rows",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            150,
+            151
+          ]
+        }
+      ]
+    },
+    {
+      "id": "journey.edit-remove-reload.edit-preview-settlement-classified",
+      "statement": "The edit flow classifies each proposal response against its request owner and rendered state, and applies only the ready proposal shown by the panel.",
       "category": "invariant",
       "journeys": [],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L308:test-assertion-journey-edit-remove-reload-edit-remove-persist-and-source-restores",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L230:runtime-guard-edit-proposal-settlement-classifies-owner-and-state",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            201,
+            203,
+            207,
+            210,
+            214,
+            227,
+            230
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L281:runtime-guard-apply-target-is-ready-rendered-edit-proposal",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            270,
+            271,
+            272,
+            275,
+            276,
+            278,
+            279,
+            280,
+            281
+          ]
+        }
+      ]
+    },
+    {
+      "id": "journey.edit-remove-reload.edit-remove-persist-and-source-restores",
+      "statement": "Group edit and removal commands succeed; after removal and reload, the displayed row and column counts match the recorded source shape and the first two expected or source-derived Patient IDs remain visible.",
+      "category": "invariant",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L301:test-assertion-edit-command-response-succeeds",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            308,
-            310,
-            311,
-            312,
-            313,
-            314,
-            366,
-            368,
-            369,
-            370,
-            371,
-            385,
-            386,
-            387,
-            388
+            299,
+            300,
+            301
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L303:test-assertion-edited-table-rendered-shape",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            302,
+            303,
+            304,
+            305,
+            306,
+            307
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L339:test-assertion-removal-preview-has-source-shape",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            338,
+            339
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L359:test-assertion-remove-command-response-succeeds",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            357,
+            358,
+            359
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L361:test-assertion-removal-shape-and-source-ids-visible",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            360,
+            361,
+            362,
+            363,
+            364
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L378:test-assertion-reload-retains-source-shape-and-first-two-ids",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            377,
+            378,
+            379,
+            380,
+            381
           ]
         }
       ]
     },
     {
       "id": "journey.edit-remove-reload.edited-group-preview-is-exact",
-      "statement": "The edited Group proposal preview retains exact output labels, row count, one-record group counts, and expected Patient IDs.",
+      "statement": "The ID-plus-secondary-field preview has exactly id, the selected secondary field, and Row count headers, one output row per source row, and count 1 in each group.",
       "category": "behavior",
       "journeys": [],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L286:test-assertion-journey-edit-remove-reload-edited-group-preview-is-exact",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L260:test-assertion-matching-edit-proposal-body-is-found",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            286,
-            287,
-            289,
-            290,
-            294,
-            295,
-            296,
-            297
+            253,
+            254,
+            255,
+            256,
+            257,
+            258,
+            260
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L268:test-assertion-rendered-edit-proposal-row-and-column-summary",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            268,
+            269
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L288:test-assertion-edit-preview-row-count",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            288
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L289:test-assertion-edit-preview-exact-header-labels",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            289
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L290:test-assertion-edit-preview-source-row-count",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            290
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L291:test-assertion-edit-preview-one-row-per-group",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            291
           ]
         }
       ]
     },
     {
       "id": "journey.edit-remove-reload.group-editor-is-visible",
-      "statement": "The saved Group editor and both source groups are visible before editing.",
+      "statement": "After the default Group applies, its saved editor exposes both the id and selected secondary-field controls.",
       "category": "behavior",
       "journeys": [],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L161:test-assertion-journey-edit-remove-reload-group-editor-is-visible",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L166:test-assertion-saved-group-editor-visible",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            161,
-            169,
-            170
+            165,
+            166
+          ]
+        },
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L173:test-assertion-id-and-secondary-field-controls-visible",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            171,
+            172,
+            173,
+            174
+          ]
+        }
+      ]
+    },
+    {
+      "id": "journey.edit-remove-reload.requires-explicit-dataset-mode",
+      "statement": "The standalone spec runs only when the environment selects the CDA lifecycle or the Basic call-budget probe.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs:L42:runtime-guard-requires-explicit-dataset-mode",
+          "evidenceKind": "runtime-guard",
+          "sourceLines": [
+            40,
+            41,
+            42,
+            43,
+            44
           ]
         }
       ]
@@ -1060769,409 +1061951,6 @@
           "evidenceKind": "test-assertion",
           "sourceLines": [
             199
-          ]
-        }
-      ]
-    },
-    {
-      "id": "group.entry.raw-basic.bootstrap-five-column-values",
-      "statement": "The raw Basic Group case starts from the fixture-seeded Patient workspace and checks its five flattened source columns and exact values against Patient.ndjson before Group edits.",
-      "category": "oracle",
-      "journeys": [
-        {
-          "caseId": "builder-authoring:group-entry-raw-basic",
-          "relation": "direct",
-          "requiredChecks": [
-            "legacy Basic bootstrap renders the exact five-column Patient source values"
-          ],
-          "focusedCheckIds": [],
-          "evidence": [
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 553,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 564,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 574,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 576,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 579,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 581,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 583,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/registry.mjs",
-              "line": 695,
-              "kind": "required-check-registration"
-            }
-          ]
-        }
-      ],
-      "sourceAssertions": [
-        {
-          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/specs/builder-authoring.spec.mjs:L20:raw-basic-dispatch-group-entry-raw-basic-bootstrap-five-column-values",
-          "evidenceKind": "call-through",
-          "sourceLines": [
-            20,
-            37,
-            39
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L564:raw-basic-preview-matches-patient-ndjson",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            564,
-            574,
-            576
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L579:raw-basic-rendered-rows-match-patient-ndjson",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            579,
-            581,
-            583
-          ]
-        }
-      ]
-    },
-    {
-      "id": "group.remove.restores-raw-basic-source",
-      "statement": "Removing Group previews both literal Patient rows in the five-column flattened Basic shape; Cancel preserves the keyed Group and exact draft, and Apply plus reload restores the same source bindings and indexed values.",
-      "category": "behavior",
-      "journeys": [
-        {
-          "caseId": "builder-authoring:group-entry-raw-basic",
-          "relation": "direct",
-          "requiredChecks": [
-            "Group removal previews both literal source Patient rows",
-            "Cancel preserves the saved keyed Group and exact draft",
-            "removing keyed Group restores the exact source Patient rows after reload"
-          ],
-          "focusedCheckIds": [],
-          "evidence": [
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1280,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1282,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1284,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1297,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1299,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1301,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1317,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1318,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1319,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1359,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1372,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1374,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1376,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1380,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1385,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 1389,
-              "kind": "behavior-source"
-            },
-            {
-              "path": "scripts/verify-ui/registry.mjs",
-              "line": 706,
-              "kind": "required-check-registration"
-            },
-            {
-              "path": "scripts/verify-ui/registry.mjs",
-              "line": 708,
-              "kind": "required-check-registration"
-            }
-          ]
-        }
-      ],
-      "sourceAssertions": [
-        {
-          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/specs/builder-authoring.spec.mjs:L20:raw-basic-dispatch-group-remove-restores-raw-basic-source",
-          "evidenceKind": "call-through",
-          "sourceLines": [
-            20,
-            37,
-            39
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1280:raw-basic-removal-preview-restores-five-columns",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            1280,
-            1282,
-            1284
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1297:raw-basic-rendered-removal-preview-restores-five-columns",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            1297,
-            1299,
-            1301,
-            1304
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1317:raw-basic-removal-cancel-preserves-workspace-and-draft",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            1317,
-            1318,
-            1319
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1352:raw-basic-apply-removal-restores-source-identities",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            1352,
-            1359
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L1372:raw-basic-removal-reload-restores-five-columns-and-values",
-          "evidenceKind": "test-assertion",
-          "sourceLines": [
-            1372,
-            1374,
-            1376,
-            1380,
-            1385,
-            1389
-          ]
-        }
-      ]
-    },
-    {
-      "id": "group.raw-basic.bootstrap-fixture-routing",
-      "statement": "The raw Basic case opts into bootstrap seeding in the registry, passes that option through Playwright fixture setup into fresh-fixture creation, and selects the matching bootstrap workflow branch.",
-      "category": "tool-contract",
-      "journeys": [
-        {
-          "caseId": "builder-authoring:group-entry-raw-basic",
-          "relation": "supporting",
-          "requiredChecks": [],
-          "focusedCheckIds": [],
-          "evidence": [
-            {
-              "path": "scripts/verify-ui/registry.mjs",
-              "line": 676,
-              "kind": "fixture-seed-option"
-            },
-            {
-              "path": "scripts/verify-ui/helpers/fixtures.mjs",
-              "line": 70,
-              "kind": "case-contract-lookup"
-            },
-            {
-              "path": "scripts/verify-ui/helpers/fixtures.mjs",
-              "line": 74,
-              "kind": "fixture-context-call"
-            },
-            {
-              "path": "scripts/verify-ui/helpers/fixtures.mjs",
-              "line": 76,
-              "kind": "bootstrap-option-forwarding"
-            },
-            {
-              "path": "scripts/verify-ui/helpers/fixture-context.mjs",
-              "line": 32,
-              "kind": "fixture-context-option"
-            },
-            {
-              "path": "scripts/verify-ui/helpers/fixture-context.mjs",
-              "line": 37,
-              "kind": "fresh-fixture-seed-call"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 477,
-              "kind": "raw-case-selection"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 479,
-              "kind": "bootstrap-branch-call"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 334,
-              "kind": "bootstrap-branch"
-            },
-            {
-              "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-              "line": 335,
-              "kind": "bootstrap-seed-assertion"
-            },
-            {
-              "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-              "line": 37,
-              "kind": "raw-case-registration"
-            },
-            {
-              "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-              "line": 39,
-              "kind": "workflow-dispatch"
-            }
-          ]
-        }
-      ],
-      "sourceAssertions": [
-        {
-          "path": "scripts/verify-ui/helpers/fixture-context.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/fixture-context.mjs:L32:raw-basic-bootstrap-option-forwarded",
-          "evidenceKind": "call-through",
-          "sourceLines": [
-            32,
-            37
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/helpers/fixtures.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/fixtures.mjs:L70:raw-basic-bootstrap-option-forwarded",
-          "evidenceKind": "call-through",
-          "sourceLines": [
-            70,
-            74,
-            76
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/specs/builder-authoring.spec.mjs:L20:raw-basic-dispatch-group-raw-basic-bootstrap-fixture-routing",
-          "evidenceKind": "call-through",
-          "sourceLines": [
-            20,
-            37,
-            39
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L335:raw-basic-requires-seeded-bootstrap",
-          "evidenceKind": "runtime-guard",
-          "sourceLines": [
-            335,
-            341,
-            344,
-            346
-          ]
-        },
-        {
-          "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-          "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/builder-group-entry.mjs:L477:raw-basic-selects-bootstrap-workflow",
-          "evidenceKind": "call-through",
-          "sourceLines": [
-            477,
-            479
           ]
         }
       ]
