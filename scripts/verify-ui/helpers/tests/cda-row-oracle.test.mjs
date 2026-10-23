@@ -1,6 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
+import { assertCompletePopulationRowsMatchOracle, assertVisibleRowsMatchOracle } from '../cda-row-oracle.mjs';
+
+test('complete row populations ignore row order and ALL cell item order', () => {
+  const expected = [['Patient/1', '2'], ['Patient/2', ['preliminary', 'final']]];
+  assertCompletePopulationRowsMatchOracle([['Patient/2', ['final', 'preliminary']], ['Patient/1', '2']], expected);
+});
+
+test('complete row populations preserve duplicate row and ALL cell item multiplicity', () => {
+  const expected = [['Patient/1', '2'], ['Patient/2', '1']];
+  assert.throws(
+    () => assertCompletePopulationRowsMatchOracle([expected[0], expected[0]], expected, { label: 'duplicate cannot hide missing row' }),
+    /row values or multiplicities differ/,
+  );
+  assert.throws(
+    () => assertCompletePopulationRowsMatchOracle([expected[0]], expected, { label: 'missing row' }),
+    /row values or multiplicities differ/,
+  );
+  assert.throws(
+    () => assertCompletePopulationRowsMatchOracle([...expected, expected[1]], expected, { label: 'extra row' }),
+    /row values or multiplicities differ/,
+  );
+  assert.throws(
+    () => assertCompletePopulationRowsMatchOracle(
+      [['Patient/1', ['final', 'final']]],
+      [['Patient/1', ['final', 'preliminary']]],
+      { label: 'duplicate ALL item cannot hide missing item' },
+    ),
+    /row values or multiplicities differ/,
+  );
+});
 
 test('row comparison retains duplicate multiplicity and detects missing rows', () => {
   const expected = [['id-a', null], ['id-a', null], ['id-b', 'value']];

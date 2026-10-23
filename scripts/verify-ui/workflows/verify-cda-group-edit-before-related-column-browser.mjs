@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { assertExactMultiset } from '../helpers/group-related-multiset.mjs';
+import { assertCompletePopulationRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { assertReopenedProposalAfterCancel } from '../helpers/proposal-reopen-binding.mjs';
 import { relatedSourceProposalCandidate } from '../helpers/related-source-capture.mjs';
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
@@ -101,7 +101,9 @@ const evidence = cda.evidence;
 const apiOrigin = cda.apiOrigin;
 const uiOrigin = cda.uiOrigin;
 const arangoContainer = target.arangoContainer ?? env.LOOM_ARANGO_CONTAINER;
-const generation = 'cda-fhir-v1';
+const generation = target.fixtureGeneration;
+assert(typeof generation === 'string' && generation.length > 0 && generation.trim() === generation,
+  'CDA target must provide an explicit fixtureGeneration string');
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 assert.notEqual(explorer, protectedExplorer);
 
@@ -213,7 +215,7 @@ const assertPreviewValues = (preview, expectedRows, label) => {
   assert.equal(preview.rowCount, expectedRows.length, `${label} row count differs from raw witnesses`);
   const displayed = preview.rows.map((row) => preview.columns.map((column) => row[column.column]));
   assert.equal(displayed.length, expectedRows.length, `${label} must return every bounded witness row`);
-  assertExactMultiset(displayed, expectedRows, label);
+  assertCompletePopulationRowsMatchOracle(displayed, expectedRows, { label });
 };
 const expectedPreview = async (expectedRows, { requestStart, expectedBuilder, label, startedAt }) => {
   const deadline = startedAt + 5000;
@@ -274,7 +276,7 @@ const mountedRows = async (expectedRows, columnCount = expectedRows[0]?.length ?
   const renderedExpected = expectedRows.map((row) => row.map((value) => Array.isArray(value)
     ? [...value].sort().join('; ')
     : normalizeRendered(String(value))));
-  assertExactMultiset(renderedActual, renderedExpected, 'rendered preview');
+  assertCompletePopulationRowsMatchOracle(renderedActual, renderedExpected, { label: 'rendered preview' });
 };
 let nativeCapture;
 const installBrowserCapture = async () => {
@@ -350,7 +352,7 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
     ? [...value].sort().join('; ')
     : normalizeDisplayedCell(String(value))));
   assert.equal(displayedRows.length, expectedRows.length, `${label} proposal panel must render the complete witness population`);
-  assertExactMultiset(displayedRows, expectedDisplayedRows, `${label} proposal panel DOM`);
+  assertCompletePopulationRowsMatchOracle(displayedRows, expectedDisplayedRows, { label: `${label} proposal panel DOM` });
   recordAction(label, startedAt, { receiptId: response.proposalId, candidateWorkspaceDigest: response.candidateWorkspaceDigest });
   return { request, requestIndex: nativeCapture.requests.indexOf(request), response, panel };
 };
@@ -584,7 +586,7 @@ FOR s IN (
     assert(matching, `Raw Observation ${observationID} must have one exact native-route witness`);
     return matching.values;
   });
-  assertExactMultiset(expectedExpandedRows, rawRouteRows, 'native related rows against raw route oracle');
+  assertCompletePopulationRowsMatchOracle(expectedExpandedRows, rawRouteRows, { label: 'native related rows against raw route oracle' });
   recordLifecycleCheck('correctness',
     'native Specimen→Patient and Patient→Observation choices preserve exact raw edges',
     expectedExpandedRows.length === observations.length && !pipelineObservationIDs.has('—'),

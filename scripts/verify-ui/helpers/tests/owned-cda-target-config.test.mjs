@@ -80,6 +80,81 @@ test('loads one explicit config and derives the canonical owned environment from
   assert.equal(loaded.runtimeDatasetIdentity, 'not-checked');
 });
 
+test('binds the exact configured generation under the explicit owned-target policy', async (t) => {
+  const generation = 'repo-verified-fixture-generation';
+  const registryBinding = {
+    project: expectedIdentity.project,
+    generation: { source: 'owned-target-config' },
+  };
+  const fixture = await createConfigFixture({ generation });
+  t.after(fixture.cleanup);
+
+  const loaded = await loadOwnedCdaTargetConfig({
+    targetPath: fixture.targetPath,
+    repositoryRoot: fixture.repositoryRoot,
+    expectedIdentity: registryBinding,
+    env: {},
+  });
+
+  assert.equal(loaded.target.project, expectedIdentity.project);
+  assert.equal(loaded.target.generation, generation);
+  assert.equal(loaded.environment.LOOM_CDA_PROJECT, expectedIdentity.project);
+  assert.equal(loaded.environment.LOOM_CDA_GENERATION, generation);
+  assert.equal(loaded.environment.LOOM_DEV_GENERATION, generation);
+});
+
+test('owned-target generation binding rejects missing generations and project mismatches', async (t) => {
+  const registryBinding = {
+    project: expectedIdentity.project,
+    generation: { source: 'owned-target-config' },
+  };
+  const missingGeneration = await createConfigFixture({ generation: undefined });
+  t.after(missingGeneration.cleanup);
+  await assert.rejects(loadOwnedCdaTargetConfig({
+    targetPath: missingGeneration.targetPath,
+    repositoryRoot: missingGeneration.repositoryRoot,
+    expectedIdentity: registryBinding,
+    env: {},
+  }), /Missing target config fields: generation/);
+
+  const wrongProject = await createConfigFixture({
+    project: 'loom_dev_other',
+    generation: 'repo-verified-fixture-generation',
+  });
+  t.after(wrongProject.cleanup);
+  await assert.rejects(loadOwnedCdaTargetConfig({
+    targetPath: wrongProject.targetPath,
+    repositoryRoot: wrongProject.repositoryRoot,
+    expectedIdentity: registryBinding,
+    env: {},
+  }), /Target project does not match the selected case registry targetIdentity/);
+});
+
+test('owned-target generation binding rejects unknown policies and extra fields', async (t) => {
+  const fixture = await createConfigFixture({ generation: 'repo-verified-fixture-generation' });
+  t.after(fixture.cleanup);
+
+  await assert.rejects(loadOwnedCdaTargetConfig({
+    targetPath: fixture.targetPath,
+    repositoryRoot: fixture.repositoryRoot,
+    expectedIdentity: {
+      project: expectedIdentity.project,
+      generation: { source: 'environment' },
+    },
+    env: {},
+  }), /Unsupported registry targetIdentity.generation source policy/);
+
+  await assert.rejects(loadOwnedCdaTargetConfig({
+    targetPath: fixture.targetPath,
+    repositoryRoot: fixture.repositoryRoot,
+    expectedIdentity: {
+      project: expectedIdentity.project,
+      generation: { source: 'owned-target-config', fallback: 'cda-fhir-v1' },
+    },
+    env: {},
+  }), /Registry targetIdentity.generation binding must declare only its source/);
+});
+
 test('keeps legacy owned target configs valid when the optional Arango database is absent', async (t) => {
   const fixture = await createConfigFixture();
   t.after(fixture.cleanup);

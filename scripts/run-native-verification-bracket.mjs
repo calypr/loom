@@ -1117,6 +1117,9 @@ async function prepareNativeVerificationCase({
   const runDirectory = createEvidenceDirectory(canonicalRoot, evidenceParent, scenarioID, caseName);
   const paths = expectedCommandPaths(runDirectory);
   const startedAt = new Date().toISOString();
+  const targetIdentity = targetValidation?.registryBinding === 'bound'
+    ? { project: targetValidation.project, generation: targetValidation.generation }
+    : contract.expectedIdentity ?? null;
   const started = performance.now();
   const summary = {
     schemaVersion: 1,
@@ -1128,7 +1131,7 @@ async function prepareNativeVerificationCase({
     explicitGrep: grep ?? null,
     resolvedGrep: resolvedGrep ?? null,
     mode: checksOnly ? 'checks-only' : 'browser',
-    targetIdentity: contract.expectedIdentity ?? null,
+    targetIdentity,
     targetConfigPath: targetPath ?? null,
     targetValidation: targetValidation ?? (checksOnly ? null : {
       scope: 'environment-only',
@@ -1467,7 +1470,7 @@ async function executePreparedNativeCase(context) {
     failureContext: summarizeFailureContext(domainReportData),
     failedAction,
     lastCompletedAction: summarizeLastCompletedAction(domainReportData),
-    pendingOwnedRequests: summarizePendingOwnedRequests(domainReportData, scenario, contract.expectedIdentity),
+    pendingOwnedRequests: summarizePendingOwnedRequests(domainReportData, scenario, summary.targetIdentity),
     requiredCheckCount: summary.lifecycle.requiredCheckCount ?? null,
     passedCheckCount: summary.lifecycle.passedCheckCount ?? null,
     failedCheckNames: summary.lifecycle.failedCheckNames ?? [],

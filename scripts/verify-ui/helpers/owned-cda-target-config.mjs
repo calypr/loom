@@ -64,7 +64,19 @@ function validateExpectedIdentity(expectedIdentity) {
   assert(expectedIdentity && typeof expectedIdentity === 'object' && !Array.isArray(expectedIdentity),
     'The selected registry case must provide an independent targetIdentity contract.');
   requireName(expectedIdentity.project, 'Registry targetIdentity.project', /^[A-Za-z0-9_-]+$/);
-  requireName(expectedIdentity.generation, 'Registry targetIdentity.generation', /^[A-Za-z0-9_.-]+$/);
+
+  const generation = expectedIdentity.generation;
+  if (typeof generation === 'string') {
+    requireName(generation, 'Registry targetIdentity.generation', /^[A-Za-z0-9_.-]+$/);
+    return;
+  }
+
+  assert(generation && typeof generation === 'object' && !Array.isArray(generation),
+    'Registry targetIdentity.generation must be an exact name or an explicit supported binding.');
+  assert.deepEqual(Object.keys(generation).sort(), ['source'],
+    'Registry targetIdentity.generation binding must declare only its source.');
+  assert.equal(generation.source, 'owned-target-config',
+    'Unsupported registry targetIdentity.generation source policy.');
 }
 
 function validateEnvironmentOverrides(env, expected) {
@@ -109,12 +121,18 @@ export async function loadOwnedCdaTargetConfig({
   const datasetDir = await realpath(resolve(repository, requireString(config.datasetDir, 'datasetDir')));
   assert((await stat(datasetDir)).isDirectory(), 'datasetDir must resolve to a directory.');
 
+  const expectedProject = requireName(expectedIdentity.project, 'Registry targetIdentity.project', /^[A-Za-z0-9_-]+$/);
+  const expectedGeneration = typeof expectedIdentity.generation === 'string'
+    ? requireName(expectedIdentity.generation, 'Registry targetIdentity.generation', /^[A-Za-z0-9_.-]+$/)
+    : null;
   const project = requireName(config.project, 'project', /^[A-Za-z0-9_-]+$/);
   const generation = requireName(config.generation, 'generation', /^[A-Za-z0-9_.-]+$/);
-  assert(project === expectedIdentity.project,
+  assert(project === expectedProject,
     'Target project does not match the selected case registry targetIdentity.');
-  assert(generation === expectedIdentity.generation,
-    'Target generation does not match the selected case registry targetIdentity.');
+  if (expectedGeneration !== null) {
+    assert(generation === expectedGeneration,
+      'Target generation does not match the selected case registry targetIdentity.');
+  }
 
   const composeProject = requireName(config.composeProject, 'composeProject', /^[A-Za-z0-9_.-]+$/);
   const apiContainer = requireName(config.apiContainer, 'apiContainer', /^[A-Za-z0-9_.-]+$/);

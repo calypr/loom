@@ -16,6 +16,8 @@ const marker = '__GROUP_EDIT_TYPED_ORACLE_FIXTURE__';
 const workflowSource = readFileSync(new URL('../../workflows/verify-cda-group-edit-before-related-column-browser.mjs', import.meta.url), 'utf8');
 const sourceQueryTemplate = workflowSource.match(/const sourceQuery = `([\s\S]*?)`;/)?.[1];
 assert(sourceQueryTemplate, 'Group-edit workflow must retain its bounded source oracle query');
+assert.match(workflowSource, /const target = cda\.target \?\? \{\};/);
+assert.match(workflowSource, /const generation = target\.fixtureGeneration;/);
 
 test('owned API runtime proof survives CDA report sanitization', () => {
   const sanitized = sanitizePayload({ ownedApiRuntimeProof: {
@@ -55,7 +57,7 @@ test('Group-edit source AQL selects the literal typed path and rejects wrong end
     edges: `qa_group_edit_edges_${suffix}`,
   };
   const project = `loom_dev_group_edit_aql_${suffix}`;
-  const generation = 'cda-fhir-v1';
+  const generation = 'repo-test-generation';
   let query = sourceQueryTemplate
     .replaceAll('${JSON.stringify(project)}', JSON.stringify(project))
     .replaceAll('${JSON.stringify(generation)}', JSON.stringify(generation));

@@ -150,10 +150,11 @@ const retainedMembershipSetupFailure = {
   }],
 };
 
-function makeTarget(sourceRoot, expectedIdentity) {
+function makeTarget(sourceRoot, expectedIdentity, generationOverride) {
   return {
     project: expectedIdentity?.project ?? 'owned-project',
-    generation: expectedIdentity?.generation ?? 'generation-1',
+    generation: generationOverride ?? (typeof expectedIdentity?.generation === 'string'
+      ? expectedIdentity.generation : 'generation-1'),
     composeProject: 'owned-compose',
     apiContainer: 'owned-api',
     uiContainer: 'owned-ui',
@@ -184,11 +185,14 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
   afterCaptureExit = 0, afterCaptureWritesArtifacts = true, afterHealthExit = 0, afterHealthWritesArtifact = true,
   sourceChanged = false, malformedAfterSource = false, afterHealthIdentity = buildIdentity, reportScenarioID,
   reportedChecksOverride, officialTestStatus, officialTestOutcome, officialTestResultStatuses, officialTestResultRetries,
-  domainReportOverride, playwrightReportOverride, listedTestLine, unrelatedTimingAssertion = false } = {}) {
+  domainReportOverride, playwrightReportOverride, listedTestLine, unrelatedTimingAssertion = false,
+  targetGeneration } = {}) {
   const commands = [];
   const playwrightArgs = [];
   const scenario = registry.find((entry) => entry.id === scenarioID);
   const contract = scenarioCaseFor(scenario, caseName);
+  const captureGeneration = targetGeneration ?? (typeof contract.expectedIdentity?.generation === 'string'
+    ? contract.expectedIdentity.generation : 'generation-1');
   const checks = contract.requiredChecks;
   const title = 'Selected native case for ' + caseName;
   const spec = scenarioCaseFor(scenario, caseName).playwrightTest;
@@ -341,7 +345,7 @@ function fakeRunner({ scenarioID, caseName, rootDir, browserExit = 0, browserRep
     if (args[0] === 'scripts/capture-owned-verification.mjs') {
       const phase = option(args, '--phase');
       if (phase === 'after' && !afterCaptureWritesArtifacts) return { exitCode: afterCaptureExit || 1, stdoutText: '', stderrText: '' };
-      const target = makeTarget(rootDir, contract.expectedIdentity);
+      const target = makeTarget(rootDir, contract.expectedIdentity, captureGeneration);
       const outputNames = phase === 'before'
         ? [['--source-output', 'source'], ['--docs-output', 'docs'], ['--api-output', 'api'], ['--mount-output', 'mounts']]
         : [['--source-output', 'source'], ['--docs-output', 'docs'], ['--api-output', 'api'], ['--mount-output', 'mounts']];
@@ -1346,6 +1350,92 @@ test('pending request report diagnostics admit only exact-identity unregistered 
   assert.equal(mismatchedTarget.reviewPacket.firstFailureReason, 'Error: Earlier assertion failed before native request drain.');
   assert.deepEqual(mismatchedTarget.reviewPacket.pendingOwnedRequests, [],
     'an exact request-to-report match cannot override the case registry project/generation identity');
+});
+
+test('runner binds target-config generation to request diagnostics and the reported identity', async (t) => {
+  const parent = evidenceParent();
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  const scenarioID = 'standalone-reshape-group-edit-before-related-column';
+  const caseName = 'group-edit-before-related-column';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const project = contract.expectedIdentity.project;
+  const generation = 'repo-verified-fixture-generation';
+  const explorer = 'group-edit-owned-explorer';
+  const uiUrl = 'http://127.0.0.1:30008';
+  const path = '/api/v1/projects/' + project + '/explorers/' + explorer + '/authoring/v2/builder';
+  const drainReason = 'No Playwright requestfinished or requestfailed event was observed before the bounded native request drain deadline.';
+  const fake = fakeRunner({
+    scenarioID,
+    caseName,
+    rootDir: root,
+    browserReport: 'cda',
+    targetGeneration: generation,
+    domainReportOverride: {
+      status: 'failed',
+      errors: [],
+      target: { project, generation, explorer, uiUrl },
+      failureEvidence: { reason: 'Error: Earlier assertion failed before native request drain.' },
+      nativeRequests: [{
+        requestId: 'target-generation-pending-capabilities',
+        method: 'GET',
+        path,
+        origin: uiUrl,
+        status: 200,
+        completedAt: 1791518513000,
+        nativeEventChronology: [{ event: 'request' }, { event: 'response' }],
+      }],
+      nativeRequestDrainEvidence: [{
+        status: 'timed-out',
+        reason: drainReason,
+        unresolvedRequests: [{
+          index: 0,
+          requestId: 'target-generation-pending-capabilities',
+          path,
+        }],
+      }],
+    },
+  });
+  const summary = await runNativeVerificationBracket({
+    scenarioID,
+    caseName,
+    grep: 'target-config generation remains the exact request identity$',
+    evidenceParent: parent,
+    root,
+    targetPath: '.codex/owned-cda-target.json',
+    targetObject: makeTarget(root, contract.expectedIdentity, generation),
+    targetValidation: {
+      scope: 'configuration-only',
+      registryBinding: 'bound',
+      runtimeDatasetIdentity: 'not-checked',
+      configPath: '/machine-local/owned-cda-target.json',
+      project,
+      generation,
+    },
+    env: { ...fake.env, LOOM_CDA_GENERATION: generation },
+    commandRunner: fake.commandRunner,
+  });
+
+  assert.equal(summary.targetIdentity.project, project);
+  assert.equal(summary.targetIdentity.generation, generation);
+  assert.equal(summary.targetValidation.generation, generation);
+  const capturedDomain = summary.evidence.domainReport
+    ? JSON.parse(readFileSync(summary.evidence.domainReport, 'utf8'))
+    : null;
+  assert.deepEqual(summary.reviewPacket.pendingOwnedRequests, [{
+    endpoint: 'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+    requestID: 'target-generation-pending-capabilities',
+    status: 'pending',
+    reason: drainReason,
+  }], JSON.stringify({
+    targetIdentity: summary.targetIdentity,
+    targetValidation: summary.targetValidation,
+    domainReport: capturedDomain && {
+      target: capturedDomain.target,
+      nativeRequests: capturedDomain.nativeRequests,
+      nativeRequestDrainEvidence: capturedDomain.nativeRequestDrainEvidence,
+    },
+    pendingOwnedRequests: summary.reviewPacket.pendingOwnedRequests,
+  }, null, 2));
 });
 
 test('runner summary and review packet preserve normalized render evidence fields', async (t) => {

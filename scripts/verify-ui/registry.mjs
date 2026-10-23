@@ -6440,7 +6440,7 @@ export const registry = Object.freeze([
       'group-edit-before-related-column': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'group-edit-before-related-column',
-        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
+        expectedIdentity: { project: 'loom_dev_cda_fhir', generation: { source: 'owned-target-config' } },
         focusedChecks: [
           {
             id: 'group-edit-server-explorer-id',

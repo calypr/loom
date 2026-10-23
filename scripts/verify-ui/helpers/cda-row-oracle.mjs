@@ -25,3 +25,25 @@ export function assertVisibleRowsMatchOracle(actualRows, oracleRows, { limit = 2
     assert([...remaining.values()].every(count => count === 0), `${label}: visible rows omit an oracle row`);
   }
 }
+
+const completePopulationRowKey = row => JSON.stringify(row.map((value) => Array.isArray(value)
+  ? [...value].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  : value));
+
+/** Compare complete row populations independent of row order and ALL cell item order. */
+export function assertCompletePopulationRowsMatchOracle(actualRows, oracleRows, { label = 'complete row population' } = {}) {
+  assert(Array.isArray(actualRows), `${label}: browser result must be an array`);
+  assert(Array.isArray(oracleRows), `${label}: independent oracle must be an array`);
+
+  const frequencies = rows => {
+    const counts = new Map();
+    for (const row of rows) {
+      assert(Array.isArray(row), `${label}: every row must be an array`);
+      const key = completePopulationRowKey(row);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts].sort(([left], [right]) => left.localeCompare(right));
+  };
+
+  assert.deepEqual(frequencies(actualRows), frequencies(oracleRows), `${label}: row values or multiplicities differ`);
+}
