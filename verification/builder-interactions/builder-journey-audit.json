@@ -3,6 +3,16 @@
   "goal": "docs/BUILDER_JOURNEY_AUDIT_GOAL.md",
   "runner": "scripts/run-builder-journey.mjs",
   "specDirectory": "scripts/verify-ui/journey-specs",
+  "browserEvidenceInputs": [
+    {
+      "caseId": "builder-controls:recompile",
+      "source": {
+        "commit": "c6b6382aff0736f02eb5f8355ba3730ccf999ee6",
+        "path": "verification/builder-interactions/browser-evidence.json",
+        "gitBlobObjectId": "3b2dcba0017149bd1ba8b6b695938ee2aabbd34d"
+      }
+    }
+  ],
   "journeys": [
     {
       "id": "load-preview",
@@ -504,7 +514,7 @@
             "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
             "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
             "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
-            "watchedTreeFingerprint": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995",
+            "watchedTreeFingerprint": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995f",
             "watchedTreeFileCount": 2092
           },
           "target": {
@@ -559,7 +569,7 @@
             "uiPort": 3180,
             "sourceBeforeAfterUnchanged": true,
             "sourceFingerprint": {
-              "sha256": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995",
+              "sha256": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995f",
               "files": 2092
             },
             "docsBeforeAfterUnchanged": true,
