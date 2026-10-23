@@ -1,0 +1,29 @@
+name: MJS Test Catalogue
+
+on:
+  pull_request:
+    paths:
+      - '**/*.mjs'
+      - 'verification/builder-interactions/**'
+      - 'docs/ui-contract-inventory/**'
+      - 'internal/**'
+      - 'ui/packages/loom-ui/src/features/ExplorerBuilder/**'
+      - '.github/workflows/builder-formal.yml'
+      - '.github/workflows/mjs-test-catalogue.yml'
+  workflow_dispatch:
+
+jobs:
+  catalogue:
+    name: MJS catalogue gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - name: Validate catalogue metadata
+        run: node scripts/build-test-obligations.mjs --self-test
+      - name: Verify generated obligations are current
+        run: node scripts/build-test-obligations.mjs --check
