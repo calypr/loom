@@ -339,7 +339,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-edit-remove-contract.json",
-      "sha256": "1faf33a5022b772f2b41f84ebf37c280b3868212572e8eb70ea59b241cb7962e",
+      "sha256": "fb9926360445221bb29990ff94dcf88eb1e1d4d48ae88942450afd927fd565dc",
       "contract": "Selected Group edit/remove lifecycle events, exact per-trace action counts, evidence requirements, and trace contracts."
     },
     {
@@ -354,7 +354,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-contract.json",
-      "sha256": "f3b51dc43788a65817a9aae557c755e33a37739b3604abf73276df53b6112c94",
+      "sha256": "58197ff85ecb057c0a293ae24f165120d6b2b8fd8cf5009b4bc7f402f06b1157",
       "contract": "BuilderJourney action bindings and the shared generic contract; Group lifecycle replay is scoped to selected Group trace names."
     },
     {

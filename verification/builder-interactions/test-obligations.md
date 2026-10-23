@@ -452,7 +452,7 @@ No duplicate test names found.
 - `saved Group edit applies one row per exact Patient ID`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `keyed Group edit and exact Patient rows survive reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `reloaded Group editor mounts the exact saved ID-only key and COUNT_ROWS aggregate`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
-- `Cancel after reloading the saved Group preserves the exact saved workspace and draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `Exiting the reloaded Group editor without Apply preserves the exact saved workspace and draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `Group removal previews both literal source Patient rows`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `Cancel preserves the saved keyed Group and exact draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `removing keyed Group restores the exact source Patient rows after reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
