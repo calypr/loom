@@ -237,7 +237,7 @@ function savedGroupProjectionProblem(saved, where) {
     const rawGroup = rawStep.operation.group;
     const rawKeys = Array.isArray(rawGroup?.keys)
       ? rawGroup.keys.map((key) => typeof key === 'string' ? key : key?.inputColumnId)
-      : null;
+      : rawGroup?.keys === undefined && saved.group.keys.length === 0 ? [] : null;
     if (!rawKeys || rawKeys.some((key) => typeof key !== 'string' || key.trim().length === 0)) {
       return where + '.workspace GROUP keys must preserve raw inputColumnId strings';
     }
@@ -2076,7 +2076,7 @@ function tlaCaptureToken(value) {
   if (typeof value !== 'string' || !/^c(?:[1-9]|1[0-2])$/.test(value)) {
     fail('mapped Group capture token is outside the finite c1..c12 domain');
   }
-  return value;
+  return tlaString(value);
 }
 
 function groupLifecycleRecords(trace) {
@@ -2292,7 +2292,10 @@ function generateModule(trace, moduleName, hasGroupLifecycle) {
     tlaObservation(trace.initialObservation),
     ...trace.actions.map((action) => tlaObservation(action.observation)),
   ];
-  const groupLifecycleObservations = groupLifecycleRecords(trace);
+  const groupLifecycleObservations = ['"NoGroupLifecycle"', ...groupLifecycleRecords(trace)];
+  if (groupLifecycleObservations.length !== actions.length) {
+    fail('generated trace Group lifecycle rows must align with TraceActions, including Init');
+  }
   const modelMapping = trace.model === 'BuilderPreview'
     ? builderPreviewObservationMapping
     : trace.model === 'ReconcileLifecycle'
@@ -2416,7 +2419,9 @@ function generateConfig(trace, hasGroupLifecycle) {
   return [
     'SPECIFICATION TraceSpec',
     ...(trace.model === 'BuilderJourney'
-      ? ['CONSTANTS CaptureIds = {' + (hasGroupLifecycle ? BUILDER_GROUP_CAPTURE_TOKENS : ['c1', 'c2']).join(', ') + '}']
+      ? ['CONSTANTS CaptureIds = {' + (hasGroupLifecycle
+        ? BUILDER_GROUP_CAPTURE_TOKENS.map(tlaString)
+        : ['c1', 'c2']).join(', ') + '}']
       : []),
     'INVARIANT TypeOK',
     'INVARIANT TraceProgress',

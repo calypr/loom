@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "c92d569cd4f40a6f72af9f5e80043bf525a8a5d3a988a7a28900a65e628b2f37",
+      "sha256": "7d257d681df4256f2eda8fcd2f9df1f45b0076a6535834ad2d779e096cca9dd7",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
