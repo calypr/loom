@@ -4,57 +4,292 @@ Status: generated from the TLA models and existing test metadata.
 
 ## Script quality inventory
 
-678 tracked MJS files are indexed in the JSON report under `scripts`; no new MJS runner is required.
+678 MJS files in the reviewed baseline are accounted for as active or retired records.
+678 are currently tracked; 0 baseline files have retained tombstones.
+13147 semantic claims are defined once; 9205 source occurrences are direct test assertions, out of 18903 total labeled occurrences.
+9698 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
+68 files are classified as independent tool/module purposes; 299 MJS files and 5308 semantic claims have no canonical journey mapping.
+`role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.
 
 | Role | Files |
 | --- | ---: |
 | browser-spec | 96 |
-| browser-workflow | 147 |
-| config | 4 |
-| helper-or-oracle | 150 |
+| browser-workflow | 146 |
+| config | 5 |
+| helper-or-oracle | 144 |
 | test | 219 |
-| tool-or-module | 62 |
+| tool-or-module | 68 |
+
+### Journey assembly by canonical case
+
+| Canonical case | Source files | Direct claims | Partial claims | Supporting claims | Registered check refs | Candidate formal models |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `basic-coded-pivot:integer-lifecycle` | 7 | 7 | 30 | 11 | 8 | BuilderPreview |
+| `basic-named-cohort-presence:nonempty-zero-match` | 12 | 47 | 26 | 34 | 20 | BuilderOperations, BuilderPreview |
+| `basic-nested-coding-expand:nested-coding` | 9 | 36 | 23 | 20 | 11 | BuilderOperations, BuilderPreview |
+| `basic-pivot-unpivot:lifecycle` | 23 | 14 | 70 | 16 | 15 | BuilderPreview |
+| `basic-related-expand-field-lifecycle:observation-root-medication-administration` | 4 | 1 | 0 | 126 | 20 | BuilderOperations, BuilderPreview |
+| `basic-related-field-after-unpivot:gender-all` | 5 | 19 | 0 | 4 | 28 | BuilderPreview |
+| `basic-related-field-after-unpivot:gender-missing-all` | 5 | 19 | 0 | 4 | 28 | BuilderPreview |
+| `basic-related-quantity-one-all:basic-height-quantity-one-all-lifecycle` | 25 | 5 | 0 | 21 | 6 | BuilderPreview |
+| `basic-standalone-coded-fields:coded-fields` | 5 | 6 | 0 | 140 | 7 | BuilderOperations, BuilderPreview |
+| `basic-temporal-filter:date` | 3 | 27 | 0 | 4 | 9 | — |
+| `basic-temporal-filter:date-time` | 3 | 26 | 0 | 4 | 8 | — |
+| `basic-unpivot-group:unpivot-to-group` | 5 | 67 | 0 | 4 | 13 | — |
+| `basic-unpivot-pivot-roundtrip:unpivot-to-pivot` | 4 | 4 | 0 | 107 | 16 | BuilderOperations, BuilderPreview |
+| `builder-add-column-coverage:basic-field-coverage` | 4 | 4 | 43 | 57 | 10 | BuilderOperations, BuilderPreview |
+| `builder-authoring:authoring` | 3 | 0 | 0 | 8 | 24 | — |
+| `builder-authoring:cohort-expand` | 15 | 38 | 0 | 9 | 20 | — |
+| `builder-authoring:cohort-recode` | 8 | 1 | 0 | 123 | 15 | BuilderOperations, BuilderPreview |
+| `builder-authoring:condition-specimen-route-ambiguity` | 6 | 82 | 0 | 4 | 18 | — |
+| `builder-authoring:dataframe-contract-panel` | 3 | 0 | 0 | 3 | 17 | — |
+| `builder-authoring:explorer-selection` | 16 | 11 | 0 | 4 | 12 | BuilderPreview |
+| `builder-authoring:group-entry` | 5 | 8 | 0 | 7 | 18 | — |
+| `builder-authoring:legacy-v9-rows` | 5 | 0 | 0 | 112 | 24 | BuilderOperations, BuilderPreview |
+| `builder-authoring:patient-one-disagreement` | 6 | 0 | 0 | 74 | 8 | BuilderOperations, BuilderPreview |
+| `builder-authoring:repeated-empty` | 5 | 12 | 0 | 7 | 54 | — |
+| `builder-authoring:selected-resource-coverage` | 7 | 8 | 0 | 88 | 24 | BuilderOperations, BuilderPreview, Population |
+| `builder-authoring:suggestions` | 5 | 1 | 0 | 18 | 12 | BuilderOperations, BuilderPreview |
+| `builder-authoring:table-reorder` | 5 | 8 | 0 | 5 | 15 | BuilderPreview |
+| `builder-coded-source-column:coded-source-column` | 8 | 11 | 33 | 3 | 12 | BuilderPreview |
+| `builder-combine-draft:append` | 6 | 12 | 1 | 24 | 21 | BuilderOperations, BuilderPreview |
+| `builder-combine-draft:append-derived-edit` | 6 | 18 | 7 | 26 | 44 | BuilderOperations, BuilderPreview |
+| `builder-combine-draft:group-pivot` | 6 | 11 | 3 | 23 | 21 | BuilderOperations, BuilderPreview |
+| `builder-combine-draft:group-pivot-append` | 6 | 8 | 13 | 24 | 31 | BuilderOperations, BuilderPreview |
+| `builder-combine-draft:join` | 6 | 19 | 0 | 24 | 25 | BuilderOperations, BuilderPreview |
+| `builder-combine-draft:membership` | 6 | 21 | 0 | 23 | 50 | BuilderOperations, BuilderPreview |
+| `builder-combine-nullable:lifecycle` | 10 | 0 | 2 | 26 | 65 | — |
+| `builder-combine:append` | 3 | 22 | 0 | 6 | 22 | BuilderOperations, BuilderPreview |
+| `builder-combine:join` | 5 | 16 | 0 | 15 | 16 | BuilderOperations, BuilderPreview |
+| `builder-controls:explorer-deletion` | 12 | 28 | 0 | 4 | 16 | — |
+| `builder-controls:explorer-deletion-unavailable` | 10 | 6 | 0 | 29 | 10 | BuilderOperations, BuilderPreview, Population |
+| `builder-controls:first-table` | 6 | 18 | 0 | 5 | 11 | — |
+| `builder-controls:recompile` | 5 | 6 | 0 | 3 | 3 | — |
+| `builder-controls:tables` | 7 | 6 | 0 | 37 | 11 | BuilderOperations, BuilderPreview |
+| `builder-load:list` | 7 | 4 | 0 | 9 | 5 | — |
+| `builder-load:state` | 7 | 4 | 0 | 8 | 5 | — |
+| `builder-population-member-removal:mapped-contributor-removal-preserves-group-counts` | 5 | 30 | 0 | 8 | 12 | — |
+| `builder-population-member-removal:mapped-plus-orphan-to-empty` | 5 | 40 | 0 | 2 | 11 | — |
+| `builder-published-membership:membership` | 6 | 24 | 0 | 32 | 115 | BuilderOperations, BuilderPreview |
+| `builder-repeated:repeated-expand-pivot` | 4 | 1 | 19 | 6 | 12 | BuilderOperations, BuilderPreview |
+| `builder-root-replacement:replace-current-setup` | 20 | 11 | 180 | 27 | 16 | BuilderPreview |
+| `builder-saved-route-edit:relatedexpand-exact-one-removal` | 5 | 11 | 0 | 4 | 15 | BuilderPreview |
+| `builder-saved-route-edit:saved-related-expand-route-edit` | 5 | 15 | 0 | 4 | 19 | BuilderPreview |
+| `cda-authored-expand-filter:expand-filter-upstream-edit-cascade` | 8 | 0 | 0 | 29 | 14 | — |
+| `cda-authored-nested-expand:nested-coding-expand-lifecycle` | 24 | 23 | 0 | 67 | 22 | BuilderOperations, BuilderPreview |
+| `cda-authored-nested-expand:nested-coding-expand-lifecycle-single-per-component` | 24 | 23 | 0 | 67 | 22 | BuilderOperations, BuilderPreview |
+| `cda-builder-native:Preview limits` | 11 | 4 | 1 | 19 | 12 | BuilderOperations, BuilderPreview |
+| `cda-cohort-fields:cohort-fields` | 25 | 4 | 2 | 162 | 11 | BuilderOperations, BuilderPreview, Population |
+| `cda-collection-repair-partial:partial-long-route-repair-and-reload` | 8 | 0 | 0 | 152 | 13 | BuilderOperations, BuilderPreview |
+| `cda-contributor-equals:contributor-equals` | 28 | 14 | 51 | 6 | 15 | BuilderPreview |
+| `cda-contributor-exists:contributor-exists` | 31 | 16 | 6 | 95 | 17 | BuilderPreview |
+| `cda-current-draft-diagnostic-report-append:diagnostic-report-append` | 27 | 43 | 0 | 14 | 37 | — |
+| `cda-current-draft-membership:membership` | 17 | 58 | 48 | 44 | 51 | BuilderOperations, BuilderPreview |
+| `cda-current-draft-upstream-append:patient-membership-handoff` | 15 | 9 | 0 | 16 | 13 | BuilderPreview |
+| `cda-current-draft-upstream-append:upstream-append` | 25 | 13 | 0 | 6 | 26 | BuilderPreview |
+| `cda-expanded-publication:component-row-expand-publish-clickhouse-viewer-reload` | 22 | 1 | 0 | 99 | 2 | BuilderPreview |
+| `cda-filter-browser:composite-group-filter` | 15 | 67 | 0 | 18 | 21 | — |
+| `cda-filter-browser:filter-lifecycle` | 16 | 48 | 6 | 14 | 10 | — |
+| `cda-five-hop-related-expansion:medication-positive-fixture` | 21 | 3 | 6 | 109 | 14 | BuilderPreview |
+| `cda-five-hop-related-expansion:medication-preserve-parent` | 21 | 1 | 0 | 5 | 11 | BuilderPreview |
+| `cda-group-numeric-filter:numeric-filter-after-group` | 11 | 8 | 0 | 151 | 20 | BuilderOperations, BuilderPreview |
+| `cda-named-cohort-related-presence:related-presence-including-empty-group` | 5 | 0 | 0 | 3 | 14 | — |
+| `cda-named-cohort-related-presence:related-presence-nonempty-zero-match` | 5 | 0 | 0 | 3 | 14 | — |
+| `cda-plain-patient-root-selector:select-observation-directly-and-restore-patient` | 5 | 0 | 115 | 10 | 9 | BuilderPreview |
+| `cda-publication:bounded-specimen-publication-viewer-reload` | 7 | 55 | 0 | 1 | 2 | — |
+| `cda-published-source-membership:published-membership` | 16 | 0 | 0 | 84 | 59 | BuilderOperations, BuilderPreview |
+| `cda-published-upstream-append:published-append` | 27 | 42 | 0 | 10 | 34 | — |
+| `cda-related-one-all-observation-status:observation-status-one-to-all-same-chooser-lifecycle` | 25 | 1 | 0 | 13 | 11 | BuilderPreview |
+| `cda-related-one-all-specimen-reference:cda-specimen-reference-raw-oracle-one-all-lifecycle` | 23 | 0 | 0 | 8 | 2 | BuilderPreview |
+| `cda-related-one-all-zero-observation:zero-patient-observation-exclude-policy-edit-cancel-apply-restoration` | 26 | 10 | 0 | 19 | 11 | BuilderPreview |
+| `cda-related-one-all-zero-observation:zero-patient-observation-one-all-stable-parent-lifecycle` | 28 | 12 | 0 | 21 | 13 | BuilderPreview |
+| `cda-related-one-all-zero-observation:zero-patient-observation-starting-root-roundtrip` | 26 | 9 | 0 | 28 | 9 | BuilderPreview |
+| `cda-repeated-empty:preserve-parent-exclude-error-group-count-and-restoration` | 22 | 0 | 6 | 203 | 5 | BuilderOperations, BuilderPreview, Population |
+| `cda-repeated-missing-component-group:missing-component-expanded-group-cancel-restore` | 15 | 1 | 5 | 164 | 3 | BuilderOperations, BuilderPreview, Population |
+| `cda-repeated-rows:component-array-source-expand-field-remove-and-row-restoration` | 7 | 40 | 0 | 18 | 16 | — |
+| `cda-root-rebase:preserve-patient-values-through-observation-and-restore` | 9 | 99 | 0 | 16 | 9 | — |
+| `cda-same-table-root-replacement:same-table-root-replacement` | 16 | 8 | 53 | 16 | 10 | BuilderPreview |
+| `cda-semantic-specimen-fields:specimen-semantic-fields` | 10 | 44 | 0 | 4 | 10 | — |
+| `cda-semantic-specimen-inventory-fallback:inventory-fallback` | 10 | 39 | 0 | 4 | 9 | — |
+| `cda-source-fields:source-fields` | 20 | 8 | 94 | 8 | 9 | BuilderPreview |
+| `cda-starting-collection-handoff:initial-selection-handoff-route-preview-apply-reload` | 18 | 50 | 0 | 8 | 10 | — |
+| `cda-starting-collection-replacement:cross-resource-route-dependencies` | 8 | 13 | 87 | 51 | 14 | BuilderOperations, BuilderPreview |
+| `cda-upstream-related-edit-cascade:upstream-edit-cascade` | 23 | 367 | 0 | 34 | 13 | — |
+| `cda-viewer-output-dataset-zip:published-observation-repeated-values-zip` | 11 | 0 | 51 | 44 | 15 | BuilderOperations, BuilderPreview |
+| `cda-viewer-output-dataset-zip:published-patient-dataset-zip` | 12 | 0 | 49 | 38 | 33 | BuilderOperations, BuilderPreview |
+| `cda-workspace-combine:coded-group-native` | 13 | 40 | 0 | 7 | 12 | — |
+| `cda-workspace-combine:compound-coded-group-native` | 34 | 53 | 0 | 15 | 11 | — |
+| `cda-workspace-combine:compound-coded-group-single` | 10 | 0 | 0 | 2 | 13 | — |
+| `cda-workspace-combine:group-join` | 24 | 11 | 0 | 10 | 17 | BuilderPreview |
+| `cda-workspace-combine:group-pivot-join` | 22 | 1 | 1 | 48 | 30 | BuilderPreview |
+| `cda-workspace-combine:group-pivot-published` | 19 | 0 | 58 | 10 | 19 | BuilderPreview |
+| `cda-workspace-combine:nullable-code-join` | 27 | 15 | 32 | 24 | 38 | BuilderPreview |
+| `cda-workspace-combine:saved-cda-related-route-edit-epoch126` | 14 | 16 | 54 | 22 | 19 | BuilderOperations, BuilderPreview |
+| `cda-workspace-combine:semantic-group` | 22 | 2 | 6 | 60 | 19 | BuilderPreview |
+| `cda-workspace-combine:semantic-group-connected` | 11 | 0 | 0 | 245 | 11 | BuilderOperations, BuilderPreview |
+| `cda-workspace-combine:semantic-group-expanded` | 24 | 110 | 0 | 11 | 26 | — |
+| `cohort-group-pivot-publication:basic` | 6 | 0 | 2 | 137 | 3 | BuilderOperations, BuilderPreview |
+| `dev-journey:verify-j01` | 4 | 35 | 0 | 3 | 35 | — |
+| `dev-journey:verify-j05` | 5 | 41 | 0 | 3 | 59 | — |
+| `root-quantity-pivot:fixture-lifecycle` | 9 | 58 | 0 | 14 | 13 | — |
+| `root-quantity-pivot:full-population-discovery` | 7 | 38 | 0 | 6 | 5 | — |
+| `root-quantity-pivot:full-population-lifecycle` | 7 | 97 | 0 | 6 | 10 | — |
+| `root-quantity-pivot:related-text-only-full-population-lifecycle` | 26 | 275 | 0 | 77 | 13 | BuilderOperations |
+| `scope-001-restricted-auth:restricted-related-records` | 10 | 34 | 0 | 105 | 10 | BuilderOperations, BuilderPreview |
+| `standalone-misc:coded-group-recorded-code-basic` | 5 | 26 | 0 | 93 | 26 | BuilderOperations, BuilderPreview |
+| `standalone-misc:compound-coded-group-basic` | 10 | 17 | 0 | 1 | 11 | — |
+| `standalone-misc:semantic-construction-choice-route-fallback` | 4 | 7 | 0 | 105 | 11 | BuilderOperations, BuilderPreview |
+| `standalone-reshape-coded-pivot:coded-pivot-integer` | 12 | 1 | 54 | 60 | 10 | BuilderOperations, BuilderPreview |
+| `standalone-reshape-coded-pivot:coded-pivot-string` | 12 | 1 | 54 | 60 | 10 | BuilderOperations, BuilderPreview |
+| `standalone-reshape-group-add-fields:group-add-fields` | 30 | 55 | 0 | 27 | 16 | — |
+| `standalone-reshape-group-edit-before-related-column:group-edit-before-related-column` | 22 | 17 | 78 | 24 | 17 | BuilderPreview |
+| `standalone-reshape-group-one-conflict:group-one-conflict` | 16 | 20 | 0 | 13 | 11 | — |
+| `standalone-reshape-related-field-after-unpivot-gender-all:related-field-after-unpivot-gender-all` | 15 | 82 | 0 | 3 | 22 | — |
+| `standalone-reshape-related-source-after-pivot:related-resource-type-after-pivot` | 4 | 79 | 0 | 27 | 24 | — |
+| `standalone-reshape-related-source-after-pivot:related-resource-type-after-pivot-group-split` | 4 | 89 | 0 | 27 | 35 | — |
+| `standalone-reshape-related-source-after-pivot:related-source-after-pivot` | 2 | 77 | 0 | 1 | 23 | — |
+| `standalone-reshape-related-source-after-pivot:related-source-count-after-pivot` | 3 | 78 | 0 | 27 | 24 | — |
+| `standalone-reshape-related-unpivot:related-unpivot` | 20 | 63 | 3 | 78 | 19 | BuilderOperations |
+| `viewer-query:cell-explain` | 10 | 49 | 0 | 65 | 28 | BuilderOperations, BuilderPreview |
+| `viewer-query:charts` | 10 | 16 | 34 | 70 | 28 | BuilderOperations, BuilderPreview |
+| `viewer-query:configured-output-action-csv` | 9 | 13 | 0 | 64 | 18 | BuilderOperations, BuilderPreview |
+| `viewer-query:dataset-zip` | 11 | 16 | 3 | 80 | 34 | BuilderOperations, BuilderPreview |
+| `viewer-query:dataset-zip-filtered-complete-population` | 10 | 9 | 17 | 65 | 11 | BuilderOperations, BuilderPreview |
+| `viewer-query:output` | 7 | 11 | 2 | 50 | 9 | BuilderOperations, BuilderPreview |
+| `viewer-query:pagination` | 11 | 9 | 14 | 67 | 39 | BuilderOperations, BuilderPreview |
+| `viewer-query:per-row-file-download` | 10 | 5 | 14 | 68 | 24 | BuilderOperations, BuilderPreview |
+| `viewer-query:row-details` | 10 | 2 | 0 | 64 | 19 | BuilderOperations, BuilderPreview |
+| `viewer-query:runtime-scope-isolation` | 10 | 21 | 0 | 66 | 27 | BuilderOperations, BuilderPreview |
+| `viewer-query:shared-filter-linked-outputs` | 11 | 21 | 3 | 72 | 23 | BuilderOperations, BuilderPreview |
+
+Counts deduplicate semantic claim IDs, source paths, and exact required/focused check references per case. Candidate models come only from files explicitly labeled `formalApplicability.kind: candidate`; these source associations do not establish execution or model refinement.
+
+### Independently scoped tools and unmapped source
+
+| Scope | Count |
+| --- | ---: |
+| Tool/module files | 68 |
+| Tool/module files with a canonical case mapping | 5 |
+| Tool/module files without a canonical case mapping | 63 |
+| All MJS files without a canonical case mapping | 299 |
+| Semantic claims without a canonical case mapping | 5308 |
 
 ### Explicit formal links
 
-- `scripts/run-builder-journey.mjs`: journey-runner-consumes-captured-traces → BuilderJourney
-- `scripts/verify-builder-formal.mjs`: configured-model-runner → BuilderOperations, BuilderPreview, WorkspaceLifecycle, RowDefinitionLifecycle, DraftRestore, RootChange, ColumnPresentation, Population, Interpretation, SupportingSurfaces, LifecycleEntry, ReconcileLifecycle, BuilderJourney
-- `scripts/verify-builder-interactions.mjs`: configured-model-runner → ConstructionLifecycle
-- `scripts/verify-builder-traces.mjs`: trace-validator-not-producer → BuilderPreview, ConstructionLifecycle, ReconcileLifecycle
-- `scripts/verify-ui/journey-specs/add-column-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/builder-journey.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/filter-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/load-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/pivot-error.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
-- `scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs`: declared-journey-model-runtime-observations → BuilderJourney
+- `scripts/apply-builder-proposal-decisions.mjs`: candidate; gap: No runtime outcome or route-transition proof is claimed.
+- `scripts/generate-builder-route-ledger.mjs`: candidate; gap: No route is asserted proved by this generator; it labels the generated ledger provisional.
+- `scripts/loom-dev.mjs`: candidate; gap: No trace correspondence is established for these browser assertions, and the formal model does not cover source-data values, rendered rows, publication, Viewer filters, or downloaded artifacts.
+- `scripts/propose-builder-route-actions.mjs`: candidate; gap: Generated actions are explicitly proposals requiring handler review; no action is treated as accepted or proved.
+- `scripts/run-builder-bug-discovery.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/run-builder-journey.mjs`: direct-trace → BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter]; gap: The runner delegates finite trace checking to verify-builder-traces.mjs; it does not execute the standalone BuilderJourney .cfg safety-invariant suite. Model actions do not cover browser reload, persistence, or concrete row-value assertions.
+- `scripts/run-builder-mutation-probe.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/self-test-builder-traces.mjs`: candidate; gap: Static source review only; no mutation self-test or TLC result is represented as passing.
+- `scripts/verify-builder-formal.mjs`: direct-trace → BuilderOperations; BuilderPreview; WorkspaceLifecycle; RowDefinitionLifecycle; DraftRestore; RootChange; ColumnPresentation; Population; Interpretation; SupportingSurfaces; LifecycleEntry; ReconcileLifecycle; BuilderJourney; gap: TLC only covers finite states and bounds encoded by the checked-in .cfg files; the source itself states that this is not an unbounded refinement proof of the React or Go application.
+- `scripts/verify-builder-interactions.mjs`: direct-trace → ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; gap: The model is finite and explicitly stops at beginApply; source model comments exclude persistence/finishApply callback behavior and define the bounded proposal-attempt space.
+- `scripts/verify-builder-operation-history.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-builder-traces.mjs`: direct-trace → BuilderPreview [StartProposal, ReplaceProposal, ProposalComplete, ProposalError, LateProposalComplete, CancelProposal, RetryProposal, StartPreview, PreviewComplete, LatePreviewComplete, BeginApply, ApplyAck, ChangeDraft, AcceptCurrentDraft, SetPivotPair, ScheduleDiscovery, DiscoveryComplete, ChangePivotKey, UnmountEditor, AdoptDiscovery]; ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; ReconcileLifecycle [RequestReconcile, RetryReconcile, ReconcileSuccess, LateReconcileIgnored, ReconcileStale, ReconcileConflict, ReconcileInvalid, ReconcileFailure, WorkspaceChangeStartsReconcile, DraftChange, AuthoredChange, ChangeExplorer, SetTablesRooted, SetSnapshotPresent, ClearReceipt]; BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter]; gap: The static binding records source transition operators and trace observation guards; it does not claim a runtime trace passed or that the original .cfg safety-invariant suites were executed by this command.
+- `scripts/verify-cda-pivot-oracle.mjs`: candidate; gap: The diagnostic relies on an operator-supplied report and hardcoded local CDA runtime identity; it does not run or prove a complete native lifecycle.
+- `scripts/verify-construction-removals.mjs`: candidate; gap: The tool does not perform or prove an applied removal lifecycle; no runtime outcome is claimed.
+- `scripts/verify-population-row.mjs`: candidate; gap: The retained selection-evidence fixture and command invocation are not statically located, so its intended end-to-end runner remains unresolved.
+- `scripts/verify-ui/fast-specs/builder-preview-read-only.spec.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/basic-coded-pivot-fixture.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/basic-named-cohort-presence-oracle.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/basic-nested-coding-expand-oracle.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/basic-pivot-unpivot-oracle.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/basic-published-membership-oracle.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/basic-root-replacement-contract.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/builder-combine-helpers.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/cda-current-draft-membership-oracle.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/cda-starting-collection-replacement-oracle.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/coded-pivot-fixture.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/complete-preview-row-projection.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/composed-row-lineage-fixture.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/construction-capabilities-readiness.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/proposal-reopen-binding.mjs`: candidate; gap: Source review only; no runtime, test, browser, or model result is represented as passing.
+- `scripts/verify-ui/helpers/related-choice-stage-context.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/related-one-all-lifecycle-contract.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/related-policy-construction.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/root-rebase-preservation.mjs`: candidate; gap: Source review only; no runtime, test, browser, or model result is represented as passing.
+- `scripts/verify-ui/helpers/saved-preview-binding.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/standalone-coded-field-fixture.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/tests/action-scoped-cancellations.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/basic-add-column-coverage-oracle.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/tests/basic-coded-pivot-fixture.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/tests/basic-nested-coding-expand-oracle.test.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/tests/basic-published-membership-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/basic-related-quantity-one-all-oracle.test.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/tests/basic-runtime-scope-isolation-oracle.test.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/tests/basic-viewer-charts-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/builder-authoring-request-entries.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/builder-combine-draft.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/builder-combine-nullable.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/builder-combine.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/builder-controls-table-preview-readiness.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/cda-compound-coded-group-oracle.test.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
+- `scripts/verify-ui/helpers/tests/cda-current-draft-membership-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/cda-nullable-code-join-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/cda-same-table-root-replacement-readiness.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/cda-saved-related-route-oracle.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/cda-upstream-append-reload-readiness.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/cda-viewer-output-dataset-zip-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/complete-preview-row-projection.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/construction-capabilities-readiness.test.mjs`: candidate; gap: The test uses mocked identity reads and emitted request events; no browser lifecycle pass or model binding is claimed.
+- `scripts/verify-ui/helpers/tests/construction-output-selection.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/group-pivot-append-contract.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/group-related-multiset.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/tests/missing-component-group-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/native-browser-api-scope.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/native-verification-batch.test.mjs`: candidate; gap: There is no current Builder TLA model for test-runner orchestration, scheduler concurrency, cancellation, or cleanup; this remains separate from Builder journey coverage.
+- `scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/nested-authored-expand-oracle.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/owned-arangosh-command.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/playwright-authoring-existing-root-change.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/playwright-authoring-suggestions.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-process.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/related-quantity-pivot-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/root-rebase-preservation.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/scope-001-repeated-pivot-oracle.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
+- `scripts/verify-ui/helpers/tests/scope-001-restricted-auth-workflow.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/verify-cda-builder-patient-related.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- 196 additional formal applicability rows are in the JSON report.
 
-These are source associations, not passing runs. Journey traces capture DOM observations and correlated network request/response facts; they do not establish full UI/controller refinement. Independent browser/value assertions remain necessary. Model actions and configured invariants are listed per link in JSON.
+These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.
 
-### Cleanup review order
+### Dispositions and replacement evidence
 
-1. Close the remaining controller/reconcile and reload boundaries with runtime evidence where applicable; preserve independent data oracles.
-2. Review classified-but-unreplayed late/rejected runtime events before expanding the model claims.
-3. Consolidate duplicate test/route parsers and TLC acquisition only after proving equivalent behavior.
-4. Investigate `scripts/verify-ui/helpers/playwright-verification.mjs` and `scripts/local-preview-index-explain.mjs`; static audit found no current importer/invocation, but historical and manual use remain unresolved. Neither is approved for deletion.
+| Disposition | Files |
+| --- | ---: |
+| keep | 677 |
+| merge-candidate | 1 |
 
-Tracked paths only. Import-syntax matches are candidates (comments and fixture strings may match); path mentions include documentation and historical records. Neither establishes executable reachability. Reference lists retain eight examples with a full count. Dynamic imports, glob discovery and manual CLI invocation remain unresolved. No row authorizes deletion. Formal links are declared/configured associations, not runtime proof or current run results.
+| MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |
+| --- | --- | --- | --- | --- |
+| `ui/packages/loom-ui/scripts/verify-cda-contributor-exists-browser.mjs` | active / merge-candidate | Drives a standalone native CDA Contributor EXISTS flow and compares UI previews, saved policy changes, and source restoration against project/generation-scoped raw Arango witnesses. Keep as a merge candidate for the registered `cda-contributor-exists:contributor-exists` route: both workflows cover zero/one/many Contributor EXISTS policies, but the candidate uses an unbounded many-witness query while the canonical oracle is limited to the first 2,000 Patients and 2–22 many rows. The candidate only checks proposal DOM rows; the canonical path checks native request/response CAS, receipt and candidate binding, plus complete non-sampled preview evidence. Retain until parity is proved. | scripts/verify-ui/specs/standalone-cda-fields.spec.mjs; scripts/verify-ui/workflows/contributor-exists-workflow.mjs; scripts/verify-ui/registry.mjs; scripts/verify-ui/registry.mjs [registered-canonical-case-checks-and-focus-binding]; scripts/verify-ui/workflows/contributor-exists-workflow.mjs [bounded-canonical-oracle-native-request-response-and-persistence-assertions]; scripts/verify-ui/specs/standalone-cda-fields.spec.mjs [registered-spec-dispatches-canonical-workflow] | Before any consolidation, prove that the legacy zero/one/many witness IDs and every related Observation row fit the canonical first-2,000-Patient, 2-to-22-many contract. Preserve exact ALL_MATCHES and EXISTS ERROR/PRESERVE_PARENT/EXCLUDE results, diagnostics, policy edits, source identities, Cancel/Apply, and reload/removal restoration. The legacy workflow only checks proposal DOM rows; establish equivalent native request/response CAS, receipt, candidate-construction equivalence, complete and non-sampled preview checks, and an error/performance census in the registered route. Also decide whether the generic-Playwright-only `standalone-misc-cda-unmapped` invocation must remain; it has no registry `requiredChecks` contract. |
+
+Disposition labels and replacement evidence come from the source catalog. They do not turn a candidate into runtime proof; independent oracles and replacement gates remain explicit in purpose, evidence, and any nonempty gap.
+
+The file catalog is source-reviewed and hash-bound to a reviewed source revision. Static import and path mentions remain candidates, not proof of reachability; dynamic and manual invocation uncertainty is recorded separately. Semantic claims, journey mappings, and formal bindings describe intended associations. Every MJS runtime status is unverified unless an exact current artifact is joined to its source SHA; labels do not prove execution or model refinement. Retirement rows preserve their source and replacement references.
 
 ## Summary
 
 | Measure | Count |
 | --- | ---: |
 | models | 14 |
-| actions | 173 |
+| actions | 174 |
 | invariants | 92 |
-| obligations | 265 |
+| obligations | 266 |
 | covered | 10 |
 | partial | 92 |
-| missing | 163 |
+| missing | 164 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 74 |
+| missingUnbound | 75 |
 | tests | 906 |
 | testsWithObligations | 12 |
 | testsWithoutObligations | 894 |
@@ -72,6 +307,7 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 - `BuilderJourney.ChoicePreviewComplete` (0 route(s))
 - `BuilderJourney.ChoicePreviewError` (0 route(s))
 - `BuilderJourney.EditGroup` (0 route(s))
+- `BuilderJourney.EditGroupAgain` (0 route(s))
 - `BuilderJourney.Group` (0 route(s))
 - `BuilderJourney.GroupAgain` (0 route(s))
 - `BuilderJourney.LatePreviewCompleteIgnored` (0 route(s))
@@ -145,8 +381,7 @@ Tracked paths only. Import-syntax matches are candidates (comments and fixture s
 - `LifecycleEntry.GateReconcile` (0 route(s))
 - `LifecycleEntry.ParseRoute` (1 route(s))
 - `LifecycleEntry.ReconcileNeedsRepair` (0 route(s))
-- `LifecycleEntry.ReconcileReceiptBound` (0 route(s))
-- 83 more in the JSON report.
+- 84 more in the JSON report.
 
 ## Obligations with exact tests
 
