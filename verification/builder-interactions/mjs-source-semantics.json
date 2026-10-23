@@ -402053,14 +402053,14 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "f472ff3504f3febc04f01bd6dded1fdafa987fad580f9ace4a841144f3cf9e83",
+      "sha256": "7d257d681df4256f2eda8fcd2f9df1f45b0076a6535834ad2d779e096cca9dd7",
       "role": "tool-or-module",
       "lifecycle": "active",
       "purpose": "Validates trace provenance, observations, event/action bindings, owner relationships, and full-Spec TLA transitions, including selected Group lifecycle raw-workspace/candidate bindings and exact action counts.",
       "testLayer": "command-line",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "366721d1e57a9373878ef8c7a4bf0b7d18fbc10f",
+        "reviewedCommit": "74e1c6f8eb8c210e8448f7c6ba01ca5ca62b2e3f",
         "evidence": [
           {
             "path": "scripts/verify-builder-traces.mjs",
@@ -402069,42 +402069,42 @@
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 679,
+            "line": 682,
             "kind": "validates optional per-trace required-action contract shape"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 1397,
+            "line": 1400,
             "kind": "validates trace shape, model identity, and action records"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 1682,
+            "line": 1685,
             "kind": "requires a preview settlement to match its request owner and identity"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 775,
+            "line": 778,
             "kind": "requires apply ownership for EditGroupAgain"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2215,
+            "line": 2218,
             "kind": "binds EditGroupAgain to the current proposal preview owner"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2590,
+            "line": 2598,
             "kind": "computes missing required actions for named traces"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2617,
+            "line": 2625,
             "kind": "turns missing required-action coverage into validator failures"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2460,
+            "line": 2468,
             "kind": "copies selected model source into generated TLC trace-check module"
           },
           {
@@ -402119,12 +402119,12 @@
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2111,
+            "line": 2114,
             "kind": "maps Group observations into BuilderJourney TLA transitions"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2601,
+            "line": 2609,
             "kind": "checks exact action counts only for present named traces"
           }
         ],
@@ -402169,68 +402169,68 @@
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L1397:runtime-guard-trace-validator-checks-model-actions-events-and-transition-observations",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L1400:runtime-guard-trace-validator-checks-model-actions-events-and-transition-observations",
           "semanticClaimId": "trace-validator.checks-model-actions-events-and-transition-observations",
           "sourceLines": [
-            1397,
             1400,
-            1401,
+            1403,
             1404,
             1407,
-            1421,
-            1492,
-            1496,
+            1410,
+            1424,
+            1495,
             1499,
-            1503,
-            1509,
-            1510,
-            1682,
-            1685
+            1502,
+            1506,
+            1512,
+            1513,
+            1685,
+            1688
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L679:runtime-guard-trace-validator-validates-per-trace-required-action-contract-shape",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L682:runtime-guard-trace-validator-validates-per-trace-required-action-contract-shape",
           "semanticClaimId": "trace-validator.validates-per-trace-required-action-contract-shape",
           "sourceLines": [
-            679,
-            680,
+            682,
             683,
-            684,
-            685
+            686,
+            687,
+            688
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L2590:runtime-guard-trace-validator-checks-per-trace-required-action-coverage",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L2598:runtime-guard-trace-validator-checks-per-trace-required-action-coverage",
           "semanticClaimId": "trace-validator.checks-per-trace-required-action-coverage",
           "sourceLines": [
-            2590,
-            2591,
-            2594,
-            2595,
-            2596,
-            2597,
             2598,
-            2617,
-            2622,
-            2623
+            2599,
+            2602,
+            2603,
+            2604,
+            2605,
+            2606,
+            2625,
+            2630,
+            2631
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L775:runtime-guard-trace-validator-requires-repeat-group-edit-to-use-apply-owner",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L778:runtime-guard-trace-validator-requires-repeat-group-edit-to-use-apply-owner",
           "semanticClaimId": "trace-validator.requires-repeat-group-edit-to-use-apply-owner",
           "sourceLines": [
-            772,
             775,
-            793,
-            795,
-            2214,
-            2215
+            778,
+            796,
+            798,
+            2217,
+            2218
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
@@ -402243,22 +402243,22 @@
         "evidence": [
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2460,
+            "line": 2468,
             "kind": "loads the TLA model selected by trace.model"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2344,
+            "line": 2350,
             "kind": "constructs the trace next-state relation from the model actions"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2470,
+            "line": 2478,
             "kind": "runs TLC on the generated trace module"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 1492,
+            "line": 1495,
             "kind": "maps recorded labels to action contract vocabulary"
           }
         ],
