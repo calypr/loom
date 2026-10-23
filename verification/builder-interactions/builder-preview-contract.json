@@ -379,12 +379,12 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "a356e2b4303627d7acf6cdbb1805b81ddfca00428c6e8d12655fdd8265476f6b",
+      "sha256": "9325337f490e7d1d87b1667dd1043074165fa5562a3b0bd2edc95996d5309d5e",
       "contract": "Registered native Group variants require edit Cancel, removal Cancel, exact reload counts, and postreload mounted-key/draft checks."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "452818aa50f6bc9d4c8aa4c8ac0a42052efa98d2a1b9cdd963ce8a42723f3f65",
+      "sha256": "2e9b09deed1344da7b4ba3459159dc7e251a8552e2a1e55d4ea84fdcb830f1af",
       "contract": "Registered authored-three and raw-Basic native Group lifecycles with actual Builder reads, captured request owners, mounted reload controls, post-action observations, TLA replay, and trace-bound mutation controls."
     }
   ]

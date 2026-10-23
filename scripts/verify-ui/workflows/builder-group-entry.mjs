@@ -1271,8 +1271,15 @@ export const groupEntryWorkflow = async (workflow, context) => {
 
   const savedBeforeEditCandidate = savedBuilder;
   const beforeEdit = await readBuilder();
-  await action('Cancel keyed Group edit', page.getByTestId('construction-cancel-proposal'),
-    () => page.getByTestId('construction-cancel-proposal').click(), {
+  const editCancelButton = page.getByTestId('construction-cancel-proposal');
+  let editCancelControl;
+  await action('Cancel keyed Group edit', editCancelButton, async () => {
+    const controlTestId = await editCancelButton.getAttribute('data-testid');
+    assert.equal(controlTestId, 'construction-cancel-proposal',
+      'The edit Cancel must retain the actual clicked proposal-control identity.');
+    editCancelControl = { kind: 'proposal-cancel', controlTestId };
+    await editCancelButton.click();
+  }, {
       after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
     });
   const editCancelObservation = await captureBuilderObservation(page);
@@ -1296,6 +1303,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     observation: editCancelObservation,
     groupLifecycle: {
       ...mountProvenance(),
+      exitControl: editCancelControl,
       candidateIntent: keyedEditPreviewCapture.candidateIntent,
       candidateOwner: keyedEditPreviewCapture.groupLifecycle.owner,
       savedBefore: savedGroupEvidence(beforeEdit),
@@ -1570,43 +1578,57 @@ export const groupEntryWorkflow = async (workflow, context) => {
   check('persistence', 'reloaded Group editor mounts the exact saved ID-only key and COUNT_ROWS aggregate', true,
     mountedReloadGroup);
   const beforeReloadEditCancel = await readBuilder();
-  await action('Cancel reloaded saved Group editor', page.getByTestId('construction-cancel-proposal'),
-    () => page.getByTestId('construction-cancel-proposal').click(), {
-      after: () => page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]')),
-    });
-  const reloadedEditCancelObservation = await captureBuilderObservation(page);
+  const reloadedEditHasCandidate = Boolean(reloadedGroupOpenCapture?.candidateIntent);
+  const reloadedEditExit = reloadedEditHasCandidate
+    ? { kind: 'proposal-cancel', controlTestId: 'construction-cancel-proposal', label: 'Cancel reloaded Group proposal' }
+    : { kind: 'editor-close', controlTestId: 'construction-close-operation-editor', label: 'Close unchanged reloaded Group editor' };
+  const reloadedEditExitButton = page.getByTestId(reloadedEditExit.controlTestId);
+  let reloadedEditExitControl;
+  await action(reloadedEditExit.label, reloadedEditExitButton, async () => {
+    const controlTestId = await reloadedEditExitButton.getAttribute('data-testid');
+    assert.equal(controlTestId, reloadedEditExit.controlTestId,
+      'The reloaded Group exit must retain the actual clicked control identity.');
+    reloadedEditExitControl = { kind: reloadedEditExit.kind, controlTestId };
+    await reloadedEditExitButton.click();
+  }, {
+    after: () => reloadedEditHasCandidate
+      ? page.waitForFunction(() => !document.querySelector('[data-testid="construction-proposal-panel"]'))
+      : page.getByTestId('construction-reshape-group').waitFor({ state: 'detached' }),
+  });
+  const reloadedEditExitObservation = await captureBuilderObservation(page);
   const afterReloadEditCancel = await readBuilder();
   if (reloadedGroupOpenCapture?.candidateIntent) {
     assert.deepEqual(savedGroupEvidence(beforeReloadEditCancel).group, reloadedGroupOpenCapture.candidateIntent.base,
-      'Postreload Group edit Cancel must bind the actual saved Group candidate base.');
+      'The reloaded Group exit must bind the actual saved Group candidate base.');
   }
   assert.deepEqual(savedGroupEvidence(afterReloadEditCancel).group, savedGroupEvidence(beforeReloadEditCancel).group,
-    'Postreload Group edit Cancel must preserve the exact saved Group projection.');
+    'Exiting the reloaded Group editor without Apply must preserve the exact saved Group projection.');
   assert.deepEqual(afterReloadEditCancel.workspace, beforeReloadEditCancel.workspace,
-    'Cancelling the reloaded Group editor must preserve the exact saved workspace.');
+    'Exiting the reloaded Group editor without Apply must preserve the exact saved workspace.');
   assert.equal(afterReloadEditCancel.draftVersion, beforeReloadEditCancel.draftVersion,
-    'Cancelling the reloaded Group editor must preserve the exact draft version.');
+    'Exiting the reloaded Group editor without Apply must preserve the exact draft version.');
   assert.equal(afterReloadEditCancel.draftDigest, beforeReloadEditCancel.draftDigest,
-    'Cancelling the reloaded Group editor must preserve the exact draft digest.');
+    'Exiting the reloaded Group editor without Apply must preserve the exact draft digest.');
   assert.deepEqual(afterReloadEditCancel.workspace, savedBuilder.workspace,
-    'Cancelling the reloaded Group editor must preserve the fresh postreload workspace.');
+    'Exiting the reloaded Group editor without Apply must preserve the fresh postreload workspace.');
   assert.equal(afterReloadEditCancel.draftVersion, savedBuilder.draftVersion,
-    'Cancelling the reloaded Group editor must preserve the fresh postreload draft version.');
+    'Exiting the reloaded Group editor without Apply must preserve the fresh postreload draft version.');
   assert.equal(afterReloadEditCancel.draftDigest, savedBuilder.draftDigest,
-    'Cancelling the reloaded Group editor must preserve the fresh postreload draft digest.');
+    'Exiting the reloaded Group editor without Apply must preserve the fresh postreload draft digest.');
   traceActions.push({
     label: 'GroupEditCancel',
     event: 'group-edit-cancel',
-    observation: reloadedEditCancelObservation,
+    observation: reloadedEditExitObservation,
     groupLifecycle: {
       ...mountProvenance(),
+      exitControl: reloadedEditExitControl,
       candidateIntent: reloadedGroupOpenCapture?.candidateIntent ?? null,
       candidateOwner: reloadedGroupOpenCapture?.groupLifecycle?.owner ?? null,
       savedBefore: savedGroupEvidence(beforeReloadEditCancel),
       savedAfter: savedGroupEvidence(afterReloadEditCancel),
     },
   });
-  check('persistence', 'Cancel after reloading the saved Group preserves the exact saved workspace and draft', true, {
+  check('persistence', 'Exiting the reloaded Group editor without Apply preserves the exact saved workspace and draft', true, {
     groupStepId: keyedGroup.id,
     draftVersion: afterReloadEditCancel.draftVersion,
     draftDigest: afterReloadEditCancel.draftDigest,
@@ -1805,6 +1827,11 @@ export const groupEntryWorkflow = async (workflow, context) => {
     assert(observedActions.every(action => action.observation && typeof action.observation === 'object'),
       `Every ${label} action must carry its actual page observation.`);
   }
+  assert.deepEqual(traceActions.filter(action => action.label === 'GroupEditCancel')
+    .map(action => action.groupLifecycle?.exitControl), [
+    { kind: 'proposal-cancel', controlTestId: 'construction-cancel-proposal' },
+    { kind: 'editor-close', controlTestId: 'construction-close-operation-editor' },
+  ], 'Group edit exit evidence must show one proposal Cancel and one unchanged editor close with their actual control identities.');
   const minimumBackendCalls = Number(process.env.LOOM_JOURNEY_MIN_BACKEND_CALLS ?? 10);
   assert(backendCalls.length >= minimumBackendCalls,
     `Group lifecycle must capture at least ${minimumBackendCalls} actual authoring backend responses; found ${backendCalls.length}.`);
@@ -1841,7 +1868,7 @@ export const groupEntryWorkflow = async (workflow, context) => {
     'saved Group edit applies one row per exact Patient ID',
     'keyed Group edit and exact Patient rows survive reload',
     'reloaded Group editor mounts the exact saved ID-only key and COUNT_ROWS aggregate',
-    'Cancel after reloading the saved Group preserves the exact saved workspace and draft',
+    'Exiting the reloaded Group editor without Apply preserves the exact saved workspace and draft',
     'Group removal previews both literal source Patient rows',
     'Cancel preserves the saved keyed Group and exact draft',
     'removing keyed Group restores the exact source Patient rows after reload',
