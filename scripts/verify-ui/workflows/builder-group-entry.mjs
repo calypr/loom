@@ -282,6 +282,41 @@ const writeAndReplayGroupJourney = (journeyTrace, report, fixture) => {
     const output = `${replay.stdout ?? ''}${replay.stderr ?? ''}`.trim();
     throw new Error(`Builder Group trace replay failed for ${journeyTrace.name}: ${output.split('\n').slice(-20).join('\n')}`);
   }
+  const selfTestReportPath = join(report.evidenceDirectory, `${artifactStem}-self-test.json`);
+  const selfTestArgs = [
+    join(repositoryRoot, 'scripts/self-test-builder-traces.mjs'),
+    '--journey-only',
+    '--traces', tracePath,
+    '--contract', journeyContractPath,
+  ];
+  const selfTest = spawnSync(process.execPath, selfTestArgs, {
+    cwd: repositoryRoot,
+    env: process.env,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const selfTestOutput = `${selfTest.stdout ?? ''}${selfTest.stderr ?? ''}`.trim();
+  const selfTestStatus = !selfTest.error && selfTest.status === 0 ? 'pass' : 'fail';
+  writeFileSync(selfTestReportPath, `${JSON.stringify({
+    caseKey: journeyTrace.name,
+    tracePath,
+    contractPath: journeyContractPath,
+    command: [process.execPath, ...selfTestArgs],
+    status: selfTestStatus,
+    exitCode: selfTest.status,
+    error: selfTest.error?.message ?? null,
+    output: selfTestOutput,
+  }, null, 2)}\n`);
+  report.target.builderJourneyTrace = {
+    ...report.target.builderJourneyTrace,
+    replayStatus: 'pass',
+    status: selfTestStatus === 'pass' ? 'pass' : 'fail',
+    selfTestStatus,
+    selfTestReportPath,
+  };
+  if (selfTestStatus !== 'pass') {
+    throw new Error(`Builder Group trace self-test failed for ${journeyTrace.name}: ${selfTestOutput.split('\n').slice(-30).join('\n')}`);
+  }
 };
 
 export const openFreshPatientTable = async ({ page, report, check, action }, context, purpose, { populateBootstrap = false } = {}) => {
