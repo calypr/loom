@@ -361,7 +361,7 @@ const runJourneyCrossEvidenceMutation = () => {
     console.error(JSON.stringify(baselineReport.traces?.[0] ?? null, null, 2));
     return false;
   }
-  console.log('PASS journey positive baseline: validator accepted the self-test-only capture-shaped preview trace');
+  console.log('PASS generic BuilderJourney trace without groupLifecycle: validator accepted the capture-shaped preview trace under builder-journey-contract');
 
   const mainTableJourneyPayload = JSON.parse(JSON.stringify(journeyPayload));
   const mainTableObservation = mainTableJourneyPayload.traces[0].actions[1].observation;
@@ -1192,6 +1192,7 @@ if (journeyOnly) {
   let repeatEditOwnerPassed = true;
   let repeatEditRequiredPassed = true;
   let lateAbortOwnerPassed = true;
+  let groupLifecycleControlsPassed = true;
   if (tracesPath && contractPath.endsWith('builder-edit-remove-contract.json')) {
     const groupTraceNames = new Set([
       'builder-authoring:group-entry',
@@ -1245,11 +1246,161 @@ if (journeyOnly) {
           if (start) start.owner = { ...start.owner, attempt: currentAttempt };
         }, semanticFailureFor('LatePreviewErrorIgnored'), { allowPartial: true });
       }
+
+      const lifecycleContractEnabled = Object.keys(contract.phase1?.requiredActionCountsByTrace ?? {})
+        .some(traceName => groupTraceNames.has(traceName));
+      if (lifecycleContractEnabled) {
+        const runGroupLifecycleMutation = (label, actionLabel, predicate, mutate) => {
+          const hit = findTraceAction(payload.traces, (trace, action) =>
+            trace.name === groupTraceName && action.label === actionLabel && predicate(trace, action));
+          if (!hit) {
+            console.error(`FAIL ${label}: ${groupTraceName} has no captured ${actionLabel} observation for this control.`);
+            return false;
+          }
+          return runMutation(label, mutated => {
+            const retained = retainOnlyTrace(mutated, findTraceAction(mutated.traces, (trace, action) =>
+              trace.name === groupTraceName && action.label === actionLabel && predicate(trace, action)));
+            if (retained) mutate(retained.trace, retained.action, retained.actionIndex);
+          }, semanticFailureFor(actionLabel), { allowPartial: true });
+        };
+        const selectedDocumentFor = saved => {
+          const documents = saved.workspace?.documents ?? [];
+          const selected = documents.filter(document => document.output?.id === saved.outputId && document.id === saved.documentId);
+          if (selected.length !== 1) throw new Error('saved workspace evidence does not identify one selected Builder document');
+          return selected[0];
+        };
+        const alternateDocumentKey = (saved, currentKeys) => {
+          const column = (selectedDocumentFor(saved).columns ?? []).find(candidate =>
+            !currentKeys.includes(candidate.columnId ?? candidate.id));
+          return column?.columnId ?? column?.id ?? null;
+        };
+        const rewriteSavedGroupKeys = (saved, keys) => {
+          saved.group.keys = [...keys];
+          const steps = selectedDocumentFor(saved).construction?.steps ?? [];
+          const groupSteps = steps.filter(step => step.operation?.kind === 'GROUP' && step.id === saved.group.stepId);
+          if (groupSteps.length !== 1) throw new Error('saved Group projection does not identify one raw GROUP step');
+          groupSteps[0].operation.group.keys = keys.map(inputColumnId => ({ inputColumnId }));
+        };
+        const rewriteSavedGroupStepId = (saved, stepId) => {
+          const previousStepId = saved.group.stepId;
+          const steps = selectedDocumentFor(saved).construction?.steps ?? [];
+          const groupSteps = steps.filter(step => step.operation?.kind === 'GROUP' && step.id === previousStepId);
+          if (groupSteps.length !== 1) throw new Error('saved Group projection does not identify one raw GROUP step');
+          saved.group.stepId = stepId;
+          groupSteps[0].id = stepId;
+          if (Object.hasOwn(groupSteps[0].operation.group, 'constructionId')) {
+            groupSteps[0].operation.group.constructionId = stepId;
+          }
+        };
+        const rewriteCandidateKeys = (intent, keys) => {
+          intent.proposed.keys = [...keys];
+          const steps = intent.rawProposalBody?.candidateConstruction?.steps ?? [];
+          const groupSteps = steps.filter(step => step.id === intent.proposed.stepId && step.operation?.kind === 'GROUP');
+          if (groupSteps.length !== 1) throw new Error('candidate Group projection does not identify one raw GROUP step');
+          groupSteps[0].operation.group.keys = keys.map(inputColumnId => ({ inputColumnId }));
+        };
+
+        const editCancelControl = runGroupLifecycleMutation(
+          'group-edit-cancel-must-preserve-saved-group',
+          'GroupEditCancel',
+          (_trace, action) => action.groupLifecycle?.candidateIntent !== null,
+          (trace, action) => {
+            const before = action.groupLifecycle.savedBefore.group;
+            const after = action.groupLifecycle.savedAfter.group;
+            const anotherKey = alternateDocumentKey(action.groupLifecycle.savedAfter, before.keys);
+            const changedKeys = before.keys.length === 0
+              ? (anotherKey ? [anotherKey] : [])
+              : [];
+            if (before.keys.length === 0 && !anotherKey) throw new Error('trace has no captured alternate Group key for the Cancel control');
+            rewriteSavedGroupKeys(action.groupLifecycle.savedAfter, changedKeys);
+          },
+        );
+        const removalCancelControl = runGroupLifecycleMutation(
+          'group-removal-cancel-must-preserve-draft-version',
+          'GroupRemovalCancel',
+          () => true,
+          (_trace, action) => {
+            const version = action.groupLifecycle.savedAfter.draftVersion;
+            action.groupLifecycle.savedAfter.draftVersion = typeof version === 'number' ? version + 1 : version + '-changed';
+          },
+        );
+        const reloadKeyControl = runGroupLifecycleMutation(
+          'reload-must-restore-same-cardinality-group-keys',
+          'Reload',
+          (_trace, action) => action.groupLifecycle?.savedAfter?.group !== null &&
+            action.groupLifecycle?.mountedGroup?.keys?.length === 1,
+          (_trace, action) => {
+            const lifecycle = action.groupLifecycle;
+            const group = lifecycle.mountedGroup;
+            const anotherKey = alternateDocumentKey(lifecycle.savedAfter, group.keys);
+            if (!anotherKey) throw new Error('trace has no captured alternate Group key for the same-cardinality Reload control');
+            group.keys = [anotherKey];
+            const column = selectedDocumentFor(lifecycle.savedAfter).columns.find(candidate =>
+              (candidate.columnId ?? candidate.id) === anotherKey);
+            if (!column) throw new Error('alternate Reload key has no selected document column label');
+            group.selectedKeyLabels = ['Group by ' + column.label];
+          },
+        );
+        const reloadStepControl = runGroupLifecycleMutation(
+          'reload-must-restore-saved-group-step',
+          'Reload',
+          (_trace, action) => action.groupLifecycle?.savedAfter?.group !== null,
+          (_trace, action) => {
+            const lifecycle = action.groupLifecycle;
+            const changedStepId = lifecycle.savedAfter.group.stepId + '-self-test-wrong-step';
+            rewriteSavedGroupStepId(lifecycle.savedAfter, changedStepId);
+            lifecycle.mountedGroup.stepId = changedStepId;
+            lifecycle.clickedRowTarget.stepId = changedStepId;
+            lifecycle.clickedRowTarget.testId = 'construction-row-edit-' + changedStepId;
+          },
+        );
+        const staleCandidateControl = runGroupLifecycleMutation(
+          'group-apply-must-consume-current-candidate',
+          'EditGroup',
+          (_trace, action) => action.groupLifecycle?.candidateIntent?.proposed !== null,
+          (_trace, action) => {
+            const intent = action.groupLifecycle.candidateIntent;
+            const keys = intent.proposed.keys.length === 0
+              ? [alternateDocumentKey(action.groupLifecycle.savedAfter, intent.proposed.keys)]
+              : [];
+            if (keys.length === 1 && !keys[0]) throw new Error('trace has no captured alternate Group key for the stale-candidate control');
+            rewriteCandidateKeys(intent, keys);
+          },
+        );
+        const staleCandidateOwnerControl = runGroupLifecycleMutation(
+          'group-apply-must-consume-current-preview-owner',
+          'EditGroup',
+          (_trace, action) => action.groupLifecycle?.candidateOwner !== null,
+          (trace, action, actionIndex) => {
+            const current = action.groupLifecycle.candidateOwner;
+            const earlierPreview = trace.actions.slice(0, actionIndex).find(candidate => candidate.label === 'Preview' &&
+              candidate.groupLifecycle?.owner?.captureId !== current.captureId);
+            if (!earlierPreview) throw new Error('captured trace has no distinct prior Preview owner');
+            action.groupLifecycle.candidateOwner = {
+              mountEpoch: earlierPreview.groupLifecycle.owner.mountEpoch,
+              captureId: earlierPreview.groupLifecycle.owner.captureId,
+            };
+          },
+        );
+        const reloadCountControl = runMutation(
+          'group-trace-requires-exactly-two-reloads',
+          mutated => {
+            const trace = mutated.traces?.find(candidate => candidate.name === groupTraceName);
+            const reloadIndex = trace?.actions?.findLastIndex(action => action.label === 'Reload') ?? -1;
+            if (reloadIndex >= 0) trace.actions.splice(reloadIndex, 1);
+          },
+          `trace "${groupTraceName}" action Reload count expected 2, found 1`,
+        );
+
+        groupLifecycleControlsPassed = editCancelControl && removalCancelControl && reloadKeyControl &&
+          reloadStepControl &&
+          staleCandidateControl && staleCandidateOwnerControl && reloadCountControl;
+      }
     }
   }
   rmSync(workDirectory, { recursive: true, force: true });
   if (!crossEvidencePassed || !choiceProofPassed || !requestCancellationPassed
-    || !repeatEditOwnerPassed || !repeatEditRequiredPassed || !lateAbortOwnerPassed) process.exit(1);
+    || !repeatEditOwnerPassed || !repeatEditRequiredPassed || !lateAbortOwnerPassed || !groupLifecycleControlsPassed) process.exit(1);
   console.log('PASS BuilderJourney cross-evidence, choice-proof, and request-cancellation self-test');
   process.exit(0);
 }

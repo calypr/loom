@@ -53,6 +53,45 @@ const OBSERVATION_BOOLEAN_FIELDS = [
   'receiptPresent',
 ];
 const BUILDER_JOURNEY_PREVIEW_SURFACES = new Set(['row-operation', 'main-table', 'unknown']);
+const BUILDER_GROUP_LIFECYCLE_LABELS = new Set([
+  'Preview',
+  'PreviewComplete',
+  'PreviewError',
+  'LatePreviewCompleteIgnored',
+  'LatePreviewErrorIgnored',
+  'PreviewRequestCancelled',
+  'Group',
+  'EditGroup',
+  'EditGroupAgain',
+  'RemoveGroup',
+  'GroupEditCancel',
+  'GroupRemovalCancel',
+  'Reload',
+]);
+const BUILDER_GROUP_TRACE_NAMES = new Set([
+  'builder-authoring:group-entry',
+  'builder-authoring:group-entry-raw-basic',
+]);
+const BUILDER_GROUP_PREVIEW_LABELS = new Set([
+  'Preview',
+  'PreviewComplete',
+  'PreviewError',
+  'LatePreviewCompleteIgnored',
+  'LatePreviewErrorIgnored',
+  'PreviewRequestCancelled',
+]);
+const BUILDER_GROUP_SETTLEMENT_LABELS = new Set([
+  'PreviewComplete',
+  'PreviewError',
+  'LatePreviewCompleteIgnored',
+  'LatePreviewErrorIgnored',
+  'PreviewRequestCancelled',
+]);
+const BUILDER_GROUP_APPLY_LABELS = new Set(['Group', 'EditGroup', 'EditGroupAgain', 'RemoveGroup']);
+const BUILDER_GROUP_CANCEL_LABELS = new Set(['GroupEditCancel', 'GroupRemovalCancel']);
+const BUILDER_GROUP_STEP_TOKENS = ['G1', 'G2'];
+const BUILDER_GROUP_CAPTURE_TOKENS = Array.from({ length: 12 }, (_, index) => 'c' + (index + 1));
+const BUILDER_GROUP_KEY_TOKENS = ['ID', 'Gender', 'Race', 'Other'];
 
 function fail(message) {
   throw new Error(message);
@@ -137,6 +176,409 @@ function validateSourceProvenance(payload, contract) {
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function groupLifecycleEnabled(contract) {
+  const requiredCounts = contract.phase1?.requiredActionCountsByTrace;
+  return isPlainObject(requiredCounts) &&
+    Object.keys(requiredCounts).some((traceName) => BUILDER_GROUP_TRACE_NAMES.has(traceName));
+}
+
+function groupProjectionProblem(group, where) {
+  if (group === null) return null;
+  if (!isPlainObject(group)) return where + ' must be a Group projection or null';
+  if (typeof group.stepId !== 'string' || group.stepId.trim().length === 0) {
+    return where + '.stepId must be a non-empty raw string';
+  }
+  if (!Array.isArray(group.keys) || group.keys.length > 2 ||
+      group.keys.some((key) => typeof key !== 'string' || key.trim().length === 0)) {
+    return where + '.keys must be an array of at most two non-empty raw key IDs';
+  }
+  if (new Set(group.keys).size !== group.keys.length) return where + '.keys cannot repeat a raw key ID';
+  if (group.aggregate !== 'COUNT_ROWS') return where + '.aggregate must be COUNT_ROWS for the bounded Group lifecycle';
+  if (group.selectedKeyLabels !== undefined && (!Array.isArray(group.selectedKeyLabels) ||
+      group.selectedKeyLabels.some((label) => typeof label !== 'string' || label.trim().length === 0))) {
+    return where + '.selectedKeyLabels must be an array of non-empty strings when present';
+  }
+  return null;
+}
+
+function savedGroupProjectionProblem(saved, where) {
+  if (!isPlainObject(saved)) return where + ' must contain the actual saved Builder projection';
+  if (!Object.hasOwn(saved, 'group')) return where + '.group is required';
+  const groupProblem = groupProjectionProblem(saved.group, where + '.group');
+  if (groupProblem) return groupProblem;
+  if (!isPlainObject(saved.workspace) || !Array.isArray(saved.workspace.documents)) {
+    return where + '.workspace.documents must preserve the actual Builder workspace documents';
+  }
+  if (typeof saved.outputId !== 'string' || saved.outputId.trim().length === 0) {
+    return where + '.outputId must identify the selected Builder output';
+  }
+  if (typeof saved.documentId !== 'string' || saved.documentId.trim().length === 0) {
+    return where + '.documentId must identify the selected Builder workspace document';
+  }
+  const selectedDocuments = saved.workspace.documents.filter((document) => document?.output?.id === saved.outputId);
+  if (selectedDocuments.length !== 1 || selectedDocuments[0]?.id !== saved.documentId) {
+    return where + '.outputId/documentId must select exactly one matching document in the raw workspace';
+  }
+  if (!Array.isArray(selectedDocuments[0]?.construction?.steps)) {
+    return where + '.workspace selected document must preserve its raw construction steps';
+  }
+  const groupSteps = selectedDocuments[0].construction.steps
+    .filter((step) => step?.operation?.kind === 'GROUP');
+  if (groupSteps.length > 1) return where + '.workspace selected document must contain at most one GROUP step';
+  if (saved.group === null) {
+    if (groupSteps.length !== 0) return where + '.group null diverges from a GROUP step in the raw workspace';
+  } else {
+    const rawStep = groupSteps[0];
+    if (!rawStep || rawStep.id !== saved.group.stepId) {
+      return where + '.group stepId diverges from the GROUP step in the selected raw workspace document';
+    }
+    const rawGroup = rawStep.operation.group;
+    const rawKeys = Array.isArray(rawGroup?.keys)
+      ? rawGroup.keys.map((key) => typeof key === 'string' ? key : key?.inputColumnId)
+      : null;
+    if (!rawKeys || rawKeys.some((key) => typeof key !== 'string' || key.trim().length === 0)) {
+      return where + '.workspace GROUP keys must preserve raw inputColumnId strings';
+    }
+    const rawAggregates = Array.isArray(rawGroup?.aggregates)
+      ? rawGroup.aggregates.map((aggregate) => aggregate?.operation)
+      : null;
+    if (!rawKeys || canonicalJson(rawKeys) !== canonicalJson(saved.group.keys)) {
+      return where + '.group keys diverge from the GROUP step in the selected raw workspace document';
+    }
+    if (!rawAggregates || rawAggregates.length !== 1 || rawAggregates[0] !== saved.group.aggregate) {
+      return where + '.group aggregate diverges from the GROUP step in the selected raw workspace document';
+    }
+  }
+  if (!(typeof saved.draftVersion === 'number' && Number.isFinite(saved.draftVersion)) &&
+      typeof saved.draftVersion !== 'string') {
+    return where + '.draftVersion must preserve the actual numeric or string version';
+  }
+  if (typeof saved.draftDigest !== 'string' || saved.draftDigest.trim().length === 0) {
+    return where + '.draftDigest must preserve the actual digest string';
+  }
+  return null;
+}
+
+function candidateIntentProblem(intent, where) {
+  if (!isPlainObject(intent)) return where + ' must be an object';
+  if (!['create', 'edit', 'remove'].includes(intent.kind)) return where + '.kind must be create, edit, or remove';
+  if (intent.targetStepId !== null && (typeof intent.targetStepId !== 'string' || intent.targetStepId.trim().length === 0)) {
+    return where + '.targetStepId must be a non-empty raw step ID or null';
+  }
+  if (!Object.hasOwn(intent, 'base')) return where + '.base must preserve the actual pre-proposal Group';
+  if (!Object.hasOwn(intent, 'proposed')) return where + '.proposed must preserve the actual candidate Group';
+  if (!Object.hasOwn(intent, 'rawProposalBody') || !isPlainObject(intent.rawProposalBody)) {
+    return where + '.rawProposalBody must preserve the parsed construction-proposal request body';
+  }
+  for (const field of ['base', 'proposed']) {
+    const problem = groupProjectionProblem(intent[field], where + '.' + field);
+    if (problem) return problem;
+  }
+  if (intent.kind === 'create' && (intent.targetStepId !== null || intent.base !== null || intent.proposed === null)) {
+    return where + ' create must have a null target/base and a proposed Group';
+  }
+  if (intent.kind === 'edit' && (intent.targetStepId === null || intent.base === null || intent.proposed === null)) {
+    return where + ' edit must have a target, saved base Group, and proposed Group';
+  }
+  if (intent.kind === 'remove' && (intent.targetStepId === null || intent.base === null || intent.proposed !== null)) {
+    return where + ' remove must have a target and saved base Group with no proposed Group';
+  }
+  return null;
+}
+
+function previewOwnerProjectionProblem(owner, where, nullable = false) {
+  if (nullable && owner === null) return null;
+  if (!isPlainObject(owner)) return where + ' must be an actual Preview owner or null when no proposal request fired';
+  if (!Number.isInteger(owner.mountEpoch) || owner.mountEpoch < 0 || owner.mountEpoch > 2) {
+    return where + '.mountEpoch must be a finite epoch in 0..2';
+  }
+  if (typeof owner.captureId !== 'string' || owner.captureId.trim().length === 0) {
+    return where + '.captureId must preserve the actual Preview request captureId';
+  }
+  return null;
+}
+
+function groupLifecycleShapeProblem(action, where, required) {
+  const lifecycle = action.groupLifecycle;
+  if (lifecycle === undefined) {
+    return required ? where + '.groupLifecycle is required by the selected Group lifecycle contract' : null;
+  }
+  if (!isPlainObject(lifecycle)) return where + '.groupLifecycle must be an object';
+  if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.mountEpoch < 0 || lifecycle.mountEpoch > 2) {
+    return where + '.groupLifecycle.mountEpoch must be a finite epoch in 0..2';
+  }
+  if (typeof lifecycle.documentTimeOrigin !== 'number' || !Number.isFinite(lifecycle.documentTimeOrigin) ||
+      lifecycle.documentTimeOrigin <= 0) {
+    return where + '.groupLifecycle.documentTimeOrigin must be a positive finite browser timeOrigin';
+  }
+
+  if (BUILDER_GROUP_PREVIEW_LABELS.has(action.label)) {
+    if (!isPlainObject(lifecycle.owner)) return where + '.groupLifecycle.owner is required for a Group proposal request/settlement';
+    if (!Number.isInteger(lifecycle.owner.mountEpoch) || lifecycle.owner.mountEpoch < 0 || lifecycle.owner.mountEpoch > 2) {
+      return where + '.groupLifecycle.owner.mountEpoch must be a finite epoch in 0..2';
+    }
+    if (typeof lifecycle.owner.captureId !== 'string' || lifecycle.owner.captureId.trim().length === 0) {
+      return where + '.groupLifecycle.owner.captureId must preserve the actual request captureId';
+    }
+    if (typeof action.request?.captureId !== 'string' || lifecycle.owner.captureId !== action.request.captureId) {
+      return where + '.groupLifecycle.owner.captureId must match the actual construction-proposal request captureId';
+    }
+    if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label) &&
+        lifecycle.owner.captureId !== action.settlement?.captureId) {
+      return where + '.groupLifecycle.owner.captureId must match the actual settlement captureId';
+    }
+  }
+  if (action.label === 'Preview') {
+    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+    if (problem) return problem;
+  }
+  if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label)) {
+    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+    if (problem) return problem;
+  }
+  if (BUILDER_GROUP_APPLY_LABELS.has(action.label) || BUILDER_GROUP_CANCEL_LABELS.has(action.label) || action.label === 'Reload') {
+    for (const field of ['savedBefore', 'savedAfter']) {
+      const problem = savedGroupProjectionProblem(lifecycle[field], where + '.groupLifecycle.' + field);
+      if (problem) return problem;
+    }
+  }
+  if (BUILDER_GROUP_APPLY_LABELS.has(action.label) || action.label === 'GroupRemovalCancel') {
+    const ownerProblemText = previewOwnerProjectionProblem(lifecycle.candidateOwner, where + '.groupLifecycle.candidateOwner');
+    if (ownerProblemText) return ownerProblemText;
+    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+    if (problem) return problem;
+  }
+  if (action.label === 'GroupEditCancel') {
+    const ownerProblemText = previewOwnerProjectionProblem(
+      lifecycle.candidateOwner,
+      where + '.groupLifecycle.candidateOwner',
+      true,
+    );
+    if (ownerProblemText) return ownerProblemText;
+    if (!Object.hasOwn(lifecycle, 'candidateIntent')) {
+      return where + '.groupLifecycle.candidateIntent must explicitly preserve the proposal intent or null';
+    }
+    if (lifecycle.candidateIntent !== null) {
+      const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+      if (problem) return problem;
+    }
+  }
+  if (action.label === 'Reload') {
+    const problem = groupProjectionProblem(lifecycle.mountedGroup, where + '.groupLifecycle.mountedGroup');
+    if (problem) return problem;
+    if (lifecycle.mountedGroup !== null) {
+      const target = lifecycle.clickedRowTarget;
+      if (!isPlainObject(target) || target.evidence !== 'clicked-row-action-provenance' ||
+          typeof target.testId !== 'string' || !target.testId.startsWith('construction-row-edit-') ||
+          typeof target.stepId !== 'string' || target.stepId.trim().length === 0 ||
+          target.testId !== 'construction-row-edit-' + target.stepId) {
+        return where + '.groupLifecycle.clickedRowTarget must retain the clicked saved-row Edit identity';
+      }
+      if (lifecycle.mountedGroup.stepId !== target.stepId) {
+        return where + '.groupLifecycle.mountedGroup.stepId must match its actual clicked saved-row Edit identity';
+      }
+      if (typeof lifecycle.mountedEditorOutputId !== 'string' ||
+          lifecycle.mountedEditorOutputId !== lifecycle.savedAfter.outputId) {
+        return where + '.groupLifecycle.mountedEditorOutputId must match the selected output of the mounted editor';
+      }
+      const selectedDocument = lifecycle.savedAfter.workspace.documents.find((document) =>
+        document.output?.id === lifecycle.savedAfter.outputId && document.id === lifecycle.savedAfter.documentId);
+      const expectedLabels = lifecycle.mountedGroup.keys.map((key) => {
+        const column = selectedDocument?.columns?.find((candidate) =>
+          (candidate.columnId ?? candidate.id) === key);
+        return column ? 'Group by ' + column.label : null;
+      });
+      if (expectedLabels.some((label) => label === null) ||
+          canonicalJson(expectedLabels) !== canonicalJson(lifecycle.mountedGroup.selectedKeyLabels)) {
+        return where + '.groupLifecycle.mountedGroup selectedKeyLabels must identify its exact raw selected key IDs';
+      }
+    }
+    if (lifecycle.savedAfter.group === null) {
+      const rendered = lifecycle.renderedSourceRows;
+      if (!isPlainObject(rendered) || !Array.isArray(rendered.headers) || rendered.headers.length === 0 ||
+          rendered.headers.some((header) => typeof header !== 'string' || header.trim().length === 0) ||
+          !Array.isArray(rendered.rawRows) || rendered.rawRows.some((row) => !Array.isArray(row) ||
+            row.length !== rendered.headers.length || row.some((cell) => !isPlainObject(cell) ||
+              typeof cell.text !== 'string' || (cell.title !== null && typeof cell.title !== 'string')))) {
+        return where + '.groupLifecycle.renderedSourceRows must retain the raw rendered headers and cells after Group removal';
+      }
+    }
+  }
+  return null;
+}
+
+function candidateIntentRawBodyProblem(intent, where) {
+  if (!isPlainObject(intent) || !isPlainObject(intent.rawProposalBody)) return null;
+  const body = intent.rawProposalBody;
+  if (intent.kind === 'remove') {
+    if (!Array.isArray(body.removeStepIds) || body.removeStepIds.length !== 1 ||
+        body.removeStepIds[0] !== intent.targetStepId) {
+      return where + '.rawProposalBody.removeStepIds must match the actual removal targetStepId';
+    }
+    return null;
+  }
+  const steps = body.candidateConstruction?.steps;
+  if (!Array.isArray(steps) || body.changedStepId !== intent.proposed.stepId) {
+    return where + '.rawProposalBody changedStepId/candidateConstruction must retain the proposed Group step';
+  }
+  const step = steps.find((candidate) => candidate?.id === intent.proposed.stepId);
+  const group = step?.operation?.kind === 'GROUP' ? step.operation.group : null;
+  if (!isPlainObject(group) || !Array.isArray(group.keys) || !Array.isArray(group.aggregates)) {
+    return where + '.rawProposalBody candidateConstruction must contain the proposed GROUP operation';
+  }
+  const rawKeys = group.keys.map((key) => typeof key === 'string' ? key : key?.inputColumnId);
+  if (rawKeys.some((key) => typeof key !== 'string' || key.length === 0) ||
+      canonicalJson(rawKeys) !== canonicalJson(intent.proposed.keys)) {
+    return where + '.rawProposalBody Group keys do not match the retained candidateIntent.proposed.keys';
+  }
+  const rawAggregates = group.aggregates.map((aggregate) => aggregate?.operation);
+  if (rawAggregates.length !== 1 || rawAggregates[0] !== intent.proposed.aggregate) {
+    return where + '.rawProposalBody Group aggregate does not match the retained candidateIntent.proposed.aggregate';
+  }
+  return null;
+}
+
+function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
+  const stepIds = new Map();
+  const rawGroupKeys = new Map();
+  const captureIds = new Map();
+  const captureEpochs = new Map();
+  const documentOrigins = new Map();
+  const previewIntents = new Map();
+  const addStepId = (stepId, actionWhere) => {
+    if (stepId === null || stepId === undefined) return null;
+    if (typeof stepId !== 'string' || stepId.trim().length === 0) return actionWhere + ' has a non-string raw Group step ID';
+    if (!stepIds.has(stepId)) stepIds.set(stepId, stepIds.size);
+    if (stepIds.size > BUILDER_GROUP_STEP_TOKENS.length) {
+      return actionWhere + ' introduces more raw Group step IDs than the bounded model can represent';
+    }
+    return null;
+  };
+  const addGroup = (group, actionWhere) => {
+    if (group === null || group === undefined) return null;
+    const stepProblem = addStepId(group.stepId, actionWhere);
+    if (stepProblem) return stepProblem;
+    for (const key of group.keys) {
+      if (typeof key !== 'string' || key.length === 0) return actionWhere + ' has an invalid raw Group key ID';
+      if (!rawGroupKeys.has(key)) rawGroupKeys.set(key, rawGroupKeys.size);
+      if (rawGroupKeys.size > BUILDER_GROUP_KEY_TOKENS.length) {
+        return actionWhere + ' introduces more raw Group key IDs than the bounded model can represent';
+      }
+    }
+    return null;
+  };
+  const addIntent = (intent, actionWhere) => {
+    if (!isPlainObject(intent)) return null;
+    let problem = addStepId(intent.targetStepId, actionWhere);
+    if (problem) return problem;
+    for (const field of ['base', 'proposed']) {
+      problem = addGroup(intent[field], actionWhere);
+      if (problem) return problem;
+    }
+    return candidateIntentRawBodyProblem(intent, actionWhere + '.groupLifecycle.candidateIntent');
+  };
+
+  for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
+    const action = trace.actions[actionIndex];
+    const actionWhere = where + '.actions[' + actionIndex + ']';
+    const lifecycle = action.groupLifecycle;
+    if (!lifecycle) continue;
+    if (!enabled && !BUILDER_GROUP_LIFECYCLE_LABELS.has(action.label)) continue;
+    if (lifecycle.documentTimeOrigin !== undefined) {
+      const priorOrigin = documentOrigins.get(lifecycle.mountEpoch);
+      if (priorOrigin !== undefined && priorOrigin !== lifecycle.documentTimeOrigin) {
+        return { message: actionWhere + '.groupLifecycle.documentTimeOrigin changed within one mount epoch', actionIndex };
+      }
+      documentOrigins.set(lifecycle.mountEpoch, lifecycle.documentTimeOrigin);
+    }
+    if (lifecycle.owner) {
+      const rawCaptureId = lifecycle.owner.captureId;
+      if (!captureIds.has(rawCaptureId)) captureIds.set(rawCaptureId, captureIds.size);
+      if (captureIds.size > BUILDER_GROUP_CAPTURE_TOKENS.length) {
+        return { message: actionWhere + '.groupLifecycle.owner.captureId exceeds the finite capture token bound', actionIndex };
+      }
+      const priorEpoch = captureEpochs.get(rawCaptureId);
+      if (priorEpoch !== undefined && priorEpoch !== lifecycle.owner.mountEpoch) {
+        return { message: actionWhere + '.groupLifecycle.owner reused a raw captureId with a different mountEpoch', actionIndex };
+      }
+      captureEpochs.set(rawCaptureId, lifecycle.owner.mountEpoch);
+      if (action.label === 'Preview') {
+        const previousIntent = previewIntents.get(rawCaptureId);
+        if (previousIntent) {
+          return { message: actionWhere + '.groupLifecycle.owner.captureId duplicates a Group Preview request', actionIndex };
+        }
+        previewIntents.set(rawCaptureId, canonicalJson(lifecycle.candidateIntent));
+      } else if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label)) {
+        const startIntent = previewIntents.get(rawCaptureId);
+        if (!startIntent) {
+          return { message: actionWhere + '.groupLifecycle.owner.captureId has no matching Group Preview intent', actionIndex };
+        }
+        if (startIntent !== canonicalJson(lifecycle.candidateIntent)) {
+          return { message: actionWhere + '.groupLifecycle candidateIntent changed between Preview and its settlement', actionIndex };
+        }
+      }
+    }
+    if (lifecycle.candidateOwner) {
+      const rawCaptureId = lifecycle.candidateOwner.captureId;
+      if (!captureIds.has(rawCaptureId)) captureIds.set(rawCaptureId, captureIds.size);
+      if (captureIds.size > BUILDER_GROUP_CAPTURE_TOKENS.length) {
+        return { message: actionWhere + '.groupLifecycle.candidateOwner.captureId exceeds the finite capture token bound', actionIndex };
+      }
+      const priorEpoch = captureEpochs.get(rawCaptureId);
+      if (priorEpoch !== undefined && priorEpoch !== lifecycle.candidateOwner.mountEpoch) {
+        return { message: actionWhere + '.groupLifecycle.candidateOwner reused a raw captureId with a different mountEpoch', actionIndex };
+      }
+      captureEpochs.set(rawCaptureId, lifecycle.candidateOwner.mountEpoch);
+      if (!previewIntents.has(rawCaptureId)) {
+        return { message: actionWhere + '.groupLifecycle.candidateOwner.captureId has no preceding Group Preview request', actionIndex };
+      }
+    }
+    if (BUILDER_GROUP_CANCEL_LABELS.has(action.label)) {
+      const intent = lifecycle.candidateIntent;
+      const candidateOwner = lifecycle.candidateOwner;
+      if (intent === null) {
+        if (candidateOwner !== null) {
+          return { message: actionWhere + '.groupLifecycle.candidateOwner must be null when GroupEditCancel has no proposal intent', actionIndex };
+        }
+      } else {
+        const expectedIntent = previewIntents.get(candidateOwner?.captureId);
+        if (!expectedIntent || expectedIntent !== canonicalJson(intent)) {
+          return { message: actionWhere + '.groupLifecycle cancel candidateIntent does not match its actual candidateOwner Preview', actionIndex };
+        }
+      }
+    }
+    const intentProblem = addIntent(lifecycle.candidateIntent, actionWhere);
+    if (intentProblem) return { message: intentProblem, actionIndex };
+    for (const field of ['savedBefore', 'savedAfter']) {
+      const saved = lifecycle[field];
+      if (!isPlainObject(saved)) continue;
+      const problem = addGroup(saved.group, actionWhere);
+      if (problem) return { message: problem, actionIndex };
+    }
+    const mountedProblem = addGroup(lifecycle.mountedGroup, actionWhere);
+    if (mountedProblem) return { message: mountedProblem, actionIndex };
+    if (lifecycle.clickedRowTarget?.stepId) {
+      const targetProblem = addStepId(lifecycle.clickedRowTarget.stepId, actionWhere);
+      if (targetProblem) return { message: targetProblem, actionIndex };
+      if (lifecycle.mountedGroup?.stepId && lifecycle.mountedGroup.stepId !== lifecycle.clickedRowTarget.stepId) {
+        return { message: actionWhere + '.groupLifecycle.clickedRowTarget.stepId disagrees with mountedGroup.stepId', actionIndex };
+      }
+    }
+  }
+  const originEpochs = new Map();
+  for (const [epoch, origin] of documentOrigins) {
+    const priorEpoch = originEpochs.get(origin);
+    if (priorEpoch !== undefined && priorEpoch !== epoch) {
+      return {
+        message: where + ' reused one browser documentTimeOrigin across distinct mount epochs',
+        actionIndex: trace.actions.findIndex((action) => action.groupLifecycle?.mountEpoch === epoch),
+      };
+    }
+    originEpochs.set(origin, epoch);
+  }
+  return null;
 }
 
 function verifyJava() {
@@ -244,6 +686,24 @@ function validateContract(contract) {
     for (const [traceName, actions] of Object.entries(phase1.requiredActionsByTrace)) {
       if (!traceName.trim() || !Array.isArray(actions) || actions.some((action) => typeof action !== 'string')) {
         fail('trace contract phase1.requiredActionsByTrace entries must map non-empty trace names to arrays of strings');
+      }
+    }
+  }
+  if (phase1.requiredActionCountsByTrace !== undefined) {
+    if (!isPlainObject(phase1.requiredActionCountsByTrace)) {
+      fail('trace contract phase1.requiredActionCountsByTrace must be an object when present');
+    }
+    for (const [traceName, actionCounts] of Object.entries(phase1.requiredActionCountsByTrace)) {
+      if (!traceName.trim() || !isPlainObject(actionCounts)) {
+        fail('trace contract phase1.requiredActionCountsByTrace entries must map non-empty trace names to action-count objects');
+      }
+      for (const [action, count] of Object.entries(actionCounts)) {
+        if (typeof action !== 'string' || action.length === 0 || !Number.isInteger(count) || count < 0) {
+          fail('trace contract phase1.requiredActionCountsByTrace values must be non-negative integer counts');
+        }
+        if (!Object.values(contract.models).some((definition) => definition.actions.includes(action))) {
+          fail('trace contract phase1.requiredActionCountsByTrace names unknown action ' + action);
+        }
       }
     }
   }
@@ -945,6 +1405,8 @@ function traceShapeProblem(trace, index, contract, events) {
     return { message: where + '.model "' + String(trace.model) + '" is not defined by the contract' };
   }
   const actions = new Set(contract.models[trace.model].actions);
+  const hasGroupLifecycleContract = trace.model === 'BuilderJourney' &&
+    groupLifecycleEnabled(contract) && BUILDER_GROUP_TRACE_NAMES.has(trace.name);
   if (!Array.isArray(trace.actions)) return { message: where + '.actions must be an array' };
   if (trace.unmodeledEvents !== undefined) {
     if (!Array.isArray(trace.unmodeledEvents)) {
@@ -1173,6 +1635,12 @@ function traceShapeProblem(trace, index, contract, events) {
     if (trace.model === 'BuilderJourney') {
       const evidenceProblem = journeyPreviewEvidenceProblem(action, actionWhere);
       if (evidenceProblem) return { message: evidenceProblem, actionIndex };
+      const groupLifecycleProblem = groupLifecycleShapeProblem(
+        action,
+        actionWhere,
+        hasGroupLifecycleContract && BUILDER_GROUP_LIFECYCLE_LABELS.has(action.label),
+      );
+      if (groupLifecycleProblem) return { message: groupLifecycleProblem, actionIndex };
     }
   }
   if (trace.model === 'ReconcileLifecycle') {
@@ -1180,6 +1648,12 @@ function traceShapeProblem(trace, index, contract, events) {
     if (problem) return problem;
   }
   if (trace.model === 'BuilderJourney') {
+    const groupLifecycleConsistencyProblem = journeyGroupLifecycleConsistencyProblem(
+      trace,
+      where,
+      hasGroupLifecycleContract,
+    );
+    if (groupLifecycleConsistencyProblem) return groupLifecycleConsistencyProblem;
     const choiceProblem = journeyChoiceTraceProblem(trace, where);
     if (choiceProblem) return choiceProblem;
     const previewStartByCapture = new Map();
@@ -1268,6 +1742,7 @@ function traceKey(trace) {
       request: action.request ?? null,
       response: action.response ?? null,
       settlement: action.settlement ?? null,
+      groupLifecycle: action.groupLifecycle ?? null,
     })),
   });
 }
@@ -1536,6 +2011,157 @@ function traceExpectedProposalValue(action) {
   return action.expectedProposal ?? 'NoExpectedProposal';
 }
 
+function collectGroupLifecycleTokens(trace) {
+  const stepTokens = new Map();
+  const captureTokens = new Map();
+  const keyTokens = new Map();
+  const addStep = (value) => {
+    if (typeof value === 'string' && !stepTokens.has(value)) {
+      stepTokens.set(value, BUILDER_GROUP_STEP_TOKENS[stepTokens.size]);
+    }
+  };
+  const addGroup = (group) => {
+    if (!isPlainObject(group)) return;
+    addStep(group.stepId);
+    for (const key of group.keys) {
+      if (typeof key === 'string' && !keyTokens.has(key)) {
+        keyTokens.set(key, BUILDER_GROUP_KEY_TOKENS[keyTokens.size]);
+      }
+    }
+  };
+  const addIntent = (intent) => {
+    if (!isPlainObject(intent)) return;
+    addStep(intent.targetStepId);
+    addGroup(intent.base);
+    addGroup(intent.proposed);
+  };
+  for (const action of trace.actions) {
+    const lifecycle = action.groupLifecycle;
+    if (!isPlainObject(lifecycle)) continue;
+    if (isPlainObject(lifecycle.owner) && typeof lifecycle.owner.captureId === 'string' &&
+        !captureTokens.has(lifecycle.owner.captureId)) {
+      captureTokens.set(lifecycle.owner.captureId, BUILDER_GROUP_CAPTURE_TOKENS[captureTokens.size]);
+    }
+    if (isPlainObject(lifecycle.candidateOwner) && typeof lifecycle.candidateOwner.captureId === 'string' &&
+        !captureTokens.has(lifecycle.candidateOwner.captureId)) {
+      captureTokens.set(lifecycle.candidateOwner.captureId, BUILDER_GROUP_CAPTURE_TOKENS[captureTokens.size]);
+    }
+    addIntent(lifecycle.candidateIntent);
+    addGroup(lifecycle.savedBefore?.group);
+    addGroup(lifecycle.savedAfter?.group);
+    addGroup(lifecycle.mountedGroup);
+  }
+  return { stepTokens, captureTokens, keyTokens };
+}
+
+function groupRecordForTla(group, stepTokens, keyTokens) {
+  if (group === null || group === undefined) return 'NoGroup';
+  const shape = ['EmptyKeys', 'ByID', 'ByIDGender'][group.keys.length];
+  const keys = '<<' + group.keys.map((key) => tlaString(keyTokens.get(key))).join(', ') + '>>';
+  return '[stepId |-> ' + tlaString(stepTokens.get(group.stepId)) +
+    ', shape |-> ' + tlaString(shape) +
+    ', keys |-> ' + keys +
+    ', aggregate |-> ' + tlaString(group.aggregate) + ']';
+}
+
+function candidateIntentForTla(intent, stepTokens, keyTokens) {
+  if (!isPlainObject(intent)) return 'NoCandidateIntent';
+  return '[kind |-> ' + tlaString(intent.kind) +
+    ', targetStepId |-> ' + tlaString(intent.targetStepId === null ? 'NoStep' : stepTokens.get(intent.targetStepId)) +
+    ', base |-> ' + groupRecordForTla(intent.base, stepTokens, keyTokens) +
+    ', proposed |-> ' + groupRecordForTla(intent.proposed, stepTokens, keyTokens) + ']';
+}
+
+function tlaCaptureToken(value) {
+  if (typeof value !== 'string' || !/^c(?:[1-9]|1[0-2])$/.test(value)) {
+    fail('mapped Group capture token is outside the finite c1..c12 domain');
+  }
+  return value;
+}
+
+function groupLifecycleRecords(trace) {
+  const { stepTokens, captureTokens, keyTokens } = collectGroupLifecycleTokens(trace);
+  return trace.actions.map((action) => {
+    const lifecycle = action.groupLifecycle;
+    if (!isPlainObject(lifecycle)) return '"NoGroupLifecycle"';
+    const owner = isPlainObject(lifecycle.owner) ? lifecycle.owner : null;
+    const savedBefore = lifecycle.savedBefore;
+    const savedAfter = lifecycle.savedAfter;
+    const workspaceSame = isPlainObject(savedBefore) && isPlainObject(savedAfter) &&
+      canonicalJson(savedBefore.workspace) === canonicalJson(savedAfter.workspace);
+    const versionSame = isPlainObject(savedBefore) && isPlainObject(savedAfter) &&
+      canonicalJson(savedBefore.draftVersion) === canonicalJson(savedAfter.draftVersion);
+    const digestSame = isPlainObject(savedBefore) && isPlainObject(savedAfter) &&
+      canonicalJson(savedBefore.draftDigest) === canonicalJson(savedAfter.draftDigest);
+    const candidateOwner = isPlainObject(lifecycle.candidateOwner)
+      ? '[mountEpoch |-> ' + lifecycle.candidateOwner.mountEpoch +
+        ', captureId |-> ' + tlaCaptureToken(captureTokens.get(lifecycle.candidateOwner.captureId)) + ']'
+      : 'NoPreviewOwner';
+    return '[mountEpoch |-> ' + lifecycle.mountEpoch +
+      ', ownerEpoch |-> ' + (owner ? owner.mountEpoch : '"NoObservedValue"') +
+      ', captureId |-> ' + (owner ? tlaCaptureToken(captureTokens.get(owner.captureId)) : '"NoCapture"') +
+      ', candidateOwner |-> ' + candidateOwner +
+      ', intent |-> ' + candidateIntentForTla(lifecycle.candidateIntent, stepTokens, keyTokens) +
+      ', savedBeforeGroup |-> ' + groupRecordForTla(savedBefore?.group, stepTokens, keyTokens) +
+      ', savedAfterGroup |-> ' + groupRecordForTla(savedAfter?.group, stepTokens, keyTokens) +
+      ', mountedGroup |-> ' + groupRecordForTla(lifecycle.mountedGroup, stepTokens, keyTokens) +
+      ', workspaceSame |-> ' + tlaBool(workspaceSame) +
+      ', versionSame |-> ' + tlaBool(versionSame) +
+      ', digestSame |-> ' + tlaBool(digestSame) + ']';
+  });
+}
+
+function actionGroupLifecycleMatches(enabled) {
+  if (!enabled) return 'ActionGroupLifecycleMatches(index) == TRUE';
+  return [
+    'ActionGroupLifecycleMatches(index) ==',
+    '  LET label == TraceActions[index]',
+    '      lifecycle == TraceGroupLifecycles[index]',
+    '      attempt == TraceOwnerAttempts[index]',
+    '  IN CASE label = "Preview" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ lifecycle.mountEpoch = lifecycle.ownerEpoch',
+    '         /\\ Preview(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId, lifecycle.intent)',
+    '       [] label = "PreviewComplete" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ lifecycle.mountEpoch = lifecycle.ownerEpoch',
+    '         /\\ PreviewComplete(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "PreviewError" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ lifecycle.mountEpoch = lifecycle.ownerEpoch',
+    '         /\\ PreviewError(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId, TraceObservations[index].proposalIdPresent)',
+    '       [] label = "PreviewRequestCancelled" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ lifecycle.mountEpoch = lifecycle.ownerEpoch',
+    '         /\\ PreviewRequestCancelled(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "LatePreviewCompleteIgnored" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ LatePreviewCompleteIgnored(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "LatePreviewErrorIgnored" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ LatePreviewErrorIgnored(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "Group" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ Group(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup)',
+    '       [] label = "EditGroup" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ EditGroup(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup)',
+    '       [] label = "EditGroupAgain" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ EditGroupAgain(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup)',
+    '       [] label = "RemoveGroup" ->',
+    '         /\\ lifecycle.mountEpoch = mountEpoch',
+    '         /\\ RemoveGroup(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup)',
+    '       [] label = "GroupEditCancel" ->',
+    '         GroupEditCancel(lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup, lifecycle.workspaceSame, lifecycle.versionSame, lifecycle.digestSame)',
+    '       [] label = "GroupRemovalCancel" ->',
+    '         GroupRemovalCancel(lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup, lifecycle.workspaceSame, lifecycle.versionSame, lifecycle.digestSame)',
+    '       [] label = "Reload" ->',
+    '         Reload(lifecycle.mountEpoch, lifecycle.savedBeforeGroup, lifecycle.savedAfterGroup, lifecycle.mountedGroup)',
+    '       [] OTHER -> TRUE',
+  ].join('\n');
+}
+
 function actionOwnerMatches(model) {
   if (model === 'ConstructionLifecycle') {
     return [
@@ -1655,7 +2281,7 @@ function actionIdentityPreserved(model) {
   ].join('\n');
 }
 
-function generateModule(trace, moduleName) {
+function generateModule(trace, moduleName, hasGroupLifecycle) {
   const actions = ['"Init"', ...trace.actions.map((action) => tlaString(action.label))];
   const ownerAttempts = ['"NoAttempt"', ...trace.actions.map((action) => tlaString(traceOwnerValue(action)))];
   const expectedProposals = ['"NoExpectedProposal"', ...trace.actions.map((action) => tlaString(traceExpectedProposalValue(action)))];
@@ -1663,6 +2289,7 @@ function generateModule(trace, moduleName) {
     tlaObservation(trace.initialObservation),
     ...trace.actions.map((action) => tlaObservation(action.observation)),
   ];
+  const groupLifecycleObservations = groupLifecycleRecords(trace);
   const modelMapping = trace.model === 'BuilderPreview'
     ? builderPreviewObservationMapping
     : trace.model === 'ReconcileLifecycle'
@@ -1708,6 +2335,7 @@ function generateModule(trace, moduleName) {
         "       /\\ ActionLabelMatches(TraceActions[traceIndex + 1])",
         '       /\\ ActionOwnerMatches(traceIndex + 1)',
         '       /\\ ActionIdentityPreserved(traceIndex + 1)',
+        '       /\\ ActionGroupLifecycleMatches(traceIndex + 1)',
         '       /\\ ObsMatchesNext(TraceObservations[traceIndex + 1])',
         "       /\\ traceIndex' = traceIndex + 1",
         '  ELSE /\\ UNCHANGED vars',
@@ -1741,11 +2369,14 @@ function generateModule(trace, moduleName) {
     '',
     'TraceOwnerAttempts == ' + tlaSequence(ownerAttempts),
     '',
+    ...(hasGroupLifecycle ? ['TraceGroupLifecycles == ' + tlaSequence(groupLifecycleObservations), ''] : []),
     'TraceExpectedProposals == ' + tlaSequence(expectedProposals),
     '',
     actionLabelMatches(trace.model),
     '',
     actionOwnerMatches(trace.model),
+    '',
+    actionGroupLifecycleMatches(hasGroupLifecycle),
     '',
     actionIdentityPreserved(trace.model),
     '',
@@ -1778,11 +2409,25 @@ function generateModule(trace, moduleName) {
   ].join('\n');
 }
 
-function generateConfig() {
+function generateConfig(trace, hasGroupLifecycle) {
   return [
     'SPECIFICATION TraceSpec',
+    ...(trace.model === 'BuilderJourney'
+      ? ['CONSTANTS CaptureIds = {' + (hasGroupLifecycle ? BUILDER_GROUP_CAPTURE_TOKENS : ['c1', 'c2']).join(', ') + '}']
+      : []),
     'INVARIANT TypeOK',
     'INVARIANT TraceProgress',
+    ...(trace.model === 'BuilderJourney' && hasGroupLifecycle
+      ? [
+          'INVARIANT CancelPreservesPersistedGroup',
+          'INVARIANT ApplyUsesCurrentCandidate',
+          'INVARIANT ReloadRestoresPersistedGroup',
+          'INVARIANT OldOwnerCannotSettleCurrentPreview',
+          'INVARIANT PivotRequiresReshapeOrDirect',
+          'INVARIANT RowsOnlyAfterProposalPreview',
+          'INVARIANT SourceRowsRequireReadyTablePreview',
+        ]
+      : []),
     '',
   ].join('\n');
 }
@@ -1803,7 +2448,7 @@ function outputTail(text, lines = 30) {
   return split.slice(-lines).join('\n');
 }
 
-function runTlc(jarPath, trace, uniqueIndex) {
+function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle) {
   const runDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-traces-'));
   const modelDirectory = join(runDirectory, 'model');
   const metadataDirectory = join(runDirectory, 'states');
@@ -1813,8 +2458,8 @@ function runTlc(jarPath, trace, uniqueIndex) {
   const moduleFile = moduleName + '.tla';
   const configFile = moduleName + '.cfg';
   copyFileSync(resolve(ROOT, MODEL_DIR, trace.model + '.tla'), join(modelDirectory, trace.model + '.tla'));
-  writeFileSync(join(modelDirectory, moduleFile), generateModule(trace, moduleName));
-  writeFileSync(join(modelDirectory, configFile), generateConfig());
+  writeFileSync(join(modelDirectory, moduleFile), generateModule(trace, moduleName, hasGroupLifecycle));
+  writeFileSync(join(modelDirectory, configFile), generateConfig(trace, hasGroupLifecycle));
   const args = [
     '-XX:+UseParallelGC', '-cp', jarPath, 'tlc2.TLC',
     '-workers', '4',
@@ -1890,6 +2535,7 @@ async function main() {
   const options = parseArgs();
   const contract = validateContract(readJson(options.contract ? resolve(process.cwd(), options.contract) : CONTRACT_RELATIVE));
   const counts = expectedCounts(contract);
+  const hasGroupLifecycle = groupLifecycleEnabled(contract);
 
   let payload;
   try {
@@ -1951,6 +2597,22 @@ async function main() {
     const missing = requiredActions.filter((action) => !traceActions.has(action));
     if (missing.length > 0) missingActionsByTrace[traceName] = missing;
   }
+  const actionCountMismatchesByTrace = {};
+  for (const [traceName, expectedCountsByAction] of Object.entries(contract.phase1.requiredActionCountsByTrace ?? {})) {
+    const trace = traces.find((candidate) => candidate.name === traceName);
+    const modelActions = new Set(contract.models[trace?.model]?.actions ?? []);
+    const actualCounts = new Map();
+    for (const action of trace?.actions ?? []) {
+      const label = normalizedActionLabel(trace.model, action.label, modelActions) ?? action.label;
+      actualCounts.set(label, (actualCounts.get(label) ?? 0) + 1);
+    }
+    const mismatches = {};
+    for (const [action, expected] of Object.entries(expectedCountsByAction)) {
+      const actual = actualCounts.get(action) ?? 0;
+      if (actual !== expected) mismatches[action] = { expected, actual };
+    }
+    if (Object.keys(mismatches).length > 0) actionCountMismatchesByTrace[traceName] = mismatches;
+  }
   const coverageProblems = [];
   if (!options.allowPartial) {
     if (missingActions.length > 0) coverageProblems.push('required actions missing: ' + missingActions.join(', '));
@@ -1958,6 +2620,11 @@ async function main() {
     if (missingModels.length > 0) coverageProblems.push('required models missing: ' + missingModels.join(', '));
     for (const [traceName, missing] of Object.entries(missingActionsByTrace)) {
       coverageProblems.push('trace "' + traceName + '" missing required actions: ' + missing.join(', '));
+    }
+    for (const [traceName, mismatches] of Object.entries(actionCountMismatchesByTrace)) {
+      for (const [action, count] of Object.entries(mismatches)) {
+        coverageProblems.push('trace "' + traceName + '" action ' + action + ' count expected ' + count.expected + ', found ' + count.actual);
+      }
     }
   }
 
@@ -1989,7 +2656,8 @@ async function main() {
     uniqueIndex += 1;
     const trace = traces[firstIndex];
     if (!options.quiet) console.log('Validating ' + trace.model + ' trace "' + trace.name + '" (' + trace.actions.length + ' actions, ' + indexes.length + ' copy/copies)...');
-    runResults.set(key, runTlc(jarPath, trace, uniqueIndex));
+    const traceHasGroupLifecycle = hasGroupLifecycle && BUILDER_GROUP_TRACE_NAMES.has(trace.name);
+    runResults.set(key, runTlc(jarPath, trace, uniqueIndex, traceHasGroupLifecycle));
   }
 
   const modelCounts = {};
@@ -2041,6 +2709,7 @@ async function main() {
       requiredModels: { missing: missingModels },
       requiredActions: { missing: missingActions },
       requiredActionsByTrace: { missing: missingActionsByTrace },
+      requiredActionCountsByTrace: { mismatches: actionCountMismatchesByTrace },
       requiredEvents: { missing: missingEvents },
     },
     traces: reportTraces,
@@ -2061,6 +2730,9 @@ async function main() {
     if (missingActions.length > 0) console.log('Missing required actions: ' + missingActions.join(', '));
     if (missingEvents.length > 0) console.log('Missing required events: ' + missingEvents.join(', '));
     if (missingModels.length > 0) console.log('Missing required models: ' + missingModels.join(', '));
+    for (const [traceName, mismatches] of Object.entries(actionCountMismatchesByTrace)) {
+      console.log('Required action counts for ' + traceName + ': ' + JSON.stringify(mismatches));
+    }
   }
 
   if (outputPath) console.log('Wrote trace validation report to ' + outputPath);
