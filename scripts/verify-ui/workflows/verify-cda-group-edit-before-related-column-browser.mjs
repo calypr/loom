@@ -357,6 +357,11 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
   return { request, requestIndex: nativeCapture.requests.indexOf(request), response, panel };
 };
 const findNative = (startIndex, path, predicate = () => true) => nativeCapture.requests.slice(startIndex).findLast((entry) => entry.path === path && predicate(entry));
+const closeRowSettings = async () => {
+  const dialog = '[role="dialog"][aria-label="Row definition settings"]';
+  await click(page, `${dialog} button`, { name: 'Back to table' });
+  await waitForControl(page, dialog, { hidden: true });
+};
 const applyGroupProposal = async (proposal, savedBefore, expectedRows, label) => {
   const startedAt = Date.now();
   const requestStart = nativeCapture.requests.length;
@@ -572,6 +577,7 @@ FOR s IN (
     builder = await api(base + '/builder');
     assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest);
     recordAction(`apply-expand-${hop.from}-${hop.to}`, actionStart, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
+    await closeRowSettings();
     assertSourceBinding(builder, selectedPopulationRoute);
   }
   assert(witnesses.length > 1, 'The chosen CDA Specimen must reach multiple Observations');
@@ -603,6 +609,7 @@ FOR s IN (
   const initialGroupProposal = await browserProposal({ requestStart: groupStartIndex, path: base + '/construction-proposals',
     expectedRows: groupedRows, state: builder, label: 'group-by-Specimen-ID-count-rows', startedAt: groupStartedAt });
   builder = await applyGroupProposal(initialGroupProposal.response, builder, groupedRows, 'apply-initial-Group');
+  await closeRowSettings();
   const groupBaseline = structuredClone(builder);
   const groupDocumentBaseline = structuredClone(doc(builder));
   assertSourceBinding(builder, selectedPopulationRoute);
