@@ -1,0 +1,956 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+  "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "sourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+  "traces": [
+    {
+      "name": "journey/edit-remove-reload-basic-budget",
+      "model": "BuilderJourney",
+      "initialObservation": {
+        "status": "absent",
+        "proposalPanelPresent": false,
+        "canApply": false,
+        "proposalIdPresent": false,
+        "proposalId": null,
+        "proposalOutputId": null,
+        "proposalSnapshotToken": null,
+        "proposalDraftVersion": null,
+        "proposalDraftDigest": null,
+        "proposalPreviewStatus": null,
+        "proposalPreviewSurface": "unknown",
+        "previewReceiptPresent": false,
+        "rowsPresent": false,
+        "receiptPresent": false,
+        "previewReceiptId": null,
+        "previewOutputId": null,
+        "tablePreviewStatus": "ready",
+        "sourceTablePreview": {
+          "status": "ready",
+          "receiptId": "receipt_0e7e300617f3a0854fdedd85752becc493c8933121e61124cfbccc0e0ddf67c3",
+          "outputId": "out_343ebe0b9b756ecf39112fb3",
+          "proposalId": null,
+          "draftVersion": 2,
+          "draftDigest": "sha256:1bbd06aa70d54d56c6b4e3e5013fc5ce5361ff373d2d03b65f79c39e712ed845",
+          "rowsPresent": true,
+          "rowCount": 2,
+          "renderedRowCount": 2
+        },
+        "embeddedProposalPreview": null,
+        "apply": {
+          "available": false,
+          "enabled": false,
+          "applying": false
+        }
+      },
+      "initialPreview": {
+        "owner": {
+          "kind": "preview",
+          "attempt": "P1"
+        },
+        "request": {
+          "method": "POST",
+          "path": "preview",
+          "requestId": null,
+          "captureId": "b1a868ee-763b-4dcd-be2a-7e76fe8c4cbe"
+        },
+        "response": {
+          "status": 200,
+          "requestId": "ca731f7d-64b7-418b-ab35-b8e8c2130d5b",
+          "captureId": "b1a868ee-763b-4dcd-be2a-7e76fe8c4cbe",
+          "proposalId": null,
+          "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+          "proposalSnapshotToken": null,
+          "proposalDraftVersion": null,
+          "proposalDraftDigest": null,
+          "proposalPreviewStatus": null,
+          "preview": {
+            "receiptId": "receipt_0e7e300617f3a0854fdedd85752becc493c8933121e61124cfbccc0e0ddf67c3",
+            "outputId": "out_343ebe0b9b756ecf39112fb3",
+            "rowCount": 2,
+            "rowsPresent": true
+          },
+          "errorCode": null
+        },
+        "settlement": {
+          "kind": "http-response",
+          "captureId": "b1a868ee-763b-4dcd-be2a-7e76fe8c4cbe"
+        }
+      },
+      "actions": [
+        {
+          "label": "Preview",
+          "event": "preview",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-c171387b-cc28-4630-8f49-df40dc0cb81e",
+            "captureId": "2c1c3553-a5d0-487a-b3ca-4b2c2a0e3f8f"
+          },
+          "observation": {
+            "status": "previewing",
+            "proposalPanelPresent": true,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "previewing",
+            "sourceTablePreview": {
+              "status": "previewing",
+              "receiptId": "receipt_0e7e300617f3a0854fdedd85752becc493c8933121e61124cfbccc0e0ddf67c3",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 2,
+              "draftDigest": "sha256:1bbd06aa70d54d56c6b4e3e5013fc5ce5361ff373d2d03b65f79c39e712ed845",
+              "rowsPresent": true,
+              "rowCount": 2,
+              "renderedRowCount": 2
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "PreviewComplete",
+          "event": "preview-response",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-c171387b-cc28-4630-8f49-df40dc0cb81e",
+            "captureId": "2c1c3553-a5d0-487a-b3ca-4b2c2a0e3f8f"
+          },
+          "response": {
+            "status": 200,
+            "requestId": "construction-proposal-c171387b-cc28-4630-8f49-df40dc0cb81e",
+            "captureId": "2c1c3553-a5d0-487a-b3ca-4b2c2a0e3f8f",
+            "proposalId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+            "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "proposalSnapshotToken": "sha256:723c25808643bdd124f60b99fd3bbbe12299b5afffb4540814fb38ab2954f905",
+            "proposalDraftVersion": 2,
+            "proposalDraftDigest": "sha256:1bbd06aa70d54d56c6b4e3e5013fc5ce5361ff373d2d03b65f79c39e712ed845",
+            "proposalPreviewStatus": "READY",
+            "preview": {
+              "receiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "rowCount": 1,
+              "rowsPresent": true
+            },
+            "errorCode": null
+          },
+          "settlement": {
+            "kind": "http-response",
+            "captureId": "2c1c3553-a5d0-487a-b3ca-4b2c2a0e3f8f"
+          },
+          "observation": {
+            "status": "ready",
+            "proposalPanelPresent": true,
+            "canApply": true,
+            "proposalIdPresent": true,
+            "proposalId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+            "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "proposalSnapshotToken": "sha256:723c25808643bdd124f60b99fd3bbbe12299b5afffb4540814fb38ab2954f905",
+            "proposalDraftVersion": 2,
+            "proposalDraftDigest": "sha256:1bbd06aa70d54d56c6b4e3e5013fc5ce5361ff373d2d03b65f79c39e712ed845",
+            "proposalPreviewStatus": "READY",
+            "proposalPreviewSurface": "row-operation",
+            "previewReceiptPresent": true,
+            "rowsPresent": true,
+            "receiptPresent": true,
+            "previewReceiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+            "previewOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "tablePreviewStatus": "ready",
+            "sourceTablePreview": {
+              "status": "ready",
+              "receiptId": "receipt_0e7e300617f3a0854fdedd85752becc493c8933121e61124cfbccc0e0ddf67c3",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 2,
+              "draftDigest": "sha256:1bbd06aa70d54d56c6b4e3e5013fc5ce5361ff373d2d03b65f79c39e712ed845",
+              "rowsPresent": true,
+              "rowCount": 2,
+              "renderedRowCount": 2
+            },
+            "embeddedProposalPreview": {
+              "status": "ready",
+              "receiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "rowsPresent": true,
+              "rowCount": 1,
+              "renderedRowCount": 1
+            },
+            "apply": {
+              "available": true,
+              "enabled": true,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "Group",
+          "event": "group",
+          "owner": {
+            "kind": "apply",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "commands",
+            "requestId": "builder-command-98cbc7af-12f9-4223-8399-f4d63899c12b",
+            "captureId": "987e1193-5e9c-44a7-80b2-0c7d019fa082",
+            "commandId": "98cbc7af-12f9-4223-8399-f4d63899c12b"
+          },
+          "response": {
+            "status": 200,
+            "requestId": "builder-command-98cbc7af-12f9-4223-8399-f4d63899c12b",
+            "captureId": "987e1193-5e9c-44a7-80b2-0c7d019fa082",
+            "commandId": "98cbc7af-12f9-4223-8399-f4d63899c12b",
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": 3,
+            "proposalDraftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+            "proposalPreviewStatus": null,
+            "preview": null,
+            "errorCode": null
+          },
+          "settlement": {
+            "kind": "http-response",
+            "captureId": "987e1193-5e9c-44a7-80b2-0c7d019fa082"
+          },
+          "observation": {
+            "status": "absent",
+            "proposalPanelPresent": false,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "ready",
+            "sourceTablePreview": {
+              "status": "ready",
+              "receiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 3,
+              "draftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+              "rowsPresent": true,
+              "rowCount": 1,
+              "renderedRowCount": 1
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "Preview",
+          "event": "preview",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-c6a2dc07-4042-40d8-ba0b-60b5a4e972de",
+            "captureId": "c35563db-9bf6-4d6a-b389-1cbeb89874bd"
+          },
+          "observation": {
+            "status": "previewing",
+            "proposalPanelPresent": true,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "previewing",
+            "sourceTablePreview": {
+              "status": "previewing",
+              "receiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 3,
+              "draftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+              "rowsPresent": true,
+              "rowCount": 1,
+              "renderedRowCount": 1
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "PreviewRequestCancelled",
+          "event": "preview-request-cancelled",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-c6a2dc07-4042-40d8-ba0b-60b5a4e972de",
+            "captureId": "c35563db-9bf6-4d6a-b389-1cbeb89874bd"
+          },
+          "response": null,
+          "settlement": {
+            "kind": "request-failed",
+            "captureId": "c35563db-9bf6-4d6a-b389-1cbeb89874bd",
+            "errorText": "net::ERR_ABORTED"
+          },
+          "observation": {
+            "status": "previewing",
+            "proposalPanelPresent": true,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "previewing",
+            "sourceTablePreview": {
+              "status": "previewing",
+              "receiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 3,
+              "draftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+              "rowsPresent": true,
+              "rowCount": 1,
+              "renderedRowCount": 1
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "Preview",
+          "event": "preview",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P2"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-4776938e-4b49-451d-ba6b-0953862cb3c6",
+            "captureId": "085a66ef-756e-4e28-b447-3193885e5775"
+          },
+          "observation": {
+            "status": "previewing",
+            "proposalPanelPresent": true,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "previewing",
+            "sourceTablePreview": {
+              "status": "previewing",
+              "receiptId": "receipt_4227f1ab214fe16f68119fa8ef8c1fef9fa4b7210d86bd9de25e1ff8e6715424",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 3,
+              "draftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+              "rowsPresent": true,
+              "rowCount": 1,
+              "renderedRowCount": 1
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "PreviewComplete",
+          "event": "preview-response",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P2"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-4776938e-4b49-451d-ba6b-0953862cb3c6",
+            "captureId": "085a66ef-756e-4e28-b447-3193885e5775"
+          },
+          "response": {
+            "status": 200,
+            "requestId": "construction-proposal-4776938e-4b49-451d-ba6b-0953862cb3c6",
+            "captureId": "085a66ef-756e-4e28-b447-3193885e5775",
+            "proposalId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+            "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "proposalSnapshotToken": "sha256:723c25808643bdd124f60b99fd3bbbe12299b5afffb4540814fb38ab2954f905",
+            "proposalDraftVersion": 3,
+            "proposalDraftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+            "proposalPreviewStatus": "READY",
+            "preview": {
+              "receiptId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "rowCount": 2,
+              "rowsPresent": true
+            },
+            "errorCode": null
+          },
+          "settlement": {
+            "kind": "http-response",
+            "captureId": "085a66ef-756e-4e28-b447-3193885e5775"
+          },
+          "observation": {
+            "status": "ready",
+            "proposalPanelPresent": true,
+            "canApply": true,
+            "proposalIdPresent": true,
+            "proposalId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+            "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "proposalSnapshotToken": "sha256:723c25808643bdd124f60b99fd3bbbe12299b5afffb4540814fb38ab2954f905",
+            "proposalDraftVersion": 3,
+            "proposalDraftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+            "proposalPreviewStatus": "READY",
+            "proposalPreviewSurface": "main-table",
+            "previewReceiptPresent": true,
+            "rowsPresent": true,
+            "receiptPresent": true,
+            "previewReceiptId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+            "previewOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "tablePreviewStatus": "ready",
+            "sourceTablePreview": {
+              "status": "ready",
+              "receiptId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "draftVersion": 3,
+              "draftDigest": "sha256:50f69da414213e706e7eb505a4f4e47ec644c97e124b5bb708e668a9f97dfd5d",
+              "rowsPresent": true,
+              "rowCount": null,
+              "renderedRowCount": 0
+            },
+            "embeddedProposalPreview": {
+              "status": "ready",
+              "receiptId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "rowsPresent": true,
+              "rowCount": null,
+              "renderedRowCount": 0
+            },
+            "apply": {
+              "available": true,
+              "enabled": true,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "EditGroup",
+          "event": "edit-group",
+          "owner": {
+            "kind": "apply",
+            "attempt": "P2"
+          },
+          "request": {
+            "method": "POST",
+            "path": "commands",
+            "requestId": "builder-command-8bd9c1cf-999b-4497-98b9-74526bad90e6",
+            "captureId": "f11485a0-fc9c-4f03-9d2a-a7bee009e7e9",
+            "commandId": "8bd9c1cf-999b-4497-98b9-74526bad90e6"
+          },
+          "response": {
+            "status": 200,
+            "requestId": "builder-command-8bd9c1cf-999b-4497-98b9-74526bad90e6",
+            "captureId": "f11485a0-fc9c-4f03-9d2a-a7bee009e7e9",
+            "commandId": "8bd9c1cf-999b-4497-98b9-74526bad90e6",
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": 4,
+            "proposalDraftDigest": "sha256:92a094b46ec836a8c984518b199a24331ec58db143825337b7b2b74bbeba8077",
+            "proposalPreviewStatus": null,
+            "preview": null,
+            "errorCode": null
+          },
+          "settlement": {
+            "kind": "http-response",
+            "captureId": "f11485a0-fc9c-4f03-9d2a-a7bee009e7e9"
+          },
+          "observation": {
+            "status": "absent",
+            "proposalPanelPresent": false,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "ready",
+            "sourceTablePreview": {
+              "status": "ready",
+              "receiptId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 4,
+              "draftDigest": "sha256:92a094b46ec836a8c984518b199a24331ec58db143825337b7b2b74bbeba8077",
+              "rowsPresent": true,
+              "rowCount": 2,
+              "renderedRowCount": 2
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "Preview",
+          "event": "preview",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-7262e486-7557-43d2-baf9-9129f1d57d07",
+            "captureId": "9eba0c3e-ee59-4b8e-a234-508cdb5e1ba3"
+          },
+          "observation": {
+            "status": "previewing",
+            "proposalPanelPresent": true,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "previewing",
+            "sourceTablePreview": {
+              "status": "previewing",
+              "receiptId": "receipt_d525cf9ecdf6d7702d7386b8e1bd2d373cf6f0c46efdeaddbaa621708ab3a4f5",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 4,
+              "draftDigest": "sha256:92a094b46ec836a8c984518b199a24331ec58db143825337b7b2b74bbeba8077",
+              "rowsPresent": true,
+              "rowCount": 2,
+              "renderedRowCount": 2
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "PreviewComplete",
+          "event": "preview-response",
+          "owner": {
+            "kind": "proposal",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "construction-proposals",
+            "requestId": "construction-proposal-7262e486-7557-43d2-baf9-9129f1d57d07",
+            "captureId": "9eba0c3e-ee59-4b8e-a234-508cdb5e1ba3"
+          },
+          "response": {
+            "status": 200,
+            "requestId": "construction-proposal-7262e486-7557-43d2-baf9-9129f1d57d07",
+            "captureId": "9eba0c3e-ee59-4b8e-a234-508cdb5e1ba3",
+            "proposalId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+            "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "proposalSnapshotToken": "sha256:723c25808643bdd124f60b99fd3bbbe12299b5afffb4540814fb38ab2954f905",
+            "proposalDraftVersion": 4,
+            "proposalDraftDigest": "sha256:92a094b46ec836a8c984518b199a24331ec58db143825337b7b2b74bbeba8077",
+            "proposalPreviewStatus": "READY",
+            "preview": {
+              "receiptId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "rowCount": 2,
+              "rowsPresent": true
+            },
+            "errorCode": null
+          },
+          "settlement": {
+            "kind": "http-response",
+            "captureId": "9eba0c3e-ee59-4b8e-a234-508cdb5e1ba3"
+          },
+          "observation": {
+            "status": "ready",
+            "proposalPanelPresent": true,
+            "canApply": true,
+            "proposalIdPresent": true,
+            "proposalId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+            "proposalOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "proposalSnapshotToken": "sha256:723c25808643bdd124f60b99fd3bbbe12299b5afffb4540814fb38ab2954f905",
+            "proposalDraftVersion": 4,
+            "proposalDraftDigest": "sha256:92a094b46ec836a8c984518b199a24331ec58db143825337b7b2b74bbeba8077",
+            "proposalPreviewStatus": "READY",
+            "proposalPreviewSurface": "main-table",
+            "previewReceiptPresent": true,
+            "rowsPresent": true,
+            "receiptPresent": true,
+            "previewReceiptId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+            "previewOutputId": "out_343ebe0b9b756ecf39112fb3",
+            "tablePreviewStatus": "ready",
+            "sourceTablePreview": {
+              "status": "ready",
+              "receiptId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+              "draftVersion": 4,
+              "draftDigest": "sha256:92a094b46ec836a8c984518b199a24331ec58db143825337b7b2b74bbeba8077",
+              "rowsPresent": true,
+              "rowCount": null,
+              "renderedRowCount": 0
+            },
+            "embeddedProposalPreview": {
+              "status": "ready",
+              "receiptId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+              "rowsPresent": true,
+              "rowCount": null,
+              "renderedRowCount": 0
+            },
+            "apply": {
+              "available": true,
+              "enabled": true,
+              "applying": false
+            }
+          }
+        },
+        {
+          "label": "RemoveGroup",
+          "event": "remove-group",
+          "owner": {
+            "kind": "apply",
+            "attempt": "P1"
+          },
+          "request": {
+            "method": "POST",
+            "path": "commands",
+            "requestId": "builder-command-c1a1871c-9546-4486-83d1-c0750afbfb66",
+            "captureId": "5bf7c4c1-76da-41bd-80a1-65a0695432ef",
+            "commandId": "c1a1871c-9546-4486-83d1-c0750afbfb66"
+          },
+          "response": {
+            "status": 200,
+            "requestId": "builder-command-c1a1871c-9546-4486-83d1-c0750afbfb66",
+            "captureId": "5bf7c4c1-76da-41bd-80a1-65a0695432ef",
+            "commandId": "c1a1871c-9546-4486-83d1-c0750afbfb66",
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": 5,
+            "proposalDraftDigest": "sha256:f4ae950e76eea3ce42ca8379b5237f281dd089ebd0b0a20ebed5eb95a98ffff5",
+            "proposalPreviewStatus": null,
+            "preview": null,
+            "errorCode": null
+          },
+          "settlement": {
+            "kind": "http-response",
+            "captureId": "5bf7c4c1-76da-41bd-80a1-65a0695432ef"
+          },
+          "observation": {
+            "status": "absent",
+            "proposalPanelPresent": false,
+            "canApply": false,
+            "proposalIdPresent": false,
+            "proposalId": null,
+            "proposalOutputId": null,
+            "proposalSnapshotToken": null,
+            "proposalDraftVersion": null,
+            "proposalDraftDigest": null,
+            "proposalPreviewStatus": null,
+            "proposalPreviewSurface": "unknown",
+            "previewReceiptPresent": false,
+            "rowsPresent": false,
+            "receiptPresent": false,
+            "previewReceiptId": null,
+            "previewOutputId": null,
+            "tablePreviewStatus": "ready",
+            "sourceTablePreview": {
+              "status": "ready",
+              "receiptId": "receipt_086f4d111ab28787d8921ed48deed91f6730c0e0b58d3e252ba15122b9e80801",
+              "outputId": "out_343ebe0b9b756ecf39112fb3",
+              "proposalId": null,
+              "draftVersion": 5,
+              "draftDigest": "sha256:f4ae950e76eea3ce42ca8379b5237f281dd089ebd0b0a20ebed5eb95a98ffff5",
+              "rowsPresent": true,
+              "rowCount": 2,
+              "renderedRowCount": 2
+            },
+            "embeddedProposalPreview": null,
+            "apply": {
+              "available": false,
+              "enabled": false,
+              "applying": false
+            }
+          }
+        }
+      ],
+      "unmodeledEvents": [
+        {
+          "kind": "reload",
+          "classification": "unsupported",
+          "reason": "Reload remounts workspace; current model covers same-mount proposal/apply lifecycle; native reload assertion remains independent.",
+          "note": "Reload after removing the group preserves the restored source table."
+        }
+      ],
+      "backendCalls": [
+        {
+          "method": "GET",
+          "path": "capability",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "builder",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "configured-column-context",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "reconcile",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "preview",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "semantic-inventory",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "row-definition-choices",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "construction-capabilities",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "semantic-inventory",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "semantic-inventory",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "frame-source-options",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "construction-proposals",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "commands",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "configured-column-context",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "construction-capabilities",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "semantic-inventory",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "frame-source-options",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "construction-proposals",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "commands",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "configured-column-context",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "construction-proposals",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "construction-capabilities",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "commands",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "capability",
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "builder",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "configured-column-context",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "reconcile",
+          "status": 200
+        },
+        {
+          "method": "POST",
+          "path": "preview",
+          "status": 200
+        }
+      ],
+      "outcome": {
+        "kind": "table-preview",
+        "status": "ready",
+        "rowCount": 2,
+        "columns": [
+          "id",
+          "gender",
+          "Row count"
+        ],
+        "restoredRowCount": 2,
+        "restoredColumns": [
+          "id",
+          "name[].family [0]",
+          "name[].family [1]",
+          "name__count",
+          "gender"
+        ]
+      }
+    }
+  ]
+}

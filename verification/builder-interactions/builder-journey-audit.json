@@ -204,9 +204,9 @@
       "id": "edit-remove-reload",
       "priority": "P1",
       "status": "passing",
-      "nativeEvidenceStatus": "passed-raw-five-column-basic-and-authored-three-column-group-entry-on-source-0b383cda",
-      "nativeCallBudgetStatus": "native-authored-three-79-and-raw-basic-59-responses-exceed-the-legacy-10-to-45-standalone-range; separate-basic-budget-probe-is-not-run",
-      "legacyEvidenceStatus": "CDA Group branch is manual-only, unrun, and outside CI automation coverage; see cda-mini-journeys.json#edit-remove-reload-cda-manual. Basic 10-to-45 response coverage has a separate not-run budget entry.",
+      "nativeEvidenceStatus": "historical-authored-three-and-raw-basic-native-cases-passed-on-0b383cda; retired-public-alias-rerun-passed-on-908b49fd",
+      "nativeCallBudgetStatus": "authored-three-historical-79-and-raw-basic-native-59-responses-exceed-the-legacy-10-to-45-range; separate-minimal-basic-budget-probe-passed-with-28-responses-on-908b49fd",
+      "legacyEvidenceStatus": "CDA Group branch remains manual-only, unrun, and outside CI automation coverage; see verification/builder-interactions/cda-mini-journeys.json#edit-remove-reload-cda-manual. The distinct Basic 10-to-45 budget probe passed manually with 28 responses and remains outside automation coverage.",
       "legacySpec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
       "spec": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
       "nativeCase": {
@@ -220,7 +220,7 @@
         "RemoveGroup",
         "Reload"
       ],
-      "oracle": "The registered native raw-Basic Group case passed on source 0b383cda. It uses the fixture harness bootstrap table and compares all five flattened Patient source values, including both indexed family values and name__count, against Patient.ndjson. It checks empty-key COUNT_ROWS = 2, the saved ID-only Group and edit Cancel, the P1-abort/P2 ID-and-gender preview and exact two-row/three-column Apply, a second ID-only Apply to the same Group identity with reload persistence, then removal Cancel and exact five-column/value restoration after reload. The authored three-column Group case remains independently registered and passed on the same source. TLA models proposal/apply owner chronology; both Cancel controls and both reloads remain native-only unsupported events. The CDA extension-grouping branch remains separate, manual-only, unrun, and outside CI automation coverage.",
+      "oracle": "The registered native raw-Basic Group case passed on source 0b383cda. It uses the fixture harness bootstrap table and compares all five flattened Patient source values, including both indexed family values and name__count, against Patient.ndjson. It checks empty-key COUNT_ROWS = 2, the saved ID-only Group and edit Cancel, the P1-abort/P2 ID-and-gender preview and exact two-row/three-column Apply, a second ID-only Apply to the same Group identity with reload persistence, then removal Cancel and exact five-column/value restoration after reload. The authored three-column Group case remains independently registered and passed on the same source. TLA models proposal/apply owner chronology; both Cancel controls and both reloads remain native-only unsupported events. The CDA extension-grouping branch remains separate, manual-only, unrun, and outside CI automation coverage. The final 908b49fd public alias rerun also passed the raw-Basic native case; the separate minimal-flow budget probe passed with 28 responses.",
       "model": "BuilderJourney",
       "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
       "evidence": {
@@ -483,6 +483,211 @@
             "traceArtifact": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/trace.json",
             "traceArtifactSha256": "e3c283c6af9ea2e6c5c0d69922153a53ed02f0553ef94957f4a0ac352c39f149"
           }
+        },
+        "nativeRawBasicAlias908": {
+          "result": "pass",
+          "command": "node scripts/run-builder-journey.mjs --journey edit-remove-reload",
+          "selectedNativeCase": {
+            "scenario": "builder-authoring",
+            "case": "group-entry-raw-basic",
+            "traceName": "builder-authoring:group-entry-raw-basic"
+          },
+          "recordedAt": {
+            "startedAt": "2026-10-23T00:51:18.458Z",
+            "finishedAt": "2026-10-23T00:52:04.753Z",
+            "durationMs": 46295,
+            "playwrightStartedAt": "2026-10-23T00:51:32.495Z",
+            "playwrightFinishedAt": "2026-10-23T00:51:56.380Z",
+            "playwrightDurationMs": 23885
+          },
+          "sourceIdentity": {
+            "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+            "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+            "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+            "watchedTreeFingerprint": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995",
+            "watchedTreeFileCount": 2092
+          },
+          "target": {
+            "project": "loom_dev_verify_mvk98bb6-3fb8f65",
+            "generation": "fixture-v1",
+            "explorer": "loom-dev-bootstrap",
+            "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41"
+          },
+          "counts": {
+            "nativeAssertionsPassed": 62,
+            "requiredChecksPassed": 17,
+            "missingRequiredChecks": 0,
+            "authoringBackendResponses": 59,
+            "traceCount": 1,
+            "uniqueTraceCount": 1,
+            "validatedTraceCount": 1,
+            "invalidTraceCount": 0,
+            "traceActionCount": 18,
+            "tlcGeneratedStates": 20,
+            "tlcDistinctStates": 19,
+            "tlcDepth": 19,
+            "maximumMeasuredActionLatencyMs": 1402
+          },
+          "formalBoundary": {
+            "tlaStatus": "pass",
+            "model": "BuilderJourney",
+            "unsupportedNativeEvents": {
+              "group-edit-cancel": 1,
+              "group-removal-cancel": 1,
+              "reload": 2
+            },
+            "nativeChecks": "Both Cancel controls and both reload outcomes were asserted by the native workflow; BuilderJourney models proposal/apply owner chronology only."
+          },
+          "traceMutationControls": {
+            "result": "passed",
+            "expectedRejections": [
+              "edit-group-again-noncurrent-owner",
+              "group-entry-raw-basic-repeat-edit-required"
+            ],
+            "positiveTraceName": "builder-authoring:group-entry-raw-basic",
+            "requiredAction": "EditGroupAgain",
+            "testedSourceCommit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+            "artifact": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/trace-controls.log",
+              "sha256": "cc79d65ff85e1ef72a5f31d106c771917b1994f0a53388fec05b1887748124bb"
+            }
+          },
+          "verificationFreeze": {
+            "status": "pass",
+            "composeProject": "loom-dev-fcbf4d7d11f4",
+            "apiPort": 8180,
+            "uiPort": 3180,
+            "sourceBeforeAfterUnchanged": true,
+            "sourceFingerprint": {
+              "sha256": "9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995",
+              "files": 2092
+            },
+            "docsBeforeAfterUnchanged": true,
+            "docsFingerprint": {
+              "sha256": "64458b8cbbd904249e3a99f632b2d3d8bea890fe16ca46b6a534e598b2b6fec8",
+              "files": 336
+            },
+            "apiIdentityBeforeAfterUnchanged": true,
+            "mountsValidatedBeforeAfter": true,
+            "healthSamplesPerSide": 3,
+            "artifacts": {
+              "precheck-before": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/precheck-before.json",
+                "sha256": "d3da0ba9da99fa18438dba01173b9783936d1efe7356de9fd2e8339195196319"
+              },
+              "source-before": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/source-before.json",
+                "sha256": "98ce70bb2b49fa6de6e4936541036b92b4b0a7c43f863ac8d0228648b884bd83"
+              },
+              "source-after": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/source-after.json",
+                "sha256": "c84afc1cceaf2ac4601e867da7bf2e2836c2197a2bfd1bac62792f0acd0b838b"
+              },
+              "docs-before": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/docs-before.json",
+                "sha256": "3b1f70f802bff6dd20a10130018633681ed56a85af9a8b4d3ac879970224f3b2"
+              },
+              "docs-after": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/docs-after.json",
+                "sha256": "a8ee7aa7696d04495a0a7bf1fac1c838abf26917620ee6ec0e105497897bb9ce"
+              },
+              "api-before": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/api-before.json",
+                "sha256": "29b5cbcc915436aad240c58c1c54735993b168181097ce961d290c3bcfb666f7"
+              },
+              "api-after": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/api-after.json",
+                "sha256": "35732da2cc209d0f54138e7176c4ecdd48c552cf740ff197acfd2cff5b164be4"
+              },
+              "mounts-before": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/mounts-before.json",
+                "sha256": "ea6b6e5b9fb4f172a1fb0d31e7983e407f96c583287e38afa676c699e395a565"
+              },
+              "mounts-after": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/mounts-after.json",
+                "sha256": "ba75ac5e6f5921050bccd915af0cac594481dcc6b3dee81f5ee3bf98640ec558"
+              },
+              "health-before": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/health-before.json",
+                "sha256": "1d243393418eeba8ec259b40b278b1b061206f444321909ab606ed97acbad367"
+              },
+              "health-after": {
+                "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/verification-freeze/health-after.json",
+                "sha256": "db314305aa4ac3aada39ce8f96a185a134e3e34a9c59e076248e8c9d6dd42077"
+              }
+            }
+          },
+          "artifacts": {
+            "journeyReport": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/journey-report.json",
+              "sha256": "21e39a55c930ee1316993288ab8d7c41034611b19ce77f00ab1fa654c79b7515"
+            },
+            "nativeReport": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/native-report.json",
+              "sha256": "49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e"
+            },
+            "bracketSummary": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/bracket-summary.json",
+              "sha256": "7a72bb91ed225994c6531ebd04d71c5de9821e48dff8d7c3c37e776b24996443"
+            },
+            "trace": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/trace.json",
+              "sha256": "cb3ac182756dfea5e91327f719949526aa54b2f7a9af69275d3860ac15e93a9b"
+            },
+            "tlaReport": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/tla-report.json",
+              "sha256": "4aba90342a40c3ebe5b8b4cbd23b9777e403e62a3dd35193236a3ddc115cb9cc"
+            }
+          }
+        },
+        "manualBasicBudgetProbe908": {
+          "result": "pass",
+          "manualOnly": true,
+          "automationCoverage": false,
+          "command": "LOOM_JOURNEY_DATASET=basic-budget node scripts/run-builder-journey.mjs --journey edit-remove-reload-basic-budget",
+          "sourceIdentity": {
+            "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+            "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+            "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538"
+          },
+          "fixture": {
+            "source": "fresh-synthetic-fixture",
+            "project": "loom_dev_verify_jmvk9717f6ep",
+            "generation": "fixture-v1",
+            "explorer": "loom-dev-bootstrap"
+          },
+          "counts": {
+            "backendResponses": 28,
+            "requiredRange": [
+              10,
+              45
+            ],
+            "traceActionCount": 11,
+            "tlcGeneratedStates": 13,
+            "tlcDistinctStates": 12,
+            "tlcDepth": 12
+          },
+          "formalBoundary": {
+            "tlaStatus": "pass",
+            "model": "BuilderJourney",
+            "unsupportedNativeEvents": {
+              "reload": 1
+            }
+          },
+          "artifacts": {
+            "report": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/report.json",
+              "sha256": "5ae36b5d558613835babcc97caacc1075bca87475c0db2e7d2e8a26e2fa3c071"
+            },
+            "trace": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/trace.json",
+              "sha256": "f05ed6fbb09a7f033b83c05985f4a384e7b4986f809d6b6096e98cb7f13240e3"
+            },
+            "tlaReport": {
+              "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/tla-report.json",
+              "sha256": "099495ddfc8700147c87d432e5a5a7580f651dff6d9fb60be5bfd075e6213157"
+            }
+          }
         }
       },
       "minBackendCalls": 10,
@@ -495,17 +700,37 @@
       },
       "manualBasicBudgetProbe": {
         "id": "edit-remove-reload-basic-budget",
-        "status": "not-run",
+        "status": "pass",
         "manualOnly": true,
         "automationCoverage": false,
         "traceName": "journey/edit-remove-reload-basic-budget",
-        "backendResponseRange": [10, 45]
+        "backendResponseRange": [
+          10,
+          45
+        ],
+        "backendResponses": 28,
+        "sourceCommit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+        "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+        "evidence": {
+          "report": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/report.json",
+            "sha256": "5ae36b5d558613835babcc97caacc1075bca87475c0db2e7d2e8a26e2fa3c071"
+          },
+          "trace": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/trace.json",
+            "sha256": "f05ed6fbb09a7f033b83c05985f4a384e7b4986f809d6b6096e98cb7f13240e3"
+          },
+          "tlaReport": {
+            "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/tla-report.json",
+            "sha256": "099495ddfc8700147c87d432e5a5a7580f651dff6d9fb60be5bfd075e6213157"
+          }
+        }
       }
     },
     {
       "id": "edit-remove-reload-basic-budget",
       "priority": "P2",
-      "status": "not-run",
+      "status": "passing",
       "manualOnly": true,
       "automationCoverage": false,
       "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
@@ -524,10 +749,47 @@
       "traceName": "journey/edit-remove-reload-basic-budget",
       "evidence": {
         "synthetic": {
-          "result": "not-run",
+          "result": "pass",
+          "manualOnly": true,
           "automationCoverage": false,
-          "trace": ".artifacts/builder-journey/edit-remove-reload-basic-budget-trace.json",
-          "report": ".artifacts/builder-journey/edit-remove-reload-basic-budget-report.json"
+          "sourceCommit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+          "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+          "backendCallCount": 28,
+          "requiredResponseRange": [
+            10,
+            45
+          ],
+          "tlaStatus": "pass",
+          "traceActionCount": 11,
+          "tlcGeneratedStates": 13,
+          "tlcDistinctStates": 12,
+          "tlcDepth": 12,
+          "fixture": {
+            "project": "loom_dev_verify_jmvk9717f6ep",
+            "generation": "fixture-v1",
+            "explorer": "loom-dev-bootstrap"
+          },
+          "trace": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/trace.json",
+          "report": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/report.json",
+          "tlaReport": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/basic-budget/tla-report.json",
+          "artifactSha256": {
+            "trace": "f05ed6fbb09a7f033b83c05985f4a384e7b4986f809d6b6096e98cb7f13240e3",
+            "report": "5ae36b5d558613835babcc97caacc1075bca87475c0db2e7d2e8a26e2fa3c071",
+            "tlaReport": "099495ddfc8700147c87d432e5a5a7580f651dff6d9fb60be5bfd075e6213157"
+          }
+        },
+        "command": "LOOM_JOURNEY_DATASET=basic-budget node scripts/run-builder-journey.mjs --journey edit-remove-reload-basic-budget",
+        "sourceIdentity": {
+          "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
+          "proofSourceFingerprint": "ead13338efd0591a4424afeebcb06f2533a7930539b96aa5dab687681a4d3e78",
+          "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538"
+        },
+        "formalBoundary": {
+          "tlaStatus": "pass",
+          "model": "BuilderJourney",
+          "unsupportedNativeEvents": {
+            "reload": 1
+          }
         }
       }
     },

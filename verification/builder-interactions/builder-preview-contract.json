@@ -344,7 +344,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-journey-audit.json",
-      "sha256": "43c6a417cb9a04486a708e29f1c91b6b845f894feb1e195aef55bee384d36aa5",
+      "sha256": "c7c8c2f2075a2471d27c2ec30b69654277f5b1ffc4acbf603da16cbbb5e8fd88",
       "contract": "Journey selection and declared action manifest for the selected synthetic capture run."
     },
     {
