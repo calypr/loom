@@ -789,32 +789,36 @@ export const groupEntryWorkflow = async (workflow, context) => {
     draftVersion: value.draftVersion,
     draftDigest: value.draftDigest,
   });
-  const mountedGroupFromEditor = async (value, expectedRowActionStepId, confirmedMountedStepId, editSelector) => {
-    const mounted = await page.evaluate(({ editSelector }) => {
+  const clickedRowTargetFromEditControl = async locator => {
+    const renderedTarget = await locator.evaluate(button => {
+      const testId = button.getAttribute('data-testid');
+      const editPrefix = 'construction-row-edit-';
+      return {
+        testId,
+        stepId: testId?.startsWith(editPrefix) ? testId.slice(editPrefix.length) : null,
+      };
+    });
+    assert(renderedTarget.testId, 'The rendered saved-step Edit control must expose its actual target identity.');
+    return { evidence: 'clicked-row-action-provenance', ...renderedTarget };
+  };
+  const mountedGroupFromEditor = async (value, expectedRowActionStepId, confirmedMountedStepId, clickedRowTarget) => {
+    const mounted = await page.evaluate(() => {
       const editor = document.querySelector('[data-testid="construction-reshape-group"]');
       if (!editor) return null;
-      const editButton = document.querySelector(editSelector);
-      const editTestId = editButton?.getAttribute('data-testid') ?? null;
-      const editPrefix = 'construction-row-edit-';
-      const targetStepId = editTestId?.startsWith(editPrefix) ? editTestId.slice(editPrefix.length) : null;
       const operationEditor = document.querySelector('[data-testid="construction-operation-editor"]');
       const selectedKeyLabels = [...editor.querySelectorAll('input[aria-label^="Group by"]:checked')]
         .map(input => input.getAttribute('aria-label'));
       return {
-        editorTarget: {
-          testId: editTestId,
-          stepId: targetStepId,
-          outputId: operationEditor?.getAttribute('data-output-id') ?? null,
-        },
+        editorOutputId: operationEditor?.getAttribute('data-output-id') ?? null,
         selectedKeyLabels,
         aggregate: document.querySelector('select[aria-label="Summary 1"]')?.value ?? null,
       };
-    }, { editSelector });
+    });
     assert(mounted, 'The reopened saved Group editor must expose its real mounted controls.');
-    assert(mounted.editorTarget.testId, 'The rendered saved-step Edit control must expose its actual target identity.');
-    assert.equal(mounted.editorTarget.stepId, expectedRowActionStepId,
-      'The rendered saved-step Edit control must target the expected persisted Group identity.');
-    assert.equal(mounted.editorTarget.outputId, outputId,
+    assert(clickedRowTarget?.testId, 'The clicked saved-step Edit control must retain its rendered target identity.');
+    assert.equal(clickedRowTarget.stepId, expectedRowActionStepId,
+      'The clicked saved-step Edit control must target the expected persisted Group identity.');
+    assert.equal(mounted.editorOutputId, outputId,
       'The mounted operation editor must target the selected Builder output.');
     if (confirmedMountedStepId !== null) {
       assert.equal(confirmedMountedStepId, expectedRowActionStepId,
@@ -829,17 +833,13 @@ export const groupEntryWorkflow = async (workflow, context) => {
     });
     return {
       group: {
-        stepId: mounted.editorTarget.stepId,
+        stepId: clickedRowTarget.stepId,
         keys,
         aggregate: mounted.aggregate,
         selectedKeyLabels: mounted.selectedKeyLabels,
       },
-      clickedRowTarget: {
-        evidence: 'clicked-row-action-provenance',
-        testId: mounted.editorTarget.testId,
-        stepId: mounted.editorTarget.stepId,
-      },
-      editorOutputId: mounted.editorTarget.outputId,
+      clickedRowTarget,
+      editorOutputId: mounted.editorOutputId,
     };
   };
   const candidateIntentFor = (started, kind, base) => {
@@ -1544,11 +1544,18 @@ export const groupEntryWorkflow = async (workflow, context) => {
   assert.deepEqual(keyedReloadIDs, fixtureIDs, 'keyed Group output must retain exact Patient IDs after reload');
   keyedReloadTraceAction.observation = await captureBuilderObservation(page);
   await openRowsHistory();
-  const reloadedGroupOpenCapture = await captureOptionalProposalOnOpen(() => action('open reloaded saved Group editor', page.locator(editSelector), () => page.locator(editSelector).click(), {
+  const reloadedEditButton = page.locator(editSelector);
+  let clickedReloadTarget;
+  const reloadedGroupOpenCapture = await captureOptionalProposalOnOpen(() => action('open reloaded saved Group editor', reloadedEditButton, async () => {
+    clickedReloadTarget = await clickedRowTargetFromEditControl(reloadedEditButton);
+    assert.equal(clickedReloadTarget.stepId, keyedGroup.id,
+      'The rendered reloaded saved-step Edit control must target the persisted Group identity before it is clicked.');
+    await reloadedEditButton.click();
+  }, {
     after: () => page.getByRole('checkbox', { name: `Group by ${sourceIdColumn.label}`, exact: true }).waitFor({ state: 'visible' }),
   }), { kind: 'edit', base: keyedGroupRecord });
   const confirmedMountedStepId = reloadedGroupOpenCapture.candidateIntent?.proposed?.stepId ?? null;
-  const mountedReloadState = await mountedGroupFromEditor(savedBuilder, keyedGroup.id, confirmedMountedStepId, editSelector);
+  const mountedReloadState = await mountedGroupFromEditor(savedBuilder, keyedGroup.id, confirmedMountedStepId, clickedReloadTarget);
   const mountedReloadGroup = mountedReloadState.group;
   assert.equal(mountedReloadGroup.stepId, keyedGroup.id,
     'The reloaded mounted Group step identity must follow the exact clicked rendered row target.');
