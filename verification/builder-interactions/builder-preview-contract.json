@@ -39,13 +39,13 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "9c9d3e5dc5953b7eed9ab0250624df67182b258243167e6839c4e088816b8bdd",
-      "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and per-trace action counts."
+      "sha256": "f472ff3504f3febc04f01bd6dded1fdafa987fad580f9ace4a841144f3cf9e83",
+      "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "da2fbfe0bce853fa8f74035c6ef58945f1519400604f58755657add5db8e2a11",
-      "contract": "Trace mutation controls for request ownership, persistence, same-cardinality reload keys, step identity, stale Group candidates/owners, exact action counts, and generic non-Group routes."
+      "sha256": "5c8857dc5193c68b4b70e5ddc306f86bd20b76e6c7b1434d39e0f0f342c71804",
+      "contract": "Trace mutation controls for request ownership, Group persistence and reload keys/step, stale candidates and capture owners, exact action counts, and generic non-Group routes."
     },
     {
       "path": "scripts/verify-ui/helpers/cda-journey-fields.mjs",
@@ -379,13 +379,13 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "fd4a6fcb57b95d79acf3743018c145a4e6cafd75dfd4724ac827add8f7baeeb0",
-      "contract": "Registered native cases, focused checks, and exact Group lifecycle action requirements for both Group variants."
+      "sha256": "a356e2b4303627d7acf6cdbb1805b81ddfca00428c6e8d12655fdd8265476f6b",
+      "contract": "Registered native Group variants require edit Cancel, removal Cancel, exact reload counts, and postreload mounted-key/draft checks."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "f1e67c92d2b6ec692ad874de75f47f6aafc02f193863c6baceba33b674ee5375",
-      "contract": "Registered authored-three and raw-Basic native Group lifecycles with captured candidate ownership, actual Builder reads, reload-mounted controls, removal, TLA replay, and trace-bound mutation controls."
+      "sha256": "6c614e165afe0f31a26f766810282a2e4b9c258165920c0f0c79df1cb5d0efdb",
+      "contract": "Registered authored-three and raw-Basic native Group lifecycles with actual Builder reads, captured request owners, mounted reload controls, post-action observations, TLA replay, and trace-bound mutation controls."
     }
   ]
 }
