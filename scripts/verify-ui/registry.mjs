@@ -6462,7 +6462,6 @@ export const registry = Object.freeze([
               'scripts/loom-dev.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
-              'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
               'ui/apps/demo/src/main.tsx',
             ],
