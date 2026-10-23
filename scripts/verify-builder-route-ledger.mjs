@@ -37,6 +37,7 @@ const browserCases = new Map((browserEvidence.cases ?? []).map((entry) => [entry
 
 const ids = new Set();
 const problems = [];
+const browserEvidenceGaps = [];
 const hasTest = (proof) => Boolean(proof?.contractTest || proof?.goTest || proof?.uiTest);
 for (const route of selectedRoutes) {
   if (!route.id || typeof route.id !== 'string') problems.push('route without id');
@@ -102,8 +103,10 @@ for (const route of selectedRoutes) {
         const browserCase = browserCases.get(route.proof.browserCase);
         if (!browserCase) problems.push(route.id + ': browser case is not recorded: ' + route.proof.browserCase);
         else if (!isCurrentBrowserEvidence(browserCase)) {
-          problems.push(route.id + ': browser case is not current (status=' + (browserCase.status ?? 'missing')
-            + ', sourceStatus=' + (browserCase.sourceStatus ?? 'missing') + '): ' + route.proof.browserCase);
+          const gap = route.id + ': browser case is not current (status=' + (browserCase.status ?? 'missing')
+            + ', sourceStatus=' + (browserCase.sourceStatus ?? 'missing') + '): ' + route.proof.browserCase;
+          browserEvidenceGaps.push(gap);
+          if (strict) problems.push(gap);
         }
         else if (!Array.isArray(browserCase.coveredRoutes) || !browserCase.coveredRoutes.includes(route.method + ' ' + route.path)) {
           problems.push(route.id + ': browser case does not cover the route: ' + route.proof.browserCase);
@@ -179,7 +182,14 @@ const counts = {
   withModelActions: selectedRoutes.filter((route) => Array.isArray(route.proof?.modelActions) && route.proof.modelActions.length > 0).length,
   withTrace: selectedRoutes.filter((route) => Boolean(route.proof?.traceEvent)).length,
   withTest: selectedRoutes.filter((route) => hasTest(route.proof)).length,
-  withBrowserCase: selectedRoutes.filter((route) => Boolean(route.proof?.browserCase)).length,
+  withBrowserCase: selectedRoutes.filter((route) => {
+    const browserCase = browserCases.get(route.proof?.browserCase);
+    return isCurrentBrowserEvidence(browserCase)
+      && Array.isArray(browserCase.coveredRoutes)
+      && browserCase.coveredRoutes.includes(route.method + ' ' + route.path);
+  }).length,
+  recordedBrowserCase: selectedRoutes.filter((route) => Boolean(route.proof?.browserCase)).length,
+  browserEvidenceGaps: browserEvidenceGaps.length,
 };
 
 if (!routeFilter) {
@@ -207,6 +217,7 @@ if (!routeFilter) {
 }
 
 console.log(JSON.stringify(counts, null, 2));
+for (const gap of browserEvidenceGaps) console.log('GAP ' + gap);
 for (const problem of problems) console.error('PROBLEM ' + problem);
 if (problems.length > 0) fail('route ledger has ' + problems.length + ' structural problems');
 if (strict && counts.traceTested > 0) {
