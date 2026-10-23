@@ -4,6 +4,7 @@ import { basename, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MODEL_DIR = 'verification/builder-interactions';
@@ -1426,7 +1427,8 @@ for (const entry of registry) {
   for (const [caseName, caseData] of Object.entries(entry.cases ?? {})) {
     const id = entry.id + ':' + caseName;
     const evidence = browserCases.get(id);
-    const routes = evidence?.coveredRoutes?.length ? uniqueSorted(evidence.coveredRoutes) : entryRoutes;
+    const currentEvidence = isCurrentBrowserEvidence(evidence);
+    const routes = evidence ? uniqueSorted(evidence.coveredRoutes ?? []) : entryRoutes;
     addTest({
       id: 'playwright:' + id,
       kind: 'playwright',
@@ -1435,13 +1437,14 @@ for (const entry of registry) {
       caseName,
       file: caseData.playwrightTest ?? entry.script ?? REGISTRY,
       routes,
-      obligations: evidence ? routeObligations(routes) : [],
+      obligations: currentEvidence ? routeObligations(routes) : [],
       suspectedModels: suspectedModelsForRoutes(routes),
       checks: Array.isArray(caseData.requiredChecks) ? caseData.requiredChecks : [],
       focusedChecks: uniqueSorted((caseData.focusedChecks ?? []).map((check) => check.id)),
       semanticClaimIds: semanticClaimIdsForCase(id),
-      mapping: evidence ? 'browser-evidence' : 'registry-endpoints',
+      mapping: currentEvidence ? 'browser-evidence' : evidence ? 'unmapped' : 'registry-endpoints',
       evidence: evidence ? BROWSER_EVIDENCE : REGISTRY,
+      browserEvidenceStatus: evidence ? { status: evidence.status, sourceStatus: evidence.sourceStatus } : null,
     });
   }
 }
@@ -1449,7 +1452,8 @@ for (const entry of registry) {
 for (const [caseId, evidence] of browserCases) {
   const existing = tests.get('playwright:' + caseId);
   if (existing) {
-    existing.mapping = 'browser-evidence';
+    existing.browserEvidenceStatus = { status: evidence.status, sourceStatus: evidence.sourceStatus };
+    if (isCurrentBrowserEvidence(evidence)) existing.mapping = 'browser-evidence';
     existing.evidence = BROWSER_EVIDENCE;
     existing.checks = uniqueSorted([...existing.checks, ...(evidence.assertions ?? []).map((assertion) => assertion.name)]);
   }
@@ -1598,23 +1602,26 @@ for (const route of ledger.routes ?? []) {
     }
   }
   if (route.proof.browserCase) {
-    const match = tests.get('playwright:' + route.proof.browserCase);
-    if (match) {
-      match.routes = uniqueSorted([...match.routes, routeKeyValue]);
-      match.obligations = uniqueSorted([...match.obligations, ...actionIds]);
-      match.mapping = 'route-proof';
-    } else {
-      addTest({
-        id: 'playwright:' + route.proof.browserCase,
-        kind: 'playwright',
-        level: 'browser',
-        name: route.proof.browserCase,
-        file: BROWSER_EVIDENCE,
-        routes: [routeKeyValue],
-        obligations: actionIds,
-        mapping: 'route-proof',
-        evidence: BROWSER_EVIDENCE,
-      });
+    const browserEvidence = browserCases.get(route.proof.browserCase);
+    if (isCurrentBrowserEvidence(browserEvidence)) {
+      const match = tests.get('playwright:' + route.proof.browserCase);
+      if (match) {
+        match.routes = uniqueSorted([...match.routes, routeKeyValue]);
+        match.obligations = uniqueSorted([...match.obligations, ...actionIds]);
+        match.mapping = 'route-proof';
+      } else {
+        addTest({
+          id: 'playwright:' + route.proof.browserCase,
+          kind: 'playwright',
+          level: 'browser',
+          name: route.proof.browserCase,
+          file: BROWSER_EVIDENCE,
+          routes: [routeKeyValue],
+          obligations: actionIds,
+          mapping: 'route-proof',
+          evidence: BROWSER_EVIDENCE,
+        });
+      }
     }
   }
 }

@@ -16,6 +16,10 @@ export function routeKey(route) {
   return String(route.method).toUpperCase() + ' ' + String(route.path);
 }
 
+export function isCurrentBrowserEvidence(entry) {
+  return entry?.status === 'current' && entry?.sourceStatus === 'current';
+}
+
 export function routeSuffix(path) {
   const segments = String(path).split('/').filter(Boolean);
   const suffix = segments.at(-1) ?? '';
@@ -184,7 +188,7 @@ function scannedEvidence(route, file, text) {
 export function evidenceForRoute(route, tests, browserCases) {
   const key = routeKey(route);
   const browser = (browserCases ?? [])
-    .filter((entry) => (entry.coveredRoutes ?? []).includes(key))
+    .filter((entry) => isCurrentBrowserEvidence(entry) && (entry.coveredRoutes ?? []).includes(key))
     .map((entry) => ({ kind: 'browser', id: entry.id, file: entry.sourceReport ?? null, mapping: 'browser-evidence' }));
   const strongMappings = new Set(['go-route', 'go-route-suffix', 'browser-evidence', 'route-proof']);
   const mappedTests = (tests ?? [])

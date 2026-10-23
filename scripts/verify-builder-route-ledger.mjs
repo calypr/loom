@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LEDGER = 'verification/builder-interactions/route-contract.json';
@@ -100,7 +101,10 @@ for (const route of selectedRoutes) {
       else {
         const browserCase = browserCases.get(route.proof.browserCase);
         if (!browserCase) problems.push(route.id + ': browser case is not recorded: ' + route.proof.browserCase);
-        else if (!['pass', 'passed'].includes(browserCase.status)) problems.push(route.id + ': browser case is not passing: ' + route.proof.browserCase);
+        else if (!isCurrentBrowserEvidence(browserCase)) {
+          problems.push(route.id + ': browser case is not current (status=' + (browserCase.status ?? 'missing')
+            + ', sourceStatus=' + (browserCase.sourceStatus ?? 'missing') + '): ' + route.proof.browserCase);
+        }
         else if (!Array.isArray(browserCase.coveredRoutes) || !browserCase.coveredRoutes.includes(route.method + ' ' + route.path)) {
           problems.push(route.id + ': browser case does not cover the route: ' + route.proof.browserCase);
         }

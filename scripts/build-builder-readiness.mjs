@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LEDGER = 'verification/builder-interactions/route-contract.json';
@@ -38,7 +39,9 @@ const bugDiscovery = existsSync(resolve(ROOT, BUG_DISCOVERY)) ? readJson(BUG_DIS
 const proposalDecisions = existsSync(resolve(ROOT, PROPOSAL_DECISIONS)) ? readJson(PROPOSAL_DECISIONS) : null;
 const mutationProposals = existsSync(resolve(ROOT, MUTATION_PROPOSALS)) ? readJson(MUTATION_PROPOSALS) : null;
 const browserProposals = existsSync(resolve(ROOT, BROWSER_PROPOSALS)) ? readJson(BROWSER_PROPOSALS) : null;
-const browserRoutes = new Set((browser.cases ?? []).flatMap((entry) => entry.coveredRoutes ?? []));
+const browserRoutes = new Set((browser.cases ?? [])
+  .filter(isCurrentBrowserEvidence)
+  .flatMap((entry) => entry.coveredRoutes ?? []));
 
 const gapOrder = {
   'audit route action': 0,

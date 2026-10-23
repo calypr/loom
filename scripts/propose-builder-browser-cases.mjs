@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ROOT, readJson, routeMode } from './lib/builder-route-evidence.mjs';
+import { ROOT, isCurrentBrowserEvidence, readJson, routeMode } from './lib/builder-route-evidence.mjs';
 
 const LEDGER = 'verification/builder-interactions/route-contract.json';
 const BROWSER = 'verification/builder-interactions/browser-evidence.json';
@@ -11,7 +11,9 @@ const check = process.argv.includes('--check');
 
 const ledger = readJson(LEDGER);
 const browser = readJson(BROWSER);
-const coveredRoutes = new Set((browser.cases ?? []).flatMap((entry) => entry.coveredRoutes ?? []));
+const coveredRoutes = new Set((browser.cases ?? [])
+  .filter(isCurrentBrowserEvidence)
+  .flatMap((entry) => entry.coveredRoutes ?? []));
 const routeKey = (route) => route.method + ' ' + route.path;
 const slug = (route) => (route.method + '-' + route.path.split('/').filter(Boolean).at(-1))
   .toLowerCase()
