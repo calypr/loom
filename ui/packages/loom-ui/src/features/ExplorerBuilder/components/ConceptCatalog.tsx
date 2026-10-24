@@ -765,6 +765,7 @@ const ConceptCatalogContent = ({
   groupedRowValuePolicy,
   onPairedColumnSuggestionHandled,
   onAddSelected,
+  onPreviewSelected,
   onInspectRouteCoverage,
 }: {
   readonly project: string;
@@ -796,6 +797,9 @@ const ConceptCatalogContent = ({
   readonly groupedRowValuePolicy?: GroupedRowValuePolicyControl;
   readonly onPairedColumnSuggestionHandled?: (requestId: string) => void;
   readonly onAddSelected?: (
+    selections: ReadonlyArray<CatalogChoiceIntent>,
+  ) => Promise<'preview-ready' | 'preview-pending' | void>;
+  readonly onPreviewSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
   readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
@@ -1713,12 +1717,15 @@ const ConceptCatalogContent = ({
       });
   };
 
-  const submitIntents = async (intents: ReadonlyArray<CatalogChoiceIntent>) => {
-    if (!onAddSelected || !intents.length) return;
+  const submitIntents = async (
+    intents: ReadonlyArray<CatalogChoiceIntent>,
+    submit: typeof onAddSelected = onAddSelected,
+  ) => {
+    if (!submit || !intents.length) return;
     setSelectionPhase('submitting');
     setActionMessage(undefined);
     try {
-      const result = await onAddSelected(intents);
+      const result = await submit(intents);
       setSelected(new Map());
       setPendingSelection(undefined);
       setAdvancedOpen(false);
@@ -1732,8 +1739,11 @@ const ConceptCatalogContent = ({
     }
   };
 
-  const commitSelections = async (selections: ReadonlyArray<CatalogChoiceIntent>) => {
-    if (!onAddSelected || !selections.length) return;
+  const commitSelections = async (
+    selections: ReadonlyArray<CatalogChoiceIntent>,
+    submit: typeof onAddSelected = onAddSelected,
+  ) => {
+    if (!submit || !selections.length) return;
     const intents = pendingSelection?.length === selections.length
       ? selections.map((selection, index) => {
           const group = pendingSelection[index];
@@ -1765,7 +1775,7 @@ const ConceptCatalogContent = ({
           : canAddFromSourceProjection;
       })
     ) return;
-    await submitIntents(intents);
+    await submitIntents(intents, submit);
   };
 
   const loadAdvancedOptions = async () => {
@@ -2094,6 +2104,10 @@ const ConceptCatalogContent = ({
                     setActionMessage(undefined);
                   }}
                   onConfirm={(selections) => void commitSelections(selections)}
+                  onPreview={onPreviewSelected && pendingSelection.length > 0 &&
+                    pendingSelection.every((group) => isRelatedFieldCatalogItem(group.item, rowRoot))
+                    ? (selections) => void commitSelections(selections, onPreviewSelected)
+                    : undefined}
                 />
               ) : actionMessage ? (
                 <p role="alert" className="text-sm text-red-800">{actionMessage}</p>

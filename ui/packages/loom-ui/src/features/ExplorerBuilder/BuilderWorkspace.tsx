@@ -1840,30 +1840,47 @@ const BuilderWorkspaceContent = ({
     }
     return applied;
   };
+  const relatedSourceCandidateIntentFor = (
+    selections: ReadonlyArray<CatalogChoiceIntent>,
+  ) => {
+    const relatedSelections = selections.filter((selection) => selection.relatedSource);
+    if (relatedSelections.length === 0) return undefined;
+    if (relatedSelections.length !== selections.length) {
+      throw new Error('Add related fields together only when every selected field follows the same exact route.');
+    }
+    const firstSelection = relatedSelections[0];
+    const firstRelatedSource = firstSelection?.relatedSource;
+    if (!firstSelection || !firstRelatedSource || relatedSelections.some((selection) =>
+      !selection.relatedSource ||
+      !sameConstructionRoute(selection.relatedSource.choice.route, firstRelatedSource.choice.route)
+    )) {
+      throw new Error('Add related fields together only when every selected field follows the same exact route.');
+    }
+    let candidate = buildRelatedSourceCandidate(firstSelection);
+    for (const selection of relatedSelections.slice(1)) {
+      candidate = buildRelatedSourceCandidate(selection, {
+        construction: candidate.intent.candidateConstruction,
+        step: candidate.step,
+      });
+    }
+    return candidate.intent;
+  };
+  const previewRelatedSourceColumns = async (
+    selections: ReadonlyArray<CatalogChoiceIntent>,
+  ) => {
+    if (!table) throw new Error('Choose a table before adding features.');
+    const candidateIntent = relatedSourceCandidateIntentFor(selections);
+    if (!candidateIntent) throw new Error('Choose a related field before previewing columns.');
+    await constructionLifecycle.proposeCandidateAndWait(candidateIntent);
+    return 'preview-ready' as const;
+  };
   const addSelectedFeatures = async (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
-    const relatedSelections = selections.filter((selection) => selection.relatedSource);
-    if (relatedSelections.length > 0) {
-      if (relatedSelections.length !== selections.length) {
-        throw new Error('Add related fields together only when every selected field follows the same exact route.');
-      }
-      const firstRelatedSource = relatedSelections[0]?.relatedSource;
-      if (!firstRelatedSource || relatedSelections.some((selection) =>
-        !selection.relatedSource ||
-        !sameConstructionRoute(selection.relatedSource.choice.route, firstRelatedSource.choice.route)
-      )) {
-        throw new Error('Add related fields together only when every selected field follows the same exact route.');
-      }
-      let candidate = buildRelatedSourceCandidate(relatedSelections[0]!);
-      for (const selection of relatedSelections.slice(1)) {
-        candidate = buildRelatedSourceCandidate(selection, {
-          construction: candidate.intent.candidateConstruction,
-          step: candidate.step,
-        });
-      }
-      const readyProposal = await constructionLifecycle.proposeCandidateAndWait(candidate.intent);
+    const candidateIntent = relatedSourceCandidateIntentFor(selections);
+    if (candidateIntent) {
+      const readyProposal = await constructionLifecycle.proposeCandidateAndWait(candidateIntent);
       const applied = await applyConstructionProposal(readyProposal, true);
       if (!applied) throw new Error('Loom could not save these related columns. The table was not changed.');
       return;
@@ -3770,6 +3787,7 @@ const BuilderWorkspaceContent = ({
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       groupedRowValuePolicy={groupedRowValuePolicy}
                       onAddSelected={addSelectedFeatures}
+                      onPreviewSelected={previewRelatedSourceColumns}
                       onInspectRouteCoverage={inspectRelatedRouteCoverage}
                     />
                   </>

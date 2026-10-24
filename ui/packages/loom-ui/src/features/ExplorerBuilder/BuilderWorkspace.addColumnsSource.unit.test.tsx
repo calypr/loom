@@ -322,6 +322,184 @@ const mutationResult = () => [
   { isLoading: false },
 ];
 
+const configureRelatedSourceCountFixture = () => {
+  const construction: Construction = {
+    version: 1,
+    steps: [{
+      id: 'keep-vitals',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'FILTER',
+        filter: { columnId: 'patient-row-key', operator: 'EXISTS' },
+      },
+      outputs: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+    }],
+  };
+  const sourceStage: ConstructionStageDescriptor = {
+    id: 'source_projection',
+    inputStageId: '',
+    rowIdentityColumn: 'source-row-key',
+    columns: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+    capabilities: [],
+  };
+  const selectedStage: ConstructionStageDescriptor = {
+    id: 'keep-vitals',
+    inputStageId: 'source_projection',
+    operation: 'FILTER',
+    rowIdentityColumn: '_key',
+    columns: [{
+      id: 'patient-row-key',
+      name: 'patient_row_key',
+      label: 'Patient row key',
+      cardinality: 'required_one',
+    }],
+    capabilities: [{ kind: 'RELATED_SOURCE', supported: true }, { kind: 'ROW_VALUES', supported: true }],
+  };
+  const relatedWorkspace: ExplorerBuilderWorkspace = {
+    ...workspace,
+    documents: [{ ...workspace.documents[0]!, construction }],
+  };
+  (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+    data: { ...builderState, workspace: relatedWorkspace },
+    isLoading: false,
+    refetch: vi.fn(),
+  });
+  mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+    readonly snapshotToken: string;
+    readonly expectedDraftVersion: number;
+    readonly expectedDraftDigest: string;
+    readonly outputId: string;
+    readonly stageId: string;
+  }) => ({
+    snapshotToken: args.snapshotToken,
+    draftVersion: args.expectedDraftVersion,
+    draftDigest: args.expectedDraftDigest,
+    outputId: args.outputId,
+    stageId: args.stageId,
+    baseConstruction: construction,
+    stages: [sourceStage, selectedStage],
+    selectedStage,
+  }));
+  const alternateRelatedSourceChoice: ConstructionChoice = {
+    ...relatedSourceChoice,
+    choiceId: 'server-observation-related-choice-via-report',
+    route: [
+      {
+        edgeId: 'patient-reports',
+        fromNodeId: 'patient-node',
+        toNodeId: 'report-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'DiagnosticReport',
+        relationship: 'reports',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      },
+      {
+        edgeId: 'report-observations',
+        fromNodeId: 'report-node',
+        toNodeId: 'observation-node',
+        fromResourceType: 'DiagnosticReport',
+        toResourceType: 'Observation',
+        relationship: 'observations',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      },
+    ],
+  };
+  mockLoomClient.searchConstructionChoices.mockResolvedValue({
+    snapshotToken: 'snapshot-1',
+    outputId: 'patients',
+    complete: true,
+    truncated: false,
+    choices: [relatedSourceChoice, alternateRelatedSourceChoice],
+  });
+  mockLoomClient.proposeConstruction.mockImplementation(async (args: {
+    readonly candidateConstruction: Construction;
+    readonly requestId: string;
+  }) => {
+    const lastStep = args.candidateConstruction.steps.at(-1);
+    const output = lastStep?.outputs.at(-1);
+    const isCount = lastStep?.operation.kind === 'RELATED_SOURCE' &&
+      lastStep.operation.relatedSource.form === 'COUNT';
+    const outputColumn = output?.name ?? 'related_Observation_status';
+    const proposalId = args.requestId.startsWith('construction-route-coverage-')
+      ? 'related-source-coverage-proposal'
+      : 'related-source-proposal';
+    return {
+      proposalId,
+      outputId: 'patients',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'candidate-workspace-1',
+      changedStepId: lastStep?.id ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [sourceStage, selectedStage],
+      previewStatus: 'READY' as const,
+      previewDurationMs: 7,
+      preview: {
+        apiVersion,
+        kind: 'ExplorerBuilderPreview' as const,
+        rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+        receiptId: proposalId,
+        outputId: 'patients',
+        columns: [{
+          column: outputColumn,
+          label: output?.label ?? 'Observation status',
+          logicalType: isCount ? 'integer' : 'string',
+          filterable: true,
+          chartable: false,
+        }],
+        rows: [{ [outputColumn]: isCount ? 1 : ['registered'] }],
+        rowCount: 1,
+        diagnostics: [],
+      },
+    };
+  });
+  mockLoomClient.preview.mockResolvedValue({
+    apiVersion,
+    kind: 'ExplorerBuilderPreview',
+    rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+    receiptId: 'related-source-proposal',
+    outputId: 'patients',
+    columns: [{ column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false }],
+    rows: [{ patient_row_key: 'patient-1' }],
+    rowCount: 1,
+    diagnostics: [],
+  });
+  const savedPreview: ExplorerBuilderPreviewResult = {
+    apiVersion,
+    kind: 'ExplorerBuilderPreview',
+    rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+    receiptId: 'saved-patient-preview',
+    outputId: 'patients',
+    columns: [{ column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false }],
+    rows: [{ patient_row_key: 'patient-1' }],
+    rowCount: 1,
+    diagnostics: [],
+  };
+  const savedReceipt: ExplorerBuilderCompileResult = {
+    apiVersion,
+    kind: 'ExplorerBuilderReceipt',
+    receiptId: savedPreview.receiptId,
+    snapshotToken: 'snapshot-1',
+    builder: relatedWorkspace,
+    outputs: [{ outputId: 'patients', columns: savedPreview.columns }],
+    diagnostics: [],
+  };
+  (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+    vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedReceipt) }),
+    { isLoading: false },
+  ]);
+  (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+    vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedPreview) }),
+    { isLoading: false },
+  ]);
+  return { construction, relatedWorkspace, selectedStage };
+};
+
 const initialPatientWorkspace = (
   title: string,
   columns: ExplorerBuilderWorkspace['documents'][number]['columns'] = [],
@@ -1445,102 +1623,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
   });
 
   it('proposes a distinct related-record count when row values are also supported and applies only the proposal', async () => {
-    const construction = {
-      version: 1,
-      steps: [{
-        id: 'keep-vitals',
-        inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
-        operation: {
-          kind: 'FILTER' as const,
-          filter: { columnId: 'patient-row-key', operator: 'EXISTS' as const },
-        },
-        outputs: [{
-          id: 'patient-row-key',
-          name: 'patient_row_key',
-          label: 'Patient row key',
-        }],
-      }],
-    };
-    const sourceStage = {
-      id: 'source_projection',
-      inputStageId: '',
-      rowIdentityColumn: 'source-row-key',
-      columns: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
-      capabilities: [],
-    };
-    const selectedStage = {
-      id: 'keep-vitals',
-      inputStageId: 'source_projection',
-      operation: 'FILTER',
-      rowIdentityColumn: '_key',
-      columns: [{
-        id: 'patient-row-key',
-        name: 'patient_row_key',
-        label: 'Patient row key',
-        cardinality: 'required_one',
-      }],
-      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }, { kind: 'ROW_VALUES', supported: true }],
-    };
-    const relatedWorkspace: ExplorerBuilderWorkspace = {
-      ...workspace,
-      documents: [{ ...workspace.documents[0]!, construction }],
-    };
-    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
-      data: { ...builderState, workspace: relatedWorkspace },
-      isLoading: false,
-      refetch: vi.fn(),
-    });
-    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
-      readonly snapshotToken: string;
-      readonly expectedDraftVersion: number;
-      readonly expectedDraftDigest: string;
-      readonly outputId: string;
-      readonly stageId: string;
-    }) => ({
-      snapshotToken: args.snapshotToken,
-      draftVersion: args.expectedDraftVersion,
-      draftDigest: args.expectedDraftDigest,
-      outputId: args.outputId,
-      stageId: args.stageId,
-      baseConstruction: construction,
-      stages: [sourceStage, selectedStage],
-      selectedStage,
-    }));
-    mockLoomClient.searchConstructionChoices.mockResolvedValue({
-      snapshotToken: 'snapshot-1',
-      outputId: 'patients',
-      complete: true,
-      truncated: false,
-      choices: [relatedSourceChoice],
-    });
-    mockLoomClient.proposeConstruction.mockImplementation(async (args: {
-      readonly candidateConstruction: unknown;
-    }) => ({
-      proposalId: 'related-source-proposal',
-      outputId: 'patients',
-      snapshotToken: 'snapshot-1',
-      draftVersion: 1,
-      draftDigest: 'sha256:draft-1',
-      baseDocumentDigest: 'document-1',
-      candidateWorkspaceDigest: 'candidate-workspace-1',
-      changedStepId: '',
-      candidateConstruction: args.candidateConstruction,
-      dependencyImpact: { affectedStepIds: [] },
-      stages: [sourceStage, selectedStage],
-      previewStatus: 'READY',
-      previewDurationMs: 7,
-    }));
-    mockLoomClient.preview.mockResolvedValue({
-      apiVersion,
-      kind: 'ExplorerBuilderPreview',
-      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
-      receiptId: 'related-source-proposal',
-      outputId: 'patients',
-      columns: [{ column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false }],
-      rows: [{ patient_row_key: 'patient-1' }],
-      rowCount: 1,
-      diagnostics: [],
-    });
+    configureRelatedSourceCountFixture();
 
     render(
       <BuilderWorkspace
@@ -1556,7 +1639,17 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.status' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
-    const selectionDialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const selectionOptions = await screen.findByTestId('catalog-selection-options');
+    const routeChoice = within(selectionOptions).getByRole('radio', {
+      name: 'Observation status: Patient -[observations]-> Observation',
+    });
+    fireEvent.click(routeChoice);
+    fireEvent.click(within(selectionOptions).getByRole('radio', {
+      name: 'Observation status: Count matching records',
+    }));
+    fireEvent.click(within(within(selectionOptions)
+      .getByTestId('catalog-route-coverage-server-observation-related-choice'))
+      .getByRole('button', { name: 'Check related values' }));
     await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.some(
       ([request]) => request.requestId.startsWith('construction-route-coverage-'),
     )).toBe(true));
@@ -1569,22 +1662,19 @@ describe('BuilderWorkspace Add columns source selection', () => {
         expect.objectContaining({
           operation: expect.objectContaining({
             kind: 'RELATED_SOURCE',
-            relatedSource: expect.objectContaining({ form: 'ALL' }),
+            relatedSource: expect.objectContaining({ form: 'ALL', route: relatedSourceChoice.route }),
           }),
         }),
       ],
     }));
     expect(mockLoomClient.proposeConstructionChoices).not.toHaveBeenCalled();
-    fireEvent.click(within(selectionDialog).getByRole('radio', {
-      name: 'Observation status: Count matching records',
-    }));
-    fireEvent.click(within(selectionDialog).getByRole('radio', {
+    fireEvent.click(within(selectionOptions).getByRole('radio', {
       name: 'Only records where Observation status equals',
     }));
-    fireEvent.change(within(selectionDialog).getByRole('textbox', {
+    fireEvent.change(within(selectionOptions).getByRole('textbox', {
       name: 'Observation status exact value',
     }), { target: { value: 'registered' } });
-    fireEvent.click(within(selectionDialog).getByRole('button', { name: 'Add 1 column' }));
+    fireEvent.click(within(selectionOptions).getByRole('button', { name: 'Preview related columns' }));
 
     await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.some(
       ([request]) => !request.requestId.startsWith('construction-route-coverage-'),
@@ -1635,10 +1725,60 @@ describe('BuilderWorkspace Add columns source selection', () => {
       label: 'Count of related Observation records where status equals registered',
       type: 'integer',
     }));
+    expect(mockLoomClient.proposeConstructionChoices).not.toHaveBeenCalled();
     expect(await screen.findByText('Proposal preview')).toBeInTheDocument();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledOnce());
+    expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'APPLY_CONSTRUCTION_PROPOSAL',
+        outputId: 'patients',
+        proposalId: 'related-source-proposal',
+      }],
+    }));
+  });
+
+  it('keeps the existing Add action atomic for related COUNT columns', async () => {
+    configureRelatedSourceCountFixture();
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.click(screen.getByText('Advanced source setup'));
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+
+    const selectionOptions = await screen.findByTestId('catalog-selection-options');
+    fireEvent.click(within(selectionOptions).getByRole('radio', {
+      name: 'Observation status: Patient -[observations]-> Observation',
+    }));
+    fireEvent.click(within(selectionOptions).getByRole('radio', {
+      name: 'Observation status: Count matching records',
+    }));
+    fireEvent.click(within(selectionOptions).getByRole('button', { name: 'Add 1 selected feature' }));
+
+    await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.some(
+      ([request]) => !request.requestId.startsWith('construction-route-coverage-'),
+    )).toBe(true));
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls.find(
+      ([request]) => !request.requestId.startsWith('construction-route-coverage-'),
+    )?.[0];
+    expect(proposalArgs?.candidateConstruction.steps[1]?.operation).toEqual(expect.objectContaining({
+      kind: 'RELATED_SOURCE',
+      relatedSource: expect.objectContaining({
+        form: 'COUNT',
+        route: relatedSourceChoice.route,
+      }),
+    }));
     await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledOnce());
     expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
       commands: [{
@@ -1749,14 +1889,17 @@ describe('BuilderWorkspace Add columns source selection', () => {
       choices: choices.filter((choice) => choice.source.kind === 'FIELD' &&
         choice.source.candidateId === args.source.candidateId),
     }));
+    const candidateProposalIds: string[] = [];
     mockLoomClient.proposeConstruction.mockImplementation(async (args: {
       readonly candidateConstruction: Construction;
       readonly changedStepId?: string;
       readonly requestId: string;
     }): Promise<ConstructionProposalResponse> => {
-      const proposalId = args.requestId.startsWith('construction-route-coverage-')
+      const isRouteCoverageRequest = args.requestId.startsWith('construction-route-coverage-');
+      const proposalId = isRouteCoverageRequest
         ? `route-coverage-${args.candidateConstruction.steps.length}`
-        : 'related-source-batch-proposal';
+        : `related-source-batch-proposal-${candidateProposalIds.length + 1}`;
+      if (!isRouteCoverageRequest) candidateProposalIds.push(proposalId);
       const preview: ExplorerBuilderPreviewResult = {
         apiVersion,
         kind: 'ExplorerBuilderPreview',
@@ -1837,10 +1980,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.valueQuantity.value' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
 
-    const selectionDialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
-    fireEvent.click(within(selectionDialog).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
-    fireEvent.click(within(selectionDialog).getByRole('radio', { name: 'Observation value: Keep all matching values' }));
-    fireEvent.click(within(selectionDialog).getByRole('button', { name: 'Add 2 columns' }));
+    const selectionOptions = await screen.findByTestId('catalog-selection-options');
+    expect(within(selectionOptions).getByRole('button', { name: 'Preview related columns' })).toBeInTheDocument();
+    fireEvent.click(within(selectionOptions).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
+    fireEvent.click(within(selectionOptions).getByRole('radio', { name: 'Observation value: Keep all matching values' }));
+    fireEvent.click(within(selectionOptions).getByRole('button', { name: 'Preview related columns' }));
 
     await screen.findByTestId('construction-proposal-ready');
     await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.filter(
@@ -1933,6 +2077,54 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(within(savedTable).getByRole('cell')).toHaveTextContent('patient-1');
     expect(within(savedTable).queryByRole('columnheader', { name: 'Observation id' })).not.toBeInTheDocument();
     expect(within(savedTable).queryByRole('columnheader', { name: 'Observation value' })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Other fields' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.id' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.valueQuantity.value' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+
+    const restagedOptions = await screen.findByTestId('catalog-selection-options');
+    fireEvent.click(within(restagedOptions).getByRole('radio', { name: 'Observation id: Keep all matching values' }));
+    fireEvent.click(within(restagedOptions).getByRole('radio', { name: 'Observation value: Keep all matching values' }));
+    fireEvent.click(within(restagedOptions).getByRole('button', { name: 'Preview related columns' }));
+    await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.filter(
+      ([request]) => request.requestId.startsWith('construction-proposal-'),
+    )).toHaveLength(2));
+    expect(candidateProposalIds).toEqual([
+      'related-source-batch-proposal-1',
+      'related-source-batch-proposal-2',
+    ]);
+    const restagedProposalArgs = mockLoomClient.proposeConstruction.mock.calls.filter(
+      ([request]) => request.requestId.startsWith('construction-proposal-'),
+    )[1]?.[0];
+    if (!restagedProposalArgs) throw new Error('The restaged related-source proposal was not captured.');
+    const restagedConstruction: Construction = restagedProposalArgs.candidateConstruction;
+    expect(restagedConstruction.steps.slice(1).map((step) => step.operation.kind))
+      .toEqual(['RELATED_SOURCE', 'RELATED_SOURCE']);
+    expect(restagedConstruction.steps[1]?.inputs)
+      .toEqual([{ kind: 'STEP_OUTPUT', stepId: 'keep-patients' }]);
+    expect(restagedConstruction.steps[1]?.operation).toEqual(expect.objectContaining({
+      kind: 'RELATED_SOURCE',
+      relatedSource: expect.objectContaining({
+        source: expect.objectContaining({ candidateId: 'observation-id' }),
+        route: observationRouteChoice.route,
+        form: 'ALL',
+      }),
+    }));
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+    expect(await screen.findByText('Proposal preview')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledOnce());
+    expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'APPLY_CONSTRUCTION_PROPOSAL',
+        outputId: 'patients',
+        proposalId: 'related-source-batch-proposal-2',
+      }],
+    }));
   });
 
   it('does not offer related sources while editing an earlier construction step', async () => {

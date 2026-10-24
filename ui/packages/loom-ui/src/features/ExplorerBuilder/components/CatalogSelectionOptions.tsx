@@ -121,6 +121,7 @@ export const CatalogSelectionOptions = ({
   onInspectRouteCoverage,
   onCancel,
   onConfirm,
+  onPreview,
 }: {
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
   readonly rowRoot: string;
@@ -135,6 +136,7 @@ export const CatalogSelectionOptions = ({
   readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
   readonly onCancel: () => void;
   readonly onConfirm: (selections: ReadonlyArray<CatalogChoiceIntent>) => void;
+  readonly onPreview?: (selections: ReadonlyArray<CatalogChoiceIntent>) => void;
 }) => {
   const [choiceIDs, setChoiceIDs] = useState<ReadonlyMap<string, string>>(
     () => new Map(
@@ -224,8 +226,8 @@ export const CatalogSelectionOptions = ({
     );
   });
 
-  const confirm = () => {
-    if (!complete) return;
+  const selectionsForSubmission = (): ReadonlyArray<CatalogChoiceIntent> | undefined => {
+    if (!complete) return undefined;
     const selections = groups.flatMap((group) => {
       const choice = group.choices.find(
         (candidate) => candidate.choiceId === choiceIDs.get(catalogItemKey(group.item)),
@@ -258,7 +260,17 @@ export const CatalogSelectionOptions = ({
         },
       ];
     });
-    if (selections.length === groups.length) onConfirm(selections);
+    return selections.length === groups.length ? selections : undefined;
+  };
+
+  const confirm = () => {
+    const selections = selectionsForSubmission();
+    if (selections) onConfirm(selections);
+  };
+
+  const preview = () => {
+    const selections = selectionsForSubmission();
+    if (selections) onPreview?.(selections);
   };
 
   return (
@@ -639,6 +651,16 @@ export const CatalogSelectionOptions = ({
           <button type="button" disabled={busy} onClick={onCancel} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">
             Cancel
           </button>
+          {onPreview ? (
+            <button
+              type="button"
+              disabled={busy || !complete}
+              onClick={preview}
+              className="rounded-md border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Preview related columns
+            </button>
+          ) : null}
           <button type="button" disabled={busy || !complete} onClick={confirm} className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
             {busy ? 'Adding columns…' : `Add ${groups.length} selected ${groups.length === 1 ? 'feature' : 'features'}`}
           </button>
