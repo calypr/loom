@@ -2229,7 +2229,7 @@
         },
         {
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 3310,
+          "line": 3304,
           "score": 1,
           "specific": true,
           "occurrences": 1,
