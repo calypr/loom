@@ -695,10 +695,8 @@ FOR s IN (
   const relatedFieldOptionsRegion = '[data-testid="catalog-selection-options"]';
   const prepareRelatedFieldChooser = async () => {
     const alreadyOpen = await browserEval(page, () => Boolean(document.querySelector('[aria-label="Add columns editor"]')));
-    if (!alreadyOpen) {
-      await click(page, '[data-testid="construction-action-add-columns"]');
-      await click(page, '[aria-label="Column types"] button', { name: 'Other fields' });
-    }
+    if (!alreadyOpen) await click(page, '[data-testid="construction-action-add-columns"]');
+    await click(page, '[aria-label="Column types"] button[data-view="fields"]');
     await waitForControl(page, '[data-testid="construction-add-columns-source"]');
     await click(page, '[data-testid="construction-add-columns-source-option"][data-source-kind="RELATED"][aria-label="Observation, Related resource"]');
     const fieldSelector = 'button[aria-label="Select Observation.status"]';
