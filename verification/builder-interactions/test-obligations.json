@@ -384663,7 +384663,7 @@
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
       "roleHint": "browser-workflow",
       "present": true,
-      "sha256": "e79f6d396fe614630c4c0368d422ed0d3e030d83eef45a6a90f207aac3723bf7",
+      "sha256": "52a6e18a44d54d87141575e9a71e6d0897d32de9950df891c32f895cdb3f56e4",
       "staticReferenceCandidates": [
         {
           "kind": "path-mention",
@@ -384712,13 +384712,8 @@
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 475,
+            "line": 496,
             "kind": "oracle-computation"
-          },
-          {
-            "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 600,
-            "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
@@ -384727,47 +384722,52 @@
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 634,
+            "line": 642,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 652,
+            "line": 655,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 672,
+            "line": 673,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 782,
+            "line": 693,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 800,
+            "line": 803,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 853,
+            "line": 821,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 864,
+            "line": 874,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 884,
+            "line": 885,
             "kind": "test-assertion"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 906,
+            "line": 905,
+            "kind": "test-assertion"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
+            "line": 927,
             "kind": "test-assertion"
           },
           {
@@ -384782,41 +384782,41 @@
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 279,
+            "line": 287,
             "kind": "scoped Group oracle and complete-population comparison reviewed"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 355,
+            "line": 376,
             "kind": "scoped Group oracle and complete-population comparison reviewed"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 599,
+            "line": 620,
             "kind": "scoped Group oracle and complete-population comparison reviewed"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 360,
+            "line": 381,
             "kind": "native Back to table control for Row definition settings"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 364,
+            "line": 385,
             "kind": "waits for Row definition settings dialog disappearance"
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 584,
+            "line": 605,
             "kind": "closes settings after each applied related-row expansion"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "693a53a8e4bd8dc3eb6ea855cee47d115fc4e988"
+        "reviewedCommit": "db44b11da18f9a5ebbcf76bfe30ce391909b3dec"
       },
       "sourceRevision": {
-        "commit": "693a53a8e4bd8dc3eb6ea855cee47d115fc4e988",
-        "sha256": "e79f6d396fe614630c4c0368d422ed0d3e030d83eef45a6a90f207aac3723bf7"
+        "commit": "db44b11da18f9a5ebbcf76bfe30ce391909b3dec",
+        "sha256": "52a6e18a44d54d87141575e9a71e6d0897d32de9950df891c32f895cdb3f56e4"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -384851,26 +384851,17 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L475:oracle-computation-oracle-bounded-real-cda-oracle-selects-exact-specimen-t",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L496:oracle-computation-oracle-bounded-real-cda-oracle-selects-exact-specimen-t",
           "semanticClaimId": "oracle.bounded-real-cda-oracle-selects-exact-specimen-to-patient-to-observation-status-witness",
           "sourceLines": [
-            475
+            496
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L600:test-assertion-invariant-native-specimen-to-patient-and-patient-to-obs",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L621:test-assertion-invariant-native-specimen-to-patient-and-patient-to-obs",
           "semanticClaimId": "invariant.native-specimen-to-patient-and-patient-to-observation-choices-preserve-exact-raw-edges",
-          "sourceLines": [
-            600
-          ],
-          "evidenceKind": "test-assertion",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L621:test-assertion-invariant-initial-group-aggregates-exact-related-observ",
-          "semanticClaimId": "invariant.initial-group-aggregates-exact-related-observation-rows",
           "sourceLines": [
             621
           ],
@@ -384878,118 +384869,127 @@
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L634:test-assertion-invariant-count-distinct-group-proposal-previews-the-ex",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L642:test-assertion-invariant-initial-group-aggregates-exact-related-observ",
+          "semanticClaimId": "invariant.initial-group-aggregates-exact-related-observation-rows",
+          "sourceLines": [
+            642
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L655:test-assertion-invariant-count-distinct-group-proposal-previews-the-ex",
           "semanticClaimId": "invariant.count-distinct-group-proposal-previews-the-exact-bounded-raw-observation-identity-count",
           "sourceLines": [
-            634
+            655
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L652:test-assertion-behavior-group-count-distinct-edit-cancel-preserves-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L673:test-assertion-behavior-group-count-distinct-edit-cancel-preserves-exa",
           "semanticClaimId": "behavior.group-count-distinct-edit-cancel-preserves-exact-prior-draft-before-adding-related-column",
           "sourceLines": [
-            652
+            673
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L672:test-assertion-behavior-group-count-distinct-apply-and-reload-persist-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L693:test-assertion-behavior-group-count-distinct-apply-and-reload-persist-",
           "semanticClaimId": "behavior.group-count-distinct-apply-and-reload-persist-exact-pre-column-group-without-related-sourc",
           "sourceLines": [
-            672
+            693
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L782:test-assertion-invariant-observation-status-related-source-proposal-ma",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L803:test-assertion-invariant-observation-status-related-source-proposal-ma",
           "semanticClaimId": "invariant.observation-status-related-source-proposal-matches-the-exact-raw-status-multiset-and-edite",
           "sourceLines": [
-            782
+            803
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L800:test-assertion-behavior-related-column-cancel-preserves-exact-count-di",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L821:test-assertion-behavior-related-column-cancel-preserves-exact-count-di",
           "semanticClaimId": "behavior.related-column-cancel-preserves-exact-count-distinct-group-workspace-and-draft-cas",
           "sourceLines": [
-            800
+            821
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L853:test-assertion-behavior-applying-observation-status-related-source-ret",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L874:test-assertion-behavior-applying-observation-status-related-source-ret",
           "semanticClaimId": "behavior.applying-observation-status-related-source-retains-the-edited-group-and-exact-source-bindi",
           "sourceLines": [
-            853
+            874
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L864:test-assertion-behavior-reload-preserves-the-exact-group-and-related-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L885:test-assertion-behavior-reload-preserves-the-exact-group-and-related-o",
           "semanticClaimId": "behavior.reload-preserves-the-exact-group-and-related-observation-status-field-construction",
           "sourceLines": [
-            864
+            885
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L884:test-assertion-behavior-group-round-trip-cancel-preserves-downstream-r",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L905:test-assertion-behavior-group-round-trip-cancel-preserves-downstream-r",
           "semanticClaimId": "behavior.group-round-trip-cancel-preserves-downstream-related-source-and-exact-saved-draft",
           "sourceLines": [
-            884
+            905
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L906:test-assertion-behavior-group-round-trip-apply-and-reload-preserve-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L927:test-assertion-behavior-group-round-trip-apply-and-reload-preserve-exa",
           "semanticClaimId": "behavior.group-round-trip-apply-and-reload-preserve-exact-downstream-related-field-bindings",
           "sourceLines": [
-            906
+            927
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L943:test-assertion-behavior-related-source-removal-cancel-preserves-the-ex",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L964:test-assertion-behavior-related-source-removal-cancel-preserves-the-ex",
           "semanticClaimId": "behavior.related-source-removal-cancel-preserves-the-exact-saved-group-and-related-field-workspace",
           "sourceLines": [
-            943
+            964
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L976:test-assertion-behavior-applying-related-source-removal-and-reloading-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L997:test-assertion-behavior-applying-related-source-removal-and-reloading-",
           "semanticClaimId": "behavior.applying-related-source-removal-and-reloading-restores-the-exact-original-group-workspace",
           "sourceLines": [
-            976
+            997
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L984:test-assertion-tool-no-unexpected-browser-authoring-transport-or-nativ",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1005:test-assertion-tool-no-unexpected-browser-authoring-transport-or-nativ",
           "semanticClaimId": "tool.no-unexpected-browser-authoring-transport-or-native-http-errors-occur",
           "sourceLines": [
-            984
+            1005
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L989:test-assertion-tool-all-group-edit-action-to-render-checkpoints-comple",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1010:test-assertion-tool-all-group-edit-action-to-render-checkpoints-comple",
           "semanticClaimId": "tool.all-group-edit-action-to-render-checkpoints-complete-within-five-seconds",
           "sourceLines": [
-            989
+            1010
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
@@ -385139,80 +385139,35 @@
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L273:oracle-computation-oracle-rendered-preview-must-contain-the-complete-bound",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L281:oracle-computation-oracle-rendered-preview-must-contain-the-complete-bound",
           "semanticClaimId": "oracle.rendered-preview-must-contain-the-complete-bounded-witness-population",
           "sourceLines": [
-            273
+            281
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L308:trace-capture-behavior-selected-value-must-use-the-native-browser-req",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L329:trace-capture-behavior-selected-value-must-use-the-native-browser-req",
           "semanticClaimId": "behavior.selected-value-must-use-the-native-browser-request",
           "sourceLines": [
-            308
+            329
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L309:test-assertion-behavior-selected-value-must-use-the-configured-local-u",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L330:test-assertion-behavior-selected-value-must-use-the-configured-local-u",
           "semanticClaimId": "behavior.selected-value-must-use-the-configured-local-ui-proxy",
           "sourceLines": [
-            309
+            330
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L310:test-assertion-behavior-selected-value-must-target-the-current-project",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L331:test-assertion-behavior-selected-value-must-target-the-current-project",
           "semanticClaimId": "behavior.selected-value-must-target-the-current-project-and-owned-explorer",
-          "sourceLines": [
-            310
-          ],
-          "evidenceKind": "test-assertion",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L315:trace-capture-behavior-selected-value-response-body-must-be-captured",
-          "semanticClaimId": "behavior.selected-value-response-body-must-be-captured",
-          "sourceLines": [
-            315
-          ],
-          "evidenceKind": "trace-capture",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L317:trace-capture-behavior-selected-value-native-command-must-target-the-",
-          "semanticClaimId": "behavior.selected-value-native-command-must-target-the-selected-output",
-          "sourceLines": [
-            317
-          ],
-          "evidenceKind": "trace-capture",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L319:trace-capture-behavior-selected-value-must-return-the-canonical-appli",
-          "semanticClaimId": "behavior.selected-value-must-return-the-canonical-applied-workspace",
-          "sourceLines": [
-            319
-          ],
-          "evidenceKind": "trace-capture",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L320:trace-capture-behavior-selected-value-must-advance-exactly-one-draft-",
-          "semanticClaimId": "behavior.selected-value-must-advance-exactly-one-draft-revision",
-          "sourceLines": [
-            320
-          ],
-          "evidenceKind": "trace-capture",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L331:test-assertion-behavior-selected-value-must-use-the-current-native-con",
-          "semanticClaimId": "behavior.selected-value-must-use-the-current-native-construction-proposals-endpoint",
           "sourceLines": [
             331
           ],
@@ -385220,107 +385175,143 @@
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L344:trace-capture-behavior-selected-value-proposal-must-compile-a-ready-a",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L336:trace-capture-behavior-selected-value-response-body-must-be-captured",
+          "semanticClaimId": "behavior.selected-value-response-body-must-be-captured",
+          "sourceLines": [
+            336
+          ],
+          "evidenceKind": "trace-capture",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L338:trace-capture-behavior-selected-value-native-command-must-target-the-",
+          "semanticClaimId": "behavior.selected-value-native-command-must-target-the-selected-output",
+          "sourceLines": [
+            338
+          ],
+          "evidenceKind": "trace-capture",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L340:trace-capture-behavior-selected-value-must-return-the-canonical-appli",
+          "semanticClaimId": "behavior.selected-value-must-return-the-canonical-applied-workspace",
+          "sourceLines": [
+            340
+          ],
+          "evidenceKind": "trace-capture",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L341:trace-capture-behavior-selected-value-must-advance-exactly-one-draft-",
+          "semanticClaimId": "behavior.selected-value-must-advance-exactly-one-draft-revision",
+          "sourceLines": [
+            341
+          ],
+          "evidenceKind": "trace-capture",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L352:test-assertion-behavior-selected-value-must-use-the-current-native-con",
+          "semanticClaimId": "behavior.selected-value-must-use-the-current-native-construction-proposals-endpoint",
+          "sourceLines": [
+            352
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L365:trace-capture-behavior-selected-value-proposal-must-compile-a-ready-a",
           "semanticClaimId": "behavior.selected-value-proposal-must-compile-a-ready-automatic-preview",
           "sourceLines": [
-            344
+            365
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L345:trace-capture-invariant-selected-value-candidate-receipt-must-bind-to",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L366:trace-capture-invariant-selected-value-candidate-receipt-must-bind-to",
           "semanticClaimId": "invariant.selected-value-candidate-receipt-must-bind-to-its-proposal",
           "sourceLines": [
-            345
+            366
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L354:oracle-computation-oracle-selected-value-proposal-panel-must-render-the-co",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L375:oracle-computation-oracle-selected-value-proposal-panel-must-render-the-co",
           "semanticClaimId": "oracle.selected-value-proposal-panel-must-render-the-complete-witness-population",
           "sourceLines": [
-            354
+            375
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L386:test-assertion-behavior-saved-construction-must-contain-the-authored-g",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L407:test-assertion-behavior-saved-construction-must-contain-the-authored-g",
           "semanticClaimId": "behavior.saved-construction-must-contain-the-authored-group",
           "sourceLines": [
-            386
+            407
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L400:test-assertion-invariant-active-related-observation-identity-must-be-a",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L421:test-assertion-invariant-active-related-observation-identity-must-be-a",
           "semanticClaimId": "invariant.active-related-observation-identity-must-be-available-to-group-before-a-downstream-project",
           "sourceLines": [
-            400
+            421
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L457:oracle-computation-oracle-bounded-raw-cda-scan-must-find-a-specimen-to-pat",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L478:oracle-computation-oracle-bounded-raw-cda-scan-must-find-a-specimen-to-pat",
           "semanticClaimId": "oracle.bounded-raw-cda-scan-must-find-a-specimen-to-patient-witness-with-2-24-distinct-observatio",
           "sourceLines": [
-            457
+            478
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L464:test-assertion-behavior-every-selected-observation-must-carry-scalar-s",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L485:test-assertion-behavior-every-selected-observation-must-carry-scalar-s",
           "semanticClaimId": "behavior.every-selected-observation-must-carry-scalar-status",
           "sourceLines": [
-            464
+            485
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L469:oracle-computation-oracle-raw-witness-observation-ids-must-be-unique",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L490:oracle-computation-oracle-raw-witness-observation-ids-must-be-unique",
           "semanticClaimId": "oracle.raw-witness-observation-ids-must-be-unique",
           "sourceLines": [
-            469
+            490
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L470:oracle-computation-oracle-raw-witness-must-contain-at-least-two-distinct-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L491:oracle-computation-oracle-raw-witness-must-contain-at-least-two-distinct-o",
           "semanticClaimId": "oracle.raw-witness-must-contain-at-least-two-distinct-observation-ids",
           "sourceLines": [
-            470
+            491
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L471:oracle-computation-oracle-raw-witness-must-fit-completely-in-the-25-row-pr",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L492:oracle-computation-oracle-raw-witness-must-fit-completely-in-the-25-row-pr",
           "semanticClaimId": "oracle.raw-witness-must-fit-completely-in-the-25-row-preview-bound",
           "sourceLines": [
-            471
+            492
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L472:test-assertion-invariant-every-selected-observation-must-retain-exact-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L493:test-assertion-invariant-every-selected-observation-must-retain-exact-",
           "semanticClaimId": "invariant.every-selected-observation-must-retain-exact-resource-type-and-generation-identity",
-          "sourceLines": [
-            472
-          ],
-          "evidenceKind": "test-assertion",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L493:test-assertion-behavior-the-server-assigned-explorer-must-remain-isola",
-          "semanticClaimId": "behavior.the-server-assigned-explorer-must-remain-isolated-from-the-protected-shared-explorer",
           "sourceLines": [
             493
           ],
@@ -385328,224 +385319,215 @@
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L508:test-assertion-behavior-the-real-cda-specimen-collection-must-be-loade",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L514:test-assertion-behavior-the-server-assigned-explorer-must-remain-isola",
+          "semanticClaimId": "behavior.the-server-assigned-explorer-must-remain-isolated-from-the-protected-shared-explorer",
+          "sourceLines": [
+            514
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L529:test-assertion-behavior-the-real-cda-specimen-collection-must-be-loade",
           "semanticClaimId": "behavior.the-real-cda-specimen-collection-must-be-loaded",
           "sourceLines": [
-            508
+            529
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L512:test-assertion-invariant-the-cda-catalog-must-advertise-specimen-id",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L533:test-assertion-invariant-the-cda-catalog-must-advertise-specimen-id",
           "semanticClaimId": "invariant.the-cda-catalog-must-advertise-specimen-id",
           "sourceLines": [
-            512
+            533
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L528:test-assertion-behavior-the-raw-specimen-source-must-attach-directly-t",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L549:test-assertion-behavior-the-raw-specimen-source-must-attach-directly-t",
           "semanticClaimId": "behavior.the-raw-specimen-source-must-attach-directly-to-the-table",
           "sourceLines": [
-            528
+            549
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L546:test-assertion-behavior-current-selected-value-related-stage-must-expo",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L567:test-assertion-behavior-current-selected-value-related-stage-must-expo",
           "semanticClaimId": "behavior.current-selected-value-related-stage-must-expose-a-stable-anchor-column-before-opening-its",
           "sourceLines": [
-            546
+            567
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L557:oracle-computation-oracle-cda-source-chain-must-remain-bounded-to-at-most-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L578:oracle-computation-oracle-cda-source-chain-must-remain-bounded-to-at-most-",
           "semanticClaimId": "oracle.cda-source-chain-must-remain-bounded-to-at-most-1000-witnesses",
           "sourceLines": [
-            557
+            578
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L587:oracle-computation-behavior-the-chosen-cda-specimen-must-reach-multiple-ob",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L608:oracle-computation-behavior-the-chosen-cda-specimen-must-reach-multiple-ob",
           "semanticClaimId": "behavior.the-chosen-cda-specimen-must-reach-multiple-observations",
           "sourceLines": [
-            587
+            608
           ],
           "evidenceKind": "oracle-computation",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L591:test-assertion-behavior-the-selected-specimen-must-have-concrete-relat",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L612:test-assertion-behavior-the-selected-specimen-must-have-concrete-relat",
           "semanticClaimId": "behavior.the-selected-specimen-must-have-concrete-related-observations",
           "sourceLines": [
-            591
+            612
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L592:test-assertion-invariant-the-bounded-source-finder-and-exact-pipeline-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L613:test-assertion-invariant-the-bounded-source-finder-and-exact-pipeline-",
           "semanticClaimId": "invariant.the-bounded-source-finder-and-exact-pipeline-edge-oracle-must-identify-the-same-observatio",
           "sourceLines": [
-            592
+            613
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L596:oracle-computation-oracle-raw-observation-selected-value-must-have-one-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L617:oracle-computation-oracle-raw-observation-selected-value-must-have-one-exa",
           "semanticClaimId": "oracle.raw-observation-selected-value-must-have-one-exact-native-route-witness",
           "sourceLines": [
-            596
+            617
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L650:test-assertion-behavior-group-edit-cancel-must-preserve-the-exact-sour",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L671:test-assertion-behavior-group-edit-cancel-must-preserve-the-exact-sour",
           "semanticClaimId": "behavior.group-edit-cancel-must-preserve-the-exact-source-and-draft-bindings",
           "sourceLines": [
-            650
+            671
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L670:test-assertion-behavior-the-downstream-related-source-must-still-be-ab",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L691:test-assertion-behavior-the-downstream-related-source-must-still-be-ab",
           "semanticClaimId": "behavior.the-downstream-related-source-must-still-be-absent-after-the-upstream-edit-reload",
           "sourceLines": [
-            670
+            691
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L686:test-assertion-invariant-the-current-cda-catalog-must-expose-observati",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L707:test-assertion-invariant-the-current-cda-catalog-must-expose-observati",
           "semanticClaimId": "invariant.the-current-cda-catalog-must-expose-observation-status-candidates",
           "sourceLines": [
-            686
+            707
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L739:test-assertion-invariant-chooser-must-bind-exact-source-route-all-matc",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L760:test-assertion-invariant-chooser-must-bind-exact-source-route-all-matc",
           "semanticClaimId": "invariant.chooser-must-bind-exact-source-route-all-matches-and-grouped-row-all-policy",
           "sourceLines": [
-            739
+            760
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L751:test-assertion-behavior-selected-value-must-use-the-current-native-rel",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L772:test-assertion-behavior-selected-value-must-use-the-current-native-rel",
           "semanticClaimId": "behavior.selected-value-must-use-the-current-native-related-source-construction-proposal",
           "sourceLines": [
-            751
+            772
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L752:test-assertion-invariant-the-native-related-proposal-must-bind-one-of-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L773:test-assertion-invariant-the-native-related-proposal-must-bind-one-of-",
           "semanticClaimId": "invariant.the-native-related-proposal-must-bind-one-of-the-current-observation-status-catalog-candid",
           "sourceLines": [
-            752
+            773
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L764:test-assertion-behavior-the-downstream-related-source-must-consume-the",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L785:test-assertion-behavior-the-downstream-related-source-must-consume-the",
           "semanticClaimId": "behavior.the-downstream-related-source-must-consume-the-edited-group-step-output",
           "sourceLines": [
-            764
+            785
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L766:test-assertion-behavior-related-source-must-expose-a-stable-output-col",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L787:test-assertion-behavior-related-source-must-expose-a-stable-output-col",
           "semanticClaimId": "behavior.related-source-must-expose-a-stable-output-column-id",
           "sourceLines": [
-            766
+            787
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L767:test-assertion-invariant-related-source-step-must-own-its-proposed-out",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L788:test-assertion-invariant-related-source-step-must-own-its-proposed-out",
           "semanticClaimId": "invariant.related-source-step-must-own-its-proposed-output-identity",
           "sourceLines": [
-            767
+            788
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L769:trace-capture-invariant-the-current-signed-route-choice-identity-must",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L790:trace-capture-invariant-the-current-signed-route-choice-identity-must",
           "semanticClaimId": "invariant.the-current-signed-route-choice-identity-must-be-captured",
           "sourceLines": [
-            769
+            790
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L776:test-assertion-invariant-typed-automatic-preview-must-equal-the-scoped",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L797:test-assertion-invariant-typed-automatic-preview-must-equal-the-scoped",
           "semanticClaimId": "invariant.typed-automatic-preview-must-equal-the-scoped-raw-observation-status-multiset",
           "sourceLines": [
-            776
+            797
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L798:test-assertion-behavior-related-column-cancel-must-preserve-exact-grou",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L819:test-assertion-behavior-related-column-cancel-must-preserve-exact-grou",
           "semanticClaimId": "behavior.related-column-cancel-must-preserve-exact-group-edit-and-source-bindings",
           "sourceLines": [
-            798
+            819
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L811:trace-capture-behavior-the-reopened-chooser-must-produce-a-fresh-prop",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L832:trace-capture-behavior-the-reopened-chooser-must-produce-a-fresh-prop",
           "semanticClaimId": "behavior.the-reopened-chooser-must-produce-a-fresh-proposal-receipt-after-cancel",
           "sourceLines": [
-            811
+            832
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L813:test-assertion-invariant-the-reopened-chooser-must-retain-the-same-sig",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L834:test-assertion-invariant-the-reopened-chooser-must-retain-the-same-sig",
           "semanticClaimId": "invariant.the-reopened-chooser-must-retain-the-same-signed-source-route-choice",
-          "sourceLines": [
-            813
-          ],
-          "evidenceKind": "test-assertion",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L815:test-assertion-invariant-the-reopened-chooser-must-retain-the-exact-se",
-          "semanticClaimId": "invariant.the-reopened-chooser-must-retain-the-exact-selected-catalog-candidate",
-          "sourceLines": [
-            815
-          ],
-          "evidenceKind": "test-assertion",
-          "independence": "derived"
-        },
-        {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L834:test-assertion-invariant-adding-the-related-column-must-retain-the-exa",
-          "semanticClaimId": "invariant.adding-the-related-column-must-retain-the-exact-previously-edited-group-step-and-output-id",
           "sourceLines": [
             834
           ],
@@ -385553,145 +385535,163 @@
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L839:test-assertion-behavior-saved-construction-must-bind-observation-statu",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L836:test-assertion-invariant-the-reopened-chooser-must-retain-the-exact-se",
+          "semanticClaimId": "invariant.the-reopened-chooser-must-retain-the-exact-selected-catalog-candidate",
+          "sourceLines": [
+            836
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L855:test-assertion-invariant-adding-the-related-column-must-retain-the-exa",
+          "semanticClaimId": "invariant.adding-the-related-column-must-retain-the-exact-previously-edited-group-step-and-output-id",
+          "sourceLines": [
+            855
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "derived"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L860:test-assertion-behavior-saved-construction-must-bind-observation-statu",
           "semanticClaimId": "behavior.saved-construction-must-bind-observation-status-through-a-native-related-source-step",
           "sourceLines": [
-            839
+            860
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L840:test-assertion-behavior-applying-the-proposal-must-preserve-the-stable",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L861:test-assertion-behavior-applying-the-proposal-must-preserve-the-stable",
           "semanticClaimId": "behavior.applying-the-proposal-must-preserve-the-stable-related-step-identity",
           "sourceLines": [
-            840
+            861
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L845:test-assertion-behavior-saved-related-source-must-own-its-stable-outpu",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L866:test-assertion-behavior-saved-related-source-must-own-its-stable-outpu",
           "semanticClaimId": "behavior.saved-related-source-must-own-its-stable-output-column-identity",
           "sourceLines": [
-            845
+            866
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L849:test-assertion-behavior-the-accepted-preview-must-bind-the-exact-saved",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L870:test-assertion-behavior-the-accepted-preview-must-bind-the-exact-saved",
           "semanticClaimId": "behavior.the-accepted-preview-must-bind-the-exact-saved-related-source-output-identity",
           "sourceLines": [
-            849
+            870
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L863:test-assertion-behavior-reload-must-preserve-the-exact-field-occurrenc",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L884:test-assertion-behavior-reload-must-preserve-the-exact-field-occurrenc",
           "semanticClaimId": "behavior.reload-must-preserve-the-exact-field-occurrence-all-policy-and-group-edit",
           "sourceLines": [
-            863
+            884
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L897:test-assertion-behavior-editing-group-must-preserve-the-exact-downstre",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L918:test-assertion-behavior-editing-group-must-preserve-the-exact-downstre",
           "semanticClaimId": "behavior.editing-group-must-preserve-the-exact-downstream-field-occurrence-and-all-source-binding",
           "sourceLines": [
-            897
+            918
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L899:test-assertion-invariant-editing-group-must-preserve-the-downstream-re",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L920:test-assertion-invariant-editing-group-must-preserve-the-downstream-re",
           "semanticClaimId": "invariant.editing-group-must-preserve-the-downstream-related-source-step-identity",
           "sourceLines": [
-            899
+            920
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L924:trace-capture-behavior-removal-must-target-only-the-newly-added-downs",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L945:trace-capture-behavior-removal-must-target-only-the-newly-added-downs",
           "semanticClaimId": "behavior.removal-must-target-only-the-newly-added-downstream-related-source-step",
           "sourceLines": [
-            924
+            945
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L926:trace-capture-behavior-the-removal-candidate-must-restore-the-exact-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L947:trace-capture-behavior-the-removal-candidate-must-restore-the-exact-o",
           "semanticClaimId": "behavior.the-removal-candidate-must-restore-the-exact-original-group-construction",
           "sourceLines": [
-            926
+            947
           ],
           "evidenceKind": "trace-capture",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L940:test-assertion-behavior-canceling-related-source-removal-must-preserve",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L961:test-assertion-behavior-canceling-related-source-removal-must-preserve",
           "semanticClaimId": "behavior.canceling-related-source-removal-must-preserve-its-exact-step-group-and-source-bindings",
           "sourceLines": [
-            940
+            961
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L966:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L987:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
           "semanticClaimId": "behavior.removing-the-related-source-must-restore-the-original-authored-column-bindings",
           "sourceLines": [
-            966
+            987
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L968:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L989:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
           "semanticClaimId": "behavior.removing-the-related-source-must-restore-the-original-group-construction-exactly",
           "sourceLines": [
-            968
+            989
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L971:test-assertion-behavior-the-removed-related-source-must-no-longer-be-p",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L992:test-assertion-behavior-the-removed-related-source-must-no-longer-be-p",
           "semanticClaimId": "behavior.the-removed-related-source-must-no-longer-be-present-in-the-saved-construction",
           "sourceLines": [
-            971
+            992
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L974:test-assertion-behavior-final-reload-must-restore-the-exact-group-work",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L995:test-assertion-behavior-final-reload-must-restore-the-exact-group-work",
           "semanticClaimId": "behavior.final-reload-must-restore-the-exact-group-workspace-source-membership-output-identity-and",
           "sourceLines": [
-            974
+            995
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L982:test-assertion-behavior-protected-shared-explorer-must-remain-untouche",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1003:test-assertion-behavior-protected-shared-explorer-must-remain-untouche",
           "semanticClaimId": "behavior.protected-shared-explorer-must-remain-untouched",
           "sourceLines": [
-            982
+            1003
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L983:test-assertion-behavior-the-native-lifecycle-must-have-no-http-runtime",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1004:test-assertion-behavior-the-native-lifecycle-must-have-no-http-runtime",
           "semanticClaimId": "behavior.the-native-lifecycle-must-have-no-http-runtime-or-console-errors",
           "sourceLines": [
-            983
+            1004
           ],
           "evidenceKind": "test-assertion",
           "independence": "derived"
@@ -385712,9 +385712,9 @@
           "semanticClaimId": "oracle.group-edit-complete-populations-match-independent-source-rows",
           "sourceLines": [
             218,
-            279,
-            355,
-            599
+            287,
+            376,
+            620
           ],
           "evidenceKind": "oracle-computation",
           "independence": "independent"
@@ -386677,7 +386677,7 @@
           },
           {
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-            "line": 481,
+            "line": 502,
             "kind": "raw query, oracle, or fixture source"
           }
         ]
@@ -475368,10 +475368,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L853:test-assertion-behavior-applying-observation-status-related-source-ret",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L874:test-assertion-behavior-applying-observation-status-related-source-ret",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            853
+            874
           ]
         }
       ]
@@ -475462,10 +475462,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L976:test-assertion-behavior-applying-related-source-removal-and-reloading-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L997:test-assertion-behavior-applying-related-source-removal-and-reloading-",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            976
+            997
           ]
         }
       ]
@@ -475886,10 +475886,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L840:test-assertion-behavior-applying-the-proposal-must-preserve-the-stable",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L861:test-assertion-behavior-applying-the-proposal-must-preserve-the-stable",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            840
+            861
           ]
         }
       ]
@@ -481927,10 +481927,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L940:test-assertion-behavior-canceling-related-source-removal-must-preserve",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L961:test-assertion-behavior-canceling-related-source-removal-must-preserve",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            940
+            961
           ]
         }
       ]
@@ -485464,10 +485464,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L546:test-assertion-behavior-current-selected-value-related-stage-must-expo",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L567:test-assertion-behavior-current-selected-value-related-stage-must-expo",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            546
+            567
           ]
         }
       ]
@@ -487034,10 +487034,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L897:test-assertion-behavior-editing-group-must-preserve-the-exact-downstre",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L918:test-assertion-behavior-editing-group-must-preserve-the-exact-downstre",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            897
+            918
           ]
         }
       ]
@@ -487653,10 +487653,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L464:test-assertion-behavior-every-selected-observation-must-carry-scalar-s",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L485:test-assertion-behavior-every-selected-observation-must-carry-scalar-s",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            464
+            485
           ]
         }
       ]
@@ -489519,10 +489519,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L974:test-assertion-behavior-final-reload-must-restore-the-exact-group-work",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L995:test-assertion-behavior-final-reload-must-restore-the-exact-group-work",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            974
+            995
           ]
         }
       ]
@@ -490028,10 +490028,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L672:test-assertion-behavior-group-count-distinct-apply-and-reload-persist-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L693:test-assertion-behavior-group-count-distinct-apply-and-reload-persist-",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            672
+            693
           ]
         }
       ]
@@ -490063,10 +490063,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L652:test-assertion-behavior-group-count-distinct-edit-cancel-preserves-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L673:test-assertion-behavior-group-count-distinct-edit-cancel-preserves-exa",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            652
+            673
           ]
         }
       ]
@@ -490096,10 +490096,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L650:test-assertion-behavior-group-edit-cancel-must-preserve-the-exact-sour",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L671:test-assertion-behavior-group-edit-cancel-must-preserve-the-exact-sour",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            650
+            671
           ]
         }
       ]
@@ -490280,10 +490280,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L906:test-assertion-behavior-group-round-trip-apply-and-reload-preserve-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L927:test-assertion-behavior-group-round-trip-apply-and-reload-preserve-exa",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            906
+            927
           ]
         }
       ]
@@ -490315,10 +490315,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L884:test-assertion-behavior-group-round-trip-cancel-preserves-downstream-r",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L905:test-assertion-behavior-group-round-trip-cancel-preserves-downstream-r",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            884
+            905
           ]
         }
       ]
@@ -502431,10 +502431,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L982:test-assertion-behavior-protected-shared-explorer-must-remain-untouche",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1003:test-assertion-behavior-protected-shared-explorer-must-remain-untouche",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            982
+            1003
           ]
         }
       ]
@@ -504088,10 +504088,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L798:test-assertion-behavior-related-column-cancel-must-preserve-exact-grou",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L819:test-assertion-behavior-related-column-cancel-must-preserve-exact-grou",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            798
+            819
           ]
         }
       ]
@@ -504123,10 +504123,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L800:test-assertion-behavior-related-column-cancel-preserves-exact-count-di",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L821:test-assertion-behavior-related-column-cancel-preserves-exact-count-di",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            800
+            821
           ]
         }
       ]
@@ -504464,10 +504464,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L766:test-assertion-behavior-related-source-must-expose-a-stable-output-col",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L787:test-assertion-behavior-related-source-must-expose-a-stable-output-col",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            766
+            787
           ]
         }
       ]
@@ -504516,10 +504516,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L943:test-assertion-behavior-related-source-removal-cancel-preserves-the-ex",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L964:test-assertion-behavior-related-source-removal-cancel-preserves-the-ex",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            943
+            964
           ]
         }
       ]
@@ -505723,10 +505723,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L863:test-assertion-behavior-reload-must-preserve-the-exact-field-occurrenc",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L884:test-assertion-behavior-reload-must-preserve-the-exact-field-occurrenc",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            863
+            884
           ]
         }
       ]
@@ -506329,10 +506329,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L864:test-assertion-behavior-reload-preserves-the-exact-group-and-related-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L885:test-assertion-behavior-reload-preserves-the-exact-group-and-related-o",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            864
+            885
           ]
         }
       ]
@@ -507132,10 +507132,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L924:trace-capture-behavior-removal-must-target-only-the-newly-added-downs",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L945:trace-capture-behavior-removal-must-target-only-the-newly-added-downs",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            924
+            945
           ]
         }
       ]
@@ -508719,10 +508719,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L966:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L987:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            966
+            987
           ]
         }
       ]
@@ -508752,10 +508752,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L968:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L989:test-assertion-behavior-removing-the-related-source-must-restore-the-o",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            968
+            989
           ]
         }
       ]
@@ -514546,10 +514546,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L839:test-assertion-behavior-saved-construction-must-bind-observation-statu",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L860:test-assertion-behavior-saved-construction-must-bind-observation-statu",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            839
+            860
           ]
         }
       ]
@@ -514579,10 +514579,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L386:test-assertion-behavior-saved-construction-must-contain-the-authored-g",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L407:test-assertion-behavior-saved-construction-must-contain-the-authored-g",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            386
+            407
           ]
         }
       ]
@@ -515866,10 +515866,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L845:test-assertion-behavior-saved-related-source-must-own-its-stable-outpu",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L866:test-assertion-behavior-saved-related-source-must-own-its-stable-outpu",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            845
+            866
           ]
         }
       ]
@@ -519709,10 +519709,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L320:trace-capture-behavior-selected-value-must-advance-exactly-one-draft-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L341:trace-capture-behavior-selected-value-must-advance-exactly-one-draft-",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            320
+            341
           ]
         }
       ]
@@ -520610,10 +520610,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L319:trace-capture-behavior-selected-value-must-return-the-canonical-appli",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L340:trace-capture-behavior-selected-value-must-return-the-canonical-appli",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            319
+            340
           ]
         }
       ]
@@ -520643,10 +520643,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L310:test-assertion-behavior-selected-value-must-target-the-current-project",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L331:test-assertion-behavior-selected-value-must-target-the-current-project",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            310
+            331
           ]
         }
       ]
@@ -520676,10 +520676,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L309:test-assertion-behavior-selected-value-must-use-the-configured-local-u",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L330:test-assertion-behavior-selected-value-must-use-the-configured-local-u",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            309
+            330
           ]
         }
       ]
@@ -520709,10 +520709,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L331:test-assertion-behavior-selected-value-must-use-the-current-native-con",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L352:test-assertion-behavior-selected-value-must-use-the-current-native-con",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            331
+            352
           ]
         }
       ]
@@ -520742,10 +520742,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L751:test-assertion-behavior-selected-value-must-use-the-current-native-rel",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L772:test-assertion-behavior-selected-value-must-use-the-current-native-rel",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            751
+            772
           ]
         }
       ]
@@ -520775,10 +520775,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L308:trace-capture-behavior-selected-value-must-use-the-native-browser-req",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L329:trace-capture-behavior-selected-value-must-use-the-native-browser-req",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            308
+            329
           ]
         }
       ]
@@ -520808,10 +520808,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L317:trace-capture-behavior-selected-value-native-command-must-target-the-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L338:trace-capture-behavior-selected-value-native-command-must-target-the-",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            317
+            338
           ]
         }
       ]
@@ -522578,10 +522578,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L344:trace-capture-behavior-selected-value-proposal-must-compile-a-ready-a",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L365:trace-capture-behavior-selected-value-proposal-must-compile-a-ready-a",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            344
+            365
           ]
         }
       ]
@@ -523424,10 +523424,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L315:trace-capture-behavior-selected-value-response-body-must-be-captured",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L336:trace-capture-behavior-selected-value-response-body-must-be-captured",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            315
+            336
           ]
         }
       ]
@@ -528445,10 +528445,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L849:test-assertion-behavior-the-accepted-preview-must-bind-the-exact-saved",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L870:test-assertion-behavior-the-accepted-preview-must-bind-the-exact-saved",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            849
+            870
           ]
         }
       ]
@@ -529000,10 +529000,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L587:oracle-computation-behavior-the-chosen-cda-specimen-must-reach-multiple-ob",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L608:oracle-computation-behavior-the-chosen-cda-specimen-must-reach-multiple-ob",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            587
+            608
           ]
         }
       ]
@@ -529427,10 +529427,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L764:test-assertion-behavior-the-downstream-related-source-must-consume-the",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L785:test-assertion-behavior-the-downstream-related-source-must-consume-the",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            764
+            785
           ]
         }
       ]
@@ -529460,10 +529460,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L670:test-assertion-behavior-the-downstream-related-source-must-still-be-ab",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L691:test-assertion-behavior-the-downstream-related-source-must-still-be-ab",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            670
+            691
           ]
         }
       ]
@@ -530934,10 +530934,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L983:test-assertion-behavior-the-native-lifecycle-must-have-no-http-runtime",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1004:test-assertion-behavior-the-native-lifecycle-must-have-no-http-runtime",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            983
+            1004
           ]
         }
       ]
@@ -532455,10 +532455,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L528:test-assertion-behavior-the-raw-specimen-source-must-attach-directly-t",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L549:test-assertion-behavior-the-raw-specimen-source-must-attach-directly-t",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            528
+            549
           ]
         }
       ]
@@ -532530,10 +532530,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L508:test-assertion-behavior-the-real-cda-specimen-collection-must-be-loade",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L529:test-assertion-behavior-the-real-cda-specimen-collection-must-be-loade",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            508
+            529
           ]
         }
       ]
@@ -532715,10 +532715,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L926:trace-capture-behavior-the-removal-candidate-must-restore-the-exact-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L947:trace-capture-behavior-the-removal-candidate-must-restore-the-exact-o",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            926
+            947
           ]
         }
       ]
@@ -532799,10 +532799,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L971:test-assertion-behavior-the-removed-related-source-must-no-longer-be-p",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L992:test-assertion-behavior-the-removed-related-source-must-no-longer-be-p",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            971
+            992
           ]
         }
       ]
@@ -532849,10 +532849,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L811:trace-capture-behavior-the-reopened-chooser-must-produce-a-fresh-prop",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L832:trace-capture-behavior-the-reopened-chooser-must-produce-a-fresh-prop",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            811
+            832
           ]
         }
       ]
@@ -534539,10 +534539,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L591:test-assertion-behavior-the-selected-specimen-must-have-concrete-relat",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L612:test-assertion-behavior-the-selected-specimen-must-have-concrete-relat",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            591
+            612
           ]
         }
       ]
@@ -534750,10 +534750,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L493:test-assertion-behavior-the-server-assigned-explorer-must-remain-isola",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L514:test-assertion-behavior-the-server-assigned-explorer-must-remain-isola",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            493
+            514
           ]
         }
       ]
@@ -577262,10 +577262,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L400:test-assertion-invariant-active-related-observation-identity-must-be-a",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L421:test-assertion-invariant-active-related-observation-identity-must-be-a",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            400
+            421
           ]
         }
       ]
@@ -577514,10 +577514,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L834:test-assertion-invariant-adding-the-related-column-must-retain-the-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L855:test-assertion-invariant-adding-the-related-column-must-retain-the-exa",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            834
+            855
           ]
         }
       ]
@@ -580500,10 +580500,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L739:test-assertion-invariant-chooser-must-bind-exact-source-route-all-matc",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L760:test-assertion-invariant-chooser-must-bind-exact-source-route-all-matc",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            739
+            760
           ]
         }
       ]
@@ -581199,10 +581199,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L634:test-assertion-invariant-count-distinct-group-proposal-previews-the-ex",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L655:test-assertion-invariant-count-distinct-group-proposal-previews-the-ex",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            634
+            655
           ]
         }
       ]
@@ -582499,10 +582499,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L899:test-assertion-invariant-editing-group-must-preserve-the-downstream-re",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L920:test-assertion-invariant-editing-group-must-preserve-the-downstream-re",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            899
+            920
           ]
         }
       ]
@@ -582949,10 +582949,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L472:test-assertion-invariant-every-selected-observation-must-retain-exact-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L493:test-assertion-invariant-every-selected-observation-must-retain-exact-",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            472
+            493
           ]
         }
       ]
@@ -585620,10 +585620,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L621:test-assertion-invariant-initial-group-aggregates-exact-related-observ",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L642:test-assertion-invariant-initial-group-aggregates-exact-related-observ",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            621
+            642
           ]
         }
       ]
@@ -591653,10 +591653,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L600:test-assertion-invariant-native-specimen-to-patient-and-patient-to-obs",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L621:test-assertion-invariant-native-specimen-to-patient-and-patient-to-obs",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            600
+            621
           ]
         }
       ]
@@ -592557,10 +592557,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L782:test-assertion-invariant-observation-status-related-source-proposal-ma",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L803:test-assertion-invariant-observation-status-related-source-proposal-ma",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            782
+            803
           ]
         }
       ]
@@ -595376,10 +595376,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L767:test-assertion-invariant-related-source-step-must-own-its-proposed-out",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L788:test-assertion-invariant-related-source-step-must-own-its-proposed-out",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            767
+            788
           ]
         }
       ]
@@ -597535,10 +597535,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L345:trace-capture-invariant-selected-value-candidate-receipt-must-bind-to",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L366:trace-capture-invariant-selected-value-candidate-receipt-must-bind-to",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            345
+            366
           ]
         }
       ]
@@ -603414,10 +603414,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L592:test-assertion-invariant-the-bounded-source-finder-and-exact-pipeline-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L613:test-assertion-invariant-the-bounded-source-finder-and-exact-pipeline-",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            592
+            613
           ]
         }
       ]
@@ -603497,10 +603497,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L512:test-assertion-invariant-the-cda-catalog-must-advertise-specimen-id",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L533:test-assertion-invariant-the-cda-catalog-must-advertise-specimen-id",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            512
+            533
           ]
         }
       ]
@@ -603895,10 +603895,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L686:test-assertion-invariant-the-current-cda-catalog-must-expose-observati",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L707:test-assertion-invariant-the-current-cda-catalog-must-expose-observati",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            686
+            707
           ]
         }
       ]
@@ -604039,10 +604039,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L769:trace-capture-invariant-the-current-signed-route-choice-identity-must",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L790:trace-capture-invariant-the-current-signed-route-choice-identity-must",
           "evidenceKind": "trace-capture",
           "sourceLines": [
-            769
+            790
           ]
         }
       ]
@@ -605533,10 +605533,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L752:test-assertion-invariant-the-native-related-proposal-must-bind-one-of-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L773:test-assertion-invariant-the-native-related-proposal-must-bind-one-of-",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            752
+            773
           ]
         }
       ]
@@ -606292,10 +606292,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L815:test-assertion-invariant-the-reopened-chooser-must-retain-the-exact-se",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L836:test-assertion-invariant-the-reopened-chooser-must-retain-the-exact-se",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            815
+            836
           ]
         }
       ]
@@ -606325,10 +606325,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L813:test-assertion-invariant-the-reopened-chooser-must-retain-the-same-sig",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L834:test-assertion-invariant-the-reopened-chooser-must-retain-the-same-sig",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            813
+            834
           ]
         }
       ]
@@ -607580,10 +607580,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L776:test-assertion-invariant-typed-automatic-preview-must-equal-the-scoped",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L797:test-assertion-invariant-typed-automatic-preview-must-equal-the-scoped",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            776
+            797
           ]
         }
       ]
@@ -873081,10 +873081,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L457:oracle-computation-oracle-bounded-raw-cda-scan-must-find-a-specimen-to-pat",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L478:oracle-computation-oracle-bounded-raw-cda-scan-must-find-a-specimen-to-pat",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            457
+            478
           ]
         }
       ]
@@ -873224,10 +873224,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L475:oracle-computation-oracle-bounded-real-cda-oracle-selects-exact-specimen-t",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L496:oracle-computation-oracle-bounded-real-cda-oracle-selects-exact-specimen-t",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            475
+            496
           ]
         }
       ]
@@ -875186,10 +875186,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L557:oracle-computation-oracle-cda-source-chain-must-remain-bounded-to-at-most-",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L578:oracle-computation-oracle-cda-source-chain-must-remain-bounded-to-at-most-",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            557
+            578
           ]
         }
       ]
@@ -884950,10 +884950,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L596:oracle-computation-oracle-raw-observation-selected-value-must-have-one-exa",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L617:oracle-computation-oracle-raw-observation-selected-value-must-have-one-exa",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            596
+            617
           ]
         }
       ]
@@ -885761,10 +885761,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L470:oracle-computation-oracle-raw-witness-must-contain-at-least-two-distinct-o",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L491:oracle-computation-oracle-raw-witness-must-contain-at-least-two-distinct-o",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            470
+            491
           ]
         }
       ]
@@ -885794,10 +885794,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L471:oracle-computation-oracle-raw-witness-must-fit-completely-in-the-25-row-pr",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L492:oracle-computation-oracle-raw-witness-must-fit-completely-in-the-25-row-pr",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            471
+            492
           ]
         }
       ]
@@ -885827,10 +885827,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L469:oracle-computation-oracle-raw-witness-observation-ids-must-be-unique",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L490:oracle-computation-oracle-raw-witness-observation-ids-must-be-unique",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            469
+            490
           ]
         }
       ]
@@ -887196,10 +887196,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L273:oracle-computation-oracle-rendered-preview-must-contain-the-complete-bound",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L281:oracle-computation-oracle-rendered-preview-must-contain-the-complete-bound",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            273
+            281
           ]
         }
       ]
@@ -889812,10 +889812,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L354:oracle-computation-oracle-selected-value-proposal-panel-must-render-the-co",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L375:oracle-computation-oracle-selected-value-proposal-panel-must-render-the-co",
           "evidenceKind": "oracle-computation",
           "sourceLines": [
-            354
+            375
           ]
         }
       ]
@@ -910177,10 +910177,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L989:test-assertion-tool-all-group-edit-action-to-render-checkpoints-comple",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1010:test-assertion-tool-all-group-edit-action-to-render-checkpoints-comple",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            989
+            1010
           ]
         }
       ]
@@ -913257,10 +913257,10 @@
         {
           "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L984:test-assertion-tool-no-unexpected-browser-authoring-transport-or-nativ",
+          "sourceAssertionId": "source:scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs:L1005:test-assertion-tool-no-unexpected-browser-authoring-transport-or-nativ",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            984
+            1005
           ]
         }
       ]
@@ -1063388,9 +1063388,9 @@
           "evidenceKind": "oracle-computation",
           "sourceLines": [
             218,
-            279,
-            355,
-            599
+            287,
+            376,
+            620
           ]
         }
       ]
@@ -1063734,7 +1063734,7 @@
             },
             {
               "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-              "line": 552,
+              "line": 573,
               "kind": "source query scopes relationship and resource rows to project and generation"
             },
             {
