@@ -713,18 +713,15 @@ FOR s IN (
       const alternatives = route?.closest('details[data-testid^="catalog-route-alternatives-"]');
       return {
         count: document.querySelectorAll(selector).length,
-        visible: Boolean(route?.getClientRects().length),
-        alternativesOpen: alternatives?.open ?? false,
+        hiddenByClosedAlternatives: Boolean(alternatives && !alternatives.open),
         alternativeSummary: alternatives?.querySelector('summary')?.innerText ?? '',
       };
     }, { selector: routeSelector });
     assert.equal(routeState.count, 1, 'Advanced choices must contain exactly one radio for the intended route');
-    if (!routeState.visible) {
+    if (routeState.hiddenByClosedAlternatives) {
       assert(routeState.alternativeSummary.toLowerCase().includes('relationship path'),
         'The intended route must be inside the native relationship path disclosure');
-      if (!routeState.alternativesOpen) {
-        await click(page, `${optionsRegion} [data-testid^="catalog-route-alternatives-"] > summary`, { includes: 'relationship path' });
-      }
+      await click(page, `${optionsRegion} [data-testid^="catalog-route-alternatives-"] > summary`, { includes: 'relationship path' });
     }
     await waitForControl(page, routeSelector);
     await click(page, routeSelector);
