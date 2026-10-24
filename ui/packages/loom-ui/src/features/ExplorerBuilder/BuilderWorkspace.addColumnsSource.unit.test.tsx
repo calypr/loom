@@ -782,7 +782,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
   });
 
-  it('keeps Add columns catalog and adds scalar contributor choices for a terminal Group', async () => {
+  it('opens related columns after a terminal Group and keeps contributor editing on explicit Group edit', async () => {
     const savedFieldSource: NonNullable<Construction['steps'][number]['rowValues']>[number] = {
       fieldSource: {
         kind: 'BINDING',
@@ -846,7 +846,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
         { id: 'row-count', name: 'row_count', label: 'Row count', type: 'integer', cardinality: 'required_one' },
         { id: 'saved-active-value', name: 'active', label: 'Active', type: 'boolean', cardinality: 'optional_one' },
       ],
-      capabilities: [{ kind: 'ROW_VALUES', supported: true }],
+      capabilities: [{ kind: 'ROW_VALUES', supported: true }, { kind: 'RELATED_SOURCE', supported: true }],
     };
     const groupRowValueChoice = {
       kind: 'FIELD_SOURCE',
@@ -886,6 +886,13 @@ describe('BuilderWorkspace Add columns source selection', () => {
       groupRowValueChoices: args.groupStepId === 'group-rows' ? [groupRowValueChoice] : [],
       workspaceInputs: [],
     } satisfies ConstructionCapabilitiesResponse));
+    mockLoomClient.searchConstructionChoices.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      complete: true,
+      truncated: false,
+      choices: [relatedSourceChoice],
+    });
     mockLoomClient.proposeConstruction.mockImplementation(async (args: {
       readonly candidateConstruction: Construction;
       readonly changedStepId?: string;
@@ -945,18 +952,59 @@ describe('BuilderWorkspace Add columns source selection', () => {
     );
 
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
-    const contributorChoices = await screen.findByRole('region', { name: 'Add columns from Group contributors' });
-    expect(screen.getByRole('tab', { name: 'Coded values' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Other fields' })).toBeInTheDocument();
+    const columnsCatalog = await screen.findByRole('tablist', { name: 'Column types' });
+    expect(within(columnsCatalog).getByRole('tab', { name: 'Coded values' })).toBeInTheDocument();
+    expect(within(columnsCatalog).getByRole('tab', { name: 'Other fields' })).toBeInTheDocument();
     expect(screen.queryByTestId('construction-reshape-add-summary')).not.toBeInTheDocument();
-    expect(await screen.findByText('No concepts match this search.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Add columns from Group contributors' })).not.toBeInTheDocument();
+    const relatedSource = await screen.findByRole('button', { name: 'Observation, Related resource' });
+    expect(relatedSource).toBeEnabled();
+    fireEvent.click(relatedSource);
+    fireEvent.click(within(columnsCatalog).getByRole('tab', { name: 'Other fields' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select Observation.status' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const relatedSourceOptions = await screen.findByTestId('catalog-selection-options');
+    expect(within(relatedSourceOptions).getByRole('button', { name: 'Preview related columns' })).toBeInTheDocument();
+    expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalledWith(
+      expect.objectContaining({ groupStepId: 'group-rows' }),
+      expect.any(AbortSignal),
+    );
+    fireEvent.click(within(relatedSourceOptions).getByRole('radio', {
+      name: 'Observation status: Keep all matching values',
+    }));
+    fireEvent.click(within(relatedSourceOptions).getByRole('button', { name: 'Preview related columns' }));
+    await screen.findByTestId('construction-proposal-ready');
+    const relatedProposalArgs = mockLoomClient.proposeConstruction.mock.calls.at(-1)?.[0] as
+      { readonly candidateConstruction: Construction } | undefined;
+    const relatedCandidate = relatedProposalArgs?.candidateConstruction;
+    expect(relatedCandidate?.steps).toHaveLength(2);
+    expect(relatedCandidate?.steps[0]?.id).toBe('group-rows');
+    expect(relatedCandidate?.steps[1]).toEqual(expect.objectContaining({
+      inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group-rows' }],
+      operation: expect.objectContaining({
+        kind: 'RELATED_SOURCE',
+        relatedSource: expect.objectContaining({
+          choiceId: relatedSourceChoice.choiceId,
+          source: expect.objectContaining({ candidateId: 'observation-status' }),
+          route: relatedSourceChoice.route,
+          form: 'ALL',
+        }),
+      }),
+    }));
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
+    fireEvent.click(screen.getByTestId('construction-history-step-group-rows'));
+    const contributorChoices = await screen.findByTestId('construction-group-add-columns-field-list');
+    expect(screen.getByText('Editing a saved step')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
     expect(mockLoomClient.getConstructionCapabilities).toHaveBeenLastCalledWith(
       expect.objectContaining({ stageId: 'source_projection', groupStepId: 'group-rows' }),
       expect.any(AbortSignal),
     );
 
     fireEvent.click(within(contributorChoices).getByTestId('construction-group-add-column-choice-group-component-value-choice'));
-    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalled());
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(2));
     const proposalArgs = mockLoomClient.proposeConstruction.mock.calls.at(-1)?.[0];
     const proposedGroup = proposalArgs?.candidateConstruction.steps.find((step) => step.id === 'group-rows');
     if (!proposedGroup || proposedGroup.operation.kind !== 'GROUP') {

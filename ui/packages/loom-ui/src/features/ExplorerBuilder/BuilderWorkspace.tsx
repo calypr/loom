@@ -3266,10 +3266,6 @@ const BuilderWorkspaceContent = ({
 
   const selectConstructionFamily = (family: ConstructionOperationFamily) => {
     const willOpen = activeConstructionFamily !== family;
-    const terminalConstructionStep = construction?.steps.at(-1);
-    const rowValueGroupStep = family === 'ADD_COLUMNS' && willOpen && terminalConstructionStep?.operation.kind === 'GROUP'
-      ? terminalConstructionStep
-      : undefined;
     setRowIntentSession(false);
     if (family === 'ADD_COLUMNS' && willOpen) selectAddColumnsView('coded');
     if (family === 'COMBINE' && willOpen) {
@@ -3279,10 +3275,8 @@ const BuilderWorkspaceContent = ({
     }
     constructionLifecycle.cancel();
     cancelCombineCatalogRequest();
-    setConstructionHistorySelection(rowValueGroupStep
-      ? { kind: 'step', stepId: rowValueGroupStep.id }
-      : { kind: 'source' });
-    setEditingConstructionStepId(rowValueGroupStep?.id);
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
     setReshapeEntryKind('choose');
     setReshapeFormKind('choose');
     setActiveConstructionFamily((current) => current === family ? undefined : family);
