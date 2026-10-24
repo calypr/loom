@@ -747,7 +747,7 @@ FOR s IN (
     const startedAt = Date.now();
     await prepareRelatedFieldChooser();
     const requestStart = nativeCapture.requests.length;
-    await click(page, `${relatedFieldOptionsRegion} button`, { name: 'Add 1 selected feature' });
+    await click(page, `${relatedFieldOptionsRegion} button`, { name: 'Preview related columns' });
     const proposal = await browserProposal({ requestStart, path: base + '/construction-proposals',
       expectedRows: withFieldTyped, state, label, startedAt });
     const match = relatedSourceProposalCandidate({ path: proposal.request.path, request: proposal.request.request }, {
