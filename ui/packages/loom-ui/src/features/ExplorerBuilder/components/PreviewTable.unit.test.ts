@@ -235,6 +235,10 @@ describe('PreviewTable ordinary array cells', () => {
     const [arrayCell] = screen.getAllByRole('cell');
     expect(arrayCell).toHaveTextContent('shared; shared; other');
     expect(arrayCell).toHaveTextContent('3 values');
+    const indicator = arrayCell.querySelector('[data-testid="preview-array-indicator"]');
+    expect(indicator?.textContent?.trim()).toBe('3 values');
+    expect(indicator?.parentElement?.querySelector('span:not([data-testid="preview-array-indicator"])')?.textContent)
+      .toBe('shared; shared; other');
   });
 
   it('labels an empty array while leaving null and missing cells as dashes', () => {

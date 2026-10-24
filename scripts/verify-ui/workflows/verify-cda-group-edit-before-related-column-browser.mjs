@@ -269,14 +269,35 @@ const mountedRows = async (expectedRows, columnCount = expectedRows[0]?.length ?
       !document.body.innerText.includes('Loading your table…');
   }, 5000, { rows: String(Math.min(25, expectedRows.length) + 1), columns: String(columnCount) });
   const rows = await browserEval(page, () => [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')]
-    .slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.trim())).filter(row => row.length));
+    .slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => {
+      const indicator = cell.querySelector('[data-testid="preview-array-indicator"]');
+      if (!indicator) return { value: cell.innerText.trim(), arrayIndicator: null };
+      const arrayIndicator = indicator.innerText.trim();
+      const value = arrayIndicator === 'Empty list'
+        ? ''
+        : indicator.parentElement?.querySelector('span:not([data-testid="preview-array-indicator"])')?.innerText.trim();
+      return { value, arrayIndicator };
+    })).filter(row => row.length));
   assert.equal(rows.length, expectedRows.length, 'Rendered preview must contain the complete bounded witness population');
   const normalizeRendered = (value) => value.split('; ').sort().join('; ');
-  const renderedActual = rows.map((row) => row.map(normalizeRendered));
+  const renderedActual = rows.map((row) => row.map((cell) => normalizeRendered(cell.value)));
   const renderedExpected = expectedRows.map((row) => row.map((value) => Array.isArray(value)
     ? [...value].sort().join('; ')
     : normalizeRendered(String(value))));
   assertCompletePopulationRowsMatchOracle(renderedActual, renderedExpected, { label: 'rendered preview' });
+  const expectedArrayIndicator = (value) => !Array.isArray(value)
+    ? null
+    : value.length === 0 ? 'Empty list' : `${value.length} ${value.length === 1 ? 'value' : 'values'}`;
+  const actualEvidence = rows.map((row, index) => JSON.stringify({
+    values: renderedActual[index],
+    indicators: row.map((cell) => cell.arrayIndicator),
+  })).sort();
+  const expectedEvidence = expectedRows.map((row, index) => JSON.stringify({
+    values: renderedExpected[index],
+    indicators: row.map(expectedArrayIndicator),
+  })).sort();
+  assert.deepEqual(actualEvidence, expectedEvidence,
+    'Rendered preview array indicators must match the complete raw row values');
 };
 let nativeCapture;
 const installBrowserCapture = async () => {
