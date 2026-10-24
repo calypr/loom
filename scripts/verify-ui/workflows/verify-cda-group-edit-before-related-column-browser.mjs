@@ -934,7 +934,18 @@ FOR s IN (
   const proposeRelatedStepRemoval = async (state, label) => {
     const step = doc(state).construction.steps.find((candidate) => candidate.id === relatedStep.id);
     assert(step?.operation.kind === 'RELATED_SOURCE');
-    await click(page, `[data-testid="construction-history-step-${step.id}"]`);
+    const adjustmentGroupSelector = `[data-testid="construction-history-adjustment-group-${step.id}"]`;
+    const stepSelector = `[data-testid="construction-history-step-${step.id}"]`;
+    await waitForBrowser(page, ({ selector }) => document.querySelectorAll(selector).length === 1,
+      5000, { selector: adjustmentGroupSelector });
+    const adjustmentGroupOpen = await browserEval(page, ({ selector }) => {
+      const group = document.querySelector(selector);
+      return group?.tagName === 'DETAILS' ? group.open : null;
+    }, { selector: adjustmentGroupSelector });
+    assert.equal(typeof adjustmentGroupOpen, 'boolean', 'Related-source history must belong to one column-adjustment disclosure');
+    if (!adjustmentGroupOpen) await click(page, `${adjustmentGroupSelector} > summary`);
+    await waitForControl(page, stepSelector, { timeout: 5000, enabled: true });
+    await click(page, stepSelector);
     const removeSelector = `[data-testid="construction-remove-step-${step.id}"]:not(:disabled)`;
     await waitForControl(page, removeSelector, { timeout: 5000 });
     const requestStart = nativeCapture.requests.length;
