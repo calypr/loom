@@ -294,9 +294,9 @@ The file catalog is source-reviewed and hash-bound to a reviewed source revision
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
 | missingUnbound | 78 |
-| tests | 907 |
+| tests | 908 |
 | testsWithObligations | 11 |
-| testsWithoutObligations | 896 |
+| testsWithoutObligations | 897 |
 | obligationsWithMultipleTests | 24 |
 | duplicateTestNames | 0 |
 | repeatedPlaywrightChecks | 246 |
@@ -556,7 +556,7 @@ No duplicate test names found.
 - `playwright` `preserves missing-component owners through EXPANDED and GROUP removal Cancel$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `applies source expansion, verifies item values, and restores original Observation rows$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
-- 816 more in the JSON report.
+- 817 more in the JSON report.
 
 ## Shared route proof evidence
 

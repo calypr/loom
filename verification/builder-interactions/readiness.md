@@ -28,8 +28,8 @@ End to end ready: no.
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
 | missingUnbound | 78 |
-| tests | 907 |
-| testsWithoutExactObligations | 896 |
+| tests | 908 |
+| testsWithoutExactObligations | 897 |
 | models | 14 |
 | traceModels | 3 |
 | schedules | 5 |

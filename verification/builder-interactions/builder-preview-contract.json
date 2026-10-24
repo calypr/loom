@@ -129,7 +129,7 @@
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-      "sha256": "bc17ed3e49f74cf70d94bf9708ac4f8baf506fb579dc2fd23f14bd9cb9c6a557",
+      "sha256": "3506bd6524a251c5cdd815a796656a52722b622bce6198f16b70a320c9e9a5c4",
       "contract": "Mounted reconcileCurrent request identity guard, current workspace checks, and compiled reducer dispatch path replayed by the real BuilderWorkspace race."
     },
     {

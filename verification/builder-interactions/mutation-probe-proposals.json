@@ -2136,7 +2136,7 @@
       "guardCandidates": [
         {
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-          "line": 1560,
+          "line": 1564,
           "score": 2,
           "specific": false,
           "occurrences": 1,
@@ -2229,7 +2229,7 @@
         },
         {
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 3293,
+          "line": 3310,
           "score": 1,
           "specific": true,
           "occurrences": 1,
@@ -2401,7 +2401,7 @@
         },
         {
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 1908,
+          "line": 1925,
           "score": 1,
           "specific": true,
           "occurrences": 1,
@@ -2442,7 +2442,7 @@
       "guardCandidates": [
         {
           "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "line": 2901,
+          "line": 2918,
           "score": 2,
           "specific": false,
           "occurrences": 1,
