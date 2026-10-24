@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-24T00:45:41Z",
+  "status": "CLOSED_PASS",
+  "scope": "Consolidate proven Group ALL-cell multiset checks, retain independent Group families, and close the first registered CDA plus authored Group native journeys on the promoted candidate.",
+  "testedSourceCommit": "af4afdc56ed8b9a2a5d137c3cd328e40c3cb8ff8",
+  "branch": "feature/formal-verification",
+  "candidateIntegrationCommit": "af4afdc56ed8b9a2a5d137c3cd328e40c3cb8ff8",
+  "catalogueConsolidation": {
+    "historicalSourceCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
+    "baselineMjsCount": 678,
+    "currentTrackedMjsCount": 676,
+    "groupFilenameRecordsReviewed": 67,
+    "groupFilenameRecordsRetired": 2,
+    "groupFilenameRecordsRetained": 65,
+    "retiredRecords": [
+      {
+        "path": "scripts/verify-ui/helpers/group-related-multiset.mjs",
+        "baselineSha256": "ccd88992b907bf2b618dd96e9286a2c9c9953d2941ba6e42bde8de29f8ae5e7e",
+        "replacementProofPaths": [
+          "scripts/verify-ui/helpers/cda-row-oracle.mjs",
+          "scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs",
+          "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs"
+        ],
+        "retirementReason": "The four complete-population guards now live in cda-row-oracle.mjs; the bounded preview API remains unchanged."
+      },
+      {
+        "path": "scripts/verify-ui/helpers/tests/group-related-multiset.test.mjs",
+        "baselineSha256": "9f6e76314b9925dff7b6b7f26484e58dbc3fdec90b035cabf7ff9b3f4b2ba79a",
+        "replacementProofPaths": [
+          "scripts/verify-ui/helpers/cda-row-oracle.mjs",
+          "scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs",
+          "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs"
+        ],
+        "retirementReason": "Its row-order, duplicate-row, and duplicate ALL-item controls now live in cda-row-oracle.test.mjs and are registered in the CDA Group case."
+      }
+    ],
+    "assertionHome": "scripts/verify-ui/helpers/cda-row-oracle.mjs",
+    "focusedTestHome": "scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs",
+    "preservedCallerCheckpoints": [
+      "scoped proposal preview response rows",
+      "mounted saved-preview rendered rows",
+      "construction proposal panel DOM rows",
+      "raw Specimen → Patient → Observation route rows"
+    ],
+    "populationSemantics": "Complete row-frequency comparison preserves duplicate rows and duplicate ALL cell values, ignores only row order and within-cell ALL item order, and rejects missing/extra rows and damaged multiplicity.",
+    "boundedPreviewApiAndArrayOrderChanged": false,
+    "independentGroupFamiliesRetained": [
+      "PRESENCE",
+      "repeated expansion",
+      "population removal",
+      "collection replacement",
+      "composite filters",
+      "downstream compositions",
+      "Patient ONE failure preconditions"
+    ],
+    "scopeLimit": "The two retired fragments were exact duplicates of complete-population ALL multiset checks. This does not claim all Group aggregates, key shapes, source types, or workflows are covered."
+  },
+  "behaviorChanges": [
+    {
+      "commit": "5a8de0cde2a1bcdb2360ee7a350fe88e6eb89b39",
+      "summary": "Added a normal-user Preview action for related-column selections while preserving the existing atomic Add path; Preview stages a proposal so Cancel and explicit Apply are real user actions.",
+      "proof": "The CDA journey exercises Preview → Cancel with unchanged draft, fresh proposal → Apply, saved source binding, and reload."
+    },
+    {
+      "commit": "4470630ff57217d057513e2afd3d9fb9ca5752dc",
+      "summary": "Generic Add columns after a terminal Group appends a new step; explicit history Edit continues to mount the saved Group contributor editor.",
+      "proof": "The fresh authored Group journey performs raw Add, keyed Group edit/Cancel/Apply/reload/removal; focused UI cases preserve atomic Add and explicit edit paths."
+    }
+  ],
+  "runs": [
+    {
+      "case": "standalone-reshape-group-edit-before-related-column/group-edit-before-related-column",
+      "kind": "owned CDA native lifecycle",
+      "status": "passed",
+      "sourceCommit": "af4afdc56ed8b9a2a5d137c3cd328e40c3cb8ff8",
+      "sourceFingerprint": "adfb0d56f6851ba63a37a0fdb70897550f04fb75ebda5ba295b8b634e5fd7fbb",
+      "sourceFiles": 2091,
+      "sourceUnchangedDuringBracket": true,
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "apiBuildUnchanged": true,
+      "composeProject": "loom-dev-fcbf4d7d11f4",
+      "project": "loom_dev_cda_fhir",
+      "generation": "repo-c0ec9689932caec424ad34a9",
+      "nativeChecks": {
+        "passed": 16,
+        "total": 16,
+        "domainAssertions": 87,
+        "nativeActions": 69,
+        "pendingOwnedRequests": 0,
+        "runtimeErrors": 0
+      },
+      "timing": {
+        "durationMs": 127547,
+        "maximumActionLatencyMs": 171,
+        "renderCheckpointCount": 28,
+        "maximumRenderCheckpointLatencyMs": 4081,
+        "budgetMs": 5000
+      },
+      "focusedCheckStatus": "passed",
+      "targetBinding": {
+        "scope": "configuration-only",
+        "registryBinding": "bound",
+        "runtimeDatasetIdentity": "not-checked",
+        "configPath": "/private/tmp/loom-group-scraps-owned-cda-target.json",
+        "project": "loom_dev_cda_fhir",
+        "generation": "repo-c0ec9689932caec424ad34a9"
+      },
+      "artifacts": {
+        "summary": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
+          "sha256": "9bd3573f3bc0d39b59e0095711749e054c9cd25e3f413cf4d5e40f0cf2b1ea2e",
+          "bytes": 45468
+        },
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/native-report.json",
+          "sha256": "5f9417a40c2ef6e0fee0606cfe9c13450154c7428eb1c9aa139b9a90f9403649",
+          "bytes": 928814
+        }
+      }
+    },
+    {
+      "case": "builder-authoring/group-entry",
+      "kind": "fresh authored Group native lifecycle with actual BuilderJourney replay",
+      "status": "passed",
+      "sourceCommit": "af4afdc56ed8b9a2a5d137c3cd328e40c3cb8ff8",
+      "sourceFingerprint": "adfb0d56f6851ba63a37a0fdb70897550f04fb75ebda5ba295b8b634e5fd7fbb",
+      "sourceFiles": 2091,
+      "sourceUnchangedDuringBracket": true,
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "apiBuildUnchanged": true,
+      "composeProject": "loom-dev-fcbf4d7d11f4",
+      "project": "loom_dev_verify_mvlo9cyx-1da7370",
+      "generation": "fixture-v1",
+      "explorer": "verify-yx-1da7370-group-entry",
+      "nativeChecks": {
+        "passed": 19,
+        "total": 19,
+        "focusedCheckStatus": "passed",
+        "domainAssertions": 78,
+        "errors": 0
+      },
+      "timing": {
+        "durationMs": 85173,
+        "maximumActionLatencyMs": 1404,
+        "renderCheckpointCount": 1,
+        "maximumRenderCheckpointLatencyMs": 1350,
+        "budgetMs": 5000
+      },
+      "builderJourney": {
+        "name": "builder-authoring:group-entry",
+        "actionCount": 29,
+        "status": "pass",
+        "model": "BuilderJourney",
+        "traceCount": 1,
+        "validatedCount": 1,
+        "invalidCount": 0,
+        "stateCount": 31,
+        "distinctStateCount": 30,
+        "depth": 30,
+        "unmodeledEvents": 0,
+        "sourceFingerprint": "e3b5e7c759fdf981f967de5e61c16b78ef165744f1fcef5b681c5dd14b04fac6"
+      },
+      "selfTest": {
+        "status": "pass",
+        "passedControls": 24,
+        "skippedControls": 1,
+        "skipReason": "SKIP late-aborted-preview-current-error-control: captured Group trace has no LatePreviewErrorIgnored paired with a distinct later Preview using the same P1/P2 attempt; this stale-current error behavior remains model-only and needs observation."
+      },
+      "targetBinding": {
+        "scope": "environment-only",
+        "registryBinding": "unbound",
+        "runtimeDatasetIdentity": "not-checked",
+        "configPath": null,
+        "project": null,
+        "generation": null
+      },
+      "artifacts": {
+        "summary": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
+          "sha256": "33505658bc13b496a0605500f50b2ce577805028cbc33e14e56a4b3df893f5ce",
+          "bytes": 27065
+        },
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json",
+          "sha256": "74bbb3d9aa91949c6ef43642a56b8be176632e8d080c8c8e0ddabf86ac069447",
+          "bytes": 1355164
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
+          "sha256": "9b5fec2fca3715856c6d620927ddc407e9451d416403f26045235ca360d08435",
+          "bytes": 241437
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json",
+          "sha256": "2d811f6ef9cc2f38e2308d281357735486db08ba201bcdb3107d4a1ee7df9ae7",
+          "bytes": 1317
+        },
+        "selfTest": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json",
+          "sha256": "27646e1e6962c0691c8f8325db76696a95369039be760e9eb101c7a3f9314513",
+          "bytes": 3430
+        }
+      }
+    }
+  ],
+  "preparationAttempt": {
+    "status": "not-run",
+    "reason": "The first builder-authoring invocation omitted required LOOM_CDA_SOURCE_ROOT; preparation stopped before focused checks or browser fixture creation.",
+    "recovery": "Reran with the exact owned stack identity read from the passing dev-doctor report and retained registry-unbound target mode.",
+    "artifact": {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
+      "sha256": "bd36301b7a3fdf69cf601a629958fa7f54e2eabd150c704726f32a434a49c220",
+      "bytes": 9574
+    }
+  },
+  "focusedAndDeterministicProofs": {
+    "previewTableUnit": {
+      "command": "cd ui/packages/loom-ui && ../../node_modules/.bin/vitest run src/features/ExplorerBuilder/components/PreviewTable.unit.test.ts",
+      "status": "passed",
+      "tests": "44/44",
+      "testFileSha256": "8d30388e04b751b75d7cd94e1e8843c206b38002dde0b749a5f82c5f623ad2f8"
+    },
+    "requiredChecks": [
+      {
+        "command": "node scripts/build-test-obligations.mjs --check",
+        "status": "passed"
+      },
+      {
+        "command": "node scripts/build-builder-readiness.mjs --check",
+        "status": "passed",
+        "result": "39 routes, 20 work items; end-to-end ready=false"
+      },
+      {
+        "command": "node scripts/run-builder-bug-discovery.mjs --check",
+        "status": "passed",
+        "result": "47 killed, 0 survived, 118 unprobed"
+      },
+      {
+        "command": "node scripts/propose-builder-mutation-probes.mjs --check",
+        "status": "passed",
+        "result": "118 unprobed actions"
+      },
+      {
+        "command": "node scripts/propose-builder-contract-proofs.mjs --check",
+        "status": "passed",
+        "result": "11 proposals"
+      },
+      {
+        "command": "node scripts/propose-builder-route-actions.mjs --check",
+        "status": "passed",
+        "result": "0 proposals"
+      }
+    ],
+    "syntaxAndWhitespace": [
+      "node --check scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
+      "git diff --check"
+    ]
+  },
+  "knownGaps": [
+    "The authored Group self-test intentionally skips late-aborted-preview-current-error-control: this native trace has no LatePreviewErrorIgnored paired with a distinct later Preview from the same P1/P2 attempt. That schedule remains model-only and requires a future actual observation.",
+    "The Group filename inventory keeps 65 independent records; these two native runs do not establish all aggregates, key shapes, sources, or Group workflows. Separate families retained include PRESENCE, repeated expansion, population removal, collection replacement, composite filters, downstream compositions, and Patient ONE failure preconditions.",
+    "The three preexisting BuilderWorkspace.addColumnsSource unit failures remained on the clean base and candidate: tabs shared-source scopes (expected 4 inventory entries, received 5); missing “Values per cohort member for Member status” action; missing saved related-source search box. The focused additions passed 4/4 and the focused PreviewTable suite passed 44/44.",
+    "npm run typecheck:tests remained red from existing diagnostics, including a test implicit-any at line 961 and unrelated test files; no new changed-line type diagnostic was identified.",
+    "The native-verification-bracket test suite has one known SIGINT startup failure on both baseline and candidate (63/64 baseline, 64/65 candidate). It remains an accepted unrelated harness gap; no full-suite-green claim is made.",
+    "Historical mutation outcomes remain bound to their earlier source and were not revalidated after BuilderWorkspace changed. The deterministic report checks pass, but current readiness still says end-to-end ready=false.",
+    "The historical raw-basic Group journey at source 191882 remains a separate prior proof; the fresh current Group smoke in this unit is the authored group-entry case."
+  ],
+  "protectedUserDeletionsPreserved": [
+    "AGENTS.md",
+    ".codex/skills/peter-mode/SKILL.md",
+    ".codex/skills/peter-mode/agents/openai.yaml"
+  ],
+  "published": false,
+  "retainedArtifacts": [
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json",
+      "sha256": "4e6d9b28dfb50b63077b08d5a2ef0d79d5f0f42a63a183d59316c4d2dac06846",
+      "bytes": 31793
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json",
+      "sha256": "50a6e1e6a4069fb6898d0945167caa9dde9161a430700b032bdc75af89a53659",
+      "bytes": 454770
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
+      "sha256": "8c5348a599d6cf642433ed5dac2c18ec8b463609e20d3342831173e105a856db",
+      "bytes": 31158
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/native-report.json",
+      "sha256": "868293f44d94c0870cbe4493dc473a78e9619abf3b44c5c7b25867743bd7d91e",
+      "bytes": 752059
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
+      "sha256": "9bd3573f3bc0d39b59e0095711749e054c9cd25e3f413cf4d5e40f0cf2b1ea2e",
+      "bytes": 45468
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/native-report.json",
+      "sha256": "5f9417a40c2ef6e0fee0606cfe9c13450154c7428eb1c9aa139b9a90f9403649",
+      "bytes": 928814
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
+      "sha256": "bd36301b7a3fdf69cf601a629958fa7f54e2eabd150c704726f32a434a49c220",
+      "bytes": 9574
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
+      "sha256": "33505658bc13b496a0605500f50b2ce577805028cbc33e14e56a4b3df893f5ce",
+      "bytes": 27065
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json",
+      "sha256": "74bbb3d9aa91949c6ef43642a56b8be176632e8d080c8c8e0ddabf86ac069447",
+      "bytes": 1355164
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
+      "sha256": "9b5fec2fca3715856c6d620927ddc407e9451d416403f26045235ca360d08435",
+      "bytes": 241437
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json",
+      "sha256": "2d811f6ef9cc2f38e2308d281357735486db08ba201bcdb3107d4a1ee7df9ae7",
+      "bytes": 1317
+    },
+    {
+      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json",
+      "sha256": "27646e1e6962c0691c8f8325db76696a95369039be760e9eb101c7a3f9314513",
+      "bytes": 3430
+    }
+  ],
+  "integratedProductCommits": [
+    "4ecd3fea8ea2ff88f485bb0a98186b1cce785b0b",
+    "1eea7f09de5c543f3d5d202ecfdda03196b29fb6"
+  ],
+  "integratedHarnessCommits": [
+    "cc853a79a340e6bd40288e8fbb0914534857f892",
+    "87ec0b3c4c8b5b3750e327d02372185288d2c4ca",
+    "33b7fb2a686efd0d56246f953c9ec8f03a87dbf1",
+    "c63d207d578c53117f45ebadd68e4249f0e1d37d",
+    "693a53a8e4bd8dc3eb6ea855cee47d115fc4e988",
+    "db44b11da18f9a5ebbcf76bfe30ce391909b3dec",
+    "7cccd229be5b281bc7dc675d20369a43f4eb0f84"
+  ],
+  "earlierHarnessCorrections": [
+    "Close saved Row definition settings through the visible Back to table control and wait for the dialog to disappear after expansion Apply.",
+    "Target Other fields by its native role=tab element rather than filtering the HTML button through role=button.",
+    "Open the actual collapsed route-alternatives disclosure before selecting the exact route radio.",
+    "The final two retained failures are separately recorded below: array count badge projection and collapsed Column adjustments history."
+  ],
+  "retainedFinalCdaFailures": [
+    {
+      "sourceCommit": "493dedf2a17bdb23a76524805cc1d0768d378a28",
+      "status": "failed before correction",
+      "durationMs": 91312,
+      "checksPassed": "8/16",
+      "failure": "After Apply, the rendered-preview reader included the separate “12 values” array count badge in the cell value; the independent proposal API row oracle had already passed.",
+      "classification": "Harness DOM projection defect; PreviewTable product behavior was correct.",
+      "correctionCommit": "db44b11da18f9a5ebbcf76bfe30ce391909b3dec",
+      "artifacts": {
+        "summary": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json",
+          "sha256": "4e6d9b28dfb50b63077b08d5a2ef0d79d5f0f42a63a183d59316c4d2dac06846",
+          "bytes": 31793
+        },
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json",
+          "sha256": "50a6e1e6a4069fb6898d0945167caa9dde9161a430700b032bdc75af89a53659",
+          "bytes": 454770
+        }
+      }
+    },
+    {
+      "sourceCommit": "b543faf7ca24b6b23e3f124de108e717f1652997",
+      "status": "failed before correction",
+      "durationMs": 118764,
+      "checksPassed": "12/16",
+      "failure": "The exact RELATED_SOURCE history step existed once but was invisible under the collapsed Column adjustments details; native click trial timed out at 5 seconds.",
+      "classification": "Harness disclosure-state assumption; current ConstructionWorkspace source requires opening the real summary before selecting a nested adjustment.",
+      "correctionCommit": "7cccd229be5b281bc7dc675d20369a43f4eb0f84",
+      "artifacts": {
+        "summary": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
+          "sha256": "8c5348a599d6cf642433ed5dac2c18ec8b463609e20d3342831173e105a856db",
+          "bytes": 31158
+        },
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/native-report.json",
+          "sha256": "868293f44d94c0870cbe4493dc473a78e9619abf3b44c5c7b25867743bd7d91e",
+          "bytes": 752059
+        }
+      }
+    }
+  ]
+}

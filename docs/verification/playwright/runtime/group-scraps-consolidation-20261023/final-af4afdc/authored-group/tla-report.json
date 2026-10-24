@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "af4afdc56ed8b9a2a5d137c3cd328e40c3cb8ff8",
+  "contractSourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "sourceFingerprint": "e3b5e7c759fdf981f967de5e61c16b78ef165744f1fcef5b681c5dd14b04fac6",
+  "traceCount": 1,
+  "uniqueTraceCount": 1,
+  "validatedCount": 1,
+  "invalidCount": 0,
+  "modelCounts": {
+    "BuilderJourney": 1
+  },
+  "coverage": {
+    "requiredModels": {
+      "missing": []
+    },
+    "requiredActions": {
+      "missing": []
+    },
+    "requiredActionsByTrace": {
+      "missing": {}
+    },
+    "requiredActionCountsByTrace": {
+      "mismatches": {}
+    },
+    "requiredEvents": {
+      "missing": []
+    }
+  },
+  "traces": [
+    {
+      "name": "builder-authoring:group-entry",
+      "model": "BuilderJourney",
+      "status": "pass",
+      "actionCount": 29,
+      "tlc": {
+        "stateCount": 31,
+        "distinctStateCount": 30,
+        "depth": 30
+      }
+    }
+  ],
+  "unmodeledEvents": {
+    "total": 0,
+    "byKind": {},
+    "unclassified": {
+      "total": 0,
+      "byKind": {}
+    },
+    "traces": []
+  },
+  "tool": {
+    "name": "TLC",
+    "version": "1.7.4",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88",
+    "java": "java version \"17.0.7\" 2023-04-18 LTS"
+  }
+}
