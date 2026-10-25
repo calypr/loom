@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,10 @@ import {
   inspectNativeLifecycleJourney,
   nativeEnvironmentTargetProblems,
   resolveNativeEvidenceParent,
+  resolveNativeTlaRuntimeContext,
+  runNativeCaseWithTlaPreflight,
   retainNativeDomainReportArtifact,
+  validateTrace,
   validateNativeBracketEnvelope,
   validateNativeJourneyTraceBinding,
   validateNativeTlaReceipt,
@@ -26,7 +29,11 @@ import {
   resolveNativeBuilderJourneyArtifactPath,
 } from '../builder-journey-trace.mjs';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
-import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from '../../../verify-builder-traces.mjs';
+import {
+  cdaMutatingRequestCoverageProblem,
+  cdaRequestCoverageReceipt,
+  resolveTlaToolsJar,
+} from '../../../verify-builder-traces.mjs';
 import { planFocusedCheckGroups } from '../focused-check-groups.mjs';
 import {
   builderFormalAdapterForBinding,
@@ -248,6 +255,103 @@ test('failed focused-check envelope without a domain report preserves its prereq
     'the focused-check prerequisite failure must remain visible');
   assert(rejected.issues.includes('native domain report artifact is missing'),
     'a missing domain report must remain a failed requirement');
+});
+
+test('native entrypoint preflights TLC before focused checks and shares the frozen jar path with replay', (t) => {
+  const root = makeRepositoryArtifactDirectory('native-tlc-preflight-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const emptyCacheDirectory = join(root, 'empty-tlc-cache');
+  const validCacheDirectory = join(root, 'valid-tlc-cache');
+  mkdirSync(emptyCacheDirectory);
+  mkdirSync(validCacheDirectory);
+  const sharedJarPath = join(tmpdir(), 'loom-builder-interactions-tools', 'tla2tools-1.7.4.jar');
+  assert(existsSync(sharedJarPath),
+    'this preflight regression needs the existing checksum-pinned TLC cache jar; run the formal verifier once to populate it');
+  const validCachedJarPath = join(validCacheDirectory, 'tla2tools-1.7.4.jar');
+  copyFileSync(sharedJarPath, validCachedJarPath);
+  const emptyEnvironment = { PATH: process.env.PATH ?? '' };
+  const explicitContext = resolveNativeTlaRuntimeContext({
+    env: { ...emptyEnvironment, TLA2TOOLS_JAR: validCachedJarPath },
+    cacheDirectory: emptyCacheDirectory,
+  });
+  assert.equal(explicitContext.jarPath, realpathSync(validCachedJarPath),
+    'an explicit verified override must be canonicalized and honored');
+  const selection = {
+    scenarioID: 'scenario',
+    caseName: 'native-case',
+    playwrightGrep: 'registered native case',
+    targetMode: 'environment',
+    traceKind: 'native-lifecycle',
+  };
+  const spawnCalls = [];
+  const spawnSyncImpl = (...args) => {
+    spawnCalls.push(args);
+    return { status: 0, stdout: '', stderr: '' };
+  };
+
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = () => {
+    fetchCalls += 1;
+    throw new Error('native preflight must not download TLC');
+  };
+  try {
+    assert.throws(() => runNativeCaseWithTlaPreflight(emptyEnvironment, selection, {
+      cacheDirectory: emptyCacheDirectory,
+      spawnSyncImpl,
+    }), /TLA2TOOLS_JAR/u, 'an absent cached jar must fail before starting the native bracket');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(fetchCalls, 0, 'a missing jar must fail locally without a download attempt');
+  assert.equal(spawnCalls.length, 0);
+
+  const alteredJarPath = join(root, 'altered-tla2tools.jar');
+  writeFileSync(alteredJarPath, 'not the pinned TLC jar');
+  assert.throws(() => runNativeCaseWithTlaPreflight({
+    ...emptyEnvironment,
+    TLA2TOOLS_JAR: alteredJarPath,
+  }, selection, {
+    cacheDirectory: validCacheDirectory,
+    spawnSyncImpl,
+  }), /checksum mismatch/u, 'an altered explicit override must fail before starting the native bracket');
+  assert.equal(spawnCalls.length, 0);
+
+  const suppliedEnvironment = { ...emptyEnvironment };
+  let resolverCalls = 0;
+  const execution = runNativeCaseWithTlaPreflight(suppliedEnvironment, selection, {
+    cacheDirectory: validCacheDirectory,
+    resolveJar: (options) => {
+      resolverCalls += 1;
+      assert.strictEqual(options.env, suppliedEnvironment);
+      return resolveTlaToolsJar(options);
+    },
+    spawnSyncImpl,
+  });
+  assert.equal(resolverCalls, 1, 'the native runner must resolve the jar only once before checks');
+  const resolvedJarPath = realpathSync(validCachedJarPath);
+  assert.equal(execution.runtimeContext.jarPath, resolvedJarPath,
+    'an unset override must resolve to the existing verified cache jar');
+  assert.equal(execution.nativeRun.exitStatus, 0);
+  assert(Object.isFrozen(execution.runtimeContext));
+  assert(Object.isFrozen(execution.environment));
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0][2].env.TLA2TOOLS_JAR, resolvedJarPath,
+    'the native bracket and its focused checks must inherit the resolved jar path');
+  assert.equal(Object.hasOwn(suppliedEnvironment, 'TLA2TOOLS_JAR'), false,
+    'preflight must not mutate the parent process environment');
+
+  const replayCalls = [];
+  const replayStatus = validateTrace('trace.json', 'replay.json', 'contract.json', false,
+    execution.environment, (...args) => {
+      replayCalls.push(args);
+      return { status: 0 };
+    });
+  assert.equal(replayStatus, 0);
+  assert.equal(replayCalls.length, 1);
+  assert.strictEqual(replayCalls[0][2].env, execution.environment,
+    'TLC replay must receive the same immutable native runtime environment as the bracket');
+  assert.equal(replayCalls[0][2].env.TLA2TOOLS_JAR, resolvedJarPath);
 });
 
 const makeBracketFixture = (root) => {

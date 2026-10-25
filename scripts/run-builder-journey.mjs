@@ -16,6 +16,7 @@ import {
   builderFormalAdapterForBinding,
   builderFormalAdapterForContract,
 } from './verify-ui/helpers/builder-formal-adapters.mjs';
+import { resolveTlaToolsJar } from './verify-builder-traces.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 
@@ -95,6 +96,31 @@ const fingerprintPinnedSources = (sources) => {
     return { path: source.path, sha256: actual };
   }).sort((left, right) => left.path.localeCompare(right.path));
   return createHash('sha256').update(canonicalJson(entries)).digest('hex');
+};
+
+export const resolveNativeTlaRuntimeContext = ({ env = process.env, cacheDirectory, resolveJar = resolveTlaToolsJar } = {}) => {
+  let jarPath;
+  try {
+    jarPath = resolveJar({ env, ...(cacheDirectory === undefined ? {} : { cacheDirectory }) });
+  } catch (error) {
+    throw new Error(
+      'Native Builder case preflight could not resolve the verified TLC jar before focused checks or replay. ' +
+      'Set TLA2TOOLS_JAR to the checksum-verified jar or populate the existing TLC cache. ' +
+      String(error?.message ?? error),
+    );
+  }
+  if (!isAbsolute(jarPath)) {
+    throw new Error('The verified TLC resolver must return an absolute jar path.');
+  }
+  return Object.freeze({ jarPath });
+};
+
+export const nativeJourneyEnvironment = (environment, runtimeContext) => {
+  if (!environment || typeof environment !== 'object' ||
+      !runtimeContext || typeof runtimeContext.jarPath !== 'string' || !isAbsolute(runtimeContext.jarPath)) {
+    throw new Error('Native Builder child processes require an immutable verified TLC runtime context.');
+  }
+  return Object.freeze({ ...environment, TLA2TOOLS_JAR: runtimeContext.jarPath });
 };
 
 const selectJourney = (journeyId, manifestPath = MANIFEST) => {
@@ -394,7 +420,11 @@ export const bracketSummaryFromOutput = (output) => {
   return null;
 };
 
-const runRegisteredNativeCase = (env, selection, { targetPath = null, evidenceParent = null } = {}) => {
+const runRegisteredNativeCase = (env, selection, {
+  targetPath = null,
+  evidenceParent = null,
+  spawnSyncImpl = spawnSync,
+} = {}) => {
   const args = [
     join(SCRIPT_DIR, 'run-native-verification-bracket.mjs'),
     '--scenario', selection.scenarioID,
@@ -412,7 +442,7 @@ const runRegisteredNativeCase = (env, selection, { targetPath = null, evidencePa
   } else {
     args.push('--target-from-environment');
   }
-  const result = spawnSync(process.execPath, args, {
+  const result = spawnSyncImpl(process.execPath, args, {
     cwd: ROOT,
     env,
     encoding: 'utf8',
@@ -430,7 +460,28 @@ const runRegisteredNativeCase = (env, selection, { targetPath = null, evidencePa
   };
 };
 
-const validateTrace = (tracePath, reportPath, contractPath, allowPartial) => {
+export const runNativeCaseWithTlaPreflight = (env, selection, {
+  targetPath = null,
+  evidenceParent = null,
+  cacheDirectory,
+  resolveJar = resolveTlaToolsJar,
+  spawnSyncImpl = spawnSync,
+} = {}) => {
+  const runtimeContext = resolveNativeTlaRuntimeContext({
+    env,
+    ...(cacheDirectory === undefined ? {} : { cacheDirectory }),
+    resolveJar,
+  });
+  const childEnvironment = nativeJourneyEnvironment(env, runtimeContext);
+  const nativeRun = runRegisteredNativeCase(childEnvironment, selection, {
+    targetPath,
+    evidenceParent,
+    spawnSyncImpl,
+  });
+  return Object.freeze({ nativeRun, runtimeContext, environment: childEnvironment });
+};
+
+export const validateTrace = (tracePath, reportPath, contractPath, allowPartial, environment = process.env, spawnSyncImpl = spawnSync) => {
   const args = [
     join(SCRIPT_DIR, 'verify-builder-traces.mjs'),
     '--traces', tracePath,
@@ -439,9 +490,9 @@ const validateTrace = (tracePath, reportPath, contractPath, allowPartial) => {
     '--quiet',
   ];
   if (allowPartial) args.push('--allow-partial');
-  const result = spawnSync(process.execPath, args, {
+  const result = spawnSyncImpl(process.execPath, args, {
     cwd: ROOT,
-    env: process.env,
+    env: environment,
     stdio: 'inherit',
   });
   if (result.error) throw result.error;
@@ -1206,12 +1257,25 @@ const main = async () => {
   let nativeRun = null;
   let nativeBracket = null;
   let retainedNativeReport = null;
-  const playwrightStatus = nativeSelection
-    ? (nativeRun = runRegisteredNativeCase(env, nativeSelection, {
+  let nativeReplayEnvironment = process.env;
+  let playwrightStatus;
+  if (nativeSelection?.traceKind === 'native-lifecycle') {
+    const nativeExecution = runNativeCaseWithTlaPreflight(env, nativeSelection, {
       targetPath: options.target ? resolve(ROOT, options.target) : null,
       evidenceParent: nativeEvidenceParent,
-    }), nativeRun.exitStatus)
-    : runPlaywright(env, selectedJourney?.specPath);
+    });
+    nativeRun = nativeExecution.nativeRun;
+    nativeReplayEnvironment = nativeExecution.environment;
+    playwrightStatus = nativeRun.exitStatus;
+  } else if (nativeSelection) {
+    nativeRun = runRegisteredNativeCase(env, nativeSelection, {
+      targetPath: options.target ? resolve(ROOT, options.target) : null,
+      evidenceParent: nativeEvidenceParent,
+    });
+    playwrightStatus = nativeRun.exitStatus;
+  } else {
+    playwrightStatus = runPlaywright(env, selectedJourney?.specPath);
+  }
   if (nativeSelection?.traceKind === 'native-lifecycle') {
     nativeBracket = validateNativeBracketEnvelope(nativeRun?.summaryEnvelope, nativeSelection,
       options.target ? resolve(ROOT, options.target) : null,
@@ -1294,7 +1358,9 @@ const main = async () => {
     ? null
     : (selectedJourney?.entry.contract ?? CONTRACT);
   const allowPartial = Boolean(selectedJourney && selectedJourney.entry.contract === null && hasDeclaredModel);
-  const validationStatus = unmodeled ? 0 : validateTrace(tracePath, tlaReportPath, contractPath, allowPartial);
+  const validationStatus = unmodeled ? 0 : validateTrace(
+    tracePath, tlaReportPath, contractPath, allowPartial, nativeReplayEnvironment,
+  );
   const tla = !unmodeled && existsSync(tlaReportPath) ? JSON.parse(readFileSync(tlaReportPath, 'utf8')) : null;
   let tlaStatus = unmodeled ? 'not-modeled'
     : allowPartial ? (validationStatus === 0 ? 'partial' : 'fail')
