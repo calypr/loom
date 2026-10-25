@@ -43,6 +43,7 @@ import {
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journey.mjs';
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
+import './transport-terminal.test.mjs';
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
 const policyReceiptHistoryFixture = JSON.parse(readFileSync(new URL(
