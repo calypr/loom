@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "8e5748802cf15eeff581b2fa5312c4d768d8aa4118e2b795a73ae98e4e42f9d4",
+      "sha256": "02bab0951bdaba224b388d2d2ec8dc638b9c92ea16771a55a2985dda155c9df8",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "5b58b102dd83c4b72f04928d933dbff89bab156fbc4f9067e66e51ff333e3e5b",
+      "sha256": "eb38486d5d779fcd3bc165b5b8009feb3422b045db00eff62912d33fbbb1d100",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -589,7 +589,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/temporal-filter-capture.mjs",
-      "sha256": "56c483e11372e9a77d462d56991da914385db1dc744a56d546f47bdf951eb395",
+      "sha256": "6220efd677c866821607f8458fb16978102c67a5bed132dc0ede6774c3abad91",
       "contract": "Captures browser-observed Temporal filter requests, Builder reads, and mounted DOM state."
     },
     {
@@ -694,7 +694,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs",
-      "sha256": "fe30d3de65d04d6281fa95a2e758070003db6a1ebb2ab4de6464101626d8bf98",
+      "sha256": "f1dd0286a3cd9f1a531574b3d2d96e767aeb441a48dbc9cb317e0cbdec489c20",
       "contract": "Tests bounded capture checkpoints and truthful pending settlement evidence."
     },
     {
