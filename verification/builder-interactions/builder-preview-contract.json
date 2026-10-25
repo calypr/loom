@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/verify-builder-formal.mjs",
-      "sha256": "0cd7aaafefcfadc74fcfa01b934b7647af400f12c0218c34c5f773075fbb4f76",
+      "sha256": "9a9333ea993db88143929b7b95ef5aab39766f4683aace3c62626a92f5c95468",
       "contract": "Formal test-corpus producer and runner that stamps actual HEAD and the formal proof-source fingerprint."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "699badfd8fb9b23abd81882aae9fee4b864e12dde46f90a778983b1f293208f3",
+      "sha256": "16b6516a06f916e05ec07ce7923f0901995351e177a2306e99ba2221bea1765c",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -404,7 +404,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "4e146093c5fa238bdfb964da21e846d0f4ad9358f3f4a185bd7c0d403db83031",
+      "sha256": "73552734346f0be15a88c772ecf3b8502cfffca80ff85837a5af22b66c9ae2a1",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "5b58b102dd83c4b72f04928d933dbff89bab156fbc4f9067e66e51ff333e3e5b",
+      "sha256": "d3d77375a23a97e15836c61640310b467fe079e8fcfac54776015b959642d9eb",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -464,7 +464,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-      "sha256": "d2d49a141fe1c91fc938094a960e85ed11c232f46f73ca28e02f2832a3a04f21",
+      "sha256": "9ebc7aeb91b6a8cbc25432bbfa7092c3617bd3e3ebd700be5b26c89c5f3e7888",
       "contract": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow."
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "cb8722943cb83689ec2465445a8a3e2f4db7bc9324e3c574d80e43a17d9cdb52",
+      "sha256": "3c0d77c9d9ad6063fcd467dc5d22e03704d80bb000b891b914d793bfe9c0a677",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "8b9538a936cc46a030b0ada6f51ca72a37fb1b1065c00e77b8f958dc48690ad2",
+      "sha256": "b52239df7a1104a99c3ad7ad76e55be663ba0557ca348dece710de5f55750fb9",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -629,7 +629,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs",
-      "sha256": "54e8b7cb4c111605d2c0b6ad2ee9f23b45407793e1177edd5f2b50ba48867749",
+      "sha256": "d51ce0b82b6605a759f734c127f0899daf879697a7fe4917cacf63d2ffd954b0",
       "contract": "Checks the static DATE and DATE_TIME adapter bindings, contracts, and coverage projection."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "5f9c97918c8043247c9ca8fc23fd4fa622c06a1dd67a7218b5b53b6fe21b0f83",
+      "sha256": "c25b319a63a67e4f81624b7effbaaeebefa637a3bbf99fdaa958e00053f7464c",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
@@ -701,6 +701,16 @@
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-pending-read.test.mjs",
       "sha256": "398d8f3969b5f904537eb6589b29393e1834b3988131c0fab49061cd323536a3",
       "contract": "Tests pending Temporal read ownership, response-credit rejection, and fixture binding."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json",
+      "sha256": "921ecbf438ee052464b8a582b3dee4a505a41b81fab154cf756ce81a715e32b8",
+      "contract": "Sanitized complete and historical partial Policy receipt shapes for strict native receipt conformance; not browser proof."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json",
+      "sha256": "42e3f14f3e7932d96d9ebad5a3eab4560cc92af2c4c8d652e81c63e4f4b0feba",
+      "contract": "Sanitized incomplete historical DATE capture metadata for missing read-ownership and receipt rejection; not browser proof."
     }
   ]
 }

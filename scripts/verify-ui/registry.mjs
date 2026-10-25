@@ -1052,6 +1052,8 @@ const registryRows = [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
+              'scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json',
+              'scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json',
             ],
           },
         ],
