@@ -1037,7 +1037,7 @@ function inspectResponse(response, request, label, expectedStatus) {
   }
   assert.equal(response.status, expectedStatus, `${label} response status must be ${expectedStatus}`);
   return {
-    requestId: responseRequestId === POLICY_TRACE_ABSENT ? request.requestId : responseRequestId,
+    requestId: responseRequestId,
     captureId: response.captureId,
     requestObjectId: request.requestObjectId,
     transportIndex: request.transportIndex,

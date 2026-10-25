@@ -318,6 +318,18 @@ test('a valid ONE rejection and same-choice ALL Apply persist distinct input and
     'the model trace must contain only finite JSON values');
 });
 
+test('the response observation preserves an absent response request ID', () => {
+  const input = makePolicyOneTraceInput();
+  input.responses.one.requestId = null;
+  const trace = buildPolicyOneTrace(input).journeyTrace;
+  const rejected = trace.actions.find(action => action.label === 'OneRejected');
+
+  assert.equal(rejected.response.requestId, null,
+    'the captured response request ID remains absent when neither header nor body exposed one');
+  assert.equal(rejected.observation.request.requestId, POLICY_TRACE_ABSENT,
+    'response observation must not substitute the inbound request header ID');
+});
+
 test('the production saved-state projection supplies the trace adapter Apply contract', () => {
   const input = makePolicyOneTraceInput();
   const applied = input.saved.afterApply;

@@ -288,6 +288,64 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.match(result.output, /Model checking completed\. No error has been found\./);
 });
 
+test('TLC keeps physical response ownership while allowing the server-assigned response ID', t => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const oneRequest = trace.actions.find(entry => entry.label === 'OneSubmitted').request;
+  const oneResponse = trace.actions.find(entry => entry.label === 'OneRejected').response;
+  const oneTransport = trace.transportLedger.find(entry => entry.transportIndex === oneRequest.transportIndex);
+  const serverRequestId = 'server-generated-one-response-id';
+  oneRequest.requestId = null;
+  oneTransport.requestId = null;
+  oneTransport.responseHeaders.requestId = serverRequestId;
+  oneTransport.response.requestId = serverRequestId;
+  oneResponse.requestId = serverRequestId;
+  oneResponse.body = {
+    error: { requestId: serverRequestId },
+    diagnostics: [{ requestId: serverRequestId }],
+  };
+  assert.equal(oneResponse.captureId, oneRequest.captureId);
+  assert.equal(oneResponse.requestObjectId, oneRequest.requestObjectId);
+  assert.equal(oneTransport.responseOwnerIndex, oneTransport.transportIndex);
+  assert.equal(validatePolicyOneJourneyTrace(trace), trace);
+
+  const positive = checkWithTLC(trace, 'PolicyOneServerAssignedResponseIDPositive');
+  t.diagnostic(summary(positive.output));
+  assert.equal(positive.error, undefined, positive.error?.message);
+  assert.equal(positive.status, 0, summary(positive.output));
+  assert.match(positive.output, /Model checking completed\. No error has been found\./);
+
+  const bodyMismatch = structuredClone(trace);
+  const bodyMismatchResponse = bodyMismatch.actions.find(entry => entry.label === 'OneRejected').response;
+  bodyMismatchResponse.body.diagnostics.push({ requestId: 'different-secondary-diagnostic-id' });
+  const bodyMismatchResult = checkWithTLC(bodyMismatch, 'PolicyOneServerResponseBodyIDMismatch');
+  assert.notEqual(bodyMismatchResult.status, 0);
+  assert.match(bodyMismatchResult.output, /ObservedResponseOwnership/);
+
+  const invalidBodyID = structuredClone(trace);
+  invalidBodyID.actions.find(entry => entry.label === 'OneRejected').response.body.error.requestId = 42;
+  assert.throws(() => compilePolicyOneJourneyTrace(invalidBodyID), /must be a string when present/);
+
+  const headerMismatch = makeSyntheticPolicyOneJourneyTrace();
+  const providedRequest = headerMismatch.actions.find(entry => entry.label === 'OneSubmitted').request;
+  const providedResponse = headerMismatch.actions.find(entry => entry.label === 'OneRejected').response;
+  const providedTransport = headerMismatch.transportLedger.find(entry =>
+    entry.transportIndex === providedRequest.transportIndex);
+  providedTransport.responseHeaders.requestId = 'different-response-header-id';
+  providedTransport.response.requestId = 'different-response-header-id';
+  providedResponse.requestId = 'different-response-header-id';
+  const headerMismatchResult = checkWithTLC(headerMismatch, 'PolicyOneProvidedRequestIDMismatch');
+  assert.notEqual(headerMismatchResult.status, 0);
+  assert.match(headerMismatchResult.output, /ObservedResponseOwnership/);
+
+  const wrongOwner = structuredClone(trace);
+  const wrongOwnerResponse = wrongOwner.actions.find(entry => entry.label === 'OneRejected').response;
+  wrongOwnerResponse.requestObjectId = wrongOwner.actions.find(entry => entry.label === 'GroupApplied')
+    .response.requestObjectId;
+  const wrongOwnerResult = checkWithTLC(wrongOwner, 'PolicyOneServerResponseWrongPhysicalOwner');
+  assert.notEqual(wrongOwnerResult.status, 0);
+  assert.match(wrongOwnerResult.output, /ObservedResponseOwnership/);
+});
+
 test('TLC binds completed frame source options reads to the formal owner and saved output snapshot', t => {
   const trace = makeSyntheticPolicyOneJourneyTrace({ frameSourceOptions: true });
   const row = trace.transportLedger.find(entry => entry.path === 'frame-source-options');

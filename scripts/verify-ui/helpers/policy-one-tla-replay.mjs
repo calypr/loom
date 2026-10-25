@@ -237,11 +237,15 @@ function requestFact(request) {
 }
 
 function responseFact(response) {
-  if (!isRecord(response)) return { present: false, commandId: ABSENT, bodyCommandId: ABSENT };
+  if (!isRecord(response)) {
+    return { present: false, commandId: ABSENT, bodyCommandId: ABSENT, responseBodyRequestIds: [] };
+  }
   const preview = response.preview ?? response.body?.preview ?? {};
+  const body = isRecord(response.body) ? response.body : {};
   return {
     present: true,
     requestId: response.requestId ?? ABSENT,
+    responseBodyRequestIds: responseBodyRequestIds(body, 'captured response body'),
     captureId: response.captureId ?? ABSENT,
     requestObjectId: response.requestObjectId ?? ABSENT,
     commandId: response.commandId ?? ABSENT,
@@ -255,6 +259,27 @@ function responseFact(response) {
     draftVersion: response.body?.draftVersion ?? ABSENT,
     draftDigest: response.body?.draftDigest ?? ABSENT,
   };
+}
+
+function responseBodyRequestIds(body, label) {
+  if (!isRecord(body)) return [];
+  const error = isRecord(body.error) ? body.error : {};
+  const errorDiagnostic = isRecord(error.diagnostic) ? error.diagnostic : {};
+  const diagnostics = Array.isArray(body.diagnostics) ? body.diagnostics : [];
+  const candidates = [
+    ['requestId', body.requestId],
+    ['error.requestId', error.requestId],
+    ['error.diagnostic.requestId', errorDiagnostic.requestId],
+    ...diagnostics.flatMap((diagnostic, index) => isRecord(diagnostic)
+      ? [['diagnostics[' + index + '].requestId', diagnostic.requestId]]
+      : []),
+  ];
+  return candidates.flatMap(([field, value]) => {
+    if (value === undefined) return [];
+    assert.equal(typeof value, 'string', label + '.' + field + ' must be a string when present');
+    assert(value.trim().length > 0, label + '.' + field + ' must not be empty when present');
+    return [value];
+  });
 }
 
 function actionFact(actionRecord) {
@@ -1208,14 +1233,27 @@ function generateReplayModule(moduleName, observations) {
     '        observed.hasSavedBefore /\\ observed.hasSavedAfter =>',
     '         observed.savedBefore = observed.savedAfter)',
     '',
+    'ResponseRequestIdentityMatches(request, response) ==',
+    '  LET transport == ObservedTransportLedger[request.transportIndex]',
+    '      headerId == transport.responseHeadersRequestId',
+    '      bodyIds == response.responseBodyRequestIds',
+    '  IN /\\ transport.transportIndex = request.transportIndex',
+    '     /\\ transport.settlement = \"response\"',
+    '     /\\ transport.responseOwnerIndex = request.transportIndex',
+    '     /\\ transport.responseHeadersObserved',
+    '     /\\ transport.responseStatus = response.status',
+    '     /\\ headerId # \"Absent\"',
+    '     /\\ response.requestId = headerId',
+    '     /\\ (request.requestId # \"Absent\" => headerId = request.requestId)',
+    '     /\\ \\A bodyId \\in SequenceSet(bodyIds): bodyId = headerId',
+    '',
     'ResponseOwned(request, response) ==',
     '  /\\ request.present',
     '  /\\ response.present',
     '  /\\ request.requestObjectId = request.captureId',
     '  /\\ response.captureId = request.captureId',
     '  /\\ response.requestObjectId = request.requestObjectId',
-    '  /\\ (request.requestId = NoIdentity => response.requestId = NoIdentity)',
-    '  /\\ (request.requestId # NoIdentity => response.requestId = request.requestId)',
+    '  /\\ ResponseRequestIdentityMatches(request, response)',
     '',
     'CommandIDEncodingMatches(capture) ==',
     '  capture.present /\\ capture.bodyCommandId # NoIdentity =>',
