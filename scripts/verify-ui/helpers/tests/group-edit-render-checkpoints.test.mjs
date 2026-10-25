@@ -15,6 +15,7 @@ import {
   recordGroupEditActionToRender,
   savedColumnLabelsForIds,
 } from '../../workflows/verify-cda-group-edit-before-related-column-browser.mjs';
+import { browserEval } from '../cda-playwright.mjs';
 
 const completeCheckpoints = () => groupEditRenderCheckpointNames.map((name) => ({ name, durationMs: 4999 }));
 
@@ -98,7 +99,7 @@ test('saved Group label resolution rejects missing and conflicting column identi
   }, ['root-source-id']), /conflicting labels/);
 });
 
-test('mounted RELATED_SOURCE capture reads its step under a closed Column adjustments disclosure', () => {
+test('mounted RELATED_SOURCE capture reads its step under a closed Column adjustments disclosure', async () => {
   const dom = new JSDOM(`
     <section aria-label="Row operations">
       <ol>
@@ -118,7 +119,16 @@ test('mounted RELATED_SOURCE capture reads its step under a closed Column adjust
   const { document } = dom.window;
   const disclosure = document.querySelector('details[data-testid="construction-history-adjustment-group-related-step-1"]');
   assert.equal(disclosure.open, false, 'The retained reload renders the related step inside a closed disclosure.');
-  const historySteps = constructionHistoryDOMProjection(document);
+  const hadGlobalDocument = Object.hasOwn(globalThis, 'document');
+  const previousGlobalDocument = globalThis.document;
+  globalThis.document = document;
+  let historySteps;
+  try {
+    historySteps = await browserEval({ evaluate: (callback, args) => callback(args) }, constructionHistoryDOMProjection);
+  } finally {
+    if (hadGlobalDocument) globalThis.document = previousGlobalDocument;
+    else delete globalThis.document;
+  }
   const headerCells = [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')];
   const renderedRows = {
     // The retained Chromium innerText is CSS transformed; textContent remains the semantic label.

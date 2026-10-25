@@ -145,8 +145,8 @@ export function groupEditRenderCheckpointSummary(cases) {
   };
 }
 
-export const constructionHistoryDOMProjection = (root = document) =>
-  [...root.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
+export const constructionHistoryDOMProjection = () =>
+  [...document.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
     const testId = button.getAttribute('data-testid');
     return {
       testId,
