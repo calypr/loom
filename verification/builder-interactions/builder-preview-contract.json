@@ -539,7 +539,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs",
-      "sha256": "e876161e25a9ba4046a2d058fca8027d4ef0c508d18ec81450a2e2cbc6c87f8a",
+      "sha256": "86b74b54a4aef27f856ca88fac8a54dcf93fb76f313226f7130efad6875b6e70",
       "contract": "Native Patient ONE summary control locator checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "ed3af52444b34e42ac547c7906e03271a7b151681406394b68795fe54848452c",
+      "sha256": "b811f858d24d4d4d16655e98fd2b18afb2ed9b68c0c8aa15ac8875d42436bfcf",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
