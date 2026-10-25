@@ -21,6 +21,7 @@ import {
   builderFormalAdapterForBinding,
   builderFormalAdapterForContract,
 } from '../builder-formal-adapters.mjs';
+import { main as runBuilderFormalVerification } from '../../../verify-builder-formal.mjs';
 
 const policyContract = JSON.parse(readFileSync(
   new URL('../../../../verification/builder-interactions/builder-policy-one-contract.json', import.meta.url),
@@ -43,6 +44,40 @@ test('registered Policy adapter binds the exact trace, model, case, and controls
   assert.equal(policyContract.nativeJourney.nativeCaseKey, 'builder-authoring/patient-one-disagreement');
   const contractAdapter = builderFormalAdapterForContract(policyContract);
   assert.equal(contractAdapter, adapter);
+});
+
+test('formal verifier stops before Java, TLC, and model work when registry conformance fails', async () => {
+  const calls = [];
+  let gateCommand;
+  const options = { strict: false, skipGo: true, model: 'builder-operations', listModels: false };
+  await assert.rejects(runBuilderFormalVerification({
+    options,
+    runCommandFn: (label, command, args, cwd) => {
+      calls.push('registry-conformance');
+      gateCommand = { label, command, args, cwd };
+      return { status: 1, error: null, output: 'deterministic registry conformance failure' };
+    },
+    verifyJavaFn: () => {
+      calls.push('verify-java');
+      return 'java';
+    },
+    acquireTlcJarFn: () => {
+      calls.push('acquire-tlc');
+      return '/unused/tla2tools.jar';
+    },
+    runTlcFn: () => {
+      calls.push('run-model');
+      return { passed: true };
+    },
+  }), /Registry-wide native Builder formal conformance failed before formal model checks:[\s\S]*deterministic registry conformance failure/);
+  assert.deepEqual(gateCommand, {
+    label: 'Registry-wide native Builder formal conformance',
+    command: process.execPath,
+    args: ['--test', 'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs'],
+    cwd: resolve(new URL('../../../../', import.meta.url).pathname),
+  });
+  assert.deepEqual(calls, ['registry-conformance'],
+    'a failed registry conformance gate must not reach Java, jar acquisition, or any TLC model run');
 });
 
 test('outer native inspector accepts the Policy fixture producer and rejects missing event inventory', () => {
