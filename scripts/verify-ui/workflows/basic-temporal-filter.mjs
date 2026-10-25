@@ -11,6 +11,7 @@ import { bindFixtureOracleToQaIsolation, fixtureProjectExplorerCollectionPath } 
 import { TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS } from '../helpers/temporal-filter-tla-adapter.mjs';
 import {
   BASIC_TEMPORAL_FILTER_CASES,
+  matchesBasicTemporalChoiceProposal,
   matchesBasicTemporalFilterCandidate,
   readBasicTemporalFilterOracle,
 } from '../helpers/basic-temporal-filter-oracle.mjs';
@@ -329,10 +330,9 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       choiceProposalPromise = page.waitForResponse(response => {
         const request = response.request();
         const url = new URL(response.url());
-        const body = requestBody(request);
-        return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === choiceProposalPath &&
-          body?.outputId === outputId && body.constructionChoices?.some(choice =>
-            choice.form === 'VALUE' && choice.title === contract.fieldLabel);
+        return matchesBasicTemporalChoiceProposal({
+          method: request.method(), origin: url.origin, path: url.pathname, body: requestBody(request),
+        }, { origin: uiOrigin, path: choiceProposalPath, outputId, fieldLabel: contract.fieldLabel });
       }, { timeout: remainingTimeout() });
       applyFieldCommandPromise = page.waitForResponse(response => {
         const request = response.request();

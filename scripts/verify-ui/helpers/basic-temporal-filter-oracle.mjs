@@ -14,7 +14,7 @@ export const BASIC_TEMPORAL_FILTER_CASES = Object.freeze({
     ]),
   }),
   'date-time': Object.freeze({
-    resourceType: 'Observation', fieldPath: 'effectiveDateTime', inputType: 'datetime-local', filterValueKind: 'DATE_TIME', fieldLabel: 'Effective DateTime',
+    resourceType: 'Observation', fieldPath: 'effectiveDateTime', inputType: 'datetime-local', filterValueKind: 'DATE_TIME', fieldLabel: 'Effective Date Time',
     initial: Object.freeze({ operator: 'GT', boundaryInstant: '2026-01-02T00:00:00.000Z', requestValue: { kind: 'DATE_TIME', dateTime: '2026-01-02T00:00:00.000Z' }, savedValue: { kind: 'DATE_TIME', dateTime: '2026-01-02T00:00:00Z' }, ids: [] }),
     edited: Object.freeze({ operator: 'GTE', boundaryInstant: '2026-01-02T00:00:00.000Z', requestValue: { kind: 'DATE_TIME', dateTime: '2026-01-02T00:00:00Z' }, savedValue: { kind: 'DATE_TIME', dateTime: '2026-01-02T00:00:00Z' }, ids: ['dev-observation-001', 'dev-observation-002', 'dev-observation-003'] }),
     rows: Object.freeze([
@@ -24,6 +24,12 @@ export const BASIC_TEMPORAL_FILTER_CASES = Object.freeze({
     ]),
   }),
 });
+
+export const matchesBasicTemporalChoiceProposal = (observed, expected) =>
+  observed?.method === 'POST' && observed.origin === expected.origin && observed.path === expected.path &&
+  observed.body?.outputId === expected.outputId &&
+  Array.isArray(observed.body.constructionChoices) &&
+  observed.body.constructionChoices.some(choice => choice.form === 'VALUE' && choice.title === expected.fieldLabel);
 
 export const matchesBasicTemporalFilterCandidate = (candidate, expected) => {
   if (candidate?.outputId !== expected.outputId) return false;

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolve } from 'node:path';
-import { BASIC_TEMPORAL_FILTER_CASES, matchesBasicTemporalFilterCandidate, readBasicTemporalFilterOracle } from '../basic-temporal-filter-oracle.mjs';
+import {
+  BASIC_TEMPORAL_FILTER_CASES,
+  matchesBasicTemporalChoiceProposal,
+  matchesBasicTemporalFilterCandidate,
+  readBasicTemporalFilterOracle,
+} from '../basic-temporal-filter-oracle.mjs';
 
 const fixtureDir = resolve('testdata/basic-temporal-filter');
 
@@ -28,6 +33,33 @@ test('Basic DATE_TIME oracle keeps literal Observation identities at the UTC bou
   ]);
   assert.deepEqual(oracle.initial.ids, []);
   assert.deepEqual(oracle.edited.ids, ['dev-observation-001', 'dev-observation-002', 'dev-observation-003']);
+});
+
+test('DATE_TIME choice waiter matches the retained exact field-choice label and route', () => {
+  const retained = {
+    method: 'POST',
+    origin: 'http://127.0.0.1:30000',
+    path: '/api/v1/projects/loom_dev_verify_mvofxlvb%252F77c51e0/explorers/verify-vb-77c51e0-observation-effectivedatetime-filter/authoring/v2/construction-choice-proposals',
+    body: {
+      outputId: 'out_b006ea2c73719a765236acd3',
+      constructionChoices: [{ form: 'VALUE', title: 'Effective Date Time' }],
+    },
+  };
+  const contract = BASIC_TEMPORAL_FILTER_CASES['date-time'];
+  const expected = {
+    origin: retained.origin,
+    path: retained.path,
+    outputId: retained.body.outputId,
+    fieldLabel: contract.fieldLabel,
+  };
+  assert.equal(contract.fieldLabel, 'Effective Date Time');
+  assert.equal(matchesBasicTemporalChoiceProposal(retained, expected), true);
+  assert.equal(matchesBasicTemporalChoiceProposal(retained, { ...expected, fieldLabel: 'Effective DateTime' }), false,
+    'The old concatenated spelling must not claim the retained native response.');
+  assert.equal(matchesBasicTemporalChoiceProposal(retained, { ...expected, path: '/foreign/authoring/v2/construction-choice-proposals' }), false,
+    'A response from a different route must not satisfy the choice waiter.');
+  assert.equal(matchesBasicTemporalChoiceProposal(retained, { ...expected, outputId: 'other-output' }), false,
+    'A response for another output must not satisfy the choice waiter.');
 });
 
 test('typed temporal request and saved values retain their exact stage-specific literals', () => {
