@@ -288,6 +288,28 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.match(result.output, /Model checking completed\. No error has been found\./);
 });
 
+test('TLC accepts actual support responses that settle opposite request order', t => {
+  const trace = makeSyntheticPolicyOneJourneyTrace({ reversedSupportCompletionOrder: true });
+  const inventory = trace.transportLedger.find(entry => entry.path === 'semantic-inventory');
+  const capabilities = trace.transportLedger.find(entry => entry.path === 'construction-capabilities');
+  assert(inventory && capabilities);
+  assert(inventory.requestEventIndex < capabilities.requestEventIndex);
+  assert(capabilities.requestEventIndex < capabilities.settlementEventIndex);
+  assert(capabilities.settlementEventIndex < inventory.settlementEventIndex,
+    'the later physical request must settle first in the retained observer event order');
+  assert.deepEqual(inventory.responseHeaders, { status: 200, requestId: inventory.requestId });
+  assert.deepEqual(capabilities.responseHeaders, { status: 200, requestId: capabilities.requestId });
+  const eventIndices = trace.transportLedger.flatMap(entry => [entry.requestEventIndex, entry.settlementEventIndex]);
+  assert.equal(trace.formalExit.afterEventIndex, Math.max(...eventIndices));
+  assert.equal(validatePolicyOneJourneyTrace(trace), trace);
+
+  const result = checkWithTLC(trace, 'PolicyOneReverseSupportCompletionPositive');
+  t.diagnostic(summary(result.output));
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, summary(result.output));
+  assert.match(result.output, /Model checking completed\. No error has been found\./);
+});
+
 test('TLC binds bounded no-header support requests to the actual formal-exit boundary', t => {
   const trace = makeSyntheticPolicyOneJourneyTrace({ pendingSupportReads: true });
   const pending = trace.transportLedger.filter(entry => entry.settlement === 'pending');

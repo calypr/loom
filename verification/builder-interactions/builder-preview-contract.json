@@ -524,7 +524,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "1230a3ada8eb8ed684f7863cc05a52133d57cd0a2f53fed1db80a94874a8d052",
+      "sha256": "f9cd70eb9d4384a2cf8120b449c10f43f4b6861e43c0447a4756e66e3942d0bd",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
@@ -544,12 +544,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs",
-      "sha256": "84abaae75386a1750b9702b1c222db1f82fd8e682fb7db919b4a95f83a2408db",
+      "sha256": "4cb19fe02230d2776994138655226bc9a06a7fc7625eb9c76b66d9c760d4edef",
       "contract": "Complete synthetic Policy One lifecycle for adapter and TLC unit checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "23688d2360cb53b76c200b9fa736a11f15b8f57a144f596d66ca4bfbfc12302e",
+      "sha256": "f11b6a50d44f4524d663063b82496b1d51b143af922eb7fe30ed63c4a622d3f1",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
