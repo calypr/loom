@@ -803,11 +803,5 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   });
   check('correctness', TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS[caseName],
     formalProof.status === 'pass' && formalProof.replayStatus === 'pass' && formalProof.selfTestStatus === 'pass',
-    {
-      tracePath: formalProof.tracePath,
-      actionCount: report.journeyTrace.actions.length,
-      replayStatus: formalProof.replayStatus,
-      selfTestStatus: formalProof.selfTestStatus,
-      mutationControlCount: formalProof.mutationControls?.length ?? 0,
-    });
+    formalProof);
 };

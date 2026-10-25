@@ -6,7 +6,11 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { registry } from '../../registry.mjs';
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
-import { writeAndReplayBuilderJourneyTrace } from '../builder-journey-trace.mjs';
+import {
+  nativeBuilderJourneyReceiptFromReport,
+  writeAndReplayBuilderJourneyTrace,
+} from '../builder-journey-trace.mjs';
+import { recordCheck } from '../report.mjs';
 import {
   builderFormalAdapterForBinding,
   builderFormalAdapterForCaptureKind,
@@ -135,6 +139,9 @@ test('shared writer replays both synthetic Temporal contracts and all registered
       case: spec.caseName,
       evidenceDirectory: directory,
       target: {},
+      dimensions: { correctness: { status: 'untested', evidence: [] } },
+      assertions: [],
+      requiredChecks: [spec.contract.nativeJourney.formalProofAssertion],
     };
     const receipt = writeAndReplayBuilderJourneyTrace({
       scenarioID: report.scenario,
@@ -160,6 +167,14 @@ test('shared writer replays both synthetic Temporal contracts and all registered
     assert.equal(receipt.requestCoverageBasis, spec.contract.nativeJourney.coverageBasis);
     assert.equal(receipt.requestCoverage.unmapped, 0);
     assert.equal(receipt.requestCoverage.duplicates, 0);
+    recordCheck(report, 'correctness', spec.contract.nativeJourney.formalProofAssertion,
+      receipt.status === 'pass' && receipt.replayStatus === 'pass' && receipt.selfTestStatus === 'pass', receipt);
+    assert.deepEqual(nativeBuilderJourneyReceiptFromReport(report, {
+      binding: bindingFor(spec.caseName),
+      scenarioID: report.scenario,
+      caseName: report.case,
+      requiredChecks: report.requiredChecks,
+    }), receipt, 'The registered assertion must retain the complete authoritative formal receipt.');
   }
 
   passed = true;

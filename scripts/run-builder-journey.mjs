@@ -1452,6 +1452,7 @@ export function retainNativeDomainReportArtifact({
 
 export {
   nativeEnvironmentTargetProblems,
+  inspectNativeLifecycleJourney,
   validateNativeBracketEnvelope,
   validateNativeBracketSummary,
   validateNativeTlaReceipt,

@@ -380,6 +380,8 @@ const makeTlaFixture = (root) => {
     traceName: 'cda-builder-group-related-source',
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
     model: 'BuilderJourney',
+    captureAdapter: 'builder-native-journey-v1',
+    captureKind: 'builder-cda-native-lifecycle',
   };
   const sourceCommit = 'b'.repeat(40);
   const sourceFingerprint = 'c'.repeat(64);

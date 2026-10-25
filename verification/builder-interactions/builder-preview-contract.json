@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "ada7a61ff40258da46509c2442a217e300e4d41a40a78ae25f370b6e36f22325",
+      "sha256": "8e5748802cf15eeff581b2fa5312c4d768d8aa4118e2b795a73ae98e4e42f9d4",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "84faa33fad4ddbc7d53052083244f48c89aabc24cddcc3cf2afe87c4d07bc20d",
+      "sha256": "383150ebef25023e564cfe0f6c31f5a54cad15cd6d7720a129ae3bb3ceb52fb7",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "48bb0476c1799ca26309d44736106cdcfa9c41293d92afbc90ce17751bc998e7",
+      "sha256": "5b58b102dd83c4b72f04928d933dbff89bab156fbc4f9067e66e51ff333e3e5b",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -524,17 +524,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "f9cd70eb9d4384a2cf8120b449c10f43f4b6861e43c0447a4756e66e3942d0bd",
+      "sha256": "cc848e02db7eb5a743fa7f2b9a2f3211a504424de34a59502ce5ef60787691fb",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
-      "sha256": "3674686ac1a79cf3688f75d3aea0ea88d312d0795e70bfe194e28ad15b1fb566",
+      "sha256": "1ed707c3ab633880a825610333e41dfc11369eac4b15957597fa3492daed11f9",
       "contract": "Policy One captured workflow and transport ledger validation."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "9d3696688b13ee0ab092e25b3cce05c99098220a7a1098f6382ce8adf2397d44",
+      "sha256": "cb8722943cb83689ec2465445a8a3e2f4db7bc9324e3c574d80e43a17d9cdb52",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
@@ -544,17 +544,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs",
-      "sha256": "4cb19fe02230d2776994138655226bc9a06a7fc7625eb9c76b66d9c760d4edef",
+      "sha256": "da0ef478991676d997d58267796323cf25d279d466960a30c841ad1bd9aa4dbe",
       "contract": "Complete synthetic Policy One lifecycle for adapter and TLC unit checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "f11b6a50d44f4524d663063b82496b1d51b143af922eb7fe30ed63c4a622d3f1",
+      "sha256": "a21d062fee57bcda008d1481ff3c0bb04c27c613780f3f39cf2cf9949cb071f3",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "e43071193ac865d963de32ed99c40997a0d0ed1d576b89e3b6799ae6f1f436ac",
+      "sha256": "35a0427e59dfcecbaab7ad1cf914788cb30ed9bb0c86c5bdb3e89dce4efdca1b",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "bca6b0cefcfef02d5268355c3338fd5d5043bd5837c939e9581488d7008b7d74",
+      "sha256": "8b9538a936cc46a030b0ada6f51ca72a37fb1b1065c00e77b8f958dc48690ad2",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -579,7 +579,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-policy-one-contract.json",
-      "sha256": "1a0fb5861d090e8076130fc31b2f24ad3fe7ea37ee1890d75160e382fce5ae92",
+      "sha256": "8e198fb5687bb5e5395a3c529d03fb8e9e0d79f5a1b89e26e2237ce087d49f4b",
       "contract": "Registered Policy One native journey action, event, and mutation-control contract."
     },
     {
@@ -629,7 +629,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs",
-      "sha256": "6000b599fb10c0e6e8e84c8c461da0a5525fda4ca72883212d3dfd02366aa7c1",
+      "sha256": "960f61ab69b97802aa48f0d81bcbc3e530ac2a773b3e78d56c5aae21db865617",
       "contract": "Checks the static DATE and DATE_TIME adapter bindings, contracts, and coverage projection."
     },
     {
@@ -674,12 +674,12 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "665884f65435dda45a94cb6b3938a52c398ae18ea0657bb8ac048303f91569a1",
+      "sha256": "487d53ad6341422fc5dc779e7918b927e5435c130e4cd597694530ec4300aa71",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-transport-observer.mjs",
-      "sha256": "4013653963049b798fa9b59fac0fd158aca3c8a3411cb2727d8b9bf1ee2cdd46",
+      "sha256": "ac0b7f1d8e5d589cff90690b563a0341bdeacd3881e7b3809d55ecc53b72eea1",
       "contract": "Captures the complete Policy One setup and formal authoring transport span by exact Playwright request identity."
     }
   ]

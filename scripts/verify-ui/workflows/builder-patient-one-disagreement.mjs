@@ -8,7 +8,10 @@ import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../h
 import { observeAuthoringAttempt } from '../helpers/fast-fixtures.mjs';
 import { createPolicyOneTransportObserver } from '../helpers/policy-one-transport-observer.mjs';
 import { sanitizePayload } from '../helpers/playwright-browser.mjs';
-import { buildPolicyOneTrace } from '../helpers/policy-one-trace.mjs';
+import {
+  buildPolicyOneTrace,
+  encodePolicyOneTraceDiagnosticInput,
+} from '../helpers/policy-one-trace.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
@@ -1563,7 +1566,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     transportObserver.bindRequestCaptureId(requestObject, requestCaptureId);
   }
   const { captures: transportCaptures, formalExit } = await transportObserver.finish();
-  const { journeyTrace } = buildPolicyOneTrace({
+  const policyOneTraceInput = {
     expected: {
       outputId,
       choiceId: oneChoice.choiceId,
@@ -1638,7 +1641,22 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
         draftDigest: restoredBuilder.draftDigest,
       },
     },
-  });
+  };
+  const policyOneTraceDiagnosticInput = encodePolicyOneTraceDiagnosticInput(policyOneTraceInput);
+  const policyOneTraceDiagnosticJSON = JSON.stringify(policyOneTraceDiagnosticInput, null, 2);
+  assert.deepEqual(JSON.parse(policyOneTraceDiagnosticJSON), policyOneTraceDiagnosticInput,
+    'the full Policy One projection input must round-trip through its opaque-handle diagnostic encoding');
+  const policyOneTraceDiagnosticBytes = Buffer.from(`${policyOneTraceDiagnosticJSON}\n`);
+  const policyOneTraceDiagnosticFile = 'policy-one-trace-input-diagnostic.json';
+  writeFileSync(join(report.evidenceDirectory, policyOneTraceDiagnosticFile), policyOneTraceDiagnosticBytes,
+    { flag: 'wx', mode: 0o600 });
+  report.policyOneTraceInputArtifact = {
+    fileName: policyOneTraceDiagnosticFile,
+    encoding: policyOneTraceDiagnosticInput.encoding,
+    sha256: createHash('sha256').update(policyOneTraceDiagnosticBytes).digest('hex'),
+    byteLength: policyOneTraceDiagnosticBytes.length,
+  };
+  const { journeyTrace } = buildPolicyOneTrace(policyOneTraceInput);
   assert.deepEqual(journeyTrace.actions.map(action => action.label), [
     'GroupPreviewSubmitted', 'GroupPreviewReady', 'GroupApplySubmitted', 'GroupApplied',
     'OneSubmitted', 'OneRejected', 'SelectAll', 'AllSubmitted', 'AllReady',
@@ -1665,11 +1683,5 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   requireCheck(workflow, 'correctness',
     'Captured Patient.id ONE/ALL browser journey replays through PolicyOneDisagreement TLC and passes all registered mutation controls',
     formalProof.status === 'pass' && formalProof.replayStatus === 'pass' && formalProof.selfTestStatus === 'pass',
-    {
-      tracePath: formalProof.tracePath,
-      actionCount: journeyTrace.actions.length,
-      replayStatus: formalProof.replayStatus,
-      selfTestStatus: formalProof.selfTestStatus,
-      mutationControlCount: formalProof.mutationControls?.length ?? 0,
-    });
+    formalProof);
 };

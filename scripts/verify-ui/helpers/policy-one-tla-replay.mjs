@@ -36,6 +36,7 @@ const READ_ONLY_TRANSPORT_PATHS = new Map([
   ['POST construction-capabilities', 'Construction capabilities read'],
   ['POST construction-inputs', 'Construction stage inputs read'],
   ['POST construction-choices', 'Construction source choices read'],
+  ['POST frame-source-options', 'Frame source options read'],
   ['POST preview', 'Receipt-backed preview read'],
 ]);
 const MODELED_REQUEST_EVENTS = new Set(['preview', 'begin-apply', 'choice-preview', 'apply-construction-choice']);
@@ -236,11 +237,15 @@ function requestFact(request) {
 }
 
 function responseFact(response) {
-  if (!isRecord(response)) return { present: false, commandId: ABSENT, bodyCommandId: ABSENT };
+  if (!isRecord(response)) {
+    return { present: false, commandId: ABSENT, bodyCommandId: ABSENT, responseBodyRequestIds: [] };
+  }
   const preview = response.preview ?? response.body?.preview ?? {};
+  const body = isRecord(response.body) ? response.body : {};
   return {
     present: true,
     requestId: response.requestId ?? ABSENT,
+    responseBodyRequestIds: responseBodyRequestIds(body, 'captured response body'),
     captureId: response.captureId ?? ABSENT,
     requestObjectId: response.requestObjectId ?? ABSENT,
     commandId: response.commandId ?? ABSENT,
@@ -254,6 +259,27 @@ function responseFact(response) {
     draftVersion: response.body?.draftVersion ?? ABSENT,
     draftDigest: response.body?.draftDigest ?? ABSENT,
   };
+}
+
+function responseBodyRequestIds(body, label) {
+  if (!isRecord(body)) return [];
+  const error = isRecord(body.error) ? body.error : {};
+  const errorDiagnostic = isRecord(error.diagnostic) ? error.diagnostic : {};
+  const diagnostics = Array.isArray(body.diagnostics) ? body.diagnostics : [];
+  const candidates = [
+    ['requestId', body.requestId],
+    ['error.requestId', error.requestId],
+    ['error.diagnostic.requestId', errorDiagnostic.requestId],
+    ...diagnostics.flatMap((diagnostic, index) => isRecord(diagnostic)
+      ? [['diagnostics[' + index + '].requestId', diagnostic.requestId]]
+      : []),
+  ];
+  return candidates.flatMap(([field, value]) => {
+    if (value === undefined) return [];
+    assert.equal(typeof value, 'string', label + '.' + field + ' must be a string when present');
+    assert(value.trim().length > 0, label + '.' + field + ' must not be empty when present');
+    return [value];
+  });
 }
 
 function actionFact(actionRecord) {
@@ -334,6 +360,9 @@ function transportFact(entry) {
     snapshotToken: body.snapshotToken ?? ABSENT,
     expectedDraftVersion: body.expectedDraftVersion ?? body.draftVersion ?? 0,
     expectedDraftDigest: body.expectedDraftDigest ?? body.draftDigest ?? ABSENT,
+    requestResourceType: body.resourceType ?? ABSENT,
+    requestLimit: body.limit ?? 0,
+    requestCursor: body.cursor ?? ABSENT,
     choiceId: choice.choiceId ?? ABSENT,
     choicePolicy: choice.rowValuePolicy ?? ABSENT,
     removeStepIds: body.removeStepIds ?? [],
@@ -353,6 +382,10 @@ function transportFact(entry) {
     responseReceiptIds: response.receiptIds ?? [],
     responseOutputIds: response.outputIds ?? [],
     responseSnapshotToken: response.snapshotToken ?? ABSENT,
+    responseFrameSourceOptionsComplete: response.frameSourceOptionsComplete ?? ABSENT,
+    responseFrameSourceOptionsTruncated: response.frameSourceOptionsTruncated ?? ABSENT,
+    responseFrameSourceOptionsSourceCount: response.frameSourceOptionsSourceCount ?? ABSENT,
+    responseFrameSourceOptionsNextCursor: response.frameSourceOptionsNextCursor ?? ABSENT,
     candidateWorkspaceDigest: response.candidateWorkspaceDigest ?? ABSENT,
     intentDigest: response.intentDigest ?? ABSENT,
     ownerRequestId: reconcileOwner.requestId ?? ABSENT,
@@ -381,6 +414,9 @@ function validateTraceShape(trace) {
   assert(Array.isArray(trace.actions), 'journey trace actions must be an array');
   assert.equal(trace.actions.length, EXPECTED_LABELS.length,
     `journey trace must contain ${EXPECTED_LABELS.length} observed actions`);
+  assert(Array.isArray(trace.unmodeledEvents), 'journey trace must include its unmodeled-event inventory');
+  assert.equal(trace.unmodeledEvents.length, 0,
+    'Policy One trace must represent every observed workflow event in its exact modeled action inventory');
   assert(Array.isArray(trace.transportLedger), 'journey trace must include its raw transport ledger');
   assert(trace.transportLedger.length > 0, 'raw transport ledger must not be empty');
   const formalEntry = requireRecord(trace.formalEntry, 'formal entry boundary');
@@ -404,6 +440,7 @@ function validateTraceShape(trace) {
     'formal entry must retain its exact final setup settlement event index');
   const initialSavedState = requireRecord(formalEntry.initialSavedState,
     'formal entry initial saved Builder snapshot');
+  const initialObservation = requireRecord(trace.initialObservation, 'initial observation');
   for (const [index, entry] of trace.actions.entries()) {
     requireRecord(entry, `journey action ${index}`);
     requireString(entry.label, `journey action ${index} label`);
@@ -419,6 +456,9 @@ function validateTraceShape(trace) {
   const transportEventIndices = [];
   let lastSetupTransportIndex = 0;
   let lastSetupEventIndex = 0;
+  const groupPreviewTransportIndex = action(trace, 'GroupPreviewSubmitted').request.transportIndex;
+  const formalActorScope = trace.transportLedger[groupPreviewTransportIndex - 1]?.ownerScope;
+  requireString(formalActorScope, 'formal journey Explorer owner scope');
   for (const [index, entry] of trace.transportLedger.entries()) {
     requireRecord(entry, `transport ledger row ${index}`);
     assert.equal(entry.transportIndex, index + 1,
@@ -621,6 +661,50 @@ function validateTraceShape(trace) {
           assert(entry.response.outputIds?.includes(entry.requestBody.outputId),
             `preview transport ${entry.transportIndex} response must echo its submitted output`);
         }
+      } else if (route === 'POST frame-source-options') {
+        assert.equal(entry.capturePhase, 'FORMAL',
+          `frame source options transport ${entry.transportIndex} must remain inside the formal lifecycle`);
+        assert.equal(entry.ownerScope, formalActorScope,
+          `frame source options transport ${entry.transportIndex} must use the exact formal Explorer owner scope`);
+        const body = requireRecord(entry.requestBody,
+          `frame source options transport ${entry.transportIndex} request body`);
+        const allowedBodyKeys = ['limit', 'outputId', 'resourceType', 'snapshotToken'];
+        if (Object.hasOwn(body, 'cursor')) allowedBodyKeys.push('cursor');
+        assert.deepEqual(Object.keys(body).sort(), allowedBodyKeys.sort(),
+          `frame source options transport ${entry.transportIndex} must retain the supported request shape`);
+        assert.equal(body.outputId, initialObservation.outputId,
+          `frame source options transport ${entry.transportIndex} must target the initial saved output`);
+        assert.equal(body.snapshotToken, initialSavedState.snapshotToken,
+          `frame source options transport ${entry.transportIndex} must use the formal entry snapshot`);
+        assert.equal(body.resourceType, initialObservation.workspace.rootResourceType,
+          `frame source options transport ${entry.transportIndex} must use the observed root resource type`);
+        assert.equal(body.limit, 50,
+          `frame source options transport ${entry.transportIndex} must preserve the supported page size`);
+        if (Object.hasOwn(body, 'cursor')) requireString(body.cursor,
+          `frame source options transport ${entry.transportIndex} cursor`);
+        assert.equal(entry.settlement, 'response',
+          `frame source options transport ${entry.transportIndex} must retain its completed response`);
+        assert.equal(entry.status, 200,
+          `frame source options transport ${entry.transportIndex} must retain HTTP 200`);
+        assert.equal(entry.responseOwnerIndex, entry.transportIndex,
+          `frame source options transport ${entry.transportIndex} response must retain its exact request owner`);
+        assert.equal(entry.responseReadError ?? null, null,
+          `frame source options transport ${entry.transportIndex} body must be fully captured`);
+        assert.equal(entry.response.frameSourceOptionsOutputId, body.outputId,
+          `frame source options transport ${entry.transportIndex} response must echo its output`);
+        assert.equal(entry.response.frameSourceOptionsSnapshotToken, body.snapshotToken,
+          `frame source options transport ${entry.transportIndex} response must echo its snapshot`);
+        assert.equal(typeof entry.response.frameSourceOptionsComplete, 'boolean');
+        assert.equal(typeof entry.response.frameSourceOptionsTruncated, 'boolean');
+        assert(Number.isInteger(entry.response.frameSourceOptionsSourceCount)
+          && entry.response.frameSourceOptionsSourceCount >= 0
+          && entry.response.frameSourceOptionsSourceCount <= body.limit,
+        `frame source options transport ${entry.transportIndex} source count must fit its request limit`);
+        if (entry.response.frameSourceOptionsNextCursor !== null
+            && entry.response.frameSourceOptionsNextCursor !== undefined) {
+          requireString(entry.response.frameSourceOptionsNextCursor,
+            `frame source options transport ${entry.transportIndex} next cursor`);
+        }
       }
     }
     transportEventIndices.push(entry.requestEventIndex);
@@ -646,10 +730,6 @@ function validateTraceShape(trace) {
       'pending support requests require the actual formal exit observation time');
     assert.equal(formalExit.drainTimeoutMs, 5000);
   }
-  const groupPreviewTransportIndex = trace.actions.find(entry => entry.label === 'GroupPreviewSubmitted')
-    .request.transportIndex;
-  const formalActorScope = trace.transportLedger[groupPreviewTransportIndex - 1]?.ownerScope;
-  requireString(formalActorScope, 'formal journey Explorer owner scope');
   for (const entry of pendingRows) {
     assert.equal(entry.ownerScope, formalActorScope,
       `pending support transport ${entry.transportIndex} must use the exact formal Explorer owner scope`);
@@ -778,31 +858,16 @@ export function buildPolicyOneMutationControls(trace) {
       [mutated.actions[allReadyIndex], mutated.actions[allSubmittedIndex]];
   });
 
-  const actualAllState = action(trace, 'AllApplied').observation.saved;
+  const actualAllSnapshot = action(trace, 'ReloadedAll').savedAfter;
+  requireVersion(actualAllSnapshot?.draftVersion, 'captured ALL reload version');
+  requireString(actualAllSnapshot?.draftDigest, 'captured ALL reload digest');
   const originalRestoredState = action(trace, 'RemovalApplied').savedAfter;
-  assert.notEqual(originalRestoredState.draftVersion, actualAllState.draftVersion,
+  assert.notEqual(originalRestoredState.draftVersion, actualAllSnapshot.draftVersion,
     'mutation controls require a restored version distinct from the captured ALL version');
-  assert.notEqual(originalRestoredState.draftDigest, actualAllState.draftDigest,
+  assert.notEqual(originalRestoredState.draftDigest, actualAllSnapshot.draftDigest,
     'mutation controls require a restored digest distinct from the captured ALL digest');
   add('stale-restoration', 'TraceProgress', mutated => {
-    const removalApplied = action(mutated, 'RemovalApplied');
-    const savedAfter = removalApplied.savedAfter;
-    savedAfter.draftVersion = actualAllState.draftVersion;
-    savedAfter.draftDigest = actualAllState.draftDigest;
-    removalApplied.response.body.draftVersion = actualAllState.draftVersion;
-    removalApplied.response.body.draftDigest = actualAllState.draftDigest;
-    removalApplied.observation.draftVersion = actualAllState.draftVersion;
-    removalApplied.observation.draftDigest = actualAllState.draftDigest;
-    const removalRequest = action(mutated, 'RemovalApplySubmitted').request;
-    const removalTransport = mutated.transportLedger.find(entry =>
-      entry.transportIndex === removalRequest.transportIndex);
-    assert(removalTransport, 'stale-restoration mutation must retain its matching raw command row');
-    removalTransport.savedCASAfter = {
-      draftVersion: actualAllState.draftVersion,
-      draftDigest: actualAllState.draftDigest,
-    };
-    removalTransport.response.draftVersion = actualAllState.draftVersion;
-    removalTransport.response.draftDigest = actualAllState.draftDigest;
+    action(mutated, 'ReloadedSource').savedAfter = structuredClone(actualAllSnapshot);
   });
 
   add('request-body-ledger-drift', 'ObservedTransportLedgerInvariant', mutated => {
@@ -1156,14 +1221,27 @@ function generateReplayModule(moduleName, observations) {
     '        observed.hasSavedBefore /\\ observed.hasSavedAfter =>',
     '         observed.savedBefore = observed.savedAfter)',
     '',
+    'ResponseRequestIdentityMatches(request, response) ==',
+    '  LET transport == ObservedTransportLedger[request.transportIndex]',
+    '      headerId == transport.responseHeadersRequestId',
+    '      bodyIds == response.responseBodyRequestIds',
+    '  IN /\\ transport.transportIndex = request.transportIndex',
+    '     /\\ transport.settlement = \"response\"',
+    '     /\\ transport.responseOwnerIndex = request.transportIndex',
+    '     /\\ transport.responseHeadersObserved',
+    '     /\\ transport.responseStatus = response.status',
+    '     /\\ headerId # \"Absent\"',
+    '     /\\ response.requestId = headerId',
+    '     /\\ (request.requestId # \"Absent\" => headerId = request.requestId)',
+    '     /\\ \\A bodyId \\in SequenceSet(bodyIds): bodyId = headerId',
+    '',
     'ResponseOwned(request, response) ==',
     '  /\\ request.present',
     '  /\\ response.present',
     '  /\\ request.requestObjectId = request.captureId',
     '  /\\ response.captureId = request.captureId',
     '  /\\ response.requestObjectId = request.requestObjectId',
-    '  /\\ (request.requestId = NoIdentity => response.requestId = NoIdentity)',
-    '  /\\ (request.requestId # NoIdentity => response.requestId = request.requestId)',
+    '  /\\ ResponseRequestIdentityMatches(request, response)',
     '',
     'CommandIDEncodingMatches(capture) ==',
     '  capture.present /\\ capture.bodyCommandId # NoIdentity =>',
@@ -1341,7 +1419,8 @@ function generateReplayModule(moduleName, observations) {
     '       /\\ entry.path \\in {"builder", "capability", "row-definition-choices"}',
     '  \\/ /\\ entry.method = "POST"',
     '       /\\ entry.path \\in {"suggestions", "semantic-inventory", "configured-column-context",',
-    '          "construction-capabilities", "construction-inputs", "construction-choices", "preview"}',
+    '          "construction-capabilities", "construction-inputs", "construction-choices",',
+    '          "frame-source-options", "preview"}',
     '',
     'TransportRequestEventIndices ==',
     '  {ObservedTransportLedger[index].requestEventIndex : index \\in 1..Len(ObservedTransportLedger)}',
@@ -1514,6 +1593,28 @@ function generateReplayModule(moduleName, observations) {
     'FormalActorScope ==',
     '  ObservedTransportLedger[ObservedActions[GroupPreviewSubmittedIndex].request.transportIndex].ownerScope',
     '',
+    'FrameSourceOptionsTransportValid(entry) ==',
+    '  /\\ entry.path = "frame-source-options"',
+    '  /\\ entry.method = "POST"',
+    '  /\\ entry.capturePhase = "FORMAL"',
+    '  /\\ entry.ownerScope = FormalActorScope',
+    '  /\\ entry.outputId = OutputId',
+    '  /\\ entry.snapshotToken = ObservedFormalEntry.snapshotToken',
+    '  /\\ entry.requestResourceType = ObservedInitialWorkspace.rootResourceType',
+    '  /\\ entry.requestLimit = 50',
+    '  /\\ (entry.requestCursor = "Absent" \\/ entry.requestCursor # "")',
+    '  /\\ entry.settlement = "response"',
+    '  /\\ entry.responseStatus = 200',
+    '  /\\ entry.responseOwnerIndex = entry.transportIndex',
+    '  /\\ entry.responseReadError = "Absent"',
+    '  /\\ entry.responseSnapshotToken = entry.snapshotToken',
+    '  /\\ entry.outputId \\in SequenceSet(entry.responseOutputIds)',
+    '  /\\ entry.responseFrameSourceOptionsComplete \\in BOOLEAN',
+    '  /\\ entry.responseFrameSourceOptionsTruncated \\in BOOLEAN',
+    '  /\\ entry.responseFrameSourceOptionsSourceCount \\in 0..entry.requestLimit',
+    '  /\\ (entry.responseFrameSourceOptionsNextCursor = "Absent"',
+    '       \\/ entry.responseFrameSourceOptionsNextCursor # "")',
+    '',
     'PendingReadOnlyTransportValid(entry) ==',
     '  /\\ entry.settlement = \"pending\"',
     '  /\\ entry.capturePhase = \"FORMAL\"',
@@ -1542,9 +1643,11 @@ function generateReplayModule(moduleName, observations) {
     '  /\\ TransportCaptureValid(entry, entry.transportIndex)',
     '  /\\ IF entry.settlement = \"pending\"',
     '       THEN PendingReadOnlyTransportValid(entry)',
-    '       ELSE IF entry.path = \"preview\"',
-    '         THEN PreviewTransportValid(entry)',
-    '         ELSE entry.readOnlyReason # \"Absent\"',
+    '       ELSE IF entry.path = \"frame-source-options\"',
+    '         THEN FrameSourceOptionsTransportValid(entry)',
+    '         ELSE IF entry.path = \"preview\"',
+    '           THEN PreviewTransportValid(entry)',
+    '           ELSE entry.readOnlyReason # \"Absent\"',
     'TransportRowValid(entry) ==',
     '  IF entry.classification = "setup"',
     '  THEN /\\ entry.capturePhase = "SETUP"',

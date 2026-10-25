@@ -5390,7 +5390,8 @@ function outputTail(text, lines = 30) {
   return split.slice(-lines).join('\n');
 }
 
-function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = null, compiledAdapter = null) {
+function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = null, compiledAdapter = null,
+  spawnProcess = spawnSync) {
   const runDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-traces-'));
   const modelDirectory = join(runDirectory, 'model');
   const metadataDirectory = join(runDirectory, 'states');
@@ -5420,12 +5421,57 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
     '-config', configFile,
     moduleFile,
   ];
-  const result = spawnSync('java', args, { cwd: modelDirectory, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  const text = (result.stdout || '') + (result.stderr || '');
+  const startedAt = new Date().toISOString();
+  const result = spawnProcess('java', args, { cwd: modelDirectory, maxBuffer: 32 * 1024 * 1024 });
+  const completedAt = new Date().toISOString();
+  const stdoutBytes = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '');
+  const stderrBytes = Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? '');
+  const stdoutPath = join(runDirectory, 'tlc.stdout.log');
+  const stderrPath = join(runDirectory, 'tlc.stderr.log');
+  const executionMetadataPath = join(runDirectory, 'tlc-execution.json');
+  writeFileSync(stdoutPath, stdoutBytes);
+  writeFileSync(stderrPath, stderrBytes);
+  const stdoutArtifact = { path: stdoutPath, bytes: stdoutBytes.length, sha256: sha256(stdoutBytes) };
+  const stderrArtifact = { path: stderrPath, bytes: stderrBytes.length, sha256: sha256(stderrBytes) };
+  const executionMetadata = {
+    schemaVersion: 1,
+    command: 'java',
+    args,
+    cwd: modelDirectory,
+    maxBufferBytes: 32 * 1024 * 1024,
+    startedAt,
+    completedAt,
+    durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)),
+    pid: result.pid ?? null,
+    processExitCode: result.status ?? null,
+    processSignal: result.signal ?? null,
+    processError: result.error ? {
+      name: result.error.name,
+      message: result.error.message,
+      code: result.error.code ?? null,
+      errno: result.error.errno ?? null,
+      syscall: result.error.syscall ?? null,
+    } : null,
+    stdout: stdoutArtifact,
+    stderr: stderrArtifact,
+  };
+  writeFileSync(executionMetadataPath, JSON.stringify(executionMetadata, null, 2) + '\n');
+  const text = stdoutBytes.toString('utf8') + stderrBytes.toString('utf8');
   const parsed = parseTlc(text);
   const processPassed = !result.error && result.status === 0;
   if (processPassed && parsed.passed && parsed.stateCount > 0 && parsed.failureInvariant === undefined) {
-    return { ...parsed, processExitCode: result.status, status: 'pass', modulePath: join(modelDirectory, moduleFile), runDirectory };
+    return {
+      ...parsed,
+      processExitCode: result.status,
+      processSignal: result.signal ?? null,
+      status: 'pass',
+      modulePath: join(modelDirectory, moduleFile),
+      configPath: join(modelDirectory, configFile),
+      runDirectory,
+      executionMetadataPath,
+      stdout: stdoutArtifact,
+      stderr: stderrArtifact,
+    };
   }
   const traceIndexes = [...text.matchAll(/traceIndex = ([0-9]+)/g)].map((match) => Number(match[1]));
   const lastTraceIndex = traceIndexes.length > 0 ? traceIndexes[traceIndexes.length - 1] : null;
@@ -5437,7 +5483,13 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
     ...parsed,
     status: 'fail',
     modulePath: join(modelDirectory, moduleFile),
+    configPath: join(modelDirectory, configFile),
     runDirectory,
+    processExitCode: result.status ?? null,
+    processSignal: result.signal ?? null,
+    executionMetadataPath,
+    stdout: stdoutArtifact,
+    stderr: stderrArtifact,
     failure: {
       message: result.error
         ? result.error.message
@@ -5459,6 +5511,22 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
       modulePath: join(modelDirectory, moduleFile),
       outputTail: outputTail(text),
     },
+  };
+}
+
+function tlcExecutionReceipt(run) {
+  return {
+    stateCount: run.stateCount ?? null,
+    distinctStateCount: run.distinctStateCount ?? null,
+    depth: run.depth ?? null,
+    runDirectory: run.runDirectory ?? null,
+    modulePath: run.modulePath ?? null,
+    configPath: run.configPath ?? null,
+    executionMetadataPath: run.executionMetadataPath ?? null,
+    processExitCode: run.processExitCode ?? null,
+    processSignal: run.processSignal ?? null,
+    stdout: run.stdout ?? null,
+    stderr: run.stderr ?? null,
   };
 }
 
@@ -5731,12 +5799,8 @@ async function main() {
         ? {}
         : {
             tlc: run
-              ? {
-                  stateCount: run.stateCount ?? null,
-                  distinctStateCount: run.distinctStateCount ?? null,
-                  depth: run.depth ?? null,
-                }
-              : { stateCount: null, distinctStateCount: null, depth: null },
+              ? tlcExecutionReceipt(run)
+              : tlcExecutionReceipt({}),
           }),
       ...(failure ? { failure } : {}),
     };
@@ -5914,6 +5978,8 @@ export {
   mountedRelatedSourceProblem,
   relatedSourceSnapshotProblem,
   relatedSourceProjectionFromSteps,
+  runTlc,
+  tlcExecutionReceipt,
 };
 
 const isDirectExecution = (() => {

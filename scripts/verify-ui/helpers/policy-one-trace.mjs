@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 
 export const POLICY_TRACE_ABSENT = 'Absent';
+const POLICY_ONE_DIAGNOSTIC_INPUT_ENCODING = 'policy-one-trace-input-diagnostic/v1';
 const MODELED_TRANSPORTS = new Map([
   ['POST construction-proposals', false],
   ['POST construction-choice-proposals', false],
@@ -21,6 +22,7 @@ const READ_ONLY_TRANSPORTS = new Map([
   ['POST construction-capabilities', 'Construction capabilities read'],
   ['POST construction-inputs', 'Construction stage inputs read'],
   ['POST construction-choices', 'Construction source choices read'],
+  ['POST frame-source-options', 'Frame source options read'],
   ['POST preview', 'Receipt-backed preview read'],
 ]);
 
@@ -67,6 +69,170 @@ function finiteJSON(value, label, ancestors = new Set()) {
 function finiteClone(value, label) {
   finiteJSON(value, label);
   return structuredClone(value);
+}
+
+function withoutFields(value, fields, label) {
+  const source = record(value, label);
+  return finiteClone(Object.fromEntries(Object.entries(source).filter(([key]) => !fields.has(key))), label);
+}
+
+function opaqueBrowserHandle(value, label) {
+  assert(value && (typeof value === 'object' || typeof value === 'function'),
+    `${label} must retain its captured browser object before diagnostic encoding`);
+  return value;
+}
+
+export function encodePolicyOneTraceDiagnosticInput(input) {
+  record(input, 'Policy One projection input');
+  const inputFields = ['expected', 'requests', 'responses', 'saved', 'dom', 'fixtureIDs', 'context'];
+  assert.deepEqual(Object.keys(input).sort(), [...inputFields].sort(),
+    'Policy One diagnostic encoding must cover every projection input field');
+  const requests = record(input.requests, 'Policy One request captures');
+  const responses = record(input.responses, 'Policy One response captures');
+  const requestLabels = Object.keys(requests).sort();
+  assert.deepEqual(Object.keys(responses).sort(), requestLabels,
+    'Policy One diagnostic request and response labels must match');
+  const requestObjects = new Map();
+  const requestObjectIDs = new Set();
+  const requestRows = {};
+  const requestReferences = {};
+  for (const label of requestLabels) {
+    const request = record(requests[label], `Policy One ${label} request`);
+    const requestObject = opaqueBrowserHandle(request.requestObject, `Policy One ${label} requestObject`);
+    const captureId = nonEmptyString(request.captureId, `Policy One ${label} captureId`);
+    const requestObjectId = nonEmptyString(request.requestObjectId ?? captureId,
+      `Policy One ${label} requestObjectId`);
+    assert(!requestObjects.has(captureId), 'Policy One request capture IDs must be unique');
+    assert(!requestObjectIDs.has(requestObject), 'Policy One requests must retain distinct browser request objects');
+    requestObjects.set(captureId, requestObject);
+    requestObjectIDs.add(requestObject);
+    requestRows[label] = withoutFields(request, new Set(['requestObject']),
+      `Policy One ${label} JSON request capture`);
+    requestReferences[label] = { captureId, requestObjectId };
+  }
+  const responseRows = {};
+  const responseReferences = {};
+  const responseObjects = new Set();
+  const responseObjectTokens = new Set();
+  for (const label of requestLabels) {
+    const response = record(responses[label], `Policy One ${label} response`);
+    const requestObject = opaqueBrowserHandle(response.requestObject,
+      `Policy One ${label} response requestObject`);
+    const responseObject = opaqueBrowserHandle(response.responseObject,
+      `Policy One ${label} responseObject`);
+    const captureId = nonEmptyString(response.captureId, `Policy One ${label} response captureId`);
+    const requestCaptureId = captureId;
+    const requestRecord = requests[label];
+    assert.equal(captureId, requestRecord.captureId,
+      `Policy One ${label} response capture ID must match its exact request`);
+    assert.equal(requestObject, requestRecord.requestObject,
+      `Policy One ${label} response must retain its exact request object alias`);
+    assert(!responseObjects.has(responseObject), 'Policy One responses must retain distinct browser response objects');
+    assert.notEqual(responseObject, requestObject, 'Policy One response objects must differ from request objects');
+    const responseObjectToken = `response:${label}:${captureId}`;
+    assert(!responseObjectTokens.has(responseObjectToken), 'Policy One diagnostic response tokens must be unique');
+    responseObjects.add(responseObject);
+    responseObjectTokens.add(responseObjectToken);
+    responseRows[label] = withoutFields(response, new Set(['requestObject', 'responseObject']),
+      `Policy One ${label} JSON response capture`);
+    responseReferences[label] = {
+      captureId,
+      requestCaptureId,
+      requestObjectId: requestRecord.requestObjectId ?? requestRecord.captureId,
+      responseObjectToken,
+    };
+  }
+  const diagnostic = {
+    encoding: POLICY_ONE_DIAGNOSTIC_INPUT_ENCODING,
+    input: {
+      expected: finiteClone(input.expected, 'Policy One expected contract'),
+      requests: requestRows,
+      responses: responseRows,
+      saved: finiteClone(input.saved, 'Policy One saved observations'),
+      dom: finiteClone(input.dom, 'Policy One DOM observations'),
+      fixtureIDs: finiteClone(input.fixtureIDs, 'Policy One fixture IDs'),
+      context: finiteClone(input.context, 'Policy One context observations'),
+    },
+    opaqueBrowserObjectReferences: {
+      requests: requestReferences,
+      responses: responseReferences,
+    },
+  };
+  finiteJSON(diagnostic, 'Policy One diagnostic input');
+  return diagnostic;
+}
+
+export function decodePolicyOneTraceDiagnosticInput(diagnostic) {
+  record(diagnostic, 'Policy One diagnostic input');
+  assert.deepEqual(Object.keys(diagnostic).sort(),
+    ['encoding', 'input', 'opaqueBrowserObjectReferences'].sort(),
+    'Policy One diagnostic input must reject unknown top-level fields');
+  assert.equal(diagnostic.encoding, POLICY_ONE_DIAGNOSTIC_INPUT_ENCODING,
+    'Policy One diagnostic input must declare its supported encoding');
+  finiteJSON(diagnostic, 'Policy One diagnostic input');
+  const source = structuredClone(record(diagnostic.input, 'Policy One encoded projection input'));
+  const inputFields = ['expected', 'requests', 'responses', 'saved', 'dom', 'fixtureIDs', 'context'];
+  assert.deepEqual(Object.keys(source).sort(), [...inputFields].sort(),
+    'Policy One encoded input must retain the complete projection field set');
+  const references = record(diagnostic.opaqueBrowserObjectReferences,
+    'Policy One opaque browser-object reference table');
+  assert.deepEqual(Object.keys(references).sort(), ['requests', 'responses'],
+    'Policy One opaque reference table must reject unknown handle groups');
+  const requestReferences = record(references.requests, 'Policy One request reference table');
+  const responseReferences = record(references.responses, 'Policy One response reference table');
+  const requests = record(source.requests, 'Policy One encoded requests');
+  const responses = record(source.responses, 'Policy One encoded responses');
+  const labels = Object.keys(requests).sort();
+  assert.deepEqual(Object.keys(responses).sort(), labels,
+    'Policy One encoded response labels must match request labels');
+  assert.deepEqual(Object.keys(requestReferences).sort(), labels,
+    'Policy One reference table must map every and only captured request');
+  assert.deepEqual(Object.keys(responseReferences).sort(), labels,
+    'Policy One reference table must map every and only captured response');
+  const requestObjects = new Map();
+  for (const label of labels) {
+    const request = record(requests[label], `Policy One encoded ${label} request`);
+    assert.equal(Object.hasOwn(request, 'requestObject'), false,
+      `Policy One ${label} diagnostic request cannot contain a raw browser object`);
+    const reference = record(requestReferences[label], `Policy One ${label} request reference`);
+    const captureId = nonEmptyString(request.captureId, `Policy One encoded ${label} captureId`);
+    assert.equal(reference.captureId, captureId,
+      `Policy One ${label} request reference must preserve its actual capture ID`);
+    assert.equal(reference.requestObjectId, request.requestObjectId ?? captureId,
+      `Policy One ${label} request reference must preserve its observed object ID`);
+    assert(!requestObjects.has(captureId), 'Policy One diagnostic request capture IDs must be unique');
+    const requestObject = Object.freeze({ kind: 'policy-one-diagnostic-request', captureId });
+    requestObjects.set(captureId, requestObject);
+    request.requestObject = requestObject;
+  }
+  const responseObjectTokens = new Set();
+  for (const label of labels) {
+    const response = record(responses[label], `Policy One encoded ${label} response`);
+    assert.equal(Object.hasOwn(response, 'requestObject'), false,
+      `Policy One ${label} diagnostic response cannot contain a raw request object`);
+    assert.equal(Object.hasOwn(response, 'responseObject'), false,
+      `Policy One ${label} diagnostic response cannot contain a raw browser response`);
+    const reference = record(responseReferences[label], `Policy One ${label} response reference`);
+    const captureId = nonEmptyString(response.captureId, `Policy One encoded ${label} response captureId`);
+    assert.equal(reference.captureId, captureId,
+      `Policy One ${label} response reference must preserve its actual capture ID`);
+    assert.equal(reference.requestCaptureId, captureId,
+      `Policy One ${label} response reference must bind its request capture`);
+    const requestObject = requestObjects.get(reference.requestCaptureId);
+    assert(requestObject, `Policy One ${label} response request reference must resolve to a captured request`);
+    const matchingRequest = requests[label];
+    assert.equal(reference.requestObjectId, matchingRequest.requestObjectId ?? matchingRequest.captureId,
+      `Policy One ${label} response must preserve the captured request object ID`);
+    const responseObjectToken = nonEmptyString(reference.responseObjectToken,
+      `Policy One ${label} response object token`);
+    assert.equal(responseObjectToken, `response:${label}:${captureId}`,
+      `Policy One ${label} response token must match its diagnostic capture mapping`);
+    assert(!responseObjectTokens.has(responseObjectToken), 'Policy One response object tokens must be unique');
+    responseObjectTokens.add(responseObjectToken);
+    response.requestObject = requestObject;
+    response.responseObject = Object.freeze({ kind: 'policy-one-diagnostic-response', responseObjectToken });
+  }
+  return source;
 }
 
 function assertUniqueIDs(values, label, { allowEmpty = false } = {}) {
@@ -229,6 +395,10 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
   assert(isDeepStrictEqual(formalEntry.initialSavedState.workspaceProjection, initialObservation.workspace),
     'formal entry saved snapshot projection must equal the actual initial workspace observation');
   const ordered = [...captures].sort((left, right) => left.transportIndex - right.transportIndex);
+  const formalActorScope = ordered.find(capture => capture.capturePhase === 'FORMAL'
+    && MODELED_TRANSPORTS.has(`${String(capture.method).toUpperCase()} ${transportEndpoint(capture.path,
+      `transport ${capture.transportIndex}`)}`))?.ownerScope;
+  nonEmptyString(formalActorScope, 'formal journey Explorer owner scope');
   const byIndex = new Map();
   const setupCaptures = ordered.filter(capture => capture.capturePhase === 'SETUP');
   assert.equal(formalEntry.afterTransportIndex, setupCaptures.at(-1)?.transportIndex ?? 0,
@@ -328,6 +498,55 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         `formal transport ${capture.transportIndex} must follow the setup transport boundary`);
       assert(capture.requestEventIndex > formalEntry.afterEventIndex,
         `formal transport ${capture.transportIndex} request must follow all setup settlements`);
+    }
+    if (route === 'POST frame-source-options') {
+      record(requestBody, `frame source options transport ${capture.transportIndex} request body`);
+      assert.equal(capture.capturePhase, 'FORMAL',
+        `frame source options transport ${capture.transportIndex} must be inside the formal lifecycle`);
+      assert.equal(ownerScope, formalActorScope,
+        `frame source options transport ${capture.transportIndex} must use the exact formal Explorer owner scope`);
+      const allowedBodyKeys = ['limit', 'outputId', 'resourceType', 'snapshotToken'];
+      if (Object.hasOwn(requestBody, 'cursor')) allowedBodyKeys.push('cursor');
+      assert.deepEqual(Object.keys(requestBody).sort(), allowedBodyKeys.sort(),
+        `frame source options transport ${capture.transportIndex} must retain the UI's exact request shape`);
+      assert.equal(requestBody.outputId, initialObservation.outputId,
+        `frame source options transport ${capture.transportIndex} must target the initial saved output`);
+      assert.equal(requestBody.snapshotToken, formalEntry.initialSavedState.snapshotToken,
+        `frame source options transport ${capture.transportIndex} must use the formal entry snapshot`);
+      assert.equal(requestBody.resourceType, initialObservation.workspace.rootResourceType,
+        `frame source options transport ${capture.transportIndex} must use the actual root resource type`);
+      assert.equal(requestBody.limit, 50,
+        `frame source options transport ${capture.transportIndex} must preserve the UI's source page size`);
+      if (Object.hasOwn(requestBody, 'cursor')) {
+        nonEmptyString(requestBody.cursor, `frame source options transport ${capture.transportIndex} cursor`);
+      }
+      assert.equal(capture.settlement, 'response',
+        `frame source options transport ${capture.transportIndex} must retain its completed response`);
+      assert.equal(capture.status, 200,
+        `frame source options transport ${capture.transportIndex} must retain HTTP 200`);
+      assert.equal(capture.responseOwnerIndex, capture.transportIndex,
+        `frame source options transport ${capture.transportIndex} response must retain its exact request owner`);
+      assert.equal(capture.responseReadError ?? null, null,
+        `frame source options transport ${capture.transportIndex} response body must be fully captured`);
+      assert.equal(capture.response?.status, 200,
+        `frame source options transport ${capture.transportIndex} response facts must retain HTTP 200`);
+      assert.equal(capture.response?.frameSourceOptionsOutputId, requestBody.outputId,
+        `frame source options transport ${capture.transportIndex} response must echo its output`);
+      assert.equal(capture.response?.frameSourceOptionsSnapshotToken, requestBody.snapshotToken,
+        `frame source options transport ${capture.transportIndex} response must echo its snapshot`);
+      assert.equal(typeof capture.response?.frameSourceOptionsComplete, 'boolean',
+        `frame source options transport ${capture.transportIndex} response must retain completeness`);
+      assert.equal(typeof capture.response?.frameSourceOptionsTruncated, 'boolean',
+        `frame source options transport ${capture.transportIndex} response must retain truncation`);
+      assert(Number.isInteger(capture.response?.frameSourceOptionsSourceCount)
+        && capture.response.frameSourceOptionsSourceCount >= 0
+        && capture.response.frameSourceOptionsSourceCount <= requestBody.limit,
+      `frame source options transport ${capture.transportIndex} response source count must fit its request limit`);
+      if (capture.response.frameSourceOptionsNextCursor !== null
+          && capture.response.frameSourceOptionsNextCursor !== undefined) {
+        nonEmptyString(capture.response.frameSourceOptionsNextCursor,
+          `frame source options transport ${capture.transportIndex} next cursor`);
+      }
     }
     if (capture.settlement === 'response') {
       assert(responseHeaders,
@@ -482,7 +701,8 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
     'every modeled request must have exactly one raw transport row');
   const formalModeledRows = rows.filter(row => row.capturePhase === 'FORMAL' && row.classification === 'modeled');
   assert(formalModeledRows.length > 0, 'formal transport ledger must retain modeled requests');
-  const formalActorScope = formalModeledRows[0].ownerScope;
+  assert.equal(formalModeledRows[0].ownerScope, formalActorScope,
+    'formal actor scope must come from the first actual modeled request');
   for (const row of rows.filter(candidate => candidate.settlement === 'pending')) {
     assert.equal(row.classification, 'read-only',
       `pending transport ${row.transportIndex} cannot be modeled, reconcile, or setup activity`);
@@ -817,7 +1037,7 @@ function inspectResponse(response, request, label, expectedStatus) {
   }
   assert.equal(response.status, expectedStatus, `${label} response status must be ${expectedStatus}`);
   return {
-    requestId: responseRequestId === POLICY_TRACE_ABSENT ? request.requestId : responseRequestId,
+    requestId: responseRequestId,
     captureId: response.captureId,
     requestObjectId: request.requestObjectId,
     transportIndex: request.transportIndex,
@@ -1224,6 +1444,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
       initialObservation: finiteClone(context.initialObservation, 'SourceReady initial observation'),
       initialPreview: finiteClone(context.initialPreview, 'initial source-grid observation'),
       actions,
+      unmodeledEvents: [],
       transportLedger,
       formalEntry: finiteClone(context.formalEntry, 'formal entry boundary and initial saved snapshot'),
       formalExit: finiteClone(formalExit, 'formal exit boundary and pending support requests'),
