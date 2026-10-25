@@ -10,15 +10,17 @@ const eventStamp = mountEpoch => ({
   mountEpoch,
 });
 
-export const createTemporalFilterCapture = ({ page, networkObserver }) => {
+export const createTemporalFilterCapture = ({ page, networkObserver, initialMountEpoch = 0 }) => {
   assert(page && networkObserver, 'Temporal-filter capture requires the workflow Page and network observer.');
+  assert(Number.isInteger(initialMountEpoch) && initialMountEpoch >= 0,
+    'Temporal-filter capture mount epoch must be a nonnegative integer.');
   const requestStartIndex = networkObserver.requests.length;
   const requestStamps = new WeakMap();
   const extraResponseBodies = new WeakMap();
   const builderReads = [];
   const domObservations = [];
   const steps = [];
-  let mountEpoch = 0;
+  let mountEpoch = initialMountEpoch;
   let finished = false;
 
   const onRequest = request => {
@@ -47,6 +49,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
       status: response.status,
       ...(typeof requestId === 'string' && requestId.trim() ? { requestId } : {}),
       catalogGeneration: body.catalog?.generation ?? null,
+      snapshotToken: body.catalog?.snapshotToken ?? null,
       draftVersion: body.draftVersion ?? null,
       draftDigest: body.draftDigest ?? null,
       workspaceDocuments: clone(body.workspace?.documents ?? []),
@@ -117,6 +120,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
     label,
     requestEntry = null,
     proposalCaptureIds = [],
+    reconcileCaptureIds = [],
     beforeReadIndex = null,
     afterReadIndex = null,
     domObservationIndex = null,
@@ -146,6 +150,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
       mountEpoch: stamp.mountEpoch,
       requestCaptureId: requestEntry?.browserRequestId ?? null,
       proposalCaptureIds: [...proposalCaptureIds],
+      reconcileCaptureIds: [...reconcileCaptureIds],
       beforeReadIndex,
       afterReadIndex,
       domObservationIndex,

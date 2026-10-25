@@ -13,6 +13,8 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
   assert.equal(journeyTrace.name, 'basic-temporal-filter:date');
   assert.equal(journeyTrace.actions.length, 16);
   assert.deepEqual(journeyTrace.temporalFilterLifecycle, rawCapture);
+  assert.equal(journeyTrace.initialObservation.snapshotToken, 'snapshot-1');
+  assert(rawCapture.builderReads.every(read => read.snapshotToken === `snapshot-${read.draftVersion}`));
   const proposal = journeyTrace.actions.find(event => event.action === 'FilterProposed(create)');
   assert.deepEqual(proposal.filter, {
     intent: 'create',
@@ -61,6 +63,41 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
     'schema-fixture-browser-request-source-table');
   assert.equal(sourceCreate.request.expectedDraftVersion, 1);
   assert.equal(sourceCreate.request.expectedDraftDigest, 'draft-1');
+});
+
+test('adapter binds each reload to its actual reconcile request, CAS snapshot, and DOM receipt', () => {
+  const rawCapture = makeTemporalFilterJourneyCaptureFixture('date');
+  const journeyTrace = adaptTemporalFilterJourney(rawCapture);
+  const reloads = journeyTrace.actions.filter(event => event.action === 'Reload');
+  const reconcileRequests = rawCapture.requestEvents.filter(event => event.method === 'POST' &&
+    event.path.endsWith('/reconcile'));
+  assert.equal(reloads.length, 4);
+  assert.equal(reconcileRequests.length, 4);
+  assert.equal(new Set(reloads.flatMap(event => event.reconcileCaptureIds)).size, 4);
+
+  const precedingProposals = [
+    journeyTrace.actions.find(event => event.action === 'FilterProposed(create)'),
+    journeyTrace.actions.filter(event => event.action === 'FilterProposed(create)')[1],
+    journeyTrace.actions.find(event => event.action === 'FilterProposed(edit)'),
+    journeyTrace.actions.find(event => event.action === 'FilterProposed(remove)'),
+  ];
+  for (const [index, reload] of reloads.entries()) {
+    assert.equal(reload.reconcileCaptureIds.length, 1);
+    const captureId = reload.reconcileCaptureIds[0];
+    const request = reconcileRequests.find(entry => entry.browserRequestId === captureId);
+    assert(request, 'Reload reconcile link must use the real observer browserRequestId.');
+    assert.equal(request.isMutation, false);
+    assert.equal(request.mountEpoch, reload.mountEpoch);
+    assert.equal(request.request.snapshotToken, reload.after.snapshotToken);
+    assert.equal(request.request.draftVersion, reload.after.draftVersion);
+    assert.equal(request.request.draftDigest, reload.after.draftDigest);
+    assert.equal(request.request.outputId, rawCapture.outputId);
+    assert.equal(request.response.snapshotToken, reload.after.snapshotToken);
+    assert(request.response.outputs.some(output => output.outputId === rawCapture.outputId));
+    assert.equal(reload.ui.receiptId, request.response.receiptId);
+    assert.notEqual(reload.ui.receiptId, precedingProposals[index].filter.receiptId,
+      'Reload DOM must preserve its actual reconcile receipt, distinct from the prior proposal receipt.');
+  }
 });
 
 test('adapter schema fixtures keep DATE_TIME request, response, and saved literals separate', () => {

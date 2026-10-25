@@ -58,6 +58,7 @@ const readAt = (capture, index) => {
     status: read.status,
     mountEpoch: read.mountEpoch,
     catalogGeneration: read.catalogGeneration ?? null,
+    snapshotToken: read.snapshotToken ?? null,
     draftVersion: read.draftVersion ?? null,
     draftDigest: read.draftDigest ?? null,
     workspaceDocuments: read.workspaceDocuments,
@@ -142,6 +143,7 @@ const buildModelEvents = capture => capture.steps.map(step => {
     filter: null,
     requestCaptureId: step.requestCaptureId ?? null,
     proposalCaptureIds: step.proposalCaptureIds ?? [],
+    reconcileCaptureIds: step.reconcileCaptureIds ?? [],
   };
   return event;
 });
@@ -194,12 +196,15 @@ const assertCaptureShape = capture => {
     assert(Number.isFinite(read.capturedAtMonotonicMs));
     assert(Number.isFinite(read.capturedAtEpochMs));
     assert(Number.isInteger(read.mountEpoch));
+    assert(typeof read.snapshotToken === 'string' && read.snapshotToken.length > 0,
+      `Builder read ${read.readId} must retain its catalog snapshot token.`);
     assert(read.capturedAtMonotonicMs >= read.requestStartedAtMonotonicMs,
       `Builder read ${read.readId} response time must follow its GET request start.`);
   }
   for (const step of capture.steps) {
     assert(Number.isFinite(step.atMonotonicMs) && Number.isFinite(step.atEpochMs));
     assert(Number.isInteger(step.mountEpoch));
+    assert(Array.isArray(step.reconcileCaptureIds), `${step.label} must retain its reconcile capture ID list.`);
     for (const index of [step.beforeReadIndex, step.afterReadIndex]) {
       assert(index === null || (Number.isInteger(index) && index >= 0 && index < capture.builderReads.length));
     }
@@ -253,6 +258,44 @@ const assertRequestBindings = (capture, events) => {
   assertJSONEqual([...proposalCaptureIDs].sort(), proposals.map(request => request.browserRequestId).sort(),
     'Every actual read-only construction proposal must be linked to its semantic step.');
   for (const captureId of proposalCaptureIDs) assert(requestById.has(captureId), `Proposal ${captureId} must be an actual observer request.`);
+};
+
+const assertReconcileBindings = (capture, events) => {
+  const requestById = new Map(capture.requestEvents.map(request => [request.browserRequestId, request]));
+  const linkedIDs = capture.steps.flatMap(step => step.reconcileCaptureIds ?? []);
+  assert.equal(new Set(linkedIDs).size, linkedIDs.length,
+    'Each observed reconcile request must link to one semantic step.');
+  const reconciles = capture.requestEvents.filter(request => request.method === 'POST' && request.path.endsWith('/reconcile'));
+  assertJSONEqual([...linkedIDs].sort(), reconciles.map(request => request.browserRequestId).sort(),
+    'Every actual POST /reconcile request must link to its semantic step.');
+  for (const step of capture.steps) {
+    for (const captureId of step.reconcileCaptureIds ?? []) {
+      const request = requestById.get(captureId);
+      assert(request && requestPathIs(request, '/reconcile'), `${step.label} reconcile ID must be an actual POST /reconcile observer request.`);
+      assert.equal(request.isMutation, false, 'POST /reconcile remains read-only.');
+      assert.equal(request.mountEpoch, step.mountEpoch,
+        `${step.label} reconcile must belong to the semantic step mount epoch.`);
+    }
+  }
+
+  for (const reload of events.filter(event => event.action === 'Reload')) {
+    assert(reload.reconcileCaptureIds.length > 0, 'Reload must retain its actual reconcile request IDs.');
+    assert(reload.before && reload.after && reload.ui, 'Reload must bind Builder state and DOM evidence.');
+    const linked = reload.reconcileCaptureIds.map(captureId => requestById.get(captureId));
+    const receipts = linked.filter(request => request.status >= 200 && request.status < 300 &&
+      request.response?.receiptId && request.response.snapshotToken === reload.after.snapshotToken &&
+      request.request?.snapshotToken === reload.after.snapshotToken &&
+      request.request?.draftVersion === reload.after.draftVersion &&
+      request.request?.draftDigest === reload.after.draftDigest &&
+      (!request.request.outputId || request.request.outputId === capture.outputId) &&
+      request.response.outputs?.some(output => output.outputId === capture.outputId));
+    assert(receipts.length > 0,
+      'Reload must retain a successful reconcile receipt for its actual Builder snapshot and output.');
+    assert.equal(reload.ui.outputId, capture.outputId,
+      'Reload DOM must retain the actual construction-preview output ID.');
+    assert(receipts.some(request => request.response.receiptId === reload.ui.receiptId),
+      'Reload DOM receipt must match the actual reconcile response receipt.');
+  }
 };
 
 const assertProposalMatches = (capture, contract, event, intent) => {
@@ -318,6 +361,7 @@ const assertCancelAndReload = (capture, events, contract) => {
   assert(cancel.before && cancel.after, 'FilterCancelled must bind its preproposal and postcancel Builder reads.');
   assertJSONEqual(cancel.after.workspaceDocuments, cancel.before.workspaceDocuments,
     'Cancel must preserve the complete saved workspace documents.');
+  assert.equal(cancel.after.snapshotToken, cancel.before.snapshotToken);
   assert.equal(cancel.after.draftVersion, cancel.before.draftVersion);
   assert.equal(cancel.after.draftDigest, cancel.before.draftDigest);
   assert.notEqual(cancel.before.readId, cancel.after.readId, 'Cancel must use a fresh postcancel Builder read.');
@@ -340,6 +384,7 @@ const assertCancelAndReload = (capture, events, contract) => {
     assert.notEqual(event.before.readId, event.after.readId, 'Reload must obtain a distinct postnavigation Builder GET.');
     assertJSONEqual(event.after.workspaceDocuments, persistedSource[index].workspaceDocuments,
       'Reload must preserve the workspace saved by the preceding lifecycle state.');
+    assert.equal(event.after.snapshotToken, persistedSource[index].snapshotToken);
     assert.equal(event.after.draftVersion, persistedSource[index].draftVersion);
     assert.equal(event.after.draftDigest, persistedSource[index].draftDigest);
     assert.equal(event.after.outputId, capture.outputId);
@@ -495,6 +540,7 @@ export const adaptTemporalFilterJourney = capture => {
   assertCaptureShape(capture);
   const events = buildModelEvents(capture);
   assertRequestBindings(capture, events);
+  assertReconcileBindings(capture, events);
   attachFilterFields(capture, events, contract);
   assertCancelAndReload(capture, events, contract);
   assertFilterTransitions(capture, events, contract);
@@ -525,6 +571,7 @@ export const adaptTemporalFilterJourney = capture => {
       workspaceDocuments: explorerEvent.after.workspaceDocuments,
       draftVersion: explorerEvent.after.draftVersion,
       draftDigest: explorerEvent.after.draftDigest,
+      snapshotToken: explorerEvent.after.snapshotToken,
       mountEpoch: explorerEvent.after.mountEpoch,
     },
     actions: events.map(({ requestCaptureId, proposalCaptureIds, ...event }) => event),

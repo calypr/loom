@@ -56,7 +56,6 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     'The temporal case must be bound to an owned fresh Basic fixture project/generation.');
 
   const oracle = readBasicTemporalFilterOracle({ fixtureDir: target.fixtureDir, caseName });
-  const capture = createTemporalFilterCapture({ page, networkObserver });
   const expectedAllIDs = [...oracle.ids];
   const expectedBefore = expectedAllIDs.map(id => {
     const row = oracle.rows.find(candidate => candidate.id === id);
@@ -90,13 +89,14 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   const explorerCollectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
   const uiOrigin = new URL(target.uiUrl).origin;
   const title = `Verify ${context.runID.slice(-10)} ${contract.resourceType} ${contract.fieldPath} filter`;
-  const createFromIndex = networkObserver.requests.length;
-  const createRequest = capture.waitForRequest(entry => entry.method === 'POST' &&
-    entry.path === explorerCollectionPath && entry.request?.title === title, { fromIndex: createFromIndex });
-
   await page.goto(browserURL(target, project, target.bootstrapExplorerId, 'builder'), {
     waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS,
   });
+  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 1 });
+  let reconcileCursor = networkObserver.requests.length;
+  const createFromIndex = networkObserver.requests.length;
+  const createRequest = capture.waitForRequest(entry => entry.method === 'POST' &&
+    entry.path === explorerCollectionPath && entry.request?.title === title, { fromIndex: createFromIndex });
   const newExplorer = page.getByText('New explorer', { exact: true });
   await act('open a new disposable Explorer', newExplorer, () => newExplorer.click(), {
     after: () => page.locator('#new-explorer-name').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
@@ -132,6 +132,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   const apiRoot = `${explorerCollectionPath}/${encodeURIComponent(explorer)}`;
   const commandPath = `${apiRoot}/authoring/v2/commands`;
   const builderPath = `${apiRoot}/authoring/v2/builder`;
+  const reconcilePath = `${apiRoot}/authoring/v2/reconcile`;
   const readBuilder = async () => {
     const started = capture.beginBuilderRead();
     const response = await fetch(`${target.apiUrl}${builderPath}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
@@ -143,9 +144,37 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     assert.equal(body.catalog?.generation, target.fixtureGeneration, 'Builder read must retain the exact isolated generation.');
     return body;
   };
+
+  const collectReconcileEntries = async (fromIndex, { waitForFirst = false } = {}) => {
+    const matchesReconcile = entry => entry.method === 'POST' && entry.path === reconcilePath;
+    if (waitForFirst) {
+      await capture.waitForRequest(matchesReconcile, { fromIndex, timeoutMs: ACTION_TIMEOUT_MS });
+    }
+    const entriesById = new Map();
+    for (;;) {
+      const pending = capture.requestsSince(fromIndex, matchesReconcile)
+        .filter(entry => !entriesById.has(entry.browserRequestId));
+      if (pending.length === 0) break;
+      await capture.settleRequests(pending);
+      for (const entry of pending) entriesById.set(entry.browserRequestId, entry);
+    }
+    return [...entriesById.values()];
+  };
+
+  const recordStep = async (step, { reconcileFromIndex = reconcileCursor, waitForReconcile = false } = {}) => {
+    const reconcileEntries = await collectReconcileEntries(reconcileFromIndex, { waitForFirst: waitForReconcile });
+    if (step.label === 'Reload') {
+      assert(reconcileEntries.length > 0, 'Each real Builder reload must capture its actual reconcile receipt request.');
+    }
+    const recorded = capture.recordStep({ ...step,
+      reconcileCaptureIds: reconcileEntries.map(entry => entry.browserRequestId) });
+    reconcileCursor = networkObserver.requests.length;
+    return recorded;
+  };
+
   await readBuilder();
   const explorerCreatedReadIndex = capture.builderReads.length - 1;
-  capture.recordStep({ label: 'ExplorerCreated', requestEntry: await createRequest,
+  await recordStep({ label: 'ExplorerCreated', requestEntry: await createRequest,
     afterReadIndex: explorerCreatedReadIndex });
   report.target.qaIsolation = {
     project, generation: target.fixtureGeneration, fixtureDir: target.fixtureDir,
@@ -207,7 +236,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   const rootCommand = await capture.waitForRequest(entry => entry.method === 'POST' && entry.path === commandPath &&
     entry.request?.commands?.some(command => command.type === 'CREATE_TABLE'),
   { fromIndex: rootCommandFromIndex });
-  capture.recordStep({ label: 'SourceTableCreated', requestEntry: rootCommand,
+  await recordStep({ label: 'SourceTableCreated', requestEntry: rootCommand,
     beforeReadIndex: builderBeforeRootReadIndex, afterReadIndex: builderAfterRootReadIndex,
     domObservationIndex: rootDomObservationIndex });
   assert.equal(rootGrid.rows.length, expectedAllIDs.length, 'Root table must render every literal source row.');
@@ -341,7 +370,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   await capture.settleRequests(applyFieldEntries);
   assert.equal(applyFieldEntries.length, 1, 'Applying the field choice must make one captured native command.');
   const appliedColumnDomObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'TemporalColumnApplied', requestEntry: applyFieldEntries[0],
+  await recordStep({ label: 'TemporalColumnApplied', requestEntry: applyFieldEntries[0],
     proposalCaptureIds: choiceProposalRequests.map(entry => entry.browserRequestId),
     beforeReadIndex: builderBeforeFieldApplyReadIndex, afterReadIndex: capture.builderReads.length - 1,
     domObservationIndex: appliedColumnDomObservationIndex });
@@ -490,7 +519,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     const requestEntry = current[0];
     const domObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
     const proposalCaptureIds = proposalEntries.map(entry => entry.browserRequestId);
-    const step = capture.recordStep({ label: `FilterProposed(${intent})`, requestEntry, proposalCaptureIds,
+    const step = await recordStep({ label: `FilterProposed(${intent})`, requestEntry, proposalCaptureIds,
       beforeReadIndex, domObservationIndex });
     return { step, requestEntry, proposalCaptureIds, domObservationIndex };
   };
@@ -515,7 +544,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL' &&
         command.proposalId === proposalId), { fromIndex: applyFromIndex });
     const domObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-    capture.recordStep({ label: `FilterApplied(${intent})`, requestEntry,
+    await recordStep({ label: `FilterApplied(${intent})`, requestEntry,
       beforeReadIndex, afterReadIndex: after.readIndex, domObservationIndex,
       proposalCaptureIds: [] });
     return { before, after, requestEntry, beforeDOMObservationIndex, domObservationIndex };
@@ -551,12 +580,13 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     },
   });
   const cancelDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'FilterCancelled', beforeReadIndex: beforeFilterReadIndex,
+  await recordStep({ label: 'FilterCancelled', beforeReadIndex: beforeFilterReadIndex,
     afterReadIndex: afterCancel.readIndex, domObservationIndex: cancelDOMObservationIndex });
   check('persistence', `Cancel leaves the exact unfiltered ${contract.resourceType} source rows`, true,
     { expectedIDs: expectedAllIDs, canceledProposalIDs: firstProposalIDs, draftVersion: beforeFilter.draftVersion,
       draftDigest: beforeFilter.draftDigest });
   const cancelReloadBeforeReadIndex = afterCancel.readIndex;
+  const cancelReloadReconcileFromIndex = reconcileCursor;
   let cancelReloadAfter;
   await act('reload after temporal-filter Cancel', page.locator('body'),
     () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
@@ -569,8 +599,9 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       },
     });
   const cancelReloadDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'Reload', beforeReadIndex: cancelReloadBeforeReadIndex,
-    afterReadIndex: cancelReloadAfter.readIndex, domObservationIndex: cancelReloadDOMObservationIndex });
+  await recordStep({ label: 'Reload', beforeReadIndex: cancelReloadBeforeReadIndex,
+    afterReadIndex: cancelReloadAfter.readIndex, domObservationIndex: cancelReloadDOMObservationIndex },
+  { reconcileFromIndex: cancelReloadReconcileFromIndex, waitForReconcile: true });
 
   const secondProposalCaptureFromIndex = await openFilterEditor(`reopen Filter rows for ${contract.fieldPath}`);
   const secondInitialControls = await setFilter({ ...initial, inputValue: initialInputValue, initial: true,
@@ -584,6 +615,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     { filter: initial, expectedIDs: initial.ids, outputId, columnId: temporalColumn.columnId });
 
   let createReloadAfter;
+  const createReloadReconcileFromIndex = reconcileCursor;
   await act('reload the applied temporal filter', page.locator('body'),
     () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
       after: async () => {
@@ -595,8 +627,9 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       },
     });
   const createReloadDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'Reload', beforeReadIndex: createdFilterApply.after.readIndex,
-    afterReadIndex: createReloadAfter.readIndex, domObservationIndex: createReloadDOMObservationIndex });
+  await recordStep({ label: 'Reload', beforeReadIndex: createdFilterApply.after.readIndex,
+    afterReadIndex: createReloadAfter.readIndex, domObservationIndex: createReloadDOMObservationIndex },
+  { reconcileFromIndex: createReloadReconcileFromIndex, waitForReconcile: true });
   const savedState = await readFilter(initial);
   const stepID = savedState.filter.id;
   const historyStep = page.getByTestId(`construction-history-step-${stepID}`);
@@ -612,7 +645,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     entry.path.endsWith('/construction-proposals'));
   await capture.settleRequests(editOpenedProposals);
   const editOpenedDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'FilterEditOpened', beforeReadIndex: savedState.readIndex,
+  await recordStep({ label: 'FilterEditOpened', beforeReadIndex: savedState.readIndex,
     proposalCaptureIds: editOpenedProposals.map(entry => entry.browserRequestId),
     domObservationIndex: editOpenedDOMObservationIndex });
   const edited = contract.edited;
@@ -628,6 +661,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     proposalId: editedFilterProposal.requestEntry.response.proposalId,
     label: `Apply the edited ${contract.filterValueKind} ${edited.operator} condition` });
   let editReloadAfter;
+  const editReloadReconcileFromIndex = reconcileCursor;
   await act('reload the edited temporal filter', page.locator('body'),
     () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
       after: async () => {
@@ -639,8 +673,9 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       },
     });
   const editReloadDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'Reload', beforeReadIndex: editedFilterApply.after.readIndex,
-    afterReadIndex: editReloadAfter.readIndex, domObservationIndex: editReloadDOMObservationIndex });
+  await recordStep({ label: 'Reload', beforeReadIndex: editedFilterApply.after.readIndex,
+    afterReadIndex: editReloadAfter.readIndex, domObservationIndex: editReloadDOMObservationIndex },
+  { reconcileFromIndex: editReloadReconcileFromIndex, waitForReconcile: true });
   check('persistence', `edited ${contract.filterValueKind} condition and exact rows survive reload`, true,
     { stepID, filter: edited, expectedIDs: edited.ids });
 
@@ -669,7 +704,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     entry.response?.previewStatus === 'READY' && entry.request?.outputId === outputId);
   assert.equal(removalProposalMatches.length, 1, 'Removing FILTER must bind its actual ready proposal response capture ID.');
   const removalProposalEntry = removalProposalMatches[0];
-  capture.recordStep({ label: 'FilterProposed(remove)', requestEntry: removalProposalEntry,
+  await recordStep({ label: 'FilterProposed(remove)', requestEntry: removalProposalEntry,
     proposalCaptureIds: removalProposalEntries.map(entry => entry.browserRequestId),
     beforeReadIndex: editReloadAfter.readIndex, domObservationIndex: removalProposalDOMObservationIndex });
 
@@ -691,11 +726,12 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL' &&
       command.proposalId === removalProposalEntry.response.proposalId), { fromIndex: removalFromIndex });
   const removalDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'FilterRemoved', requestEntry: removalRequest,
+  await recordStep({ label: 'FilterRemoved', requestEntry: removalRequest,
     beforeReadIndex: builderBeforeRemoval.readIndex, afterReadIndex: removalAfter.readIndex,
     domObservationIndex: removalDOMObservationIndex });
 
   let finalReloadAfter;
+  const finalReloadReconcileFromIndex = reconcileCursor;
   await act('reload after temporal-filter removal', page.locator('body'),
     () => page.reload({ waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS }), {
       after: async () => {
@@ -707,8 +743,9 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       },
     });
   const finalReloadDOMObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  capture.recordStep({ label: 'Reload', beforeReadIndex: removalAfter.readIndex,
-    afterReadIndex: finalReloadAfter.readIndex, domObservationIndex: finalReloadDOMObservationIndex });
+  await recordStep({ label: 'Reload', beforeReadIndex: removalAfter.readIndex,
+    afterReadIndex: finalReloadAfter.readIndex, domObservationIndex: finalReloadDOMObservationIndex },
+  { reconcileFromIndex: finalReloadReconcileFromIndex, waitForReconcile: true });
   check('persistence', `removing ${contract.filterValueKind} filter restores exact source rows after reload`, true,
     { expectedIDs: expectedAllIDs, sourceColumns: savedDocument.columns, outputId });
 

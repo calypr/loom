@@ -118,6 +118,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     capturedAtEpochMs: epochOffset + capturedAt,
     mountEpoch: epoch,
     catalogGeneration: 'basic-temporal-generation',
+    snapshotToken: `snapshot-${draftVersion}`,
     draftVersion,
     draftDigest,
     workspaceDocuments: clone(document[state]),
@@ -160,6 +161,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
   const commandPath = '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/commands';
   const proposalPath = '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/construction-proposals';
   const choiceProposalPath = '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/construction-choice-proposals';
+  const reconcilePath = '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/reconcile';
   const choiceCommandId = 'temporal-choice-command';
   const choiceSnapshotToken = 'temporal-choice-snapshot';
   const choiceSelection = { choiceId: 'temporal-field-choice', form: 'VALUE' };
@@ -216,12 +218,20 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
   };
   const firstProposalId = addFilterProposal('first-create', 'create', spec.initial,
     'candidate-create-filter', 1, 3, 'draft-3', 1120);
+  const cancelReloadReconcileId = addRequest({ name: 'reconcile-cancel-reload', path: reconcilePath,
+    body: { snapshotToken: 'snapshot-3', draftVersion: 3, draftDigest: 'draft-3', outputId },
+    response: { receiptId: 'reconcile-receipt-cancel', snapshotToken: 'snapshot-3', outputs: [{ outputId }] },
+    isMutation: false, mountEpoch: 2, atMonotonicMs: 1165 });
   const secondProposalId = addFilterProposal('second-create-proposal', 'create', spec.initial,
     'saved-filter-step', 2, 3, 'draft-3', 1180);
   const applyCreateId = addRequest({ name: 'create-apply-command', path: commandPath,
     body: { expectedDraftVersion: 3, expectedDraftDigest: 'draft-3', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-second-create-proposal',
     }] }, response: { accepted: true }, isMutation: true, mountEpoch: 2, atMonotonicMs: 1220 });
+  const createReloadReconcileId = addRequest({ name: 'reconcile-create-reload', path: reconcilePath,
+    body: { snapshotToken: 'snapshot-4', draftVersion: 4, draftDigest: 'draft-4', outputId },
+    response: { receiptId: 'reconcile-receipt-create', snapshotToken: 'snapshot-4', outputs: [{ outputId }] },
+    isMutation: false, mountEpoch: 3, atMonotonicMs: 1255 });
   const editOpenCancellationId = addRequest({ name: 'edit-open-cancellation', path: proposalPath,
     body: { outputId, expectedDraftVersion: 4, expectedDraftDigest: 'draft-4' }, response: null,
     isMutation: false, status: null, mountEpoch: 3, atMonotonicMs: 1280,
@@ -232,12 +242,20 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     body: { expectedDraftVersion: 4, expectedDraftDigest: 'draft-4', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-edit',
     }] }, response: { accepted: true }, isMutation: true, mountEpoch: 3, atMonotonicMs: 1340 });
+  const editReloadReconcileId = addRequest({ name: 'reconcile-edit-reload', path: reconcilePath,
+    body: { snapshotToken: 'snapshot-5', draftVersion: 5, draftDigest: 'draft-5', outputId },
+    response: { receiptId: 'reconcile-receipt-edit', snapshotToken: 'snapshot-5', outputs: [{ outputId }] },
+    isMutation: false, mountEpoch: 4, atMonotonicMs: 1375 });
   const removeProposalId = addFilterProposal('remove', 'remove', spec.edited,
     'saved-filter-step', 4, 5, 'draft-5', 1390);
   const applyRemoveId = addRequest({ name: 'apply-remove', path: commandPath,
     body: { expectedDraftVersion: 5, expectedDraftDigest: 'draft-5', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-remove',
     }] }, response: { accepted: true }, isMutation: true, mountEpoch: 4, atMonotonicMs: 1420 });
+  const removeReloadReconcileId = addRequest({ name: 'reconcile-remove-reload', path: reconcilePath,
+    body: { snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId },
+    response: { receiptId: 'reconcile-receipt-remove', snapshotToken: 'snapshot-6', outputs: [{ outputId }] },
+    isMutation: false, mountEpoch: 5, atMonotonicMs: 1455 });
 
   const domObservations = [];
   const addDOM = ({ epoch, proposalId = null, receiptId = null, status = null, columnId = null,
@@ -267,26 +285,26 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       status: 'ready', columnId: spec.temporalColumnId, inputType: spec.inputType, inputValue: spec.initial.inputValue,
       operator: spec.initial.operator, rowIds: spec.initial.ids, atMonotonicMs: 1130 }),
     cancel: addDOM({ epoch: 1, rowIds: allIDs, atMonotonicMs: 1150 }),
-    reloadCancel: addDOM({ epoch: 2, rowIds: allIDs, atMonotonicMs: 1170 }),
+    reloadCancel: addDOM({ epoch: 2, receiptId: 'reconcile-receipt-cancel', rowIds: allIDs, atMonotonicMs: 1170 }),
     proposeCreate: addDOM({ epoch: 2, proposalId: 'proposal-second-create-proposal', receiptId: 'proposal-second-create-proposal',
       status: 'ready', columnId: spec.temporalColumnId, inputType: spec.inputType, inputValue: spec.initial.inputValue,
       operator: spec.initial.operator, rowIds: spec.initial.ids, atMonotonicMs: 1190 }),
     applyCreate: addDOM({ epoch: 2, rowIds: spec.initial.ids, atMonotonicMs: 1240 }),
-    reloadCreate: addDOM({ epoch: 3, rowIds: spec.initial.ids, atMonotonicMs: 1260 }),
+    reloadCreate: addDOM({ epoch: 3, receiptId: 'reconcile-receipt-create', rowIds: spec.initial.ids, atMonotonicMs: 1260 }),
     editOpened: addDOM({ epoch: 3, columnId: spec.temporalColumnId, inputType: spec.inputType,
       inputValue: spec.initial.inputValue, operator: spec.initial.operator, rowIds: spec.initial.ids, atMonotonicMs: 1290 }),
     proposeEdit: addDOM({ epoch: 3, proposalId: 'proposal-edit', receiptId: 'proposal-edit', status: 'ready',
       columnId: spec.temporalColumnId, inputType: spec.inputType, inputValue: spec.edited.inputValue,
       operator: spec.edited.operator, rowIds: spec.edited.ids, atMonotonicMs: 1310 }),
     applyEdit: addDOM({ epoch: 3, rowIds: spec.edited.ids, atMonotonicMs: 1360 }),
-    reloadEdit: addDOM({ epoch: 4, rowIds: spec.edited.ids, atMonotonicMs: 1380 }),
+    reloadEdit: addDOM({ epoch: 4, receiptId: 'reconcile-receipt-edit', rowIds: spec.edited.ids, atMonotonicMs: 1380 }),
     proposeRemove: addDOM({ epoch: 4, proposalId: 'proposal-remove', receiptId: 'proposal-remove',
       status: 'ready', rowIds: allIDs, atMonotonicMs: 1400 }),
     remove: addDOM({ epoch: 4, rowIds: allIDs, atMonotonicMs: 1440 }),
-    reloadRemove: addDOM({ epoch: 5, rowIds: allIDs, atMonotonicMs: 1460 }),
+    reloadRemove: addDOM({ epoch: 5, receiptId: 'reconcile-receipt-remove', rowIds: allIDs, atMonotonicMs: 1460 }),
   };
 
-  const step = (label, { requestCaptureId = null, proposalCaptureIds = [], beforeReadIndex = null,
+  const step = (label, { requestCaptureId = null, proposalCaptureIds = [], reconcileCaptureIds = [], beforeReadIndex = null,
     afterReadIndex = null, domObservationIndex = null, mountEpoch = 1 }) => {
     const request = requestEvents.find(event => event.browserRequestId === requestCaptureId);
     const dom = domObservationIndex === null ? null : domObservations[domObservationIndex];
@@ -300,6 +318,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       mountEpoch: capturedMountEpoch,
       requestCaptureId,
       proposalCaptureIds,
+      reconcileCaptureIds,
       beforeReadIndex,
       afterReadIndex,
       domObservationIndex,
@@ -314,24 +333,28 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     step('FilterProposed(create)', { requestCaptureId: firstProposalId, proposalCaptureIds: [firstProposalId],
       beforeReadIndex: 5, domObservationIndex: domIndexes.proposeFirst, mountEpoch: 1 }),
     step('FilterCancelled', { beforeReadIndex: 5, afterReadIndex: 6, domObservationIndex: domIndexes.cancel, mountEpoch: 1 }),
-    step('Reload', { beforeReadIndex: 6, afterReadIndex: 7, domObservationIndex: domIndexes.reloadCancel, mountEpoch: 2 }),
+    step('Reload', { beforeReadIndex: 6, afterReadIndex: 7, domObservationIndex: domIndexes.reloadCancel,
+      reconcileCaptureIds: [cancelReloadReconcileId], mountEpoch: 2 }),
     step('FilterProposed(create)', { requestCaptureId: secondProposalId, proposalCaptureIds: [secondProposalId],
       beforeReadIndex: 7, domObservationIndex: domIndexes.proposeCreate, mountEpoch: 2 }),
     step('FilterApplied(create)', { requestCaptureId: applyCreateId, beforeReadIndex: 8, afterReadIndex: 9,
       domObservationIndex: domIndexes.applyCreate, mountEpoch: 2 }),
-    step('Reload', { beforeReadIndex: 9, afterReadIndex: 10, domObservationIndex: domIndexes.reloadCreate, mountEpoch: 3 }),
+    step('Reload', { beforeReadIndex: 9, afterReadIndex: 10, domObservationIndex: domIndexes.reloadCreate,
+      reconcileCaptureIds: [createReloadReconcileId], mountEpoch: 3 }),
     step('FilterEditOpened', { beforeReadIndex: 11, proposalCaptureIds: [editOpenCancellationId],
       domObservationIndex: domIndexes.editOpened, mountEpoch: 3 }),
     step('FilterProposed(edit)', { requestCaptureId: editProposalId, proposalCaptureIds: [editProposalId],
       beforeReadIndex: 11, domObservationIndex: domIndexes.proposeEdit, mountEpoch: 3 }),
     step('FilterApplied(edit)', { requestCaptureId: applyEditId, beforeReadIndex: 12, afterReadIndex: 13,
       domObservationIndex: domIndexes.applyEdit, mountEpoch: 3 }),
-    step('Reload', { beforeReadIndex: 13, afterReadIndex: 14, domObservationIndex: domIndexes.reloadEdit, mountEpoch: 4 }),
+    step('Reload', { beforeReadIndex: 13, afterReadIndex: 14, domObservationIndex: domIndexes.reloadEdit,
+      reconcileCaptureIds: [editReloadReconcileId], mountEpoch: 4 }),
     step('FilterProposed(remove)', { requestCaptureId: removeProposalId, proposalCaptureIds: [removeProposalId],
       beforeReadIndex: 14, domObservationIndex: domIndexes.proposeRemove, mountEpoch: 4 }),
     step('FilterRemoved', { requestCaptureId: applyRemoveId, beforeReadIndex: 15, afterReadIndex: 16,
       domObservationIndex: domIndexes.remove, mountEpoch: 4 }),
-    step('Reload', { beforeReadIndex: 16, afterReadIndex: 17, domObservationIndex: domIndexes.reloadRemove, mountEpoch: 5 }),
+    step('Reload', { beforeReadIndex: 16, afterReadIndex: 17, domObservationIndex: domIndexes.reloadRemove,
+      reconcileCaptureIds: [removeReloadReconcileId], mountEpoch: 5 }),
   ];
 
   return {
