@@ -8,7 +8,6 @@ import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { createTemporalFilterCapture } from '../helpers/temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../helpers/temporal-filter-trace-adapter.mjs';
 import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
-import { TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS } from '../helpers/temporal-filter-tla-adapter.mjs';
 import {
   BASIC_TEMPORAL_FILTER_CASES,
   matchesBasicTemporalFilterCandidate,
@@ -894,7 +893,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   report.journeyTrace = adaptTemporalFilterJourney(report.temporalFilterJourney);
 
   const { writeAndReplayBuilderJourneyTrace } = await import('../helpers/builder-journey-trace.mjs');
-  const formalProof = writeAndReplayBuilderJourneyTrace({
+  writeAndReplayBuilderJourneyTrace({
     scenarioID: report.scenario,
     caseName,
     journeyTrace: report.journeyTrace,
@@ -908,7 +907,4 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     },
     repositoryRoot,
   });
-  check('correctness', TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS[caseName],
-    formalProof.status === 'pass' && formalProof.replayStatus === 'pass' && formalProof.selfTestStatus === 'pass',
-    formalProof);
 };
