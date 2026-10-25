@@ -6,7 +6,10 @@ import { findRenderedBuilderHeaderIndex } from '../builder-rendered-grid.mjs';
 import {
   capturePatientOnePreOneState,
   isNativeGroupProposalReady,
+  patientOneSavedState,
   openPolicyOneAddColumnsEditor,
+  policyOneHistoryRemovalLocator,
+  policyOneRowSettingsRemovalLocator,
   readNativeGroupProposal,
   readPatientOneChoiceEditor,
   readNativeGroupSummary,
@@ -364,4 +367,79 @@ test('Patient ONE pre-ONE artifact binds the saved Builder document to its rende
     renderedGrid: { headers: ['ROW COUNT'], rows: [['2']] },
     project: 'loom_dev_verify_owned', explorerId: 'verify-owned-patient-one', outputId: 'out_patients',
   }), /bind the Builder draft digest/);
+});
+
+test('Policy removal retry switches from row-settings to current Row operations history after Cancel', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    const outputId = 'out_patients';
+    const currentGroupStepId = 'group-after-all-reload';
+    const staleGroupStepId = 'group-stale-snapshot';
+    await page.setContent(`<!doctype html><html><body>
+      <dialog open aria-label="Row definition settings">
+        <button type="button" data-testid="construction-row-remove-${currentGroupStepId}">Remove</button>
+      </dialog>
+      <section aria-label="Row operations" data-testid="construction-history">
+        <button type="button" aria-pressed="true" data-testid="construction-history-step-${currentGroupStepId}">Group rows</button>
+        <button type="button" data-testid="construction-remove-step-${currentGroupStepId}">Remove</button>
+      </section>
+      <section data-testid="construction-proposal-panel" hidden>
+        <button type="button" data-testid="construction-cancel-proposal">Cancel</button>
+      </section>
+      <script>
+        const rowSettings = document.querySelector('[aria-label="Row definition settings"]');
+        const proposal = document.querySelector('[data-testid="construction-proposal-panel"]');
+        document.querySelector('[data-testid="construction-row-remove-${currentGroupStepId}"]').addEventListener('click', () => {
+          rowSettings.remove();
+          proposal.hidden = false;
+        });
+        document.querySelector('[data-testid="construction-cancel-proposal"]').addEventListener('click', () => proposal.remove());
+      </script>
+    </body></html>`);
+
+    const builder = {
+      draftVersion: 4,
+      draftDigest: 'sha256:all-reloaded-draft',
+      catalog: { snapshotToken: 'sha256:all-reloaded-snapshot' },
+      workspace: { documents: [{
+        output: { id: outputId, title: 'Patients' },
+        rootResourceType: 'Patient',
+        columns: [{ columnId: 'source-patient-id', label: 'Patient ID', source: { field: { path: 'id' } } }],
+        construction: { steps: [{
+          id: currentGroupStepId,
+          operation: { kind: 'GROUP', group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] } },
+        }] },
+      }] },
+    };
+    const savedBeforeCancel = patientOneSavedState(builder, outputId);
+    assert.equal(savedBeforeCancel.group.stepId, currentGroupStepId);
+    assert.equal(await policyOneRowSettingsRemovalLocator(page, currentGroupStepId).count(), 1,
+      'the first removal is available from the open row-settings panel');
+    assert.equal(await policyOneRowSettingsRemovalLocator(page, staleGroupStepId).count(), 0,
+      'the row-settings control rejects a stale Group identity');
+
+    await policyOneRowSettingsRemovalLocator(page, currentGroupStepId).click();
+    await page.getByTestId('construction-proposal-panel').waitFor({ state: 'visible' });
+    assert.equal(await page.getByRole('dialog', { name: 'Row definition settings', exact: true }).count(), 0,
+      'the row-settings removal wrapper closes its dialog before the proposal is canceled');
+    await page.getByTestId('construction-cancel-proposal').click();
+    await page.getByTestId('construction-proposal-panel').waitFor({ state: 'detached' });
+
+    const savedAfterCancel = patientOneSavedState(structuredClone(builder), outputId);
+    assert.deepEqual(savedAfterCancel, savedBeforeCancel,
+      'Cancel preserves the saved ALL Group, workspace, and draft identity');
+    const retryGroupStepId = savedAfterCancel.group.stepId;
+    assert.equal(retryGroupStepId, currentGroupStepId,
+      'the retry uses the Group identity from the post-ALL saved frame');
+    assert.equal(await policyOneRowSettingsRemovalLocator(page, retryGroupStepId).count(), 0,
+      'the row-settings removal control is absent after Cancel closes that surface');
+    assert.equal(await page.getByTestId(`construction-history-step-${retryGroupStepId}`).getAttribute('aria-pressed'), 'true');
+    assert.equal(await policyOneHistoryRemovalLocator(page, retryGroupStepId).count(), 1,
+      'the retry control is the selected Group entry in top-level Row operations history');
+    assert.equal(await policyOneHistoryRemovalLocator(page, staleGroupStepId).count(), 0,
+      'the Row operations retry locator rejects a stale Group identity');
+  } finally {
+    await browser.close();
+  }
 });

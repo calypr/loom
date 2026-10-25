@@ -410,6 +410,12 @@ export const markPolicyOneExpectedHttp422 = ({
   };
 };
 
+export const policyOneRowSettingsRemovalLocator = (page, stepId) =>
+  page.getByTestId(`construction-row-remove-${stepId}`);
+
+export const policyOneHistoryRemovalLocator = (page, stepId) =>
+  page.getByTestId(`construction-remove-step-${stepId}`);
+
 const returnPolicyOneRowSettingsToTable = async (workflow, { readBuilder, expectedSavedState, actionLabel }) => {
   const { page } = workflow;
   const rowSettings = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
@@ -1188,7 +1194,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       after: () => rowsHistory.waitFor({ state: 'visible', timeout: 5000 }),
     });
   }
-  const removalControl = page.getByTestId(`construction-row-remove-${appliedGroup.id}`);
+  const removalControl = policyOneRowSettingsRemovalLocator(page, appliedGroup.id);
   const removalPreviewAttempt = observeAuthoringAttempt(page, {
     method: 'POST', path: 'construction-proposals',
     owner: { kind: 'policy-one-group-removal-preview', attempt: 'cancel-check' }, timeout: 5000,
@@ -1320,7 +1326,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     method: 'POST', path: 'construction-proposals',
     owner: { kind: 'policy-one-group-removal-preview', attempt: 'apply' }, timeout: 5000,
   });
-  const removalRetryControl = page.getByTestId(`construction-remove-step-${afterCancelGroupStepId}`);
+  const removalRetryControl = policyOneHistoryRemovalLocator(page, afterCancelGroupStepId);
   await workflow.action('reopen Group removal after Cancel', removalRetryControl,
     () => removalRetryControl.click(), {
       after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'

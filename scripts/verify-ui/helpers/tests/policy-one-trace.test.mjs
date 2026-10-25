@@ -24,8 +24,6 @@ import {
 
 const policyOneContract = JSON.parse(readFileSync(new URL(
   '../../../../verification/builder-interactions/builder-policy-one-contract.json', import.meta.url), 'utf8'));
-const policyOneWorkflowSource = readFileSync(new URL(
-  '../../workflows/builder-patient-one-disagreement.mjs', import.meta.url), 'utf8');
 
 const eventNames = [
   'OneSubmitted',
@@ -125,35 +123,6 @@ const captureMutations = [
   ['Apply carries the wrong choice policy', input => { input.requests.apply.body.commands[0].constructionChoice.rowValuePolicy = 'ONE'; }, /request must use ALL/],
   ['Apply response is owned by another request', input => { input.responses.apply.requestObject = {}; }, /exact captured request object/],
 ];
-
-test('Policy removal retry uses the current Group history control after Cancel closes row settings', () => {
-  assert(policyOneWorkflowSource.includes(
-    'const removalControl = page.getByTestId(`construction-row-remove-${appliedGroup.id}`);'),
-  'the first removal preview must use the row-settings Remove control');
-  assert(policyOneWorkflowSource.includes(
-    'const afterCancelGroupStepId = afterRemovalCancelState.group?.stepId;'),
-  'the retry target must come from the exact saved Group state after Cancel');
-  assert(policyOneWorkflowSource.includes(
-    'assert.equal(afterCancelGroupStepId, reloadedAllGroupStepId,'),
-  'Cancel must preserve the current post-ALL reload Group identity');
-  assert(policyOneWorkflowSource.includes(
-    "getByRole('dialog', { name: 'Row definition settings', exact: true }).count(), 0"),
-  'Cancel must close the row-settings surface before using root history');
-  assert(policyOneWorkflowSource.includes(
-    'construction-history-step-${afterCancelGroupStepId}`).getAttribute(\'aria-pressed\')'),
-  'Cancel must keep the post-ALL Group selected in row history');
-  assert(policyOneWorkflowSource.includes(
-    'const removalRetryControl = page.getByTestId(`construction-remove-step-${afterCancelGroupStepId}`);'),
-  'the retry must use the visible Row operations history control after Cancel');
-  assert(policyOneWorkflowSource.includes(
-    'assert.deepEqual(afterRemovalCloseFrame.workspace, removedBuilder.workspace,'),
-  'the already-closed row editor must preserve the exact post-removal saved frame');
-  assert(policyOneWorkflowSource.includes(
-    "await page.getByRole('dialog', { name: 'Row definition settings', exact: true })\n    .waitFor({ state: 'hidden' });"),
-  'the final restoration path must retain the source-backed closed-dialog frame');
-  assert(policyOneWorkflowSource.includes("assert.equal(restoredState.group, null, 'reload must retain the absence of the removed Group');"),
-    'final reload must prove that the Group is absent');
-});
 
 test('the Policy ONE HTTP exemption binds the exact recorder request and preserves unrelated failures', async () => {
   const origin = 'http://loom.test';
