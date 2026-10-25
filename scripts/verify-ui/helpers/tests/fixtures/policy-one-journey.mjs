@@ -32,6 +32,52 @@ const groupStep = (rowValues = []) => ({
   ...(rowValues.length ? { rowValues: structuredClone(rowValues) } : {}),
 });
 
+const testTransportCapture = (transportIndex, request, response, eventOrder = {}) => {
+  const requestPath = new URL(request.path, 'https://fixture.invalid');
+  if (!requestPath.pathname.includes('/authoring/v2/')) {
+    requestPath.pathname = `/api/explorers/policy-one/authoring/v2/${requestPath.pathname.replace(/^\/+/, '')}`;
+  }
+  const prefixIndex = requestPath.pathname.indexOf('/authoring/v2/');
+  const resourcePath = `${requestPath.origin}${requestPath.pathname}`;
+  const defaultRequestEvent = transportIndex * 2 - 1;
+  const defaultSettlementEvent = transportIndex * 2;
+  return {
+    transportIndex,
+    requestEventIndex: eventOrder.requestEventIndex ?? defaultRequestEvent,
+    settlementEventIndex: eventOrder.settlementEventIndex ?? defaultSettlementEvent,
+    method: request.method,
+    path: request.path,
+    resourcePath,
+    ownerScope: `${requestPath.origin}${requestPath.pathname.slice(0, prefixIndex)}`,
+    requestId: request.requestId,
+    requestCaptureId: request.captureId,
+    requestBody: request.body,
+    settlement: 'response',
+    responseOwnerIndex: transportIndex,
+    status: response.status,
+    response: {
+      status: response.status,
+      requestId: response.requestId ?? null,
+      receiptId: response.proposalId ?? response.preview?.receiptId ?? response.body?.receiptId ?? response.body?.preview?.receiptId ?? null,
+      receiptIds: [...new Set([
+        response.proposalId,
+        response.preview?.receiptId,
+        response.body?.receiptId,
+        response.body?.preview?.receiptId,
+      ].filter(value => typeof value === 'string'))],
+      outputIds: [...new Set([
+        response.proposalOutputId,
+        response.preview?.outputId,
+        response.body?.outputId,
+        response.body?.preview?.outputId,
+      ].filter(value => typeof value === 'string'))],
+      snapshotToken: response.proposalSnapshotToken ?? response.body?.snapshotToken ?? null,
+      candidateWorkspaceDigest: response.body?.candidateWorkspaceDigest ?? null,
+      intentDigest: response.body?.intentDigest ?? null,
+    },
+  };
+};
+
 export const makePolicyOneTraceInput = () => {
   const oneRequestObject = {};
   const allRequestObject = {};
@@ -125,7 +171,7 @@ export const makePolicyOneTraceInput = () => {
     constructionChoices: [choice(policy)],
   });
 
-  return {
+  const input = {
     expected: {
       proposalPath: '/authoring/v2/construction-choice-proposals',
       commandPath: '/authoring/v2/commands',
@@ -155,6 +201,7 @@ export const makePolicyOneTraceInput = () => {
         path: '/api/explorers/e/authoring/v2/construction-choice-proposals',
         requestId: 'header-one',
         captureId: 'capture-one-random',
+        transportIndex: 1,
         commandId: 'command-one',
         body: proposalBody('ONE', 'command-one'),
       },
@@ -164,6 +211,7 @@ export const makePolicyOneTraceInput = () => {
         path: '/api/explorers/e/authoring/v2/construction-choice-proposals',
         requestId: 'header-all',
         captureId: 'capture-all-random',
+        transportIndex: 2,
         commandId: 'command-all',
         body: proposalBody('ALL', 'command-all'),
       },
@@ -173,6 +221,7 @@ export const makePolicyOneTraceInput = () => {
         path: '/api/explorers/e/authoring/v2/commands',
         requestId: 'header-apply',
         captureId: 'capture-apply-random',
+        transportIndex: 3,
         commandId: 'command-all',
         body: {
           commandId: 'command-all',
@@ -324,14 +373,19 @@ export const makePolicyOneTraceInput = () => {
         { label: 'ReloadedAll', event: 'reload', observation: { policy: 'ALL' } },
         { label: 'RemovalCancelled', event: 'group-removal-cancel', observation: { unchanged: true } },
       ],
-      unmodeledEvents: [],
-      backendCalls: [],
+      transportCaptures: [],
       outcome: {
         savedState: { sourceColumns: ['patient-id'], group: null },
         rowIds: ['dev-patient-001', 'dev-patient-002'],
       },
     },
   };
+  input.context.transportCaptures = [
+    testTransportCapture(1, input.requests.one, input.responses.one),
+    testTransportCapture(2, input.requests.all, input.responses.all),
+    testTransportCapture(3, input.requests.apply, input.responses.apply),
+  ];
+  return input;
 }
 
 
@@ -447,11 +501,12 @@ const restoredWorkspace = policyWorkspaceProjection({
   savedState: restoredState, renderedRows: sourceGrid, sourceState, fixtureIDs, addedColumnId: addedInputColumnId,
 });
 
-const capturedRequest = ({ requestId, captureId, commandId, body }) => ({
+const capturedRequest = ({ requestId, captureId, commandId, transportIndex, body }) => ({
   method: 'POST',
   path: body?.commands ? 'commands' : body?.constructionChoices ? 'construction-choice-proposals' : 'construction-proposals',
   requestId,
   captureId,
+  transportIndex,
   requestObjectId: captureId,
   ...(commandId ? { commandId } : {}),
   body,
@@ -501,6 +556,9 @@ const twoSourceRowsPreview = ({ outputId = 'output-1', receiptId, rowCount = 2 }
 
 export const makeSyntheticPolicyOneJourneyTrace = () => {
   const input = makePolicyOneTraceInput();
+  input.requests.one.transportIndex = 3;
+  input.requests.all.transportIndex = 4;
+  input.requests.apply.transportIndex = 5;
   assert.deepEqual(allState.group.rowValues, [
     { inputColumnId: addedInputColumnId, outputColumnId: addedOutputColumnId, policy: 'ALL' },
   ], 'the saved Builder DTO exposes grouped-row values at ConstructionStep.rowValues');
@@ -531,6 +589,7 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
   const groupConstruction = { version: 1, steps: [{ id: 'group-step' }] };
   const groupPreviewRequest = capturedRequest({
     requestId: 'header-group-preview', captureId: 'capture-group-preview',
+    transportIndex: 1,
     body: proposalBody(rootDraft.version, rootDraft.digest, groupConstruction),
   });
   const groupPreviewResponse = capturedResponse({
@@ -548,6 +607,7 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
   const groupApplyCommandId = 'command-group-apply';
   const groupApplyRequest = capturedRequest({
     requestId: 'header-group-apply', captureId: 'capture-group-apply', commandId: groupApplyCommandId,
+    transportIndex: 2,
     body: {
       commandId: groupApplyCommandId,
       semanticsVersion: 10,
@@ -562,8 +622,9 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     status: 200,
     body: { commandId: groupApplyCommandId, draftVersion: groupDraft.version, draftDigest: groupDraft.digest },
   });
-  const removalRequest = (requestId, captureId) => capturedRequest({
+  const removalRequest = (requestId, captureId, transportIndex) => capturedRequest({
     requestId, captureId,
+    transportIndex,
     body: proposalBody(allDraft.version, allDraft.digest, { version: 1, steps: [] }, { removeStepIds: ['group-step'] }),
   });
   const removalResponse = (requestId, captureId) => capturedResponse({
@@ -574,9 +635,14 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
       preview: twoSourceRowsPreview({ receiptId: removalCandidateID }),
     },
   });
+  const removalOneRequest = removalRequest('header-removal-one', 'capture-removal-one', 6);
+  const removalOneResponse = removalResponse('header-removal-one', 'capture-removal-one');
+  const removalTwoRequest = removalRequest('header-removal-two', 'capture-removal-two', 7);
+  const removalTwoResponse = removalResponse('header-removal-two', 'capture-removal-two');
   const removalApplyCommandId = 'command-removal-apply';
   const removalApplyRequest = capturedRequest({
     requestId: 'header-removal-apply', captureId: 'capture-removal-apply', commandId: removalApplyCommandId,
+    transportIndex: 8,
     body: {
       commandId: removalApplyCommandId,
       semanticsVersion: 10,
@@ -638,13 +704,13 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     },
     {
       label: 'RemovalPreviewSubmitted', event: 'preview',
-      request: removalRequest('header-removal-one', 'capture-removal-one'),
+      request: removalOneRequest,
       observation: { workspace: allWorkspace, draftVersion: allDraft.version, draftDigest: allDraft.digest },
     },
     {
       label: 'RemovalPreviewReady', event: 'preview-response',
-      response: removalResponse('header-removal-one', 'capture-removal-one'),
-      settlement: { kind: 'http-response', captureId: 'capture-removal-one' },
+      response: removalOneResponse,
+      settlement: { kind: 'http-response', captureId: removalOneRequest.captureId },
       savedBefore: allState,
       observation: { workspace: allWorkspace, candidateId: removalCandidateID,
         previewRows: [{ patientId: 'dev-patient-001' }, { patientId: 'dev-patient-002' }] },
@@ -659,13 +725,13 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     },
     {
       label: 'RemovalPreviewSubmitted', event: 'preview',
-      request: removalRequest('header-removal-two', 'capture-removal-two'),
+      request: removalTwoRequest,
       observation: { workspace: allWorkspace, draftVersion: allDraft.version, draftDigest: allDraft.digest },
     },
     {
       label: 'RemovalPreviewReady', event: 'preview-response',
-      response: removalResponse('header-removal-two', 'capture-removal-two'),
-      settlement: { kind: 'http-response', captureId: 'capture-removal-two' },
+      response: removalTwoResponse,
+      settlement: { kind: 'http-response', captureId: removalTwoRequest.captureId },
       savedBefore: allState,
       observation: { workspace: allWorkspace, candidateId: removalCandidateID,
         previewRows: [{ patientId: 'dev-patient-001' }, { patientId: 'dev-patient-002' }] },
@@ -693,5 +759,15 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     workspace: restoredWorkspace, patientIds: ['dev-patient-001', 'dev-patient-002'],
     draftVersion: restoredDraft.version, draftDigest: restoredDraft.digest,
   };
+  input.context.transportCaptures = [
+    testTransportCapture(1, groupPreviewRequest, groupPreviewResponse),
+    testTransportCapture(2, groupApplyRequest, groupApplyResponse),
+    testTransportCapture(3, input.requests.one, input.responses.one),
+    testTransportCapture(4, input.requests.all, input.responses.all),
+    testTransportCapture(5, input.requests.apply, input.responses.apply),
+    testTransportCapture(6, removalOneRequest, removalOneResponse),
+    testTransportCapture(7, removalTwoRequest, removalTwoResponse),
+    testTransportCapture(8, removalApplyRequest, removalApplyResponse),
+  ];
   return buildPolicyOneTrace(input).journeyTrace;
 };

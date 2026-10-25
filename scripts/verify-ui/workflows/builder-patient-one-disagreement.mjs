@@ -233,9 +233,10 @@ const editorTraceObservation = state => ({
   errorVisible: state.errorVisible,
 });
 
-const policyRequestCapture = (started, body) => ({
+const policyRequestCapture = (started, body, transportIndex) => ({
   ...started.request,
   requestObject: started.rawRequest,
+  transportIndex,
   body,
 });
 
@@ -384,33 +385,94 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   };
   const policyOneEvidence = [];
   const policyOneBackendCallCaptures = [];
+  const policyOneTransportByRequest = new Map();
+  const pendingPolicyOneTransportReads = new Set();
   const authoringPrefix = '/authoring/v2/';
-  const captureBackendCall = (request, response = null) => {
+  let transportIndex = 0;
+  let transportEventIndex = 0;
+  const captureBackendRequest = request => {
+    if (policyOneTransportByRequest.has(request)) return policyOneTransportByRequest.get(request);
     const url = new URL(request.url());
     const prefixIndex = url.pathname.indexOf(authoringPrefix);
-    if (prefixIndex < 0) return;
-    let body = null;
-    try { body = request.postDataJSON(); } catch { body = null; }
-    policyOneBackendCallCaptures.push({
+    if (prefixIndex < 0) return undefined;
+    let requestBody = null;
+    try { requestBody = request.postDataJSON(); } catch { requestBody = null; }
+    const entry = {
       requestObject: request,
       record: {
+        transportIndex: ++transportIndex,
+        requestEventIndex: ++transportEventIndex,
+        origin: url.origin,
+        resourcePath: `${url.origin}${url.pathname}`,
+        ownerScope: `${url.origin}${url.pathname.slice(0, prefixIndex)}`,
         method: request.method(),
         path: url.pathname.slice(prefixIndex + authoringPrefix.length),
         requestId: String(request.headers()['x-request-id'] ?? '').trim() || null,
-        commandId: body?.commandId ?? null,
-        requestBody: body,
-        outputId: body?.outputId ?? body?.commands?.[0]?.outputId ?? null,
-        snapshotToken: body?.snapshotToken ?? null,
-        expectedDraftVersion: body?.expectedDraftVersion ?? null,
-        expectedDraftDigest: body?.expectedDraftDigest ?? null,
-        commandType: body?.commands?.[0]?.type ?? null,
-        status: response?.status() ?? null,
-        ...(response ? {} : { failure: request.failure()?.errorText ?? 'request failed without error detail' }),
+        requestBody,
+        settlement: 'pending',
+        status: null,
+        responseOwnerIndex: null,
+        response: null,
       },
-    });
+    };
+    policyOneTransportByRequest.set(request, entry);
+    policyOneBackendCallCaptures.push(entry);
+    return entry;
   };
+  const captureBackendCall = (request, response = null) => {
+    const url = new URL(request.url());
+    if (!url.pathname.includes(authoringPrefix)) return;
+    const entry = policyOneTransportByRequest.get(request);
+    assert(entry, 'authoring transport settlement must retain its exact observed request object');
+    assert.equal(entry.record.settlement, 'pending',
+      `authoring transport ${entry.record.transportIndex} must settle exactly once`);
+    if (!response) {
+      entry.record.settlement = 'request-failed';
+      entry.record.settlementEventIndex = ++transportEventIndex;
+      entry.record.failure = request.failure()?.errorText ?? 'request failed without error detail';
+      return;
+    }
+    entry.record.settlement = 'response';
+    entry.record.settlementEventIndex = ++transportEventIndex;
+    entry.record.responseOwnerIndex = entry.record.transportIndex;
+    entry.record.status = response.status();
+    const responseRequestId = String(response.headers()['x-request-id'] ?? '').trim() || null;
+    const responseRead = response.json().then(body => {
+      const preview = body?.preview ?? null;
+      const outputIds = [
+        ...(Array.isArray(body?.outputs) ? body.outputs.map(output => output?.outputId) : []),
+        body?.outputId,
+        preview?.outputId,
+      ].filter(value => typeof value === 'string');
+      const receiptIds = [body?.receiptId, body?.proposalId, preview?.receiptId]
+        .filter(value => typeof value === 'string');
+      entry.record.response = {
+        status: response.status(),
+        requestId: responseRequestId ?? body?.requestId ?? null,
+        receiptId: body?.receiptId ?? body?.proposalId ?? preview?.receiptId ?? null,
+        receiptIds: [...new Set(receiptIds)],
+        outputIds: [...new Set(outputIds)],
+        snapshotToken: body?.snapshotToken ?? preview?.snapshotToken ?? null,
+        draftVersion: body?.draftVersion ?? null,
+        draftDigest: body?.draftDigest ?? null,
+        candidateWorkspaceDigest: body?.candidateWorkspaceDigest ?? null,
+        intentDigest: body?.intentDigest ?? null,
+        previewRowsPresent: Array.isArray(preview?.rows),
+      };
+    }).catch(error => {
+      entry.record.responseReadError = String(error);
+    });
+    pendingPolicyOneTransportReads.add(responseRead);
+    responseRead.finally(() => pendingPolicyOneTransportReads.delete(responseRead));
+  };
+  page.on('request', captureBackendRequest);
   page.on('response', response => captureBackendCall(response.request(), response));
   page.on('requestfailed', request => captureBackendCall(request));
+  const transportIndexForRequest = request => {
+    const entry = policyOneTransportByRequest.get(request);
+    assert(entry, 'semantic request must retain its raw observer transport index');
+    return entry.record.transportIndex;
+  };
   requireCheck(workflow, 'correctness', 'fresh Patient table renders the exact two fixture IDs', true,
     { fixtureIDs, headers: sourceGrid.headers, cells: sourceGrid.cells });
   const openRows = page.getByTestId('construction-rows-settings-trigger');
@@ -472,7 +534,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   policyOneEvidence.push({
     label: 'GroupPreviewSubmitted',
     event: 'preview',
-    request: { ...groupPreviewExchange.request, requestObjectId: groupPreviewExchange.request.captureId, body: groupPreviewBody },
+    request: { ...groupPreviewExchange.request, requestObjectId: groupPreviewExchange.request.captureId,
+      transportIndex: transportIndexForRequest(groupPreviewStarted.rawRequest), body: groupPreviewBody },
     observation: {
       workspace: policyOneSourceObservation.workspaceProjection,
       draftVersion: sourceSavedState.draftVersion,
@@ -547,7 +610,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   policyOneEvidence.push({
     label: 'GroupApplySubmitted',
     event: 'begin-apply',
-    request: { ...groupApplyExchange.request, requestObjectId: groupApplyExchange.request.captureId, body: groupApplyBody },
+    request: { ...groupApplyExchange.request, requestObjectId: groupApplyExchange.request.captureId,
+      transportIndex: transportIndexForRequest(groupApplyStarted.rawRequest), body: groupApplyBody },
     observation: {
       workspace: policyOneSourceObservation.workspaceProjection,
       draftVersion: beforeGroupApply.draftVersion,
@@ -1081,7 +1145,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     label: 'RemovalPreviewSubmitted',
     event: 'preview',
     request: { ...removalPreviewExchange.request, requestObjectId: removalPreviewExchange.request.captureId,
-      body: removalPreviewBody },
+      transportIndex: transportIndexForRequest(removalPreviewStarted.rawRequest), body: removalPreviewBody },
     observation: {
       workspace: policyWorkspaceProjection({ savedState: beforeRemovalCancelState,
         renderedRows: allAppliedGrid, sourceState: sourceSavedState, fixtureIDs,
@@ -1172,7 +1236,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     label: 'RemovalPreviewSubmitted',
     event: 'preview',
     request: { ...removalRetryExchange.request, requestObjectId: removalRetryExchange.request.captureId,
-      body: removalRetryBody },
+      transportIndex: transportIndexForRequest(removalRetryStarted.rawRequest), body: removalRetryBody },
     observation: {
       workspace: policyWorkspaceProjection({ savedState: afterRemovalCancelState,
         renderedRows: cancelledGroupGrid, sourceState: sourceSavedState, fixtureIDs,
@@ -1251,7 +1315,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     label: 'RemovalApplySubmitted',
     event: 'begin-apply',
     request: { ...removalApplyExchange.request, requestObjectId: removalApplyExchange.request.captureId,
-      body: removalApplyBody },
+      transportIndex: transportIndexForRequest(removalApplyStarted.rawRequest), body: removalApplyBody },
     observation: {
       workspace: policyWorkspaceProjection({ savedState: afterRemovalCancelState,
         renderedRows: cancelledGroupGrid, sourceState: sourceSavedState, fixtureIDs,
@@ -1340,20 +1404,23 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'removing Group restores the original Patient fields and rows after reload',
   ];
 
-  const modeledRequestObjects = new Set([
-    groupPreviewStarted.rawRequest,
-    groupApplyStarted.rawRequest,
-    oneStarted.rawRequest,
-    allStarted.rawRequest,
-    allApplyStarted.rawRequest,
-    removalPreviewStarted.rawRequest,
-    removalRetryStarted.rawRequest,
-    removalApplyStarted.rawRequest,
-  ]);
-  const backendCalls = policyOneBackendCallCaptures.map(({ record }) => record);
-  const unmodeledEvents = policyOneBackendCallCaptures
-    .filter(({ requestObject }) => !modeledRequestObjects.has(requestObject))
-    .map(({ record }) => ({ kind: 'unmodeled-authoring-response', ...record }));
+  await Promise.all([...pendingPolicyOneTransportReads]);
+  const observedCaptures = [
+    [groupPreviewStarted.rawRequest, groupPreviewExchange.request.captureId],
+    [groupApplyStarted.rawRequest, groupApplyExchange.request.captureId],
+    [oneStarted.rawRequest, oneExchange.request.captureId],
+    [allStarted.rawRequest, allExchange.request.captureId],
+    [allApplyStarted.rawRequest, allApplyExchange.request.captureId],
+    [removalPreviewStarted.rawRequest, removalPreviewExchange.request.captureId],
+    [removalRetryStarted.rawRequest, removalRetryExchange.request.captureId],
+    [removalApplyStarted.rawRequest, removalApplyExchange.request.captureId],
+  ];
+  for (const [requestObject, requestCaptureId] of observedCaptures) {
+    const capture = policyOneTransportByRequest.get(requestObject);
+    assert(capture, 'semantic request must appear in the raw authoring transport ledger');
+    capture.record.requestCaptureId = requestCaptureId;
+  }
+  const transportCaptures = policyOneBackendCallCaptures.map(({ record }) => record);
   const { journeyTrace } = buildPolicyOneTrace({
     expected: {
       outputId,
@@ -1382,9 +1449,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       },
     },
     requests: {
-      one: policyRequestCapture(oneStarted, oneRequestBody),
-      all: policyRequestCapture(allStarted, allRequestBody),
-      apply: policyRequestCapture(allApplyStarted, allApplyBody),
+      one: policyRequestCapture(oneStarted, oneRequestBody, transportIndexForRequest(oneStarted.rawRequest)),
+      all: policyRequestCapture(allStarted, allRequestBody, transportIndexForRequest(allStarted.rawRequest)),
+      apply: policyRequestCapture(allApplyStarted, allApplyBody, transportIndexForRequest(allApplyStarted.rawRequest)),
     },
     responses: {
       one: policyResponseCapture(oneStarted, oneExchange, oneResponseBody),
@@ -1416,8 +1483,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       initialObservation: policyOneInitialObservation,
       initialPreview: policyOneInitialPreview,
       actions: policyOneEvidence,
-      unmodeledEvents,
-      backendCalls,
+      transportCaptures,
       outcome: {
         kind: 'source-restored',
         workspace: policyWorkspaceProjection({ savedState: restoredState,

@@ -21,6 +21,20 @@ const EXPECTED_EVENTS = [
   'reload', 'preview', 'preview-response', 'cancel', 'preview', 'preview-response',
   'begin-apply', 'finish-apply', 'reload',
 ];
+const MODELED_TRANSPORT_PATHS = new Map([
+  ['POST construction-proposals', false],
+  ['POST construction-choice-proposals', false],
+  ['POST commands', true],
+]);
+const READ_ONLY_TRANSPORT_PATHS = new Map([
+  ['GET builder', 'BuilderState read'],
+  ['GET capability', 'Explorer capability read'],
+  ['POST construction-capabilities', 'Construction capabilities read'],
+  ['POST construction-inputs', 'Construction stage inputs read'],
+  ['POST construction-choices', 'Construction source choices read'],
+  ['POST preview', 'Receipt-backed preview read'],
+]);
+const MODELED_REQUEST_EVENTS = new Set(['preview', 'begin-apply', 'choice-preview', 'apply-construction-choice']);
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) &&
@@ -73,6 +87,42 @@ function tlavalue(value) {
 
 function tlaString(value) {
   return JSON.stringify(String(value));
+}
+
+function stableJSON(value) {
+  const ordered = entry => {
+    if (Array.isArray(entry)) return entry.map(ordered);
+    if (entry !== null && typeof entry === 'object') {
+      return Object.fromEntries(Object.keys(entry).sort().map(key => [key, ordered(entry[key])]));
+    }
+    return entry;
+  };
+  return JSON.stringify(ordered(value));
+}
+
+function endpointPath(path, label) {
+  requireString(path, `${label} path`);
+  let pathname;
+  try {
+    pathname = new URL(path, 'http://loom.invalid').pathname;
+  } catch {
+    assert.fail(`${label} path must be a valid URL or pathname`);
+  }
+  const marker = pathname.indexOf('/authoring/v2/');
+  return marker < 0 ? pathname.replace(/^\/+/, '') : pathname.slice(marker + '/authoring/v2/'.length);
+}
+
+function ownerScopeForResourcePath(resourcePath, label) {
+  requireString(resourcePath, `${label} resourcePath`);
+  let url;
+  try {
+    url = new URL(resourcePath, 'http://loom.invalid');
+  } catch {
+    assert.fail(`${label} resourcePath must be a valid URL or pathname`);
+  }
+  const marker = url.pathname.indexOf('/authoring/v2/');
+  assert(marker >= 0, `${label} resourcePath must retain its authoring owner scope`);
+  return `${url.origin}${url.pathname.slice(0, marker)}`;
 }
 
 function tlaSet(values) {
@@ -132,7 +182,28 @@ function savedSnapshotProjection(snapshot) {
 }
 
 function requestFact(request) {
-  if (!isRecord(request)) return { present: false, commandId: ABSENT, bodyCommandId: ABSENT };
+  if (!isRecord(request)) return {
+    present: false,
+    requestId: ABSENT,
+    captureId: ABSENT,
+    requestObjectId: ABSENT,
+    transportIndex: 0,
+    bodyFingerprint: ABSENT,
+    commandId: ABSENT,
+    bodyCommandId: ABSENT,
+    outputId: ABSENT,
+    snapshotToken: ABSENT,
+    expectedDraftVersion: 0,
+    expectedDraftDigest: ABSENT,
+    choiceId: ABSENT,
+    choiceField: ABSENT,
+    choicePolicy: ABSENT,
+    proposalId: ABSENT,
+    removeStepIds: [],
+    candidateId: ABSENT,
+    candidateRequestId: ABSENT,
+    candidateCaptureId: ABSENT,
+  };
   const body = isRecord(request.body) ? request.body : {};
   const choice = body.constructionChoices?.[0] ?? body.commands?.[0]?.constructionChoice ?? {};
   const command = body.commands?.[0] ?? {};
@@ -141,6 +212,8 @@ function requestFact(request) {
     requestId: request.requestId ?? ABSENT,
     captureId: request.captureId ?? ABSENT,
     requestObjectId: request.requestObjectId ?? ABSENT,
+    transportIndex: request.transportIndex ?? 0,
+    bodyFingerprint: stableJSON(request.body ?? null),
     commandId: request.commandId ?? ABSENT,
     bodyCommandId: body.commandId ?? ABSENT,
     outputId: body.outputId ?? command.outputId ?? ABSENT,
@@ -223,6 +296,65 @@ function actionFact(actionRecord) {
   };
 }
 
+function transportFact(entry) {
+  const body = isRecord(entry.requestBody) ? entry.requestBody : {};
+  const command = body.commands?.[0] ?? {};
+  const choice = body.constructionChoices?.[0] ?? command.constructionChoice ?? {};
+  const response = isRecord(entry.response) ? entry.response : {};
+  const reconcileOwner = entry.reconcileOwner ?? {};
+  const reconcileCAS = entry.reconcileCAS ?? {};
+  return {
+    transportIndex: entry.transportIndex,
+    requestEventIndex: entry.requestEventIndex,
+    settlementEventIndex: entry.settlementEventIndex ?? 0,
+    resourcePath: entry.resourcePath,
+    ownerScope: entry.ownerScope,
+    method: entry.method,
+    path: entry.path,
+    classification: entry.classification,
+    mutatesDraft: entry.mutatesDraft,
+    actionLabel: entry.actionLabel ?? ABSENT,
+    actionEvent: entry.actionEvent ?? ABSENT,
+    requestId: entry.requestId ?? ABSENT,
+    requestCaptureId: entry.requestCaptureId ?? ABSENT,
+    requestBodyFingerprint: stableJSON(entry.requestBody ?? null),
+    commandId: body.commandId ?? command.commandId ?? ABSENT,
+    outputId: body.outputId ?? command.outputId ?? ABSENT,
+    snapshotToken: body.snapshotToken ?? ABSENT,
+    expectedDraftVersion: body.expectedDraftVersion ?? body.draftVersion ?? 0,
+    expectedDraftDigest: body.expectedDraftDigest ?? body.draftDigest ?? ABSENT,
+    choiceId: choice.choiceId ?? ABSENT,
+    choicePolicy: choice.rowValuePolicy ?? ABSENT,
+    removeStepIds: body.removeStepIds ?? [],
+    receiptId: body.receiptId ?? ABSENT,
+    receiptProducerTransportIndices: entry.receiptProducerTransportIndices ?? [],
+    hasInitialReceiptProducer: entry.hasInitialReceiptProducer === true,
+    responseOwnerIndex: entry.responseOwnerIndex ?? 0,
+    responseStatus: entry.status ?? 0,
+    responseRequestId: response.requestId ?? ABSENT,
+    responseReceiptId: response.receiptId ?? ABSENT,
+    responseReceiptIds: response.receiptIds ?? [],
+    responseOutputIds: response.outputIds ?? [],
+    responseSnapshotToken: response.snapshotToken ?? ABSENT,
+    candidateWorkspaceDigest: response.candidateWorkspaceDigest ?? ABSENT,
+    intentDigest: response.intentDigest ?? ABSENT,
+    ownerRequestId: reconcileOwner.requestId ?? ABSENT,
+    ownerGeneration: reconcileOwner.compileGeneration ?? 0,
+    ownerAttempt: reconcileOwner.attempt ?? 0,
+    reconcileSnapshotToken: reconcileCAS.snapshotToken ?? ABSENT,
+    reconcileDraftVersion: reconcileCAS.draftVersion ?? 0,
+    reconcileDraftDigest: reconcileCAS.draftDigest ?? ABSENT,
+    reconcileOutputId: reconcileCAS.outputId ?? ABSENT,
+    compatibleProposalTransportIndices: entry.compatibleProposalTransportIndices ?? [],
+    previewConsumerTransportIndices: entry.previewConsumerTransportIndices ?? [],
+    invalidatedByTransportIndices: entry.invalidatedByTransportIndices ?? [],
+    ownerInvalidationObserved: entry.ownerInvalidationObserved === true,
+    reconcileDisposition: entry.reconcileDisposition ?? ABSENT,
+    readOnlyReason: entry.readOnlyReason ?? ABSENT,
+    settlement: entry.settlement,
+  };
+}
+
 function validateTraceShape(trace) {
   requireRecord(trace, 'journey trace');
   assert.equal(trace.model, MODEL_NAME, `journey trace model must be ${MODEL_NAME}`);
@@ -230,6 +362,8 @@ function validateTraceShape(trace) {
   assert(Array.isArray(trace.actions), 'journey trace actions must be an array');
   assert.equal(trace.actions.length, EXPECTED_LABELS.length,
     `journey trace must contain ${EXPECTED_LABELS.length} observed actions`);
+  assert(Array.isArray(trace.transportLedger), 'journey trace must include its raw transport ledger');
+  assert(trace.transportLedger.length > 0, 'raw transport ledger must not be empty');
   for (const [index, entry] of trace.actions.entries()) {
     requireRecord(entry, `journey action ${index}`);
     requireString(entry.label, `journey action ${index} label`);
@@ -241,6 +375,112 @@ function validateTraceShape(trace) {
   for (const [label, count] of expectedCounts) {
     assert.equal(trace.actions.filter(entry => entry.label === label).length, count,
       `journey trace must contain ${count} ${label} action(s)`);
+  }
+  const transportEventIndices = [];
+  for (const [index, entry] of trace.transportLedger.entries()) {
+    requireRecord(entry, `transport ledger row ${index}`);
+    assert.equal(entry.transportIndex, index + 1,
+      'transport ledger rows must be ordered by contiguous observer index');
+    assert(Number.isInteger(entry.requestEventIndex) && entry.requestEventIndex > 0,
+      `transport ledger row ${index} must retain its request event index`);
+    assert(Number.isInteger(entry.settlementEventIndex)
+      && entry.settlementEventIndex > entry.requestEventIndex,
+    `transport ledger row ${index} must retain its ordered settlement event`);
+    requireString(entry.method, `transport ledger row ${index} method`);
+    assert.equal(entry.method, entry.method.toUpperCase(),
+      `transport ledger row ${index} method must be normalized`);
+    requireString(entry.path, `transport ledger row ${index} path`);
+    requireString(entry.resourcePath, `transport ledger row ${index} resourcePath`);
+    requireString(entry.ownerScope, `transport ledger row ${index} ownerScope`);
+    assert.equal(endpointPath(entry.resourcePath, `transport ledger row ${index}`), entry.path,
+      `transport ledger row ${index} resourcePath must match its endpoint`);
+    assert.equal(ownerScopeForResourcePath(entry.resourcePath, `transport ledger row ${index}`), entry.ownerScope,
+      `transport ledger row ${index} ownerScope must be derived from its resourcePath`);
+    assert(['response', 'request-failed'].includes(entry.settlement),
+      `transport ledger row ${index} must have a settled response or failure`);
+    if (entry.settlement === 'response') {
+      assert.equal(entry.responseOwnerIndex, entry.transportIndex,
+        `transport ledger row ${index} response must retain its exact request owner`);
+      assert(Number.isInteger(entry.status) && entry.status > 0,
+        `transport ledger row ${index} response must retain its HTTP status`);
+      assert(isRecord(entry.response), `transport ledger row ${index} must retain normalized response facts`);
+      assert.equal(entry.response.status, entry.status,
+        `transport ledger row ${index} response status must match the settlement`);
+    } else {
+      assert.equal(entry.responseOwnerIndex, null,
+        `failed transport ledger row ${index} cannot claim a response owner`);
+      assert.equal(entry.status, null, `failed transport ledger row ${index} cannot have a response status`);
+      assert.equal(entry.response ?? null, null, `failed transport ledger row ${index} cannot have response facts`);
+    }
+    const route = `${entry.method} ${entry.path}`;
+    const modeledMutation = MODELED_TRANSPORT_PATHS.get(route);
+    if (modeledMutation !== undefined) {
+      assert.equal(entry.classification, 'modeled', `${route} must remain semantically modeled`);
+      assert.equal(entry.mutatesDraft, modeledMutation, `${route} draft-mutation classification must match its contract`);
+    } else if (route === 'POST reconcile') {
+      assert.equal(entry.classification, 'reconcile', 'reconcile POSTs must retain owner/CAS modeling');
+      const ownerMatch = /^builder-(\d+)-(\d+)$/.exec(entry.requestId ?? '');
+      assert(ownerMatch, `reconcile transport ${entry.transportIndex} must retain its Builder owner generation and attempt`);
+      const body = requireRecord(entry.requestBody, `reconcile transport ${entry.transportIndex} request body`);
+      assert.equal(entry.reconcileOwner?.requestId, entry.requestId);
+      assert.equal(entry.reconcileOwner?.compileGeneration, Number(ownerMatch[1]));
+      assert.equal(entry.reconcileOwner?.attempt, Number(ownerMatch[2]));
+      assert.deepEqual(entry.reconcileCAS, {
+        snapshotToken: body.snapshotToken,
+        draftVersion: body.draftVersion,
+        draftDigest: body.draftDigest,
+        outputId: body.outputId ?? null,
+      });
+      assert.equal(entry.reconcileCAS.snapshotToken, body.snapshotToken);
+      assert.equal(entry.reconcileCAS.draftVersion, body.draftVersion);
+      assert.equal(entry.reconcileCAS.draftDigest, body.draftDigest);
+      if (entry.settlement === 'response' && entry.status === 200) {
+        requireString(entry.response.receiptId, `reconcile transport ${entry.transportIndex} receiptId`);
+        assert.equal(entry.response.snapshotToken, body.snapshotToken);
+        assert(Array.isArray(entry.response.outputIds) && entry.response.outputIds.length > 0,
+          `reconcile transport ${entry.transportIndex} must retain output IDs`);
+        assert.equal(typeof entry.ownerInvalidationObserved, 'boolean');
+      } else {
+        assert.equal(entry.ownerInvalidationObserved, false);
+      }
+    } else {
+      const readOnlyReason = READ_ONLY_TRANSPORT_PATHS.get(route);
+      assert(readOnlyReason, `unsupported authoring transport ${route}`);
+      assert.equal(entry.classification, 'read-only', `${route} must be explicitly classified as read-only`);
+      assert.equal(entry.mutatesDraft, false, `${route} cannot be classified as a draft mutation`);
+      assert.equal(entry.readOnlyReason, readOnlyReason, `${route} must retain its registered read-only reason`);
+    }
+    transportEventIndices.push(entry.requestEventIndex, entry.settlementEventIndex);
+  }
+  assert.equal(new Set(transportEventIndices).size, transportEventIndices.length,
+    'each observed transport request and settlement must have a distinct event index');
+  assert.deepEqual([...transportEventIndices].sort((left, right) => left - right),
+    Array.from({ length: transportEventIndices.length }, (_, index) => index + 1),
+    'transport ledger must retain every request and settlement event in its scope');
+
+  const actionTransportIndices = trace.actions
+    .filter(entry => MODELED_REQUEST_EVENTS.has(entry.event))
+    .map(entry => entry.request?.transportIndex);
+  assert(actionTransportIndices.every(index => Number.isInteger(index) && index > 0),
+    'every modeled request action must retain its raw transport index');
+  assert.equal(new Set(actionTransportIndices).size, actionTransportIndices.length,
+    'modeled request actions must bind distinct raw transport indexes');
+  const ledgerModeledIndices = trace.transportLedger
+    .filter(entry => entry.classification === 'modeled')
+    .map(entry => entry.transportIndex);
+  assert.deepEqual([...ledgerModeledIndices].sort((left, right) => left - right),
+    [...actionTransportIndices].sort((left, right) => left - right),
+    'modeled raw transport rows must biject to modeled request actions');
+  const modeledActionByTransport = new Map(trace.actions
+    .filter(entry => MODELED_REQUEST_EVENTS.has(entry.event))
+    .map(entry => [entry.request.transportIndex, entry]));
+  for (const entry of trace.transportLedger.filter(row => row.classification === 'modeled')) {
+    const actionRecord = modeledActionByTransport.get(entry.transportIndex);
+    assert(actionRecord, `modeled transport ${entry.transportIndex} must bind one action request`);
+    assert.equal(entry.actionLabel, actionRecord.label);
+    assert.equal(entry.actionEvent, actionRecord.event);
+    assert.equal(entry.requestId ?? null, actionRecord.request.requestId ?? null);
+    assert.equal(entry.requestCaptureId ?? null, actionRecord.request.captureId ?? null);
   }
   requireRecord(trace.initialObservation, 'initial observation');
   requireRecord(trace.initialObservation.workspace, 'initial workspace observation');
@@ -312,6 +552,11 @@ export function buildPolicyOneMutationControls(trace) {
     const body = action(mutated, 'AllSubmitted').request.body;
     body.expectedDraftVersion = staleRequest.expectedDraftVersion;
     body.expectedDraftDigest = staleRequest.expectedDraftDigest;
+    const transport = mutated.transportLedger.find(entry =>
+      entry.transportIndex === action(mutated, 'AllSubmitted').request.transportIndex);
+    assert(transport, 'stale-CAS mutation must retain its matching raw transport row');
+    transport.requestBody.expectedDraftVersion = staleRequest.expectedDraftVersion;
+    transport.requestBody.expectedDraftDigest = staleRequest.expectedDraftDigest;
   });
 
   const allSubmittedIndex = actionIndex(trace, 'AllSubmitted');
@@ -331,6 +576,10 @@ export function buildPolicyOneMutationControls(trace) {
     const savedAfter = action(mutated, 'RemovalApplied').savedAfter;
     savedAfter.draftVersion = actualAllState.draftVersion;
     savedAfter.draftDigest = actualAllState.draftDigest;
+  });
+
+  add('request-body-ledger-drift', 'ObservedTransportLedgerInvariant', mutated => {
+    action(mutated, 'GroupPreviewSubmitted').request.body.observationProbe = true;
   });
 
   const appliedAllGroup = action(trace, 'RemovalApplied').savedBefore.group;
@@ -462,6 +711,7 @@ function deriveModelConstants(trace) {
     ObservedLabels: trace.actions.map(entry => entry.label),
     ObservedEvents: trace.actions.map(entry => entry.event),
     ObservedActions: trace.actions.map(actionFact),
+    ObservedTransportLedger: trace.transportLedger.map(transportFact),
     ObservedInitialWorkspace: trace.initialObservation.workspace,
     ObservedInitialDraftVersion: trace.initialObservation.draftVersion,
     ObservedInitialDraftDigest: trace.initialObservation.draftDigest,
@@ -469,13 +719,8 @@ function deriveModelConstants(trace) {
       outputId: trace.initialPreview.outputId ?? sourceWorkspace.documentId,
       rowCount: trace.initialPreview.rowCount,
       patientIds,
+      receiptId: trace.initialPreview.binding?.receiptId ?? ABSENT,
     },
-    ObservedUnmodeledEvents: (trace.unmodeledEvents ?? []).map(event => ({
-      method: String(event.method ?? '').toUpperCase(),
-      path: event.path ?? ABSENT,
-      commandId: event.commandId ?? ABSENT,
-      commandType: event.commandType ?? ABSENT,
-    })),
   };
 }
 
@@ -492,11 +737,11 @@ function generateReplayModule(moduleName, observations) {
     `ObservedLabels == ${tlavalue(observations.ObservedLabels)}`,
     `ObservedEvents == ${tlavalue(observations.ObservedEvents)}`,
     `ObservedActions == ${tlavalue(observations.ObservedActions)}`,
+    `ObservedTransportLedger == ${tlavalue(observations.ObservedTransportLedger)}`,
     `ObservedInitialWorkspace == ${tlavalue(observations.ObservedInitialWorkspace)}`,
     `ObservedInitialDraftVersion == ${tlavalue(observations.ObservedInitialDraftVersion)}`,
     `ObservedInitialDraftDigest == ${tlavalue(observations.ObservedInitialDraftDigest)}`,
     `ObservedInitialPreview == ${tlavalue(observations.ObservedInitialPreview)}`,
-    `ObservedUnmodeledEvents == ${tlavalue(observations.ObservedUnmodeledEvents)}`,
     '',
     'ExpectedLabels == <<"GroupPreviewSubmitted", "GroupPreviewReady",',
     '  "GroupApplySubmitted", "GroupApplied", "OneSubmitted", "OneRejected",',
@@ -794,9 +1039,211 @@ function generateReplayModule(moduleName, observations) {
       '     /\ applyRequest.commandId = ObservedActions[AllReadyIndex].response.commandId',
       '     /\ ObservedActions[AllReadyIndex].response.commandId = ObservedActions[AllSubmittedIndex].request.commandId',
     '',
-    'ObservedUnmodeledWrites ==',
-    '  \\A index \\in 1..Len(ObservedUnmodeledEvents):',
-    '    ObservedUnmodeledEvents[index].method \\in {"", "GET", "HEAD", "OPTIONS"}',
+    'ModeledRequestEvents == {"preview", "begin-apply", "choice-preview", "apply-construction-choice"}',
+    '',
+    'ModeledRequestActionRows ==',
+    '  {index \\in 1..Len(ObservedActions) :',
+    '    ObservedActions[index].event \\in ModeledRequestEvents}',
+    '',
+    'ActionTransportIndices ==',
+    '  {ObservedActions[index].request.transportIndex : index \\in ModeledRequestActionRows}',
+    '',
+    'LedgerModeledRows ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    ObservedTransportLedger[index].classification = "modeled"}',
+    '',
+    'LedgerModeledIndices ==',
+    '  {ObservedTransportLedger[index].transportIndex : index \\in LedgerModeledRows}',
+    '',
+    'LedgerTransportIndices ==',
+    '  {ObservedTransportLedger[index].transportIndex : index \\in 1..Len(ObservedTransportLedger)}',
+    '',
+    'TransportActionMatches(entry) ==',
+    '  \\E actionIndex \\in 1..Len(ObservedActions):',
+    '    LET action == ObservedActions[actionIndex] IN',
+    '      /\\ action.label = entry.actionLabel',
+    '      /\\ action.event = entry.actionEvent',
+    '      /\\ action.request.present',
+    '      /\\ action.request.transportIndex = entry.transportIndex',
+    '      /\\ action.request.bodyFingerprint = entry.requestBodyFingerprint',
+    '      /\\ action.request.requestId = entry.requestId',
+    '      /\\ action.request.captureId = entry.requestCaptureId',
+    '      /\\ action.request.commandId = entry.commandId',
+    '      /\\ action.request.outputId = entry.outputId',
+    '      /\\ action.request.snapshotToken = entry.snapshotToken',
+    '      /\\ action.request.expectedDraftVersion = entry.expectedDraftVersion',
+    '      /\\ action.request.expectedDraftDigest = entry.expectedDraftDigest',
+    '      /\\ action.request.choiceId = entry.choiceId',
+    '      /\\ action.request.choicePolicy = entry.choicePolicy',
+    '      /\\ action.request.removeStepIds = entry.removeStepIds',
+    '',
+    'ReadOnlyTransportSupported(entry) ==',
+    '  \\/ /\\ entry.method = "GET"',
+    '       /\\ entry.path \\in {"builder", "capability"}',
+    '  \\/ /\\ entry.method = "POST"',
+    '       /\\ entry.path \\in {"construction-capabilities", "construction-inputs",',
+    '          "construction-choices", "preview"}',
+    '',
+    'TransportRequestEventIndices ==',
+    '  {ObservedTransportLedger[index].requestEventIndex : index \\in 1..Len(ObservedTransportLedger)}',
+    '',
+    'TransportSettlementEventIndices ==',
+    '  {ObservedTransportLedger[index].settlementEventIndex : index \\in 1..Len(ObservedTransportLedger)}',
+    '',
+    'TransportEventIndices == TransportRequestEventIndices \\cup TransportSettlementEventIndices',
+    '',
+    'TransportCaptureValid(entry, index) ==',
+    '  /\\ entry.transportIndex = index',
+    '  /\\ entry.requestEventIndex > 0',
+    '  /\\ entry.settlement \\in {"response", "request-failed"}',
+    '  /\\ entry.settlementEventIndex > entry.requestEventIndex',
+    '  /\\ IF entry.settlement = "response"',
+    '       THEN /\\ entry.responseOwnerIndex = index',
+    '            /\\ entry.responseStatus > 0',
+    '       ELSE /\\ entry.responseOwnerIndex = 0',
+    '            /\\ entry.responseStatus = 0',
+    '  /\\ IF index = 1',
+    '       THEN TRUE',
+    '       ELSE ObservedTransportLedger[index - 1].requestEventIndex < entry.requestEventIndex',
+    '',
+    'CompatibleReceiptProducerRows(preview) ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    /\\ ObservedTransportLedger[index].settlement = "response"',
+    '    /\\ ObservedTransportLedger[index].responseStatus = 200',
+    '    /\\ ObservedTransportLedger[index].settlementEventIndex < preview.requestEventIndex',
+    '    /\\ ObservedTransportLedger[index].ownerScope = preview.ownerScope',
+    '    /\\ (ObservedTransportLedger[index].classification = "reconcile"',
+    '      \\/ (ObservedTransportLedger[index].classification = "modeled"',
+    '        /\\ ObservedTransportLedger[index].path',
+    '          \\in {"construction-proposals", "construction-choice-proposals"}))',
+    '    /\\ preview.receiptId \\in SequenceSet(ObservedTransportLedger[index].responseReceiptIds)',
+    '    /\\ preview.outputId \\in SequenceSet(ObservedTransportLedger[index].responseOutputIds)}',
+    '',
+    'CompatibleReceiptProducers(preview) ==',
+    '  (IF ObservedInitialPreview.receiptId = preview.receiptId',
+    '       /\\ ObservedInitialPreview.outputId = preview.outputId',
+    '   THEN {0} ELSE {})',
+    '  \\cup {ObservedTransportLedger[index].transportIndex :',
+    '    index \\in CompatibleReceiptProducerRows(preview)}',
+    '',
+    'TransportRowValid(entry) ==',
+    '  IF entry.classification = "modeled"',
+    '  THEN /\\ entry.method = "POST"',
+    '       /\\ entry.path \\in {"construction-proposals", "construction-choice-proposals", "commands"}',
+    '       /\\ entry.mutatesDraft = (entry.path = "commands")',
+    '       /\\ TransportActionMatches(entry)',
+    '       /\\ TransportCaptureValid(entry, entry.transportIndex)',
+    '  ELSE IF entry.classification = "read-only"',
+    '    THEN /\\ ReadOnlyTransportSupported(entry)',
+    '         /\\ ~entry.mutatesDraft',
+    '         /\\ TransportCaptureValid(entry, entry.transportIndex)',
+    '         /\\ (entry.path = "preview" =>',
+    '              /\\ (Len(entry.receiptProducerTransportIndices) > 0 \\/ entry.hasInitialReceiptProducer)',
+    '              /\\ SequenceSet(entry.receiptProducerTransportIndices) = CompatibleReceiptProducers(entry))',
+    '         /\\ (entry.path # "preview" => entry.readOnlyReason # "Absent")',
+    '  ELSE IF entry.classification = "reconcile"',
+    '    THEN /\\ entry.method = "POST"',
+    '         /\\ entry.path = "reconcile"',
+    '         /\\ ~entry.mutatesDraft',
+    '         /\\ TransportCaptureValid(entry, entry.transportIndex)',
+    '         /\\ entry.ownerRequestId = entry.requestId',
+    '         /\\ entry.ownerGeneration > 0',
+    '         /\\ entry.ownerAttempt > 0',
+    '         /\\ entry.reconcileSnapshotToken = entry.snapshotToken',
+    '         /\\ entry.reconcileDraftVersion = entry.expectedDraftVersion',
+    '         /\\ entry.reconcileDraftDigest = entry.expectedDraftDigest',
+    '         /\\ IF entry.settlement = "request-failed"',
+    '              THEN /\\ ~entry.ownerInvalidationObserved',
+    '                   /\\ entry.reconcileDisposition = "request-failed"',
+    '              ELSE IF entry.responseStatus = 200',
+    '                THEN /\\ entry.responseOwnerIndex = entry.transportIndex',
+    '                     /\\ entry.responseReceiptId # "Absent"',
+    '                     /\\ entry.responseSnapshotToken = entry.snapshotToken',
+    '                     /\\ Len(entry.responseOutputIds) > 0',
+    '                     /\\ (entry.reconcileOutputId # "Absent" =>',
+    '                          entry.reconcileOutputId \\in SequenceSet(entry.responseOutputIds))',
+    '                     /\\ entry.reconcileDisposition =',
+    '                          IF entry.ownerInvalidationObserved',
+    '                          THEN "invalidated-by-captured-owner-event"',
+    '                          ELSE "no-captured-owner-invalidation"',
+    '                ELSE /\\ ~entry.ownerInvalidationObserved',
+    '                     /\\ entry.reconcileDisposition = "rejected"',
+    '  ELSE FALSE',
+    '',
+    'CompatibleProposalReceiptRows(entry) ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    /\\ ObservedTransportLedger[index].classification = "modeled"',
+    '    /\\ ObservedTransportLedger[index].path',
+    '      \\in {"construction-proposals", "construction-choice-proposals"}',
+    '    /\\ ObservedTransportLedger[index].ownerScope = entry.ownerScope',
+    '    /\\ ObservedTransportLedger[index].settlement = "response"',
+    '    /\\ ObservedTransportLedger[index].responseStatus = 200',
+    '    /\\ ObservedTransportLedger[index].settlementEventIndex < entry.settlementEventIndex',
+    '    /\\ entry.responseReceiptId',
+    '      \\in SequenceSet(ObservedTransportLedger[index].responseReceiptIds)',
+    '    /\\ ObservedTransportLedger[index].responseSnapshotToken = entry.responseSnapshotToken',
+    '    /\\ entry.intentDigest # "Absent"',
+    '    /\\ ObservedTransportLedger[index].candidateWorkspaceDigest = entry.intentDigest',
+    '    /\\ (entry.reconcileOutputId = "Absent"',
+    '      \\/ entry.reconcileOutputId',
+    '        \\in SequenceSet(ObservedTransportLedger[index].responseOutputIds))}',
+    '',
+    'CompatibleProposalReceipts(entry) ==',
+    '  {ObservedTransportLedger[index].transportIndex : index \\in CompatibleProposalReceiptRows(entry)}',
+    '',
+    'CompatiblePreviewConsumerRows(entry) ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    /\\ ObservedTransportLedger[index].classification = "read-only"',
+    '    /\\ ObservedTransportLedger[index].path = "preview"',
+    '    /\\ ObservedTransportLedger[index].ownerScope = entry.ownerScope',
+    '    /\\ ObservedTransportLedger[index].requestEventIndex > entry.settlementEventIndex',
+    '    /\\ ObservedTransportLedger[index].receiptId = entry.responseReceiptId',
+    '    /\\ (entry.reconcileOutputId = "Absent"',
+    '      \\/ ObservedTransportLedger[index].outputId = entry.reconcileOutputId)}',
+    '',
+    'CompatiblePreviewConsumers(entry) ==',
+    '  {ObservedTransportLedger[index].transportIndex : index \\in CompatiblePreviewConsumerRows(entry)}',
+    '',
+    'CompatibleInvalidationRows(entry) ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    /\\ ObservedTransportLedger[index].ownerScope = entry.ownerScope',
+    '    /\\ ObservedTransportLedger[index].requestEventIndex > entry.requestEventIndex',
+    '    /\\ ObservedTransportLedger[index].requestEventIndex < entry.settlementEventIndex',
+    '    /\\ ((ObservedTransportLedger[index].classification = "modeled"',
+    '          /\\ ObservedTransportLedger[index].path = "commands")',
+    '      \\/ (ObservedTransportLedger[index].classification = "reconcile"',
+    '          /\\ ObservedTransportLedger[index].ownerGeneration > entry.ownerGeneration))}',
+    '',
+    'CompatibleInvalidations(entry) ==',
+    '  {ObservedTransportLedger[index].transportIndex : index \\in CompatibleInvalidationRows(entry)}',
+    '',
+    'ReconcileConsumptionValid(entry) ==',
+    '  IF entry.settlement = "response" /\\ entry.responseStatus = 200',
+    '  THEN /\\ entry.ownerInvalidationObserved = (Cardinality(CompatibleInvalidations(entry)) > 0)',
+    '       /\\ SequenceSet(entry.compatibleProposalTransportIndices) = CompatibleProposalReceipts(entry)',
+    '       /\\ Cardinality(SequenceSet(entry.compatibleProposalTransportIndices)) = Len(entry.compatibleProposalTransportIndices)',
+    '       /\\ SequenceSet(entry.previewConsumerTransportIndices) = CompatiblePreviewConsumers(entry)',
+    '       /\\ Cardinality(SequenceSet(entry.previewConsumerTransportIndices)) = Len(entry.previewConsumerTransportIndices)',
+    '       /\\ SequenceSet(entry.invalidatedByTransportIndices) = CompatibleInvalidations(entry)',
+    '       /\\ Cardinality(SequenceSet(entry.invalidatedByTransportIndices)) = Len(entry.invalidatedByTransportIndices)',
+    '  ELSE /\\ Len(entry.compatibleProposalTransportIndices) = 0',
+    '       /\\ Len(entry.previewConsumerTransportIndices) = 0',
+    '       /\\ Len(entry.invalidatedByTransportIndices) = 0',
+    '',
+    'ObservedTransportLedgerInvariant ==',
+    '  /\\ Len(ObservedTransportLedger) > 0',
+    '  /\\ LedgerTransportIndices = 1..Len(ObservedTransportLedger)',
+    '  /\\ Cardinality(TransportRequestEventIndices) = Len(ObservedTransportLedger)',
+    '  /\\ Cardinality(TransportSettlementEventIndices) = Len(ObservedTransportLedger)',
+    '  /\\ TransportEventIndices = 1..(2 * Len(ObservedTransportLedger))',
+    '  /\\ LedgerModeledIndices = ActionTransportIndices',
+    '  /\\ Cardinality(ActionTransportIndices) =',
+    '       Cardinality({index \\in 1..Len(ObservedActions) :',
+    '         ObservedActions[index].event \\in ModeledRequestEvents})',
+    '  /\\ \\A index \\in 1..Len(ObservedTransportLedger):',
+    '       /\\ TransportRowValid(ObservedTransportLedger[index])',
+    '       /\\ (ObservedTransportLedger[index].classification = "reconcile" =>',
+    '            ReconcileConsumptionValid(ObservedTransportLedger[index]))',
     '',
     'ObservedChronology ==',
     '  /\ ObservedLabels = ExpectedLabels',
@@ -869,7 +1316,7 @@ function generateConfig(constants) {
     'INVARIANT ObservedPolicyCAS',
     'INVARIANT ObservedChoiceRepair',
     'INVARIANT ObservedDraftTransitions',
-    'INVARIANT ObservedUnmodeledWrites',
+    'INVARIANT ObservedTransportLedgerInvariant',
     'INVARIANT ObservedChronology',
     'INVARIANT TraceProgress',
     'PROPERTY ReplayCompletes',

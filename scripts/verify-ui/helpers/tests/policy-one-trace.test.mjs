@@ -17,6 +17,47 @@ const eventNames = [
   'AllApplied',
 ];
 
+const extraTransport = ({
+  transportIndex,
+  requestEventIndex,
+  settlementEventIndex,
+  method = 'GET',
+  path,
+  requestId = null,
+  requestBody = null,
+  status = 200,
+  response,
+}) => {
+  const origin = 'https://fixture.invalid';
+  const ownerPrefix = '/api/explorers/policy-one';
+  return {
+    transportIndex,
+    requestEventIndex,
+    settlementEventIndex,
+    method,
+    path,
+    resourcePath: `${origin}${ownerPrefix}/authoring/v2/${path}`,
+    ownerScope: `${origin}${ownerPrefix}`,
+    requestId,
+    requestCaptureId: null,
+    requestBody,
+    settlement: status === null ? 'request-failed' : 'response',
+    responseOwnerIndex: status === null ? null : transportIndex,
+    status,
+    response: status === null ? null : {
+      status,
+      requestId,
+      receiptId: null,
+      receiptIds: [],
+      outputIds: [],
+      snapshotToken: null,
+      candidateWorkspaceDigest: null,
+      intentDigest: null,
+      ...response,
+    },
+  };
+};
+
 const captureMutations = [
   ['wrong request object ownership', input => { input.responses.one.requestObject = {}; }, /exact captured request object/],
   ['wrong response captureId', input => { input.responses.one.captureId = 'some-other-capture'; }, /captureId must match/],
@@ -60,6 +101,12 @@ test('a valid ONE rejection and same-choice ALL Apply persist distinct input and
   const input = makePolicyOneTraceInput();
   Object.freeze(input.expected);
   const { journeyTrace: trace } = buildPolicyOneTrace(input);
+  assert.deepEqual(trace.transportLedger
+    .filter(entry => entry.path === 'construction-choice-proposals')
+    .map(({ classification, mutatesDraft }) => ({ classification, mutatesDraft })), [
+    { classification: 'modeled', mutatesDraft: false },
+    { classification: 'modeled', mutatesDraft: false },
+  ], 'choice proposal POSTs remain semantically modeled even though they do not mutate the saved draft');
   assert.equal(Object.hasOwn(input.requests.apply.body, 'outputId'), false,
     'the commands API carries outputId on its command, not on the body root');
   assert.equal(input.requests.apply.body.commands[0].outputId, input.expected.outputId);
@@ -166,4 +213,176 @@ test('the adapter rejects an Apply command targeting another output', () => {
   const input = makePolicyOneTraceInput();
   input.requests.apply.body.commands[0].outputId = 'other-output';
   assert.throws(() => buildPolicyOneTrace(input), /Apply command must target the expected output/);
+});
+
+test('the transport ledger accounts for explicitly supported read-only routes and rejects unknown POSTs', () => {
+  const input = makePolicyOneTraceInput();
+  input.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'POST',
+    path: 'construction-inputs',
+    requestBody: { outputId: 'output-1', field: 'Patient.id' },
+  }));
+  const trace = buildPolicyOneTrace(input).journeyTrace;
+  const readOnly = trace.transportLedger.at(-1);
+  assert.equal(readOnly.classification, 'read-only');
+  assert.equal(readOnly.mutatesDraft, false);
+  assert.equal(readOnly.readOnlyReason, 'Construction stage inputs read');
+
+  const readOnlyGet = makePolicyOneTraceInput();
+  readOnlyGet.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'GET',
+    path: 'builder',
+  }));
+  assert.equal(buildPolicyOneTrace(readOnlyGet).journeyTrace.transportLedger.at(-1).readOnlyReason,
+    'BuilderState read');
+
+  const unknownPost = makePolicyOneTraceInput();
+  unknownPost.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'POST',
+    path: 'unregistered-endpoint',
+    requestBody: {},
+  }));
+  assert.throws(() => buildPolicyOneTrace(unknownPost), /unsupported authoring transport POST unregistered-endpoint/);
+
+  const unknownGet = makePolicyOneTraceInput();
+  unknownGet.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'GET',
+    path: 'unregistered-endpoint',
+  }));
+  assert.throws(() => buildPolicyOneTrace(unknownGet), /unsupported authoring transport GET unregistered-endpoint/);
+});
+
+test('the transport ledger rejects a missing event or a request not bijected to its raw row', () => {
+  const missingEvent = makePolicyOneTraceInput();
+  missingEvent.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 9,
+    method: 'GET',
+    path: 'builder',
+  }));
+  assert.throws(() => buildPolicyOneTrace(missingEvent), /account for every request and settlement event/);
+
+  const bodyMismatch = makePolicyOneTraceInput();
+  bodyMismatch.context.transportCaptures[0].requestBody = { ...bodyMismatch.context.transportCaptures[0].requestBody,
+    snapshotToken: 'different-snapshot' };
+  assert.throws(() => buildPolicyOneTrace(bodyMismatch), /raw request body must match its request capture/);
+
+  const missingCaptureId = makePolicyOneTraceInput();
+  missingCaptureId.context.transportCaptures[0].requestCaptureId = null;
+  assert.throws(() => buildPolicyOneTrace(missingCaptureId), /transport capture ID must match its exact request capture/);
+});
+
+test('reconcile rows bind the actual owner and CAS while preserving set-valued receipt relations', () => {
+  const input = makePolicyOneTraceInput();
+  const sharedReceipt = {
+    status: 200,
+    receiptId: 'same-content-receipt',
+    receiptIds: ['same-content-receipt'],
+    outputIds: ['output-1'],
+    snapshotToken: 'snapshot-1',
+    intentDigest: 'intent-current',
+  };
+  const reconcile = (transportIndex, requestEventIndex, settlementEventIndex, generation) => extraTransport({
+    transportIndex,
+    requestEventIndex,
+    settlementEventIndex,
+    method: 'POST',
+    path: 'reconcile',
+    requestId: `builder-${generation}-1`,
+    requestBody: { snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-before' },
+    response: { ...sharedReceipt, requestId: `builder-${generation}-1` },
+  });
+  input.context.transportCaptures.push(
+    reconcile(4, 7, 10, 10),
+    reconcile(5, 8, 9, 11),
+    extraTransport({
+      transportIndex: 6,
+      requestEventIndex: 11,
+      settlementEventIndex: 12,
+      method: 'POST',
+      path: 'preview',
+      requestBody: { receiptId: 'same-content-receipt', outputId: 'output-1' },
+    }),
+  );
+
+  const rows = buildPolicyOneTrace(input).journeyTrace.transportLedger;
+  const first = rows[3];
+  const second = rows[4];
+  const preview = rows[5];
+  assert.deepEqual(first.reconcileOwner, {
+    requestId: 'builder-10-1', compileGeneration: 10, attempt: 1,
+  });
+  assert.deepEqual(first.reconcileCAS, {
+    snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-before', outputId: null,
+  });
+  assert.equal(first.ownerInvalidationObserved, true);
+  assert.equal(first.reconcileDisposition, 'invalidated-by-captured-owner-event');
+  assert.deepEqual(first.invalidatedByTransportIndices, [5],
+    'only a same-explorer newer generation started before the old response invalidates its owner');
+  assert.equal(second.ownerInvalidationObserved, false);
+  assert.equal(second.reconcileDisposition, 'no-captured-owner-invalidation');
+  assert.deepEqual(first.previewConsumerTransportIndices, [6]);
+  assert.deepEqual(second.previewConsumerTransportIndices, [6]);
+  assert.deepEqual(preview.receiptProducerTransportIndices, [4, 5],
+    'identical receipt identities preserve every compatible producer relation without choosing one parent');
+});
+
+test('a later reconcile cannot retroactively invalidate an already settled owner', () => {
+  const input = makePolicyOneTraceInput();
+  const reconcile = (transportIndex, requestEventIndex, settlementEventIndex, generation) => extraTransport({
+    transportIndex,
+    requestEventIndex,
+    settlementEventIndex,
+    method: 'POST',
+    path: 'reconcile',
+    requestId: `builder-${generation}-1`,
+    requestBody: { snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-before' },
+    response: {
+      status: 200,
+      requestId: `builder-${generation}-1`,
+      receiptId: `receipt-${generation}`,
+      receiptIds: [`receipt-${generation}`],
+      outputIds: ['output-1'],
+      snapshotToken: 'snapshot-1',
+      intentDigest: `intent-${generation}`,
+    },
+  });
+  input.context.transportCaptures.push(reconcile(4, 7, 8, 20), reconcile(5, 9, 10, 21));
+  const rows = buildPolicyOneTrace(input).journeyTrace.transportLedger;
+  assert.equal(rows[3].ownerInvalidationObserved, false);
+  assert.deepEqual(rows[3].invalidatedByTransportIndices, []);
+  assert.equal(rows[4].ownerInvalidationObserved, false);
+});
+
+test('a reconcile request failure remains a settled owner/CAS ledger row', () => {
+  const input = makePolicyOneTraceInput();
+  input.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'POST',
+    path: 'reconcile',
+    requestId: 'builder-6-1',
+    requestBody: { snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-before' },
+    status: null,
+  }));
+  const row = buildPolicyOneTrace(input).journeyTrace.transportLedger.at(-1);
+  assert.equal(row.classification, 'reconcile');
+  assert.equal(row.settlement, 'request-failed');
+  assert.equal(row.ownerInvalidationObserved, false);
+  assert.equal(row.reconcileDisposition, 'request-failed');
+  assert.deepEqual(row.invalidatedByTransportIndices, []);
 });

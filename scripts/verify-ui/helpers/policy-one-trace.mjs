@@ -2,6 +2,19 @@ import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 
 export const POLICY_TRACE_ABSENT = 'Absent';
+const MODELED_TRANSPORTS = new Map([
+  ['POST construction-proposals', false],
+  ['POST construction-choice-proposals', false],
+  ['POST commands', true],
+]);
+const READ_ONLY_TRANSPORTS = new Map([
+  ['GET builder', 'BuilderState read'],
+  ['GET capability', 'Explorer capability read'],
+  ['POST construction-capabilities', 'Construction capabilities read'],
+  ['POST construction-inputs', 'Construction stage inputs read'],
+  ['POST construction-choices', 'Construction source choices read'],
+  ['POST preview', 'Receipt-backed preview read'],
+]);
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
@@ -79,6 +92,275 @@ function pathMatches(path, suffix, label) {
   assert(pathname.endsWith(suffix), `${label} must target ${suffix}`);
 }
 
+function transportEndpoint(path, label) {
+  nonEmptyString(path, `${label} path`);
+  let pathname;
+  try {
+    pathname = new URL(path, 'http://loom.invalid').pathname;
+  } catch {
+    assert.fail(`${label} path must be a valid URL or pathname`);
+  }
+  const prefix = '/authoring/v2/';
+  const marker = pathname.indexOf(prefix);
+  const endpoint = marker < 0 ? pathname.replace(/^\/+/, '') : pathname.slice(marker + prefix.length);
+  assert(endpoint.length > 0, `${label} must name an authoring endpoint`);
+  return endpoint;
+}
+
+function transportOwnerScope(resourcePath, label) {
+  nonEmptyString(resourcePath, `${label} resource path`);
+  let url;
+  try {
+    url = new URL(resourcePath, 'http://loom.invalid');
+  } catch {
+    assert.fail(`${label} resource path must be a valid URL or pathname`);
+  }
+  const marker = url.pathname.indexOf('/authoring/v2/');
+  assert(marker >= 0, `${label} resource path must retain its authoring owner scope`);
+  return `${url.origin}${url.pathname.slice(0, marker)}`;
+}
+
+function modeledRequestReferences(requests, context) {
+  return [
+    { label: 'OneSubmitted', event: 'choice-preview', request: requests.one },
+    { label: 'AllSubmitted', event: 'choice-preview', request: requests.all },
+    { label: 'AllApplySubmitted', event: 'apply-construction-choice', request: requests.apply },
+    ...context.actions.filter(action => isRecord(action.request)).map(action => ({
+      label: action.label,
+      event: action.event,
+      request: action.request,
+    })),
+  ];
+}
+
+function canonicalTransportLedger(captures, references, initialPreview) {
+  assert(Array.isArray(captures), 'workflow transport captures must be an array');
+  const ordered = [...captures].sort((left, right) => left.transportIndex - right.transportIndex);
+  const byIndex = new Map();
+  for (const [position, capture] of ordered.entries()) {
+    record(capture, `transport capture ${position}`);
+    assert(Number.isInteger(capture.transportIndex) && capture.transportIndex > 0,
+      `transport capture ${position} must retain its positive observer index`);
+    assert.equal(capture.transportIndex, position + 1,
+      'transport observer indexes must remain contiguous in request order');
+    assert(!byIndex.has(capture.transportIndex), 'transport observer indexes must be unique');
+    const method = nonEmptyString(capture.method, `transport ${capture.transportIndex} method`).toUpperCase();
+    const path = transportEndpoint(capture.path, `transport ${capture.transportIndex}`);
+    const resourcePath = nonEmptyString(capture.resourcePath,
+      `transport ${capture.transportIndex} resource path`);
+    assert.equal(transportEndpoint(resourcePath, `transport ${capture.transportIndex} resource path`), path,
+      `transport ${capture.transportIndex} resource path must match its authoring endpoint`);
+    const ownerScope = transportOwnerScope(resourcePath, `transport ${capture.transportIndex}`);
+    assert.equal(capture.ownerScope, ownerScope,
+      `transport ${capture.transportIndex} owner scope must come from its exact resource path`);
+    const requestBody = capture.requestBody ?? null;
+    finiteJSON(requestBody, `transport ${capture.transportIndex} request body`);
+    assert(['response', 'request-failed'].includes(capture.settlement),
+      `transport ${capture.transportIndex} must have a settled response or failure`);
+    assert(Number.isInteger(capture.requestEventIndex) && capture.requestEventIndex > 0,
+      `transport ${capture.transportIndex} must retain its request event order`);
+    if (position > 0) {
+      assert(ordered[position - 1].requestEventIndex < capture.requestEventIndex,
+        'transport observer indexes must preserve request event order');
+    }
+    assert(Number.isInteger(capture.settlementEventIndex)
+      && capture.settlementEventIndex > capture.requestEventIndex,
+    `transport ${capture.transportIndex} settlement must follow its request`);
+    if (capture.settlement === 'response') {
+      assert.equal(capture.responseOwnerIndex, capture.transportIndex,
+        `transport ${capture.transportIndex} response must retain its exact request owner`);
+      assert(isRecord(capture.response), `transport ${capture.transportIndex} response facts are required`);
+      assert.equal(capture.response.status, capture.status,
+        `transport ${capture.transportIndex} response status must match its settlement`);
+      finiteJSON(capture.response, `transport ${capture.transportIndex} response facts`);
+    } else {
+      assert.equal(capture.status, null, `failed transport ${capture.transportIndex} cannot have a response status`);
+      assert.equal(capture.responseOwnerIndex, null,
+        `failed transport ${capture.transportIndex} cannot claim a response owner`);
+      assert.equal(capture.response ?? null, null,
+        `failed transport ${capture.transportIndex} cannot contain response facts`);
+    }
+    byIndex.set(capture.transportIndex, {
+      ...capture,
+      method,
+      path,
+      resourcePath,
+      ownerScope,
+      requestBody,
+      requestId: capture.requestId ?? null,
+      requestCaptureId: capture.requestCaptureId ?? null,
+      response: capture.response ?? null,
+    });
+  }
+
+  const eventIndices = ordered.flatMap(capture => [capture.requestEventIndex, capture.settlementEventIndex])
+    .sort((left, right) => left - right);
+  assert.equal(new Set(eventIndices).size, eventIndices.length,
+    'every observed transport request and settlement must have a distinct event index');
+  assert.deepEqual(eventIndices, Array.from({ length: eventIndices.length }, (_, index) => index + 1),
+    'raw transport ledger must account for every request and settlement event in its scope');
+
+  const referencesByIndex = new Map();
+  for (const reference of references) {
+    record(reference.request, `${reference.label} modeled request`);
+    assert(Number.isInteger(reference.request.transportIndex) && reference.request.transportIndex > 0,
+      `${reference.label} must retain its raw observer transport index`);
+    assert(!referencesByIndex.has(reference.request.transportIndex),
+      'each modeled request must bind one raw observer transport index');
+    const capture = byIndex.get(reference.request.transportIndex);
+    assert(capture, `${reference.label} transport index was not captured by the raw observer`);
+    assert.equal(capture.method, reference.request.method.toUpperCase(),
+      `${reference.label} raw transport method must match its request capture`);
+    assert.equal(capture.path, transportEndpoint(reference.request.path, reference.label),
+      `${reference.label} raw transport path must match its request capture`);
+    assert.equal(capture.requestId, reference.request.requestId ?? null,
+      `${reference.label} raw request ID must match its request capture`);
+    nonEmptyString(reference.request.captureId, `${reference.label} request captureId`);
+    assert.equal(capture.requestCaptureId, reference.request.captureId,
+      `${reference.label} transport capture ID must match its exact request capture`);
+    assert(isDeepStrictEqual(capture.requestBody, reference.request.body),
+      `${reference.label} raw request body must match its request capture`);
+    referencesByIndex.set(reference.request.transportIndex, reference);
+  }
+
+  const rows = [...byIndex.values()].map(capture => {
+    const reference = referencesByIndex.get(capture.transportIndex);
+    const route = `${capture.method} ${capture.path}`;
+    const modeledMutation = MODELED_TRANSPORTS.get(route);
+    if (modeledMutation !== undefined) {
+      assert(reference, `${route} must be linked to a semantic journey request`);
+      return {
+        ...capture,
+        classification: 'modeled',
+        mutatesDraft: modeledMutation,
+        actionLabel: reference.label,
+        actionEvent: reference.event,
+      };
+    }
+    if (route === 'POST reconcile') {
+      assert(!reference, 'reconcile requests use the reconcile owner/CAS/consumption abstraction');
+      return { ...capture, classification: 'reconcile', mutatesDraft: false };
+    }
+    const support = READ_ONLY_TRANSPORTS.get(route);
+    assert(support, `unsupported authoring transport ${route}`);
+    assert(!reference, `${route} is read-only and cannot replace a modeled request`);
+    return {
+      ...capture,
+      classification: 'read-only',
+      mutatesDraft: false,
+      readOnlyReason: support,
+    };
+  });
+  assert.equal(referencesByIndex.size, rows.filter(row => row.classification === 'modeled').length,
+    'every modeled request must have exactly one raw transport row');
+
+  const initialReceipt = initialPreview?.binding?.receiptId ?? null;
+  const initialOutputId = initialPreview?.outputId ?? null;
+  for (const row of rows) {
+    if (row.method === 'POST' && row.path === 'preview') {
+      const receiptId = row.requestBody.receiptId;
+      const outputId = row.requestBody.outputId;
+      nonEmptyString(receiptId, `preview transport ${row.transportIndex} receiptId`);
+      nonEmptyString(outputId, `preview transport ${row.transportIndex} outputId`);
+      const compatible = rows.filter(candidate => candidate.transportIndex < row.transportIndex
+        && candidate.ownerScope === row.ownerScope
+        && candidate.settlement === 'response'
+        && candidate.status === 200
+        && candidate.settlementEventIndex < row.requestEventIndex
+        && (candidate.classification === 'reconcile'
+          || candidate.classification === 'modeled'
+            && ['construction-proposals', 'construction-choice-proposals'].includes(candidate.path))
+        && candidate.response.receiptIds?.includes(receiptId)
+        && candidate.response.outputIds?.includes(outputId));
+      row.receiptProducerTransportIndices = compatible.map(candidate => candidate.transportIndex);
+      row.hasInitialReceiptProducer = initialReceipt === receiptId && initialOutputId === outputId;
+      assert(compatible.length > 0 || row.hasInitialReceiptProducer,
+        `preview transport ${row.transportIndex} must consume a captured or initial receipt`);
+    }
+  }
+
+  for (const row of rows) {
+    if (row.classification !== 'reconcile') continue;
+    const body = row.requestBody;
+    nonEmptyString(row.requestId, `reconcile transport ${row.transportIndex} owner requestId`);
+    const ownerMatch = /^builder-(\d+)-(\d+)$/.exec(row.requestId);
+    assert(ownerMatch,
+      `reconcile transport ${row.transportIndex} must expose its compile generation and retry attempt`);
+    assert(Number.isInteger(body.draftVersion) && body.draftVersion > 0,
+      `reconcile transport ${row.transportIndex} must carry its current draft version`);
+    nonEmptyString(body.draftDigest, `reconcile transport ${row.transportIndex} draft digest`);
+    nonEmptyString(body.snapshotToken, `reconcile transport ${row.transportIndex} snapshot token`);
+    const response = row.response;
+    const matchingProposals = rows.filter(candidate => candidate.classification === 'modeled'
+      && ['construction-proposals', 'construction-choice-proposals'].includes(candidate.path)
+      && candidate.ownerScope === row.ownerScope
+      && candidate.transportIndex !== row.transportIndex
+      && candidate.settlement === 'response'
+      && candidate.status === 200
+      && candidate.settlementEventIndex < row.settlementEventIndex
+      && candidate.response.receiptIds?.includes(response?.receiptId)
+      && candidate.response.snapshotToken === response?.snapshotToken
+      && (body.outputId === undefined || candidate.response.outputIds?.includes(body.outputId))
+      && typeof response?.intentDigest === 'string'
+      && response.intentDigest.length > 0
+      && candidate.response.candidateWorkspaceDigest === response.intentDigest);
+    const previewConsumers = rows.filter(candidate => candidate.method === 'POST'
+      && candidate.path === 'preview'
+      && candidate.ownerScope === row.ownerScope
+      && candidate.transportIndex > row.transportIndex
+      && candidate.requestEventIndex > row.settlementEventIndex
+      && candidate.requestBody.receiptId === response?.receiptId
+      && (body.outputId === undefined || candidate.requestBody.outputId === body.outputId));
+    row.reconcileOwner = {
+      requestId: row.requestId,
+      compileGeneration: Number(ownerMatch[1]),
+      attempt: Number(ownerMatch[2]),
+    };
+    row.reconcileCAS = {
+      snapshotToken: body.snapshotToken,
+      draftVersion: body.draftVersion,
+      draftDigest: body.draftDigest,
+      outputId: body.outputId ?? null,
+    };
+    row.compatibleProposalTransportIndices = matchingProposals.map(candidate => candidate.transportIndex);
+    row.previewConsumerTransportIndices = previewConsumers.map(candidate => candidate.transportIndex);
+    if (row.settlement === 'response' && response.status === 200) {
+      nonEmptyString(response.receiptId, `reconcile transport ${row.transportIndex} receiptId`);
+      assert.equal(response.snapshotToken, body.snapshotToken,
+        `reconcile transport ${row.transportIndex} receipt must bind its requested snapshot`);
+      assert(Array.isArray(response.outputIds) && response.outputIds.length > 0,
+        `reconcile transport ${row.transportIndex} receipt must expose output identities`);
+      if (body.outputId) assert(response.outputIds.includes(body.outputId),
+        `reconcile transport ${row.transportIndex} receipt must include its selected output`);
+      const invalidatedBy = rows.filter(candidate => candidate.transportIndex > row.transportIndex
+        && candidate.ownerScope === row.ownerScope
+        && candidate.requestEventIndex < row.settlementEventIndex
+        && (candidate.classification === 'modeled' && candidate.path === 'commands'
+          || candidate.classification === 'reconcile'
+            && Number(/^builder-(\d+)-/.exec(candidate.requestId ?? '')?.[1] ?? 0) > Number(ownerMatch[1])));
+      row.invalidatedByTransportIndices = invalidatedBy.map(candidate => candidate.transportIndex);
+      row.ownerInvalidationObserved = row.invalidatedByTransportIndices.length > 0;
+      row.reconcileDisposition = row.ownerInvalidationObserved
+        ? 'invalidated-by-captured-owner-event'
+        : 'no-captured-owner-invalidation';
+    } else if (row.settlement === 'response') {
+      row.ownerInvalidationObserved = false;
+      row.reconcileDisposition = 'rejected';
+      row.compatibleProposalTransportIndices = [];
+      row.previewConsumerTransportIndices = [];
+      row.invalidatedByTransportIndices = [];
+    } else {
+      row.ownerInvalidationObserved = false;
+      row.reconcileDisposition = 'request-failed';
+      row.compatibleProposalTransportIndices = [];
+      row.previewConsumerTransportIndices = [];
+      row.invalidatedByTransportIndices = [];
+    }
+  }
+
+  return rows;
+}
+
 function draftIdentity(snapshot, label) {
   record(snapshot, `${label} saved snapshot`);
   assert(Number.isInteger(snapshot.draftVersion) && snapshot.draftVersion >= 0,
@@ -152,6 +434,8 @@ function inspectRequest(request, label, expectedPath, expected, policy, { linked
   assert.equal(request.method, 'POST', `${label} must be a POST`);
   pathMatches(request.path, expectedPath, label);
   nonEmptyString(request.captureId, `${label} captureId`);
+  assert(Number.isInteger(request.transportIndex) && request.transportIndex > 0,
+    `${label} must retain its raw observer transport index`);
   const requestId = optionalString(request.requestId, `${label} requestId`);
   finiteJSON(request.body, `${label} full request body`);
   const input = choiceProposalInput(request.body, label);
@@ -204,6 +488,7 @@ function inspectRequest(request, label, expectedPath, expected, policy, { linked
     requestObjectId,
     requestId,
     captureId: request.captureId,
+    transportIndex: request.transportIndex,
     commandId: commandId ?? POLICY_TRACE_ABSENT,
     input,
     selected,
@@ -234,6 +519,7 @@ function inspectResponse(response, request, label, expectedStatus) {
     requestId: responseRequestId === POLICY_TRACE_ABSENT ? request.requestId : responseRequestId,
     captureId: response.captureId,
     requestObjectId: request.requestObjectId,
+    transportIndex: request.transportIndex,
     commandId: response.commandId ?? POLICY_TRACE_ABSENT,
     status: response.status,
     code: response.errorCode ?? POLICY_TRACE_ABSENT,
@@ -347,6 +633,7 @@ function requestObservation(request, {
     requestId,
     captureId: request.captureId,
     requestObjectId: request.requestObjectId,
+    transportIndex: request.transportIndex ?? 0,
     commandId: request.commandId,
     responseCommandId,
     status,
@@ -407,6 +694,7 @@ function captureRequest(request, summary) {
     requestId: request.requestId ?? null,
     captureId: request.captureId,
     requestObjectId: summary.requestObjectId,
+    transportIndex: request.transportIndex,
     commandId: summary.commandId === POLICY_TRACE_ABSENT ? null : summary.commandId,
     body: finiteClone(request.body, 'captured request body'),
   };
@@ -418,6 +706,7 @@ function captureResponse(response, summary) {
     requestId: response.requestId ?? null,
     captureId: response.captureId,
     requestObjectId: summary.requestObjectId,
+    transportIndex: summary.transportIndex,
     commandId: response.commandId ?? null,
     errorCode: response.errorCode ?? null,
     ...(response.preview === undefined ? {} : { preview: finiteClone(response.preview, 'captured response preview') }),
@@ -617,10 +906,11 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
   record(context.initialObservation, 'SourceReady initial observation');
   record(context.initialPreview, 'initial source-grid observation');
   record(context.outcome, 'journey outcome projection');
-  const unmodeledEvents = finiteClone(context.unmodeledEvents ?? [], 'unmodeled events');
-  const backendCalls = finiteClone(context.backendCalls ?? [], 'backend calls');
-  assert(Array.isArray(unmodeledEvents), 'unmodeled events must be an array');
-  assert(Array.isArray(backendCalls), 'backend calls must be an array');
+  const transportLedger = canonicalTransportLedger(
+    context.transportCaptures,
+    modeledRequestReferences(requests, context),
+    context.initialPreview,
+  );
   return {
     journeyTrace: {
       name: traceName,
@@ -628,8 +918,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
       initialObservation: finiteClone(context.initialObservation, 'SourceReady initial observation'),
       initialPreview: finiteClone(context.initialPreview, 'initial source-grid observation'),
       actions,
-      unmodeledEvents,
-      backendCalls,
+      transportLedger,
       outcome: finiteClone(context.outcome, 'journey outcome projection'),
     },
   };

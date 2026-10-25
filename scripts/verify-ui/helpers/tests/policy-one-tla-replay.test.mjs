@@ -63,6 +63,126 @@ function checkStandaloneModelWithTLC() {
   return { status: result.status, output, error: result.error };
 }
 
+function makeSyntheticReconcileLedgerTrace() {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const ownerScope = trace.transportLedger[0].ownerScope;
+  const transport = ({
+    transportIndex, requestEventIndex, settlementEventIndex, method, path, requestBody,
+    requestId = null, status = 200, response = {}, classification = 'read-only',
+    readOnlyReason = 'Absent', receiptProducerTransportIndices = [],
+    compatibleProposalTransportIndices = [], previewConsumerTransportIndices = [],
+    invalidatedByTransportIndices = [], reconcileOwner = null, reconcileCAS = null,
+    ownerInvalidationObserved = false, reconcileDisposition = 'Absent',
+  }) => ({
+    transportIndex,
+    requestEventIndex,
+    settlementEventIndex,
+    resourcePath: `${ownerScope}/authoring/v2/${path}`,
+    ownerScope,
+    method,
+    path,
+    classification,
+    mutatesDraft: false,
+    actionLabel: null,
+    actionEvent: null,
+    requestId,
+    requestCaptureId: null,
+    requestBody,
+    settlement: 'response',
+    responseOwnerIndex: transportIndex,
+    status,
+    response: { status, ...response },
+    receiptProducerTransportIndices,
+    hasInitialReceiptProducer: false,
+    compatibleProposalTransportIndices,
+    previewConsumerTransportIndices,
+    invalidatedByTransportIndices,
+    reconcileOwner,
+    reconcileCAS,
+    ownerInvalidationObserved,
+    reconcileDisposition,
+    readOnlyReason,
+  });
+
+  const receiptId = 'policy-one-ledger-unit-receipt';
+  const firstReconcileIndex = trace.transportLedger.length + 1;
+  const secondReconcileIndex = firstReconcileIndex + 1;
+  const previewIndex = secondReconcileIndex + 1;
+  const addReconcile = ({ transportIndex, requestEventIndex, settlementEventIndex, generation,
+    invalidatedByTransportIndices = [], ownerInvalidationObserved }) => transport({
+    transportIndex,
+    requestEventIndex,
+    settlementEventIndex,
+    method: 'POST',
+    path: 'reconcile',
+    requestId: `builder-${generation}-1`,
+    requestBody: { snapshotToken: 'snapshot-ledger-unit', draftVersion: 5, draftDigest: 'draft-ledger-unit' },
+    classification: 'reconcile',
+    response: {
+      requestId: `builder-${generation}-1`,
+      receiptId,
+      receiptIds: [receiptId],
+      outputIds: ['output-1'],
+      snapshotToken: 'snapshot-ledger-unit',
+      intentDigest: 'intent-ledger-unit',
+    },
+    previewConsumerTransportIndices: [previewIndex],
+    invalidatedByTransportIndices,
+    reconcileOwner: { requestId: `builder-${generation}-1`, compileGeneration: generation, attempt: 1 },
+    reconcileCAS: {
+      snapshotToken: 'snapshot-ledger-unit',
+      draftVersion: 5,
+      draftDigest: 'draft-ledger-unit',
+      outputId: null,
+    },
+    ownerInvalidationObserved,
+    reconcileDisposition: ownerInvalidationObserved
+      ? 'invalidated-by-captured-owner-event'
+      : 'no-captured-owner-invalidation',
+  });
+  trace.transportLedger.push(
+    addReconcile({
+      transportIndex: firstReconcileIndex,
+      requestEventIndex: 17,
+      settlementEventIndex: 20,
+      generation: 41,
+      invalidatedByTransportIndices: [secondReconcileIndex],
+      ownerInvalidationObserved: true,
+    }),
+    addReconcile({
+      transportIndex: secondReconcileIndex,
+      requestEventIndex: 18,
+      settlementEventIndex: 19,
+      generation: 42,
+      ownerInvalidationObserved: false,
+    }),
+    transport({
+      transportIndex: previewIndex,
+      requestEventIndex: 21,
+      settlementEventIndex: 22,
+      method: 'POST',
+      path: 'preview',
+      requestBody: { receiptId, outputId: 'output-1' },
+      response: { receiptIds: [], outputIds: ['output-1'] },
+      classification: 'read-only',
+      readOnlyReason: 'Receipt-backed preview read',
+      receiptProducerTransportIndices: [firstReconcileIndex, secondReconcileIndex],
+    }),
+    transport({
+      transportIndex: previewIndex + 1,
+      requestEventIndex: 23,
+      settlementEventIndex: 24,
+      method: 'GET',
+      path: 'builder',
+      requestBody: null,
+      response: { outputIds: [] },
+      classification: 'read-only',
+      readOnlyReason: 'BuilderState read',
+    }),
+  );
+  return trace;
+}
+
 test('compiler specializes the base witness to actual trace constants and emits replay checks', () => {
   const trace = makeSyntheticPolicyOneJourneyTrace();
   assert.equal(validatePolicyOneJourneyTrace(trace), trace);
@@ -112,6 +232,29 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.match(result.output, /Model checking completed\. No error has been found\./);
 });
 
+test('TLC validates scoped reconcile ownership, receipt sets, and read-only routes in a unit trace', t => {
+  const trace = makeSyntheticReconcileLedgerTrace();
+  const compiled = compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicyOneReconcileLedgerUnit' });
+  assert.match(compiled.modelText, /CompatibleInvalidations/);
+  assert.match(compiled.modelText, /CompatiblePreviewConsumers/);
+  assert.match(compiled.modelText, /requestBodyFingerprint/);
+  assert.match(compiled.modelText, /CompatibleProposalReceipts/);
+
+  const positive = checkWithTLC(trace, 'PolicyOneReconcileLedgerPositive');
+  t.diagnostic(summary(positive.output));
+  assert.equal(positive.error, undefined, positive.error?.message);
+  assert.equal(positive.status, 0, summary(positive.output));
+  assert.match(positive.output, /Model checking completed\. No error has been found\./);
+
+  const collapsedReceiptParents = structuredClone(trace);
+  collapsedReceiptParents.transportLedger[10].receiptProducerTransportIndices = [10];
+  const negative = checkWithTLC(collapsedReceiptParents, 'PolicyOneReconcileLedgerCollapsedParents');
+  t.diagnostic(summary(negative.output));
+  assert.equal(negative.error, undefined, negative.error?.message);
+  assert.notEqual(negative.status, 0);
+  assert.match(negative.output, /ObservedTransportLedgerInvariant/);
+});
+
 test('production mutation controls preserve the input and reach each intended TLC invariant', t => {
   const trace = makeSyntheticPolicyOneJourneyTrace();
   const original = structuredClone(trace);
@@ -121,6 +264,7 @@ test('production mutation controls preserve the input and reach each intended TL
     ['stale-cas', 'ObservedPolicyCAS'],
     ['out-of-order-repair', 'ObservedChronology'],
     ['stale-restoration', 'TraceProgress'],
+    ['request-body-ledger-drift', 'ObservedTransportLedgerInvariant'],
     ['wrong-row-value-output', 'TraceProgress'],
     ['non-array-row-value-output', 'TraceProgress'],
   ]);
@@ -146,6 +290,10 @@ test('production mutation controls preserve the input and reach each intended TL
   assert.equal(mutatedAction('stale-restoration', 'RemovalApplied').savedAfter.draftDigest,
     originalAction('AllApplied').observation.saved.draftDigest,
     'restoration mutation must use the actual captured ALL digest');
+  assert.equal(mutatedAction('request-body-ledger-drift', 'GroupPreviewSubmitted').request.body.observationProbe,
+    true, 'body-drift control must alter only the actual modeled request copy');
+  assert.equal(control('request-body-ledger-drift').transportLedger[0].requestBody.observationProbe,
+    undefined, 'body-drift control must leave the independent raw transport row unchanged');
   const originalGroup = originalAction('RemovalApplied').savedBefore.group;
   const originalRowValue = originalGroup.rowValues.find(value => value.policy === 'ALL');
   const alternateOutput = originalGroup.outputs.find(output => output.id !== originalRowValue.outputColumnId);
