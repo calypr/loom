@@ -7,7 +7,7 @@ import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../h
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { createTemporalFilterCapture } from '../helpers/temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../helpers/temporal-filter-trace-adapter.mjs';
-import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
+import { bindFixtureOracleToQaIsolation, fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import { TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS } from '../helpers/temporal-filter-tla-adapter.mjs';
 import {
   BASIC_TEMPORAL_FILTER_CASES,
@@ -74,14 +74,14 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     const row = oracle.rows.find(candidate => candidate.id === id);
     return [id, row.value];
   });
-  report.target.fixtureRawOracle = {
+  const fixtureOracle = {
     path: oracle.path, sha256: oracle.sha256, project: target.fixtureProject,
     generation: target.fixtureGeneration, resourceType: contract.resourceType,
     fieldPath: contract.fieldPath, rows: oracle.rows,
   };
   check('correctness', `fresh ${contract.resourceType} temporal fixture matches the exact literal row oracle`,
     JSON.stringify(expectedBefore) === JSON.stringify(contract.rows.map(row => [row.id, row.value])),
-    { fixture: oracle.path, sha256: oracle.sha256, rows: oracle.rows });
+    fixtureOracle);
 
   const act = (name, locator, perform, options = {}) => {
     const deadlineAt = performance.now() + ACTION_TIMEOUT_MS;
@@ -219,6 +219,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       `native ${contract.fieldPath} column addition`, 'native FILTER proposal/apply/edit/remove'],
     cleanup: 'The harness retains this run-unique Basic fixture project and Explorer; filter removal restores the saved source table.',
   };
+  bindFixtureOracleToQaIsolation(report, fixtureOracle);
 
   const tableName = page.locator('#first-table-name');
   await act(`name the ${contract.resourceType} table`, tableName, () => tableName.fill(`${contract.resourceType} temporal rows`), {

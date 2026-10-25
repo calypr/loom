@@ -8,6 +8,7 @@ import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../h
 import { observeAuthoringAttempt } from '../helpers/fast-fixtures.mjs';
 import { createPolicyOneTransportObserver } from '../helpers/policy-one-transport-observer.mjs';
 import { sanitizePayload } from '../helpers/playwright-browser.mjs';
+import { bindFixtureOracleToQaIsolation } from '../helpers/fixture-context.mjs';
 import {
   buildPolicyOneTrace,
   encodePolicyOneTraceDiagnosticInput,
@@ -480,10 +481,10 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const { fixtureIDs, fixtureOracle, explorer, explorerName, apiRoot, outputId, sourceIdColumn, sourceIdColumnId } =
     await openFreshPatientTable(workflow, context, 'Patient ONE disagreement');
   const fixturePath = join(context.target.fixtureDir, 'Patient.ndjson');
-  report.target.qaIsolation.fixtureOracle = {
+  bindFixtureOracleToQaIsolation(report, {
     ...fixtureOracle,
     sha256: createHash('sha256').update(readFileSync(fixturePath)).digest('hex'),
-  };
+  });
   report.target.qaIsolation.title = explorerName;
   report.target.qaIsolation.outputId = outputId;
   report.target.qaIsolation.setupMutations = [...report.target.qaIsolation.workflowMutations];

@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createDevSession, assertOwnedDevSession, canonicalProjectID, createFreshVerificationFixture } from '../../loom-dev.mjs';
 import { getScenario, scenarioCaseFor } from '../registry.mjs';
 import { mkdirSync } from 'node:fs';
@@ -14,6 +15,30 @@ export const fixtureExplorerRequestPathMatches = (pathname, project, explorer) =
   if (typeof explorer !== 'string' || !explorer.trim()) return false;
   const explorerPath = `${collectionPath}/${encodeURIComponent(explorer)}`;
   return pathname === explorerPath || pathname.startsWith(`${explorerPath}/`);
+};
+
+export const bindFixtureOracleToQaIsolation = (report, fixtureOracle) => {
+  const target = report?.target;
+  assert(target && typeof target.project === 'string' && target.project.length > 0,
+    'Fixture oracle binding requires the actual isolated report project.');
+  assert(typeof target.generation === 'string' && target.generation.length > 0,
+    'Fixture oracle binding requires the actual isolated report generation.');
+  const isolation = target.qaIsolation;
+  assert(isolation && typeof isolation === 'object',
+    'Fixture oracle binding requires the report QA isolation record.');
+  assert.equal(isolation.project, target.project,
+    'QA isolation project must match the actual report project before fixture oracle binding.');
+  assert.equal(isolation.generation, target.generation,
+    'QA isolation generation must match the actual report generation before fixture oracle binding.');
+  assert(fixtureOracle && typeof fixtureOracle === 'object' && !Array.isArray(fixtureOracle),
+    'Fixture oracle binding requires the full oracle record.');
+  assert.equal(fixtureOracle.project, target.project,
+    'Fixture oracle project must match the actual report project.');
+  assert.equal(fixtureOracle.generation, target.generation,
+    'Fixture oracle generation must match the actual report generation.');
+
+  isolation.fixtureOracle = structuredClone(fixtureOracle);
+  return isolation.fixtureOracle;
 };
 
 const namedSessionEnvironment = [

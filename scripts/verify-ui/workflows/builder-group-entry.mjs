@@ -10,7 +10,7 @@ import {
   normalizeRenderedBuilderHeader,
   waitForBuilderRenderedGrid,
 } from '../helpers/builder-rendered-grid.mjs';
-import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
+import { bindFixtureOracleToQaIsolation, fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import {
   addFieldWithCommandTrace,
   captureAuthoringExchange,
@@ -237,13 +237,13 @@ export const openFreshPatientTable = async ({ page, report, check, action }, con
     project: context.target.fixtureProject,
     generation: context.target.fixtureGeneration,
     fixtureDir: context.target.fixtureDir,
-    fixtureOracle,
     bootstrapExplorerId: context.target.bootstrapExplorerId,
     explorer: null,
     workflowMutations: [],
     cleanupMutations: [],
     workflowCleanup: 'native Group removal restores the original Patient row shape; the harness retains the fresh loom_dev_verify project and its Explorers after the case',
   };
+  bindFixtureOracleToQaIsolation(report, fixtureOracle);
   check('correctness', 'basic Patient fixture contains the two independently known records',
     JSON.stringify(fixtureIDs) === JSON.stringify(expectedPatientIDs), fixtureOracle);
 
