@@ -444,16 +444,17 @@ const nativeRequestRecord = entry => {
   const requestPathSuffix = entry.path.split('/authoring/v2/')[1];
   assert(requestPathSuffix, `Native request ${entry.browserRequestId} must retain its /authoring/v2/ route.`);
   const requestPath = `/${requestPathSuffix.replace(/^\/+/, '')}`;
-  const body = entry.request === undefined ? null : structuredClone(entry.request);
-  const captureId = typeof body?.captureId === 'string' && body.captureId.length > 0 ? body.captureId : undefined;
+  const request = entry.request === undefined ? null : structuredClone(entry.request);
+  const captureId = typeof request?.captureId === 'string' && request.captureId.length > 0 ? request.captureId : undefined;
   return {
     method: entry.method,
     path: requestPath,
+    index: entry.index,
     requestId: entry.requestId ?? null,
     browserRequestId: entry.browserRequestId,
     startedAt: entry.startedAt,
     ...(captureId === undefined ? {} : { captureId }),
-    body,
+    request,
   };
 };
 const nativeResponseRecord = entry => {
@@ -1871,7 +1872,7 @@ FOR s IN (
       const proposalRequest = action.request?.path === '/construction-proposals'
         ? action.request
         : action.relatedSourceLifecycle?.request;
-      const body = proposalRequest?.body;
+      const body = proposalRequest?.request;
       if (actionKind === captureKind && proposalRequest?.browserRequestId &&
           String(body?.expectedDraftVersion ?? body?.draftVersion) === String(entry.request?.expectedDraftVersion ?? entry.request?.draftVersion) &&
           (body?.expectedDraftDigest ?? body?.draftDigest) === (entry.request?.expectedDraftDigest ?? entry.request?.draftDigest)) {
@@ -1956,13 +1957,14 @@ FOR s IN (
     const support = cdaJourneyReadOnlyRoutes.get(`${entry.method} ${route}`);
     if (!support || entry.isMutation !== false) {
       unclassifiedRequests.push({ method: entry.method, path: entry.path,
-        browserRequestId: entry.browserRequestId, isMutation: entry.isMutation });
+        index: entry.index, browserRequestId: entry.browserRequestId, isMutation: entry.isMutation });
       continue;
     }
     const events = readOnlySupport.get(support.kind) ?? { ...support, requests: [] };
     events.requests.push({
       method: entry.method,
       path: route,
+      index: entry.index,
       browserRequestId: entry.browserRequestId,
       requestId: entry.requestId ?? null,
       isMutation: entry.isMutation,
