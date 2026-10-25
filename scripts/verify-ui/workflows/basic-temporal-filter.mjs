@@ -145,30 +145,44 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     return body;
   };
 
-  const collectReconcileEntries = async (fromIndex, { waitForFirst = false } = {}) => {
+  const collectReconcileEntries = async (fromIndex, { waitForFirst = false, settle = false } = {}) => {
     const matchesReconcile = entry => entry.method === 'POST' && entry.path === reconcilePath;
     if (waitForFirst) {
       await capture.waitForRequest(matchesReconcile, { fromIndex, timeoutMs: ACTION_TIMEOUT_MS });
     }
-    const entriesById = new Map();
+    const entries = [];
+    let cursor = fromIndex;
     for (;;) {
-      const pending = capture.requestsSince(fromIndex, matchesReconcile)
-        .filter(entry => !entriesById.has(entry.browserRequestId));
-      if (pending.length === 0) break;
-      await capture.settleRequests(pending);
-      for (const entry of pending) entriesById.set(entry.browserRequestId, entry);
+      const window = capture.requestWindow(cursor);
+      cursor = window.endIndex;
+      const matches = window.entries.filter(matchesReconcile);
+      entries.push(...matches);
+      if (!settle || matches.length === 0) break;
+      await capture.settleRequests(matches);
     }
-    return [...entriesById.values()];
+    return { entries, endIndex: cursor };
   };
 
   const recordStep = async (step, { reconcileFromIndex = reconcileCursor, waitForReconcile = false } = {}) => {
-    const reconcileEntries = await collectReconcileEntries(reconcileFromIndex, { waitForFirst: waitForReconcile });
+    const collected = await collectReconcileEntries(reconcileFromIndex, {
+      waitForFirst: waitForReconcile,
+      settle: waitForReconcile,
+    });
+    const reconcileEntries = collected.entries;
     if (step.label === 'Reload') {
       assert(reconcileEntries.length > 0, 'Each real Builder reload must capture its actual reconcile receipt request.');
     }
-    const recorded = capture.recordStep({ ...step,
+    let recordedStep = step;
+    if (waitForReconcile && reconcileEntries.length > 0 && step.domObservationIndex !== null &&
+      step.domObservationIndex !== undefined) {
+      recordedStep = {
+        ...step,
+        domObservationIndex: await capture.captureDOM({ resourceType: contract.resourceType }),
+      };
+    }
+    const recorded = capture.recordStep({ ...recordedStep,
       reconcileCaptureIds: reconcileEntries.map(entry => entry.browserRequestId) });
-    reconcileCursor = networkObserver.requests.length;
+    reconcileCursor = collected.endIndex;
     return recorded;
   };
 

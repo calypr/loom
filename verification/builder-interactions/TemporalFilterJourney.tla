@@ -1,7 +1,7 @@
 ---------------- MODULE TemporalFilterJourney ----------------
-EXTENDS Naturals, FiniteSets, Sequences, TLC
+EXTENDS Naturals, Integers, FiniteSets, Sequences, TLC
 
-CONSTANTS Profile, Case, ModelEvents, ObservedRequests, InitialMountEpoch
+CONSTANTS Profile, Case, ModelEvents, ObservedRequests, ObservedDOM, ObservedBuilderReads, InitialMountEpoch
 
 (***************************************************************************
 The public transition operators consume normalized events with action,
@@ -52,11 +52,31 @@ NoRequest == [captureId |-> No, requestId |-> No, isMutation |-> FALSE,
                body |-> No, responseBody |-> No]
 NoObservedRequest ==
   [captureId |-> No, isMutation |-> FALSE, method |-> No, path |-> No,
-   status |-> No, candidateColumnIds |-> No,
+   requestId |-> No, status |-> 0,
+   startedAt |-> 0, startedAtExact |-> "0",
+   responseReceivedAt |-> No, responseReceivedAtExact |-> No,
+   completedAt |-> 0, completedAtExact |-> "0",
+   requestMountEpoch |-> InitialMountEpoch,
+   responseMountEpoch |-> No, failureMountEpoch |-> No,
+   failureCanceled |-> FALSE,
+   requestReceiptId |-> No, requestOutputId |-> No,
+   outputId |-> No, receiptId |-> No,
+   responseReceiptId |-> No, responseOutputId |-> No,
+   candidateColumnIds |-> No,
    requestSnapshotToken |-> No, requestDraftVersion |-> No,
-   requestDraftDigest |-> No, requestOutputId |-> No,
-   responseSnapshotToken |-> No, receiptId |-> No,
-   responseOutputIds |-> No, outputId |-> No]
+   requestDraftDigest |-> No,
+   responseSnapshotToken |-> No, responseDraftVersion |-> No,
+   responseDraftDigest |-> No, responseOutputIds |-> No,
+   responseCode |-> No, responseRetryable |-> FALSE,
+   possibleReconcileProducerCaptureIds |-> <<>>,
+   reconcileDisposition |-> No,
+   reconcileCompatiblePreviewCaptureIds |-> <<>>,
+   reconcileDOMObservationIndexes |-> <<>>,
+   reconcileInvalidatedByCaptureIds |-> <<>>,
+   reconcileRetryFollowupCaptureIds |-> <<>>]
+NoObservedDOM ==
+  [observationIndex |-> 0, capturedAt |-> 0, capturedAtExact |-> "0",
+   mountEpoch |-> InitialMountEpoch, receiptId |-> No, outputId |-> No, rowIds |-> <<>>]
 NoSnapshot ==
   [readId |-> No, requestId |-> No, mountEpoch |-> InitialMountEpoch, status |-> No,
    catalogGeneration |-> No, snapshotToken |-> No,
@@ -282,6 +302,10 @@ Event(ordinal, action, mount, request, before, after, ui, filter) ==
    atMonotonicMs |-> ordinal * 10,
    atEpochMs |-> ordinal * 1000,
    mountEpoch |-> mount,
+   beforeReadRequestStartedAt |-> ordinal * 1000 - 10,
+   beforeReadCapturedAt |-> ordinal * 1000 - 9,
+   afterReadRequestStartedAt |-> ordinal * 1000 - 2,
+   afterReadCapturedAt |-> ordinal * 1000 - 1,
    request |-> request,
    before |-> before,
    after |-> after,
@@ -294,26 +318,70 @@ Event(ordinal, action, mount, request, before, after, ui, filter) ==
 AbstractObservedRequest(captureId, isMutation, method, path, status,
                         candidateColumnIds, receiptId, outputId) ==
   [captureId |-> captureId, isMutation |-> isMutation,
-   method |-> method, path |-> path, status |-> status,
+   requestId |-> No, method |-> method, path |-> path, status |-> status,
+   startedAt |-> 0, startedAtExact |-> "0",
+   responseReceivedAt |-> 1, responseReceivedAtExact |-> "1",
+   completedAt |-> 2, completedAtExact |-> "2",
+   requestMountEpoch |-> InitialMountEpoch,
+   responseMountEpoch |-> InitialMountEpoch, failureMountEpoch |-> No,
+   failureCanceled |-> FALSE,
+   requestReceiptId |-> No, requestOutputId |-> No,
+   responseReceiptId |-> receiptId, responseOutputId |-> outputId,
    candidateColumnIds |-> candidateColumnIds,
    requestSnapshotToken |-> No, requestDraftVersion |-> No,
-   requestDraftDigest |-> No, requestOutputId |-> No,
+   requestDraftDigest |-> No,
    responseSnapshotToken |-> No,
+   responseDraftVersion |-> No, responseDraftDigest |-> No,
    responseOutputIds |-> No,
-   receiptId |-> receiptId, outputId |-> outputId]
+   receiptId |-> receiptId, outputId |-> outputId,
+   responseCode |-> No, responseRetryable |-> FALSE,
+   possibleReconcileProducerCaptureIds |-> <<>>,
+   reconcileDisposition |-> No,
+   reconcileCompatiblePreviewCaptureIds |-> <<>>,
+   reconcileDOMObservationIndexes |-> <<>>,
+   reconcileInvalidatedByCaptureIds |-> <<>>,
+   reconcileRetryFollowupCaptureIds |-> <<>>]
 AbstractReconcileRequest(captureId, snapshotToken, draftVersion, draftDigest,
-                         outputId, receiptId) ==
-  [captureId |-> captureId, isMutation |-> FALSE, method |-> "POST",
+                         outputId, receiptId, mount, ordinal, domIndex) ==
+  [captureId |-> captureId, requestId |-> No, isMutation |-> FALSE, method |-> "POST",
    path |-> "/authoring/v2/reconcile", status |-> 200,
+   startedAt |-> ordinal * 1000 - 3, startedAtExact |-> ToString(ordinal * 1000 - 3),
+   responseReceivedAt |-> ordinal * 1000 - 2, responseReceivedAtExact |-> ToString(ordinal * 1000 - 2),
+   completedAt |-> ordinal * 1000 - 1, completedAtExact |-> ToString(ordinal * 1000 - 1),
+   requestMountEpoch |-> mount, responseMountEpoch |-> mount, failureMountEpoch |-> No,
+   failureCanceled |-> FALSE,
+   requestReceiptId |-> No, requestOutputId |-> outputId,
+   responseReceiptId |-> receiptId, responseOutputId |-> No,
    candidateColumnIds |-> No,
    requestSnapshotToken |-> snapshotToken,
    requestDraftVersion |-> draftVersion,
    requestDraftDigest |-> draftDigest,
-   requestOutputId |-> outputId,
    responseSnapshotToken |-> snapshotToken,
+   responseDraftVersion |-> draftVersion,
+   responseDraftDigest |-> draftDigest,
    responseOutputIds |-> <<outputId>>,
    receiptId |-> receiptId,
-   outputId |-> No]
+   outputId |-> No,
+   responseCode |-> No, responseRetryable |-> FALSE,
+   possibleReconcileProducerCaptureIds |-> <<>>,
+   reconcileDisposition |-> "compatible-unattributed",
+   reconcileCompatiblePreviewCaptureIds |-> <<>>,
+   reconcileDOMObservationIndexes |-> <<domIndex>>,
+   reconcileInvalidatedByCaptureIds |-> <<>>,
+   reconcileRetryFollowupCaptureIds |-> <<>>]
+AbstractObservedDOM ==
+  <<[observationIndex |-> 0, capturedAt |-> 6000, capturedAtExact |-> "6000",
+     mountEpoch |-> Mount(1), receiptId |-> "Receipt-reconcile-source",
+     outputId |-> AbstractOutputId, rowIds |-> Case.sourceRowIds],
+    [observationIndex |-> 1, capturedAt |-> 9000, capturedAtExact |-> "9000",
+     mountEpoch |-> Mount(2), receiptId |-> "Receipt-reconcile-create",
+     outputId |-> AbstractOutputId, rowIds |-> Case.initialRowIds],
+    [observationIndex |-> 2, capturedAt |-> 13000, capturedAtExact |-> "13000",
+     mountEpoch |-> Mount(3), receiptId |-> "Receipt-reconcile-edit",
+     outputId |-> AbstractOutputId, rowIds |-> Case.editedRowIds],
+    [observationIndex |-> 3, capturedAt |-> 16000, capturedAtExact |-> "16000",
+     mountEpoch |-> Mount(4), receiptId |-> "Receipt-reconcile-remove",
+     outputId |-> AbstractOutputId, rowIds |-> Case.sourceRowIds]>>
 AbstractObservedRequests ==
   <<AbstractObservedRequest("capture-explorer", TRUE, "POST", "/explorers", 201, No, No, No),
     AbstractObservedRequest("capture-table", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
@@ -334,13 +402,14 @@ AbstractObservedRequests ==
     AbstractObservedRequest("capture-remove-filter", TRUE, "POST",
       "/authoring/v2/commands", 200, No, No, No),
     AbstractReconcileRequest("capture-reconcile-source", "Fixture-snapshot-token",
-      2, "draft-source", AbstractOutputId, "Receipt-reconcile-source"),
+      2, "draft-source", AbstractOutputId, "Receipt-reconcile-source", Mount(1), 6, 0),
     AbstractReconcileRequest("capture-reconcile-create", "Fixture-snapshot-token",
-      3, "draft-create", AbstractOutputId, "Receipt-reconcile-create"),
+      3, "draft-create", AbstractOutputId, "Receipt-reconcile-create", Mount(2), 9, 1),
     AbstractReconcileRequest("capture-reconcile-edit", "Fixture-snapshot-token",
-      4, "draft-edit", AbstractOutputId, "Receipt-reconcile-edit"),
+      4, "draft-edit", AbstractOutputId, "Receipt-reconcile-edit", Mount(3), 13, 2),
     AbstractReconcileRequest("capture-reconcile-remove", "Fixture-snapshot-token",
-      5, "draft-remove", AbstractOutputId, "Receipt-reconcile-remove")>>
+      5, "draft-remove", AbstractOutputId, "Receipt-reconcile-remove", Mount(4), 16, 3)>>
+AbstractObservedBuilderReads == <<>>
 
 ProposalBody(saved, outputId, candidateSteps) ==
   [outputId |-> outputId,
@@ -604,41 +673,59 @@ ChoiceProposalMatches(event, columnId, outputId) ==
             /\ choice.receiptId # No
             /\ choice.outputId = outputId
 
-LinkedReconcileRequests(event) ==
+ObservedMutationRequests ==
+  {request \in SequenceSet(ObservedRequests): request.isMutation = TRUE}
+ObservedReconcileRequests ==
   {request \in SequenceSet(ObservedRequests):
-    request.captureId \in SequenceSet(event.reconcileCaptureIds)
-    /\ request.method = "POST"
-    /\ EndsWith(request.path, "/reconcile")}
-ReconcileRequest(event) ==
-  LET requests == LinkedReconcileRequests(event)
-  IN IF Cardinality(requests) = 1
-       THEN CHOOSE request \in requests: TRUE
-       ELSE NoObservedRequest
+    request.method = "POST" /\ EndsWith(request.path, "/reconcile")}
+ObservedPreviewRequests ==
+  {request \in SequenceSet(ObservedRequests):
+    request.method = "POST" /\ EndsWith(request.path, "/preview")}
+ObservedReconcileIds ==
+  {request.captureId : request \in ObservedReconcileRequests}
+
+RequestOwnerMatchesSnapshot(request, snapshot) ==
+  /\ snapshot # NoSnapshot
+  /\ request.requestSnapshotToken = snapshot.snapshotToken
+  /\ request.requestDraftVersion = snapshot.draftVersion
+  /\ request.requestDraftDigest = snapshot.draftDigest
+  /\ request.requestOutputId = snapshot.outputId
+  /\ request.requestMountEpoch = snapshot.mountEpoch
+ObservedReconcilePreviewRequests(request) ==
+  {preview \in ObservedPreviewRequests:
+    preview.captureId \in SequenceSet(request.reconcileCompatiblePreviewCaptureIds)}
+ObservedDOMMatchesReconcile(request) ==
+  \E rawIndex \in SequenceSet(request.reconcileDOMObservationIndexes):
+    LET observation == ObservedDOM[rawIndex + 1]
+    IN /\ observation.observationIndex = rawIndex
+       /\ observation.receiptId = request.responseReceiptId
+       /\ observation.outputId = request.requestOutputId
+       /\ observation.mountEpoch = request.requestMountEpoch
+       /\ observation.mountEpoch = request.responseMountEpoch
+       /\ observation.capturedAt >= request.responseReceivedAt
 ReconcileMatchesReload(event) ==
-  LET request == ReconcileRequest(event)
-  IN IF request.captureId = No
-       THEN FALSE
-       ELSE /\ request.status = 200
-            /\ request.requestSnapshotToken # No
-            /\ request.requestDraftVersion \in Nat
-            /\ request.requestDraftDigest # No
-            /\ request.requestOutputId # No
-            /\ request.requestSnapshotToken = event.after.snapshotToken
-            /\ request.requestDraftVersion = event.after.draftVersion
-            /\ request.requestDraftDigest = event.after.draftDigest
-            /\ request.requestOutputId = event.after.outputId
-            /\ request.responseSnapshotToken # No
-            /\ request.responseSnapshotToken = request.requestSnapshotToken
-            /\ request.responseOutputIds # No
-            /\ event.after.outputId \in SequenceSet(request.responseOutputIds)
-            /\ request.receiptId # No
-            /\ event.ui.receiptId = request.receiptId
-            /\ event.ui.outputId = event.after.outputId
+  \E request \in ObservedReconcileRequests:
+    /\ request.status \in 200..299
+    /\ request.requestSnapshotToken # No
+    /\ request.requestDraftVersion \in Nat
+    /\ request.requestDraftDigest # No
+    /\ request.requestOutputId # No
+    /\ request.requestSnapshotToken = event.after.snapshotToken
+    /\ request.requestDraftVersion = event.after.draftVersion
+    /\ request.requestDraftDigest = event.after.draftDigest
+    /\ request.requestOutputId = event.after.outputId
+    /\ request.responseSnapshotToken = request.requestSnapshotToken
+    /\ request.responseOutputIds # No
+    /\ event.after.outputId \in SequenceSet(request.responseOutputIds)
+    /\ request.responseReceiptId = event.ui.receiptId
+    /\ event.ui.outputId = event.after.outputId
+    /\ request.requestMountEpoch = event.ui.mountEpoch
+    /\ request.responseMountEpoch = event.ui.mountEpoch
+    /\ request.responseReceivedAt <= event.afterReadRequestStartedAt
+    /\ request.responseReceivedAt <= event.afterReadCapturedAt
+    /\ request.responseReceivedAt <= event.ui.capturedAtEpochMs
 ReconcilePreview(event) ==
-  LET request == ReconcileRequest(event)
-      responseOutput == CHOOSE outputId \in SequenceSet(request.responseOutputIds):
-        outputId = event.after.outputId
-  IN [receiptId |-> request.receiptId, outputId |-> responseOutput]
+  [receiptId |-> event.ui.receiptId, outputId |-> event.after.outputId]
 
 PreviewDOMMatches(ui, preview) ==
   /\ (ui.receiptId = No \/ ui.receiptId = preview.receiptId)
@@ -1202,8 +1289,6 @@ InvOrderedTrace ==
   \A i \in 1..journey.cursor: journey.history[i].action = JourneyActions[i]
 InvSemanticActionOrder ==
   \A i \in 1..Len(JourneyActions): ModelEvents[i].action = JourneyActions[i]
-ObservedMutationRequests ==
-  {request \in SequenceSet(ObservedRequests): request.isMutation = TRUE}
 ObservedMutationIds ==
   {request.captureId : request \in ObservedMutationRequests}
 EventRequests ==
@@ -1223,20 +1308,13 @@ InvObservedMutationsConsumed ==
   /\ ObservedMutationIds = EventMutationIds
   /\ Cardinality(ObservedMutationIds) = ObservedMutationCount
   /\ Cardinality(EventMutationIds) = EventMutationCount
-ObservedReconcileRequests ==
-  {request \in SequenceSet(ObservedRequests):
-    request.method = "POST" /\ EndsWith(request.path, "/reconcile")}
-ObservedReconcileIds ==
-  {request.captureId : request \in ObservedReconcileRequests}
 LinkedReconcileIds ==
   UNION {SequenceSet(ModelEvents[i].reconcileCaptureIds)
     : i \in 1..Len(ModelEvents)}
 InvReconcileEvidenceLinked ==
-  /\ LinkedReconcileIds = ObservedReconcileIds
-  /\ \A i \in 1..Len(ModelEvents):
-       IF ModelEvents[i].action = "Reload"
-       THEN Len(ModelEvents[i].reconcileCaptureIds) = 1
-       ELSE Len(ModelEvents[i].reconcileCaptureIds) = 0
+  /\ LinkedReconcileIds \subseteq ObservedReconcileIds
+  /\ \A request \in ObservedReconcileRequests:
+       request.reconcileDisposition # No
   /\ \A i \in 1..Len(ModelEvents):
        \A j \in 1..Len(ModelEvents):
          \A p \in 1..Len(ModelEvents[i].reconcileCaptureIds):
@@ -1244,6 +1322,183 @@ InvReconcileEvidenceLinked ==
              (i # j \/ p # q) =>
                ModelEvents[i].reconcileCaptureIds[p]
                  # ModelEvents[j].reconcileCaptureIds[q]
+InvObservedRequestChronology ==
+  \A request \in SequenceSet(ObservedRequests):
+    /\ request.captureId # No
+    /\ request.startedAtExact # No
+    /\ request.completedAtExact # No
+    /\ IF request.status = 0
+         THEN /\ request.failureCanceled = TRUE
+              /\ request.responseReceivedAt = No
+              /\ request.responseMountEpoch = No
+              /\ request.failureMountEpoch \in Nat
+              /\ request.isMutation = FALSE
+              /\ (EndsWith(request.path, "/reconcile")
+                  \/ EndsWith(request.path, "/preview")
+                  \/ EndsWith(request.path, "/construction-proposals")
+                  \/ EndsWith(request.path, "/construction-choice-proposals"))
+         ELSE /\ request.status \in 100..599
+              /\ request.responseReceivedAt \in Int
+              /\ request.startedAt \in Int
+              /\ request.completedAt \in Int
+              /\ request.startedAt <= request.responseReceivedAt
+              /\ request.responseReceivedAt <= request.completedAt
+              /\ request.requestMountEpoch \in Nat
+              /\ request.responseMountEpoch \in Nat
+              /\ request.failureMountEpoch = No
+InvObservedBuilderReadChronology ==
+  \A read \in SequenceSet(ObservedBuilderReads):
+    /\ read.readId # No
+    /\ read.status = 200
+    /\ read.requestStartedAt \in Int
+    /\ read.capturedAt \in Int
+    /\ read.requestStartedAt <= read.capturedAt
+    /\ read.requestMountEpoch \in Nat
+    /\ read.mountEpoch \in Nat
+    /\ read.snapshotToken # No
+    /\ read.draftVersion \in Nat
+    /\ read.draftDigest # No
+InvalidatesReconcileOwner(request, mutation) ==
+  /\ mutation.responseReceivedAt \in Int
+  /\ request.responseReceivedAt \in Int
+  /\ request.startedAt < mutation.responseReceivedAt
+  /\ mutation.responseReceivedAt < request.responseReceivedAt
+  /\ \E i \in 1..Len(ModelEvents):
+       /\ ModelEvents[i].request.captureId = mutation.captureId
+       /\ ModelEvents[i].after # NoSnapshot
+       /\ ModelEvents[i].afterReadCapturedAt \in Int
+       /\ ModelEvents[i].afterReadCapturedAt <= request.responseReceivedAt
+       /\ ~RequestOwnerMatchesSnapshot(request, ModelEvents[i].after)
+ReconcileInvalidatingMutationIds(request) ==
+  IF request.status = 0
+    THEN {}
+    ELSE {mutation.captureId :
+      mutation \in {candidate \in ObservedMutationRequests:
+        InvalidatesReconcileOwner(request, candidate)}}
+ReconcileInvalidatedBefore(request, boundary) ==
+  \E captureId \in SequenceSet(request.reconcileInvalidatedByCaptureIds):
+    \E i \in 1..Len(ModelEvents):
+      /\ ModelEvents[i].request.captureId = captureId
+      /\ ModelEvents[i].afterReadCapturedAt \in Int
+      /\ ModelEvents[i].afterReadCapturedAt <= boundary
+ReconcilePossibleProducers(preview) ==
+  {request \in ObservedReconcileRequests:
+    /\ request.status \in 200..299
+    /\ request.requestSnapshotToken # No
+    /\ request.requestDraftVersion \in Nat
+    /\ request.requestDraftDigest # No
+    /\ request.requestOutputId = preview.requestOutputId
+    /\ request.responseSnapshotToken = request.requestSnapshotToken
+    /\ request.responseReceiptId = preview.requestReceiptId
+    /\ request.requestOutputId \in SequenceSet(request.responseOutputIds)
+    /\ request.responseReceivedAt <= preview.startedAt
+    /\ request.requestMountEpoch = request.responseMountEpoch
+    /\ preview.requestMountEpoch = request.responseMountEpoch
+    /\ ~ReconcileInvalidatedBefore(request, preview.startedAt)}
+ReconcileDOMIndexes(request) ==
+  IF request.status \in 200..299
+    THEN {rawIndex \in 0..(Len(ObservedDOM) - 1):
+      LET observation == ObservedDOM[rawIndex + 1]
+      IN /\ observation.observationIndex = rawIndex
+         /\ observation.receiptId = request.responseReceiptId
+         /\ observation.outputId = request.requestOutputId
+         /\ observation.mountEpoch = request.requestMountEpoch
+         /\ observation.mountEpoch = request.responseMountEpoch
+         /\ observation.capturedAt >= request.responseReceivedAt
+         /\ ~ReconcileInvalidatedBefore(request, observation.capturedAt)}
+    ELSE {}
+InvReconcilePossibleProducerRelations ==
+  /\ \A preview \in ObservedPreviewRequests:
+       SequenceSet(preview.possibleReconcileProducerCaptureIds) =
+         {request.captureId : request \in ReconcilePossibleProducers(preview)}
+  /\ \A request \in ObservedReconcileRequests:
+       /\ (IF request.status = 0
+             THEN request.reconcileCompatiblePreviewCaptureIds = <<>>
+             ELSE SequenceSet(request.reconcileCompatiblePreviewCaptureIds) =
+               {preview.captureId : preview \in
+                 {candidate \in ObservedPreviewRequests:
+                   request.captureId \in SequenceSet(candidate.possibleReconcileProducerCaptureIds)}})
+       /\ SequenceSet(request.reconcileDOMObservationIndexes) = ReconcileDOMIndexes(request)
+       /\ SequenceSet(request.reconcileInvalidatedByCaptureIds) =
+            ReconcileInvalidatingMutationIds(request)
+InvReconcileOwnerEvidence ==
+  \A request \in ObservedReconcileRequests:
+    /\ request.requestSnapshotToken # No
+    /\ request.requestDraftVersion \in Nat
+    /\ request.requestDraftDigest # No
+    /\ request.requestOutputId # No
+    /\ \E i \in 1..Len(ModelEvents):
+         (RequestOwnerMatchesSnapshot(request, ModelEvents[i].before)
+          \/ RequestOwnerMatchesSnapshot(request, ModelEvents[i].after))
+InvReconcileTransportSemantics ==
+  \A request \in ObservedReconcileRequests:
+    IF request.status = 0
+      THEN /\ request.reconcileDisposition = "cancelled"
+           /\ request.failureCanceled = TRUE
+           /\ request.reconcileCompatiblePreviewCaptureIds = <<>>
+           /\ request.reconcileDOMObservationIndexes = <<>>
+      ELSE IF request.status \in 200..299
+      THEN /\ request.responseSnapshotToken = request.requestSnapshotToken
+           /\ request.responseReceiptId # No
+           /\ request.requestOutputId \in SequenceSet(request.responseOutputIds)
+           /\ IF request.requestMountEpoch # request.responseMountEpoch
+                THEN /\ request.reconcileDisposition = "cross-mount-ignored"
+                     /\ request.reconcileCompatiblePreviewCaptureIds = <<>>
+                     /\ request.reconcileDOMObservationIndexes = <<>>
+                ELSE IF ReconcileInvalidatingMutationIds(request) # {}
+                     THEN /\ request.reconcileDisposition = "owner-invalidated"
+                          /\ SequenceSet(request.reconcileInvalidatedByCaptureIds) =
+                               ReconcileInvalidatingMutationIds(request)
+                          /\ request.reconcileCompatiblePreviewCaptureIds = <<>>
+                          /\ request.reconcileDOMObservationIndexes = <<>>
+                     ELSE /\ request.reconcileDisposition = "compatible-unattributed"
+                          /\ (Cardinality(ObservedReconcilePreviewRequests(request)) > 0
+                              \/ ObservedDOMMatchesReconcile(request))
+      ELSE /\ request.status \in 400..599
+           /\ IF request.reconcileDisposition = "stale-retry"
+                THEN /\ request.responseCode \in {"STALE_CATALOG_SNAPSHOT", "STALE_SNAPSHOT",
+                        "SNAPSHOT_STALE", "STALE_RECEIPT", "RECEIPT_STALE",
+                        "COMPILE_RECEIPT_NOT_FOUND", "RECEIPT_RECOMPILE_REQUIRED"}
+                     /\ Len(request.reconcileRetryFollowupCaptureIds) > 0
+                ELSE /\ request.reconcileDisposition = "retry"
+                     /\ request.responseRetryable = TRUE
+                     /\ Len(request.reconcileRetryFollowupCaptureIds) > 0
+InvReconcileRetryFollowups ==
+  \A request \in ObservedReconcileRequests:
+    IF request.reconcileDisposition = "stale-retry"
+      THEN \A captureId \in SequenceSet(request.reconcileRetryFollowupCaptureIds):
+             \E next \in ObservedReconcileRequests:
+               /\ next.captureId = captureId
+               /\ next.startedAt > request.responseReceivedAt
+               /\ next.requestMountEpoch = request.requestMountEpoch
+               /\ \E refresh \in SequenceSet(ObservedBuilderReads):
+                    /\ refresh.status = 200
+                    /\ refresh.requestStartedAt > request.responseReceivedAt
+                    /\ refresh.capturedAt > request.responseReceivedAt
+                    /\ refresh.capturedAt <= next.startedAt
+                    /\ refresh.snapshotToken = next.requestSnapshotToken
+                    /\ refresh.draftVersion = next.requestDraftVersion
+                    /\ refresh.draftDigest = next.requestDraftDigest
+                    /\ refresh.mountEpoch = next.requestMountEpoch
+                    /\ next.requestOutputId \in SequenceSet(refresh.outputIds)
+      ELSE IF request.reconcileDisposition = "retry"
+      THEN \A captureId \in SequenceSet(request.reconcileRetryFollowupCaptureIds):
+             \E next \in ObservedReconcileRequests:
+               /\ next.captureId = captureId
+               /\ next.startedAt > request.responseReceivedAt
+               /\ next.requestMountEpoch = request.requestMountEpoch
+               /\ next.requestSnapshotToken = request.requestSnapshotToken
+               /\ next.requestDraftVersion = request.requestDraftVersion
+               /\ next.requestDraftDigest = request.requestDraftDigest
+               /\ next.requestOutputId = request.requestOutputId
+      ELSE request.reconcileRetryFollowupCaptureIds = <<>>
+InvReconcileStepLinksBound ==
+  /\ LinkedReconcileIds \subseteq ObservedReconcileIds
+  /\ \A i, j \in 1..Len(ModelEvents):
+       \A p \in 1..Len(ModelEvents[i].reconcileCaptureIds):
+         \A q \in 1..Len(ModelEvents[j].reconcileCaptureIds):
+           (i # j \/ p # q) =>
+             ModelEvents[i].reconcileCaptureIds[p] # ModelEvents[j].reconcileCaptureIds[q]
 InvChoiceProposalBindsNewColumn ==
   \A i \in 1..journey.cursor:
     LET event == journey.history[i]

@@ -1,10 +1,94 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { createTemporalFilterCapture } from '../temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import {
   makeTemporalFilterJourneyCaptureFixture,
   TEMPORAL_FILTER_FIXTURE_BASE_TIME,
 } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
+
+test('capture windows retain late reconcile IDs and their response-mount DOM evidence', async () => {
+  const page = new EventEmitter();
+  const mainFrame = {};
+  page.mainFrame = () => mainFrame;
+  page.evaluate = async () => ({
+    proposalStatus: null,
+    proposalId: null,
+    receiptId: 'late-reconcile-receipt',
+    outputId: 'temporal-output',
+    columnId: null,
+    inputType: null,
+    inputValue: null,
+    operator: null,
+    rowIds: ['dev-patient-001', 'dev-patient-002'],
+  });
+  const networkObserver = {
+    requests: [],
+    byRequest: new Map(),
+    requestBody: entry => entry.request,
+    responseBody: entry => entry.response,
+    waitForResponse: async (predicate, { fromIndex = 0 } = {}) => {
+      const entry = networkObserver.requests.slice(fromIndex).find(predicate);
+      assert(entry, 'The capture must settle an actual observed request.');
+      return entry;
+    },
+  };
+  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 2 });
+  const addReconcile = (name, at) => {
+    const request = {};
+    const entry = {
+      index: networkObserver.requests.length,
+      browserRequestId: name,
+      requestId: `request-${name}`,
+      method: 'POST',
+      path: '/api/v1/projects/p/explorers/e/authoring/v2/reconcile',
+      request: { snapshotToken: 'snapshot-3', draftVersion: 3, draftDigest: 'draft-3', outputId: 'temporal-output' },
+      response: { snapshotToken: 'snapshot-3', receiptId: 'late-reconcile-receipt',
+        outputs: [{ outputId: 'temporal-output' }] },
+      status: 200,
+      startedAt: at,
+      responseReceivedAt: at + 1,
+      completedAt: at + 2,
+      isMutation: false,
+      failure: null,
+      readCancellationDiagnostic: false,
+      responseCapture: 'captured',
+      responseCaptureComplete: true,
+      responseBodyCaptured: true,
+      atMonotonicMs: at,
+      atEpochMs: at,
+      mountEpoch: 2,
+      request,
+    };
+    networkObserver.requests.push(entry);
+    networkObserver.byRequest.set(request, entry);
+    page.emit('request', request);
+    return { entry, request };
+  };
+
+  const first = addReconcile('late-reconcile-1', 10);
+  const firstWindow = capture.requestWindow(0);
+  assert.equal(firstWindow.endIndex, 1);
+  assert.deepEqual(firstWindow.entries.map(entry => entry.browserRequestId), ['late-reconcile-1']);
+  const second = addReconcile('late-reconcile-2', 20);
+  const nextWindow = capture.requestWindow(firstWindow.endIndex);
+  assert.equal(nextWindow.endIndex, 2);
+  assert.deepEqual(nextWindow.entries.map(entry => entry.browserRequestId), ['late-reconcile-2']);
+
+  page.emit('framenavigated', mainFrame);
+  for (const request of [first, second]) {
+    page.emit('response', { request: () => request.request });
+  }
+  const rawCapture = await capture.finish({ resourceType: 'Patient' });
+  assert.deepEqual(rawCapture.lateReconcileCaptureIds, ['late-reconcile-1', 'late-reconcile-2']);
+  assert.equal(rawCapture.finalDOMObservationIndex, 0);
+  assert.equal(rawCapture.domObservations[0].receiptId, 'late-reconcile-receipt');
+  assert.equal(rawCapture.domObservations[0].mountEpoch, 3);
+  assert.equal(rawCapture.requestEvents[0].mountEpoch, 2);
+  assert.equal(rawCapture.requestEvents[0].responseMountEpoch, 3);
+  assert.equal(rawCapture.requestEvents[0].failureMountEpoch, null);
+});
 
 test('adapter schema fixtures preserve DATE evidence as canonical events without claiming browser proof', () => {
   const rawCapture = makeTemporalFilterJourneyCaptureFixture('date');
@@ -108,6 +192,51 @@ test('adapter binds each reload to its actual reconcile request, CAS snapshot, a
   }
 });
 
+test('adapter retains an unassigned late reconcile and its actual final DOM observation', () => {
+  const rawCapture = makeTemporalFilterJourneyCaptureFixture('date');
+  const captureId = 'schema-fixture-browser-request-late-reconcile';
+  const finalReload = rawCapture.steps.at(-1);
+  const finalDOM = {
+    ...rawCapture.domObservations[finalReload.domObservationIndex],
+    capturedAtMonotonicMs: 1480,
+    capturedAtEpochMs: 1_700_000_001_480,
+    receiptId: 'late-final-receipt',
+  };
+  rawCapture.domObservations.push(finalDOM);
+  rawCapture.finalDOMObservationIndex = rawCapture.domObservations.length - 1;
+  rawCapture.lateReconcileCaptureIds = [captureId];
+  rawCapture.requestEvents.push({
+    browserRequestId: captureId,
+    requestId: 'schema-fixture-raw-request-late-reconcile',
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/reconcile',
+    status: 200,
+    request: { snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId: rawCapture.outputId },
+    response: { snapshotToken: 'snapshot-6', receiptId: 'late-final-receipt', outputs: [{ outputId: rawCapture.outputId }] },
+    startedAt: 1_700_000_001_470,
+    responseReceivedAt: 1_700_000_001_471,
+    completedAt: 1_700_000_001_473,
+    responseMountEpoch: 5,
+    failureMountEpoch: null,
+    isMutation: false,
+    failure: null,
+    readCancellationDiagnostic: false,
+    responseCapture: 'captured',
+    responseCaptureComplete: true,
+    responseBodyCaptured: true,
+    atMonotonicMs: 1470,
+    atEpochMs: 1_700_000_001_470,
+    mountEpoch: 5,
+  });
+
+  const journeyTrace = adaptTemporalFilterJourney(rawCapture);
+  assert.deepEqual(journeyTrace.temporalFilterLifecycle.lateReconcileCaptureIds, [captureId]);
+  assert.equal(journeyTrace.temporalFilterLifecycle.finalDOMObservationIndex, rawCapture.domObservations.length - 1);
+  assert.equal(journeyTrace.temporalFilterLifecycle.domObservations.at(-1).receiptId, 'late-final-receipt');
+  assert(rawCapture.requestEvents.some(request => request.browserRequestId === captureId),
+    'The final raw request ledger must preserve the late reconcile ID.');
+});
+
 test('adapter schema fixtures keep DATE_TIME request, response, and saved literals separate', () => {
   const rawCapture = makeTemporalFilterJourneyCaptureFixture('date-time');
   const journeyTrace = adaptTemporalFilterJourney(rawCapture);
@@ -137,6 +266,8 @@ test('adapter rejects an observer write that no semantic action consumes', () =>
     startedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
     responseReceivedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1001,
     completedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1002,
+    responseMountEpoch: 5,
+    failureMountEpoch: null,
     isMutation: true,
     atMonotonicMs: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
     atEpochMs: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,

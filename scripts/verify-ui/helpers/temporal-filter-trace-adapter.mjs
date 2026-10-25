@@ -184,6 +184,21 @@ const assertCaptureShape = capture => {
     assert(Number.isFinite(request.startedAt));
     assert(request.responseReceivedAt === null || Number.isFinite(request.responseReceivedAt));
     assert(request.completedAt === null || Number.isFinite(request.completedAt));
+    if (request.status === null) {
+      assert(request.failure?.canceled === true && request.readCancellationDiagnostic === true,
+        `Request ${request.browserRequestId} without a response must retain an actual canceled-request diagnostic.`);
+      assert(request.responseReceivedAt === null && request.responseMountEpoch === null);
+      assert(Number.isInteger(request.failureMountEpoch));
+      assert.equal(request.isMutation, false);
+      assert(requestPathIs(request, '/reconcile') || requestPathIs(request, '/preview') ||
+        requestPathIs(request, '/construction-proposals') || requestPathIs(request, '/construction-choice-proposals'),
+      `Canceled ${request.method} ${request.path} has no temporal-filter read-only cancellation contract.`);
+    } else {
+      assert(Number.isInteger(request.status) && request.status >= 100 && request.status <= 599,
+        `Observed response ${request.browserRequestId} must retain its actual HTTP status code.`);
+      assert(Number.isInteger(request.responseMountEpoch));
+      assert.equal(request.failureMountEpoch, null);
+    }
     if (request.requestId !== undefined) assert(typeof request.requestId === 'string' && request.requestId.length > 0);
   }
   const readIds = capture.builderReads.map(read => read.readId);
@@ -225,6 +240,23 @@ const assertCaptureShape = capture => {
         `${step.label} must use the mount epoch of its captured DOM observation.`);
     }
   }
+  assert(Array.isArray(capture.lateReconcileCaptureIds),
+    'Capture must retain reconcile requests outside all semantic-step request windows.');
+  const linkedReconcileIDs = [
+    ...capture.steps.flatMap(step => step.reconcileCaptureIds),
+    ...capture.lateReconcileCaptureIds,
+  ];
+  assert.equal(new Set(linkedReconcileIDs).size, linkedReconcileIDs.length,
+    'Each reconcile request must appear in one step window or the explicit late-request ledger.');
+  const actualReconcileIDs = capture.requestEvents.filter(request => requestPathIs(request, '/reconcile'))
+    .map(request => request.browserRequestId);
+  assertJSONEqual([...linkedReconcileIDs].sort(), [...actualReconcileIDs].sort(),
+    'Every actual reconcile request must remain linked or explicitly late.');
+  if (capture.lateReconcileCaptureIds.length > 0) {
+    assert(Number.isInteger(capture.finalDOMObservationIndex) &&
+      capture.finalDOMObservationIndex >= 0 && capture.finalDOMObservationIndex < capture.domObservations.length,
+    'Late reconcile requests must retain a final actual DOM observation.');
+  }
 };
 
 const assertRequestBindings = (capture, events) => {
@@ -263,11 +295,12 @@ const assertRequestBindings = (capture, events) => {
 const assertReconcileBindings = (capture, events) => {
   const requestById = new Map(capture.requestEvents.map(request => [request.browserRequestId, request]));
   const linkedIDs = capture.steps.flatMap(step => step.reconcileCaptureIds ?? []);
-  assert.equal(new Set(linkedIDs).size, linkedIDs.length,
-    'Each observed reconcile request must link to one semantic step.');
+  const allLinkedIDs = [...linkedIDs, ...(capture.lateReconcileCaptureIds ?? [])];
+  assert.equal(new Set(allLinkedIDs).size, allLinkedIDs.length,
+    'Each observed reconcile request must link to one semantic step or the explicit late-request ledger.');
   const reconciles = capture.requestEvents.filter(request => request.method === 'POST' && request.path.endsWith('/reconcile'));
-  assertJSONEqual([...linkedIDs].sort(), reconciles.map(request => request.browserRequestId).sort(),
-    'Every actual POST /reconcile request must link to its semantic step.');
+  assertJSONEqual([...allLinkedIDs].sort(), reconciles.map(request => request.browserRequestId).sort(),
+    'Every actual POST /reconcile request must link to its semantic step or late-request ledger.');
   for (const step of capture.steps) {
     for (const captureId of step.reconcileCaptureIds ?? []) {
       const request = requestById.get(captureId);
@@ -279,9 +312,9 @@ const assertReconcileBindings = (capture, events) => {
   }
 
   for (const reload of events.filter(event => event.action === 'Reload')) {
-    assert(reload.reconcileCaptureIds.length > 0, 'Reload must retain its actual reconcile request IDs.');
     assert(reload.before && reload.after && reload.ui, 'Reload must bind Builder state and DOM evidence.');
-    const linked = reload.reconcileCaptureIds.map(captureId => requestById.get(captureId));
+    const reloadRequestIDs = new Set([...reload.reconcileCaptureIds, ...(capture.lateReconcileCaptureIds ?? [])]);
+    const linked = reconciles.filter(request => reloadRequestIDs.has(request.browserRequestId));
     const receipts = linked.filter(request => request.status >= 200 && request.status < 300 &&
       request.response?.receiptId && request.response.snapshotToken === reload.after.snapshotToken &&
       request.request?.snapshotToken === reload.after.snapshotToken &&

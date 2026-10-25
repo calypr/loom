@@ -146,6 +146,8 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       startedAt: atEpochMs,
       responseReceivedAt: observedResponseAt,
       completedAt: atEpochMs + (status === null ? 1 : 3),
+      responseMountEpoch: status === null ? null : mountEpoch,
+      failureMountEpoch: status === null ? mountEpoch : null,
       isMutation,
       failure: clone(failure),
       readCancellationDiagnostic,
@@ -377,5 +379,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     builderReads,
     domObservations,
     steps,
+    lateReconcileCaptureIds: [],
+    finalDOMObservationIndex: null,
   };
 };

@@ -134,6 +134,7 @@ const stepId = value => value?.id ?? value?.stepId ?? NO;
 const isProposalRequest = request => request.method === 'POST' &&
   PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix));
 const isReconcileRequest = request => request.method === 'POST' && request.path.endsWith('/reconcile');
+const isPreviewRequest = request => request.method === 'POST' && request.path.endsWith('/preview');
 
 const projectFilterValue = value => {
   assert(value && typeof value === 'object' && typeof value.kind === 'string',
@@ -308,13 +309,28 @@ const projectFilterEvidence = filter => {
   };
 };
 
-const projectModelEvent = (event, rawStep, timeOrigin, initialMountEpoch) => ({
+const projectReadTime = (lifecycle, index, timeOrigin) => {
+  if (index === null || index === undefined) {
+    return { requestStartedAt: NO, capturedAt: NO };
+  }
+  const read = lifecycle.builderReads[index];
+  return {
+    requestStartedAt: read.requestStartedAtEpochMs - timeOrigin.epochMs,
+    capturedAt: read.capturedAtEpochMs - timeOrigin.epochMs,
+  };
+};
+
+const projectModelEvent = (event, rawStep, lifecycle, timeOrigin, initialMountEpoch) => ({
   action: event.action,
   atMonotonicMs: Math.round((event.atMonotonicMs - timeOrigin.monotonicMs) * 1_000),
   atMonotonicMsExact: String(event.atMonotonicMs),
   atEpochMs: event.atEpochMs - timeOrigin.epochMs,
   atEpochMsExact: String(event.atEpochMs),
   mountEpoch: event.mountEpoch,
+  beforeReadRequestStartedAt: projectReadTime(lifecycle, rawStep.beforeReadIndex, timeOrigin).requestStartedAt,
+  beforeReadCapturedAt: projectReadTime(lifecycle, rawStep.beforeReadIndex, timeOrigin).capturedAt,
+  afterReadRequestStartedAt: projectReadTime(lifecycle, rawStep.afterReadIndex, timeOrigin).requestStartedAt,
+  afterReadCapturedAt: projectReadTime(lifecycle, rawStep.afterReadIndex, timeOrigin).capturedAt,
   request: projectRequest(event.request),
   before: projectSnapshot(event.before, initialMountEpoch),
   after: projectSnapshot(event.after, initialMountEpoch),
@@ -443,6 +459,148 @@ const READ_ONLY_TEMPORAL_ENDPOINTS = Object.freeze(READ_ONLY_POST_PATH_SUFFIXES
   .filter(suffix => suffix.startsWith('/authoring/v2/'))
   .map(suffix => suffix.slice('/authoring/v2'.length)));
 
+const RECONCILE_STALE_CODES = new Set([
+  'STALE_CATALOG_SNAPSHOT',
+  'STALE_SNAPSHOT',
+  'SNAPSHOT_STALE',
+  'STALE_RECEIPT',
+  'RECEIPT_STALE',
+  'COMPILE_RECEIPT_NOT_FOUND',
+  'RECEIPT_RECOMPILE_REQUIRED',
+]);
+
+const ownerMatchesRequest = (snapshot, request) => snapshot &&
+  snapshot.snapshotToken === request.request?.snapshotToken &&
+  snapshot.draftVersion === request.request?.draftVersion &&
+  snapshot.draftDigest === request.request?.draftDigest &&
+  snapshot.outputId === request.request?.outputId;
+
+const responseOutputIds = request => safeArray(request.response?.outputs)
+  .map(output => output?.outputId);
+
+const reconcilePossibleProducers = (previewRequest, reconcileRequests, invalidationsByReconcileId) => reconcileRequests
+  .filter(reconcile => Number.isFinite(reconcile.status) && reconcile.status >= 200 && reconcile.status < 300 &&
+    reconcile.request?.snapshotToken && reconcile.request?.draftVersion !== undefined &&
+    reconcile.request?.draftDigest && reconcile.request?.outputId &&
+    reconcile.response?.snapshotToken === reconcile.request.snapshotToken &&
+    reconcile.response?.receiptId === previewRequest.request?.receiptId &&
+    previewRequest.request?.outputId === reconcile.request.outputId &&
+    responseOutputIds(reconcile).includes(previewRequest.request.outputId) &&
+    reconcile.responseReceivedAt <= previewRequest.startedAt &&
+    reconcile.mountEpoch === reconcile.responseMountEpoch &&
+    previewRequest.mountEpoch === reconcile.responseMountEpoch &&
+    !(invalidationsByReconcileId.get(reconcile.browserRequestId) ?? [])
+      .some(invalidation => invalidation.ownerObservedAt <= previewRequest.startedAt));
+
+const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequestById) => {
+  const reconcileRequests = rawRequests.filter(isReconcileRequest);
+  const previewRequests = rawRequests.filter(isPreviewRequest);
+  const semanticRequestIds = new Set(lifecycle.steps.flatMap(step => [
+    step.requestCaptureId,
+    ...safeArray(step.proposalCaptureIds),
+  ]).filter(value => typeof value === 'string'));
+  const evidenceByCaptureId = new Map();
+  const producerIdsByPreviewId = new Map();
+
+  const sameOwner = (left, right) =>
+    left.request?.snapshotToken === right.request?.snapshotToken &&
+    left.request?.draftVersion === right.request?.draftVersion &&
+    left.request?.draftDigest === right.request?.draftDigest &&
+    left.request?.outputId === right.request?.outputId;
+  const actionStartedBetween = (start, end) => rawRequests.some(candidate =>
+    semanticRequestIds.has(candidate.browserRequestId) && candidate.startedAt > start && candidate.startedAt < end);
+  const invalidationsByReconcileId = new Map(reconcileRequests.map(request => {
+    const invalidations = trace.actions.flatMap((_, index) => {
+      const rawStep = lifecycle.steps[index];
+      const command = rawRequestById.get(rawStep.requestCaptureId);
+      if (!command?.isMutation || !Number.isFinite(command.responseReceivedAt) ||
+        command.responseReceivedAt <= request.startedAt ||
+        command.responseReceivedAt >= request.responseReceivedAt ||
+        rawStep.afterReadIndex === null || rawStep.afterReadIndex === undefined) return [];
+      const after = snapshotAt(lifecycle, rawStep.afterReadIndex);
+      const afterRead = lifecycle.builderReads[rawStep.afterReadIndex];
+      return afterRead.capturedAtEpochMs <= request.responseReceivedAt && !ownerMatchesRequest(after, request)
+        ? [{ captureId: command.browserRequestId, ownerObservedAt: afterRead.capturedAtEpochMs }]
+        : [];
+    });
+    return [request.browserRequestId, invalidations];
+  }));
+  const hasFreshBuilderRead = (reconcile, next) => lifecycle.builderReads.some(read =>
+    read.status === 200 && Number.isFinite(read.capturedAtEpochMs) &&
+    read.capturedAtEpochMs > reconcile.responseReceivedAt &&
+    read.requestStartedAtEpochMs > reconcile.responseReceivedAt &&
+    read.capturedAtEpochMs <= next.startedAt &&
+    read.requestMountEpoch === next.mountEpoch && read.mountEpoch === next.mountEpoch &&
+    read.snapshotToken === next.request?.snapshotToken &&
+    read.draftVersion === next.request?.draftVersion &&
+    read.draftDigest === next.request?.draftDigest &&
+    safeArray(read.workspaceDocuments).some(document => document?.output?.id === next.request?.outputId));
+
+  for (const preview of previewRequests) {
+    producerIdsByPreviewId.set(preview.browserRequestId,
+      reconcilePossibleProducers(preview, reconcileRequests, invalidationsByReconcileId)
+        .map(request => request.browserRequestId));
+  }
+
+  for (const request of reconcileRequests) {
+    const consumerCaptureIds = previewRequests.filter(preview =>
+      (producerIdsByPreviewId.get(preview.browserRequestId) ?? []).includes(request.browserRequestId))
+      .map(preview => preview.browserRequestId);
+    const invalidations = invalidationsByReconcileId.get(request.browserRequestId) ?? [];
+    const domObservationIndexes = lifecycle.domObservations.flatMap((observation, index) =>
+      request.status >= 200 && request.status < 300 &&
+      observation.receiptId === request.response?.receiptId &&
+      observation.outputId === request.request?.outputId &&
+      observation.mountEpoch === request.mountEpoch &&
+      observation.mountEpoch === request.responseMountEpoch &&
+      observation.capturedAtEpochMs >= request.responseReceivedAt &&
+      !invalidations.some(invalidation => invalidation.ownerObservedAt <= observation.capturedAtEpochMs)
+        ? [index]
+        : []);
+    const invalidatedByCaptureIds = invalidations.map(invalidation => invalidation.captureId);
+    const responseCode = request.response?.code ?? request.response?.error?.code ?? null;
+    const responseRetryable = Boolean(request.response?.retryable ?? request.response?.error?.retryable);
+    const retryFollowupCaptureIds = reconcileRequests.filter(next => {
+      if (next.browserRequestId === request.browserRequestId ||
+        !Number.isFinite(next.status) || next.startedAt <= request.responseReceivedAt ||
+        next.mountEpoch !== request.mountEpoch ||
+        actionStartedBetween(request.responseReceivedAt, next.startedAt)) return false;
+      if (RECONCILE_STALE_CODES.has(responseCode)) return hasFreshBuilderRead(request, next);
+      return responseRetryable && sameOwner(request, next);
+    }).map(next => next.browserRequestId);
+    let disposition;
+    if (request.status === null) {
+      disposition = 'cancelled';
+    } else if (request.status >= 200 && request.status < 300) {
+      if (request.mountEpoch !== request.responseMountEpoch) {
+        disposition = 'cross-mount-ignored';
+      } else if (invalidatedByCaptureIds.length > 0) {
+        assert.equal(consumerCaptureIds.length, 0,
+          `Owner-invalidated reconcile ${request.browserRequestId} cannot be a possible producer for a later preview.`);
+        disposition = 'owner-invalidated';
+      } else if (consumerCaptureIds.length > 0 || domObservationIndexes.length > 0) {
+        disposition = 'compatible-unattributed';
+      } else {
+        throw new Error(`Successful reconcile ${request.browserRequestId} has no receipt-compatible preview, DOM observation, captured owner invalidation, or cross-mount boundary.`);
+      }
+    } else if (RECONCILE_STALE_CODES.has(responseCode) && retryFollowupCaptureIds.length > 0) {
+      disposition = 'stale-retry';
+    } else if (responseRetryable && retryFollowupCaptureIds.length > 0) {
+      disposition = 'retry';
+    } else {
+      throw new Error(`Reconcile ${request.browserRequestId} failed without a recognized stale or retryable response and an observed follow-up.`);
+    }
+    evidenceByCaptureId.set(request.browserRequestId, {
+      disposition,
+      compatiblePreviewCaptureIds: consumerCaptureIds,
+      domObservationIndexes,
+      invalidatedByCaptureIds,
+      retryFollowupCaptureIds,
+    });
+  }
+  return { evidenceByCaptureId, producerIdsByPreviewId };
+};
+
 export const validateTemporalFilterJourneyTrace = trace => {
   assert(trace && typeof trace === 'object', 'Temporal-filter compiler requires a canonical journey trace.');
   assert.equal(trace.model, 'TemporalFilterJourney', 'Canonical trace must select TemporalFilterJourney.');
@@ -482,6 +640,12 @@ export const validateTemporalFilterJourneyTrace = trace => {
   assert(Array.isArray(lifecycle.requestEvents), 'Raw observer request events must remain available.');
   assert(Array.isArray(lifecycle.builderReads) && Array.isArray(lifecycle.domObservations),
     'Raw Builder and DOM evidence must remain available beside the normalized trace.');
+  assert(Array.isArray(lifecycle.lateReconcileCaptureIds),
+    'Raw capture must retain reconcile IDs outside the semantic-step request windows.');
+  assert(lifecycle.finalDOMObservationIndex === null ||
+    (Number.isInteger(lifecycle.finalDOMObservationIndex) && lifecycle.finalDOMObservationIndex >= 0 &&
+      lifecycle.finalDOMObservationIndex < lifecycle.domObservations.length),
+  'Late reconcile capture must retain its final DOM observation index.');
 
   const actionCounts = countBy(trace.actions.map(event => event.action));
   for (const [label, count] of expectedCounts) assert.equal(actionCounts.get(label), count);
@@ -506,16 +670,26 @@ export const validateTemporalFilterJourneyTrace = trace => {
       `Observer request ${request.browserRequestId} must have one settled response.`);
     if (request.status === null) {
       assert(!request.isMutation && request.readCancellationDiagnostic === true &&
-        request.failure?.canceled === true && isProposalRequest(request),
-      `Observer request ${request.browserRequestId} may omit status only for a captured read-only proposal cancellation.`);
+        request.failure?.canceled === true &&
+        (isProposalRequest(request) || isReconcileRequest(request) || isPreviewRequest(request)),
+      `Observer request ${request.browserRequestId} may omit status only for a captured temporal preview or proposal cancellation.`);
       assert(request.responseReceivedAt === null || request.responseReceivedAt === undefined,
         `Canceled request ${request.browserRequestId} must not invent a response-arrival time.`);
+      assert(request.responseMountEpoch === null || request.responseMountEpoch === undefined,
+        `Canceled request ${request.browserRequestId} must not invent a response mount epoch.`);
+      assert(Number.isInteger(request.failureMountEpoch),
+        `Canceled request ${request.browserRequestId} must retain its actual failure mount epoch.`);
     } else {
-      assert(Number.isFinite(request.status), `Observer request ${request.browserRequestId} must retain its response status.`);
+      assert(Number.isInteger(request.status) && request.status >= 100 && request.status <= 599,
+        `Observer request ${request.browserRequestId} must retain its actual HTTP status code.`);
       assert(Number.isFinite(request.responseReceivedAt),
         `Observer request ${request.browserRequestId} must retain the actual response-arrival time.`);
       assert(request.responseReceivedAt >= request.startedAt && request.completedAt >= request.responseReceivedAt,
         `Observer request ${request.browserRequestId} must order start, response arrival, and body-capture completion.`);
+      assert(Number.isInteger(request.responseMountEpoch),
+        `Observer request ${request.browserRequestId} must retain its actual response mount epoch.`);
+      assert(request.failureMountEpoch === null || request.failureMountEpoch === undefined,
+        `Successful response ${request.browserRequestId} must not retain a request-failure mount epoch.`);
     }
     if (!request.isMutation && !isProposalRequest(request)) {
       assert(supportedPureRead(lifecycle, request),
@@ -641,47 +815,56 @@ export const validateTemporalFilterJourneyTrace = trace => {
     }
 
     const linkedReconciles = rawStep.reconcileCaptureIds;
-    const reconcileRequests = linkedReconciles.map(captureId => {
+    linkedReconciles.forEach(captureId => {
       const request = rawRequestById.get(captureId);
       assert(request, `${event.action} reconcile link must resolve to an actual observer request.`);
       assert(isReconcileRequest(request), `${event.action} reconcile link must identify POST /reconcile.`);
       assert.equal(request.isMutation, false,
         'POST /reconcile must preserve the observer’s read-only classification.');
-      assert(Number.isFinite(request.responseReceivedAt),
-        `${event.action} reconcile must retain its actual response-arrival time.`);
-      return request;
+      if (request.status === null) {
+        assert(request.failure?.canceled === true && request.readCancellationDiagnostic === true &&
+          request.responseReceivedAt === null && request.responseMountEpoch === null,
+        `${event.action} canceled reconcile must preserve its actual no-response diagnostic.`);
+      } else {
+        assert(Number.isFinite(request.responseReceivedAt) && Number.isInteger(request.responseMountEpoch),
+          `${event.action} reconcile must retain its actual response-arrival time and mount.`);
+      }
     });
     if (event.action === 'Reload') {
-      assert(linkedReconciles.length > 0,
-        'Each Reload must bind its actual reconcile request or requests.');
       assert(beforeRead && afterRead && domObservation,
         'Each Reload must bind its actual pre-read, post-read, and DOM observation.');
-      const reconcile = reconcileRequests.find(request =>
+      const linkedReloadReconciles = event.reconcileCaptureIds
+        .map(captureId => rawRequestById.get(captureId))
+        .filter(isReconcileRequest);
+      assert(linkedReloadReconciles.some(request =>
+        request.request?.snapshotToken === event.after.snapshotToken &&
+        request.request?.draftVersion === event.after.draftVersion &&
+        request.request?.draftDigest === event.after.draftDigest &&
+        request.request?.outputId === event.after.outputId),
+      'Reload reconcile request must bind the fresh saved Builder draft digest and output.');
+      assert(linkedReloadReconciles.some(request =>
+        request.status >= 200 && request.status < 300 &&
+        request.response?.receiptId === event.ui.receiptId &&
+        safeArray(request.response?.outputs).some(output => output?.outputId === event.after.outputId)),
+      'Reload DOM receipt must match a successful actual reconcile response for its saved output.');
+      const matchingReconciles = rawRequests.filter(request => isReconcileRequest(request) &&
         Number.isFinite(request.status) && request.status >= 200 && request.status < 300 &&
-        request.response?.receiptId === event.ui.receiptId);
-      assert(reconcile,
-        'Reload DOM receipt must match a successful actual reconcile response.');
-      assert.equal(reconcile.request?.snapshotToken, event.after.snapshotToken,
-        'Reload reconcile request must use the fresh saved Builder snapshot token.');
-      assert.equal(reconcile.request?.draftVersion, event.after.draftVersion,
-        'Reload reconcile request must use the fresh saved Builder draft version.');
-      assert.equal(reconcile.request?.draftDigest, event.after.draftDigest,
-        'Reload reconcile request must use the fresh saved Builder draft digest.');
-      assert.equal(reconcile.request?.outputId, event.after.outputId,
-        'Reload reconcile request must name the output in its saved Builder snapshot.');
-      assert.equal(reconcile.response?.snapshotToken, reconcile.request.snapshotToken,
-        'Reload reconcile response must echo its actual saved snapshot token.');
-      assert(typeof reconcile.response?.receiptId === 'string' && reconcile.response.receiptId.length > 0,
-        'Reload reconcile response must retain its actual compilation receipt ID.');
-      const responseOutputIds = safeArray(reconcile.response?.outputs).map(output => output?.outputId);
-      assert(responseOutputIds.includes(event.after.outputId),
-        'Reload reconcile response must contain the actual saved output.');
+        request.request?.snapshotToken === event.after.snapshotToken &&
+        request.request?.draftVersion === event.after.draftVersion &&
+        request.request?.draftDigest === event.after.draftDigest &&
+        request.request?.outputId === event.after.outputId &&
+        request.response?.snapshotToken === event.after.snapshotToken &&
+        request.response?.receiptId === event.ui.receiptId &&
+        safeArray(request.response?.outputs).some(output => output?.outputId === event.after.outputId) &&
+        request.mountEpoch === request.responseMountEpoch &&
+        request.responseMountEpoch === event.ui.mountEpoch);
+      const postSettlementReconciles = matchingReconciles.filter(request =>
+        afterRead.requestStartedAtEpochMs >= request.responseReceivedAt &&
+        domObservation.capturedAtEpochMs >= request.responseReceivedAt);
+      assert(postSettlementReconciles.length > 0,
+        'Reload post-settlement Builder GET must start and its DOM observation must follow the actual reconcile responseReceivedAt.');
       assert.equal(event.ui.outputId, event.after.outputId,
         'Reload DOM preview output must match its actual saved Builder snapshot.');
-      assert(afterRead.requestStartedAtEpochMs >= reconcile.responseReceivedAt,
-        'Reload post-settlement Builder GET must start after its reconcile response arrives.');
-      assert(domObservation.capturedAtEpochMs >= reconcile.responseReceivedAt,
-        'Reload DOM observation must follow its reconcile response arrival.');
     }
     reconcileLinks.push(...linkedReconciles);
   }
@@ -698,10 +881,31 @@ export const validateTemporalFilterJourneyTrace = trace => {
     'Every observer construction proposal must be linked to exactly one semantic step.');
   const expectedReconciles = rawRequests.filter(isReconcileRequest)
     .map(request => request.browserRequestId).sort();
-  assert.equal(new Set(reconcileLinks).size, reconcileLinks.length,
-    'Each observed reconcile request must be linked to one semantic step only.');
-  assert.deepEqual([...reconcileLinks].sort(), expectedReconciles,
-    'Every observer POST /reconcile must be linked to exactly one semantic step.');
+  const allReconcileLinks = [...reconcileLinks, ...lifecycle.lateReconcileCaptureIds];
+  assert.equal(new Set(allReconcileLinks).size, allReconcileLinks.length,
+    'Each observed reconcile request must be linked to one step window or the explicit late-request ledger.');
+  assert.deepEqual([...allReconcileLinks].sort(), expectedReconciles,
+    'Every observer POST /reconcile must be retained in a step window or the explicit late-request ledger.');
+  const lateReconciles = rawRequests.filter(request =>
+    lifecycle.lateReconcileCaptureIds.includes(request.browserRequestId));
+  if (lateReconciles.length > 0) {
+    const finalDOM = lifecycle.domObservations[lifecycle.finalDOMObservationIndex];
+    assert(finalDOM, 'Unassigned late reconciles must resolve to the retained final raw DOM observation.');
+    const lateReceipts = new Set(lateReconciles.map(request => request.response?.receiptId)
+      .filter(value => typeof value === 'string' && value.length > 0));
+    const relevantResponseTimes = [
+      ...lateReconciles.map(request => request.responseReceivedAt),
+      ...rawRequests.filter(request => isPreviewRequest(request) &&
+        lateReceipts.has(request.request?.receiptId)).map(request => request.responseReceivedAt),
+    ].filter(Number.isFinite);
+    if (relevantResponseTimes.length > 0) {
+      assert(finalDOM.capturedAtEpochMs >= Math.max(...relevantResponseTimes),
+        'Final DOM evidence must follow every captured late reconcile and matching preview response arrival.');
+    }
+  }
+  const { evidenceByCaptureId: reconcileEvidenceByCaptureId,
+    producerIdsByPreviewId: reconcileProducerIdsByPreviewId } = deriveReconcileTransportEvidence(
+    trace, lifecycle, rawRequests, rawRequestById);
 
   const firstActionRead = trace.actions[0]?.after;
   assert(firstActionRead && trace.initialObservation,
@@ -720,30 +924,87 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const rawStepByActionIndex = lifecycle.steps;
   const initialMountEpoch = trace.actions[0].mountEpoch;
   const modelEvents = trace.actions.map((event, index) => projectModelEvent(
-    event, rawStepByActionIndex[index], timeOrigin, initialMountEpoch));
+    event, rawStepByActionIndex[index], lifecycle, timeOrigin, initialMountEpoch));
   const observedRequests = rawRequests.map(request => ({
     captureId: request.browserRequestId,
     requestId: noIfAbsent(request.requestId),
     isMutation: Boolean(request.isMutation),
     method: request.method,
     path: request.path,
-    status: noIfAbsent(request.status),
+    status: noIfAbsent(request.status) === NO ? 0 : request.status,
+    startedAt: Math.round(request.startedAt - timeOrigin.epochMs),
+    startedAtExact: String(request.startedAt),
+    responseReceivedAt: Number.isFinite(request.responseReceivedAt)
+      ? Math.round(request.responseReceivedAt - timeOrigin.epochMs)
+      : NO,
+    responseReceivedAtExact: Number.isFinite(request.responseReceivedAt)
+      ? String(request.responseReceivedAt)
+      : NO,
+    completedAt: Number.isFinite(request.completedAt)
+      ? Math.round(request.completedAt - timeOrigin.epochMs)
+      : NO,
+    completedAtExact: Number.isFinite(request.completedAt) ? String(request.completedAt) : NO,
+    requestMountEpoch: request.mountEpoch,
+    responseMountEpoch: noIfAbsent(request.responseMountEpoch),
+    failureMountEpoch: noIfAbsent(request.failureMountEpoch),
+    failureCanceled: Boolean(request.failure?.canceled),
+    requestReceiptId: noIfAbsent(request.request?.receiptId),
+    requestOutputId: noIfAbsent(request.request?.outputId),
     outputId: noIfAbsent(request.response?.outputId),
     receiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
+    responseReceiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
+    responseOutputId: noIfAbsent(request.response?.outputId ?? request.response?.preview?.outputId),
     candidateColumnIds: safeArray(request.response?.candidateColumnIds),
     requestSnapshotToken: noIfAbsent(request.request?.snapshotToken),
     requestDraftVersion: noIfAbsent(request.request?.draftVersion),
     requestDraftDigest: noIfAbsent(request.request?.draftDigest),
-    requestOutputId: noIfAbsent(request.request?.outputId),
-    responseSnapshotToken: noIfAbsent(request.response?.snapshotToken),
+    responseSnapshotToken: noIfAbsent(request.response?.snapshotToken ?? request.response?.catalog?.snapshotToken),
+    responseDraftVersion: noIfAbsent(request.response?.draftVersion),
+    responseDraftDigest: noIfAbsent(request.response?.draftDigest),
     responseOutputIds: Array.isArray(request.response?.outputs)
       ? request.response.outputs.map(output => noIfAbsent(output?.outputId))
-      : NO,
+      : Array.isArray(request.response?.workspace?.documents)
+        ? request.response.workspace.documents.map(document => noIfAbsent(document?.output?.id))
+        : NO,
+    responseCode: noIfAbsent(request.response?.code ?? request.response?.error?.code),
+    responseRetryable: Boolean(request.response?.retryable ?? request.response?.error?.retryable),
+    possibleReconcileProducerCaptureIds: reconcileProducerIdsByPreviewId.get(request.browserRequestId) ?? [],
+    reconcileDisposition: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.disposition ?? NO,
+    reconcileCompatiblePreviewCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.compatiblePreviewCaptureIds ?? [],
+    reconcileDOMObservationIndexes: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.domObservationIndexes ?? [],
+    reconcileInvalidatedByCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.invalidatedByCaptureIds ?? [],
+    reconcileRetryFollowupCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.retryFollowupCaptureIds ?? [],
     requestEvidence: opaqueJSON(request.request),
     responseEvidence: opaqueJSON(request.response),
   }));
+  const observedDOMObservations = lifecycle.domObservations.map((observation, index) => ({
+    observationIndex: index,
+    capturedAt: Math.round(observation.capturedAtEpochMs - timeOrigin.epochMs),
+    capturedAtExact: String(observation.capturedAtEpochMs),
+    mountEpoch: observation.mountEpoch,
+    receiptId: noIfAbsent(observation.receiptId),
+    outputId: noIfAbsent(observation.outputId),
+    rowIds: safeArray(observation.rowIds),
+  }));
+  const observedBuilderReads = lifecycle.builderReads.map(read => ({
+    readId: read.readId,
+    requestId: noIfAbsent(read.requestId),
+    status: read.status,
+    requestStartedAt: Math.round(read.requestStartedAtEpochMs - timeOrigin.epochMs),
+    requestStartedAtExact: String(read.requestStartedAtEpochMs),
+    capturedAt: Math.round(read.capturedAtEpochMs - timeOrigin.epochMs),
+    capturedAtExact: String(read.capturedAtEpochMs),
+    requestMountEpoch: read.requestMountEpoch,
+    mountEpoch: read.mountEpoch,
+    snapshotToken: read.snapshotToken,
+    draftVersion: read.draftVersion,
+    draftDigest: read.draftDigest,
+    outputIds: safeArray(read.workspaceDocuments)
+      .map(document => noIfAbsent(document?.output?.id))
+      .filter(outputId => outputId !== NO),
+  }));
   const pureReadCaptureIds = rawRequests.filter(request => !request.isMutation &&
-    !isProposalRequest(request) && !isReconcileRequest(request))
+    !isProposalRequest(request) && !isReconcileRequest(request) && !isPreviewRequest(request))
     .map(request => request.browserRequestId);
 
   return {
@@ -753,8 +1014,12 @@ export const validateTemporalFilterJourneyTrace = trace => {
     caseValue: buildCase(caseName, trace.actions),
     modelEvents,
     observedRequests,
+    observedDOMObservations,
+    observedBuilderReads,
     eventCount: modelEvents.length,
     observedRequestCount: observedRequests.length,
+    observedDOMObservationCount: observedDOMObservations.length,
+    observedBuilderReadCount: observedBuilderReads.length,
     mutationCount: expectedMutations.length,
     proposalCount: expectedProposals.length,
     pureReadCaptureIds,
@@ -778,6 +1043,13 @@ const invariantNames = Object.freeze([
   'InvProposalPreviewRowsMatch',
   'InvAllOtherStepsAndColumnsPreserved',
   'InvReconcileEvidenceLinked',
+  'InvObservedRequestChronology',
+  'InvObservedBuilderReadChronology',
+  'InvReconcilePossibleProducerRelations',
+  'InvReconcileOwnerEvidence',
+  'InvReconcileTransportSemantics',
+  'InvReconcileRetryFollowups',
+  'InvReconcileStepLinksBound',
   'InvReloadReconcileBindsFreshSnapshot',
   'InvApplyUsesCurrentProposalAndCAS',
   'InvTypedProfileValues',
@@ -805,6 +1077,8 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     `TraceCase == ${tlaValue(input.caseValue)}`,
     `TraceEvents == ${tlaValue(input.modelEvents)}`,
     `TraceObservedRequests == ${tlaValue(input.observedRequests)}`,
+    `TraceObservedDOM == ${tlaValue(input.observedDOMObservations)}`,
+    `TraceObservedBuilderReads == ${tlaValue(input.observedBuilderReads)}`,
     '====',
     '',
   ].join('\n');
@@ -815,6 +1089,8 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     'CONSTANT Case <- TraceCase',
     'CONSTANT ModelEvents <- TraceEvents',
     'CONSTANT ObservedRequests <- TraceObservedRequests',
+    'CONSTANT ObservedDOM <- TraceObservedDOM',
+    'CONSTANT ObservedBuilderReads <- TraceObservedBuilderReads',
     ...invariantNames.map(name => `INVARIANT ${name}`),
     'PROPERTY EventuallyComplete',
     '',
@@ -828,6 +1104,8 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     initialMountEpoch: input.initialMountEpoch,
     eventCount: input.eventCount,
     observedRequestCount: input.observedRequestCount,
+    observedDOMObservationCount: input.observedDOMObservationCount,
+    observedBuilderReadCount: input.observedBuilderReadCount,
     mutationCount: input.mutationCount,
     proposalCount: input.proposalCount,
     pureReadCaptureIds: input.pureReadCaptureIds,

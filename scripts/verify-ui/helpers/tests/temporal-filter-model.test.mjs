@@ -68,7 +68,7 @@ function diagnostics(output) {
   const matches = lines.filter(line => /Error:|Invariant .* violated|Temporal property .* violated|Model checking completed/.test(line));
   const cursor = [...output.matchAll(/cursor \|-> (\d+)/g)].at(-1)?.[1] ?? 'unknown';
   const action = [...output.matchAll(/lastAction \|-> "([^"]+)"/g)].at(-1)?.[1] ?? 'unknown';
-  return `${matches.length > 0 ? matches.join('\n') : output.slice(0, 4_000)}\nlast state cursor=${cursor}, action=${action}`;
+  return `${output.slice(0, 4_000)}\n${matches.join('\n')}\nlast state cursor=${cursor}, action=${action}`;
 }
 
 function stateSummary(output) {

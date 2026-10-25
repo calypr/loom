@@ -16,6 +16,8 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
     'Temporal-filter capture mount epoch must be a nonnegative integer.');
   const requestStartIndex = networkObserver.requests.length;
   const requestStamps = new WeakMap();
+  const responseMountEpochs = new WeakMap();
+  const failureMountEpochs = new WeakMap();
   const extraResponseBodies = new WeakMap();
   const builderReads = [];
   const domObservations = [];
@@ -30,8 +32,18 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
   const onFrameNavigated = frame => {
     if (frame === page.mainFrame()) mountEpoch += 1;
   };
+  const onResponse = response => {
+    const entry = networkObserver.byRequest.get(response.request());
+    if (entry) responseMountEpochs.set(entry, mountEpoch);
+  };
+  const onRequestFailed = request => {
+    const entry = networkObserver.byRequest.get(request);
+    if (entry) failureMountEpochs.set(entry, mountEpoch);
+  };
   page.on('request', onRequest);
   page.on('framenavigated', onFrameNavigated);
+  page.on('response', onResponse);
+  page.on('requestfailed', onRequestFailed);
 
   const beginBuilderRead = () => ({ readId: randomUUID(), ...eventStamp(mountEpoch) });
 
@@ -162,6 +174,14 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
   const waitForRequest = (predicate, { fromIndex = requestStartIndex, timeoutMs = 5_000 } = {}) =>
     networkObserver.waitForResponse(entry => entry.index >= fromIndex && predicate(entry), { fromIndex, timeoutMs });
 
+  const requestWindow = fromIndex => {
+    assert(Number.isInteger(fromIndex) && fromIndex >= requestStartIndex,
+      'A temporal-filter request window must start at or after capture began.');
+    const endIndex = networkObserver.requests.length;
+    assert(fromIndex <= endIndex, 'A temporal-filter request window cannot start beyond the observer ledger.');
+    return { entries: networkObserver.requests.slice(fromIndex, endIndex), endIndex };
+  };
+
   const requestsSince = (fromIndex, predicate = () => true) =>
     networkObserver.requests.slice(fromIndex).filter(predicate);
 
@@ -179,14 +199,56 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
 
   const finish = async metadata => {
     assert(!finished, 'Temporal-filter capture can only finish once.');
+    const settledEntries = new Set();
+    let finalDOMObservationIndex = null;
+    for (;;) {
+      const endIndex = networkObserver.requests.length;
+      const entries = networkObserver.requests.slice(requestStartIndex, endIndex);
+      const pending = entries.filter(entry => !settledEntries.has(entry));
+      if (pending.length > 0) {
+        await settleRequests(pending);
+        for (const entry of pending) settledEntries.add(entry);
+        continue;
+      }
+
+      const linkedCaptureIds = new Set(steps.flatMap(step => step.reconcileCaptureIds));
+      const lateReconciles = entries.filter(entry => entry.method === 'POST' &&
+        entry.path.endsWith('/reconcile') && !linkedCaptureIds.has(entry.browserRequestId));
+      const lateReceipts = new Set(lateReconciles
+        .map(entry => entry.response?.receiptId)
+        .filter(value => typeof value === 'string' && value.length > 0));
+      const relevantResponseTimes = entries.filter(entry => entry.method === 'POST' &&
+        (entry.path.endsWith('/reconcile') ||
+          (entry.path.endsWith('/preview') && lateReceipts.has(entry.request?.receiptId))))
+        .map(entry => entry.responseReceivedAt)
+        .filter(Number.isFinite);
+      const latestRelevantResponseAt = relevantResponseTimes.length > 0
+        ? Math.max(...relevantResponseTimes)
+        : Number.NEGATIVE_INFINITY;
+      const currentFinalDOM = finalDOMObservationIndex === null
+        ? null
+        : domObservations[finalDOMObservationIndex];
+      if (lateReconciles.length > 0 && (!currentFinalDOM ||
+        currentFinalDOM.capturedAtEpochMs < latestRelevantResponseAt)) {
+        assert(metadata.resourceType, 'Late reconcile evidence requires the workflow resource type for a final DOM read.');
+        finalDOMObservationIndex = await captureDOM({ resourceType: metadata.resourceType });
+        continue;
+      }
+      if (networkObserver.requests.length === endIndex) break;
+    }
     const entries = networkObserver.requests.slice(requestStartIndex);
-    await settleRequests(entries);
     for (const entry of entries) {
       assert(requestStamps.has(entry), `Observed request ${entry.browserRequestId} is missing its request-event timestamp.`);
     }
+    const linkedCaptureIds = new Set(steps.flatMap(step => step.reconcileCaptureIds));
+    const lateReconcileCaptureIds = entries.filter(entry => entry.method === 'POST' &&
+      entry.path.endsWith('/reconcile') && !linkedCaptureIds.has(entry.browserRequestId))
+      .map(entry => entry.browserRequestId);
     finished = true;
     page.off('request', onRequest);
     page.off('framenavigated', onFrameNavigated);
+    page.off('response', onResponse);
+    page.off('requestfailed', onRequestFailed);
     const requestEvents = entries.map(entry => {
       const stamp = requestStamps.get(entry);
       const event = {
@@ -200,6 +262,8 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
         startedAt: entry.startedAt,
         responseReceivedAt: entry.responseReceivedAt ?? null,
         completedAt: entry.completedAt ?? null,
+        responseMountEpoch: responseMountEpochs.get(entry) ?? null,
+        failureMountEpoch: failureMountEpochs.get(entry) ?? null,
         isMutation: Boolean(entry.isMutation),
         failure: clone(entry.failure),
         readCancellationDiagnostic: Boolean(entry.readCancellationDiagnostic),
@@ -221,6 +285,8 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
       builderReads,
       domObservations,
       steps,
+      lateReconcileCaptureIds,
+      finalDOMObservationIndex,
     };
   };
 
@@ -234,6 +300,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
     captureDOM,
     recordStep,
     waitForRequest,
+    requestWindow,
     requestsSince,
     settleRequests,
     associateResponseBody,

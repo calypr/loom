@@ -40,6 +40,70 @@ const runTlc = (trace, moduleSuffix) => {
 const rawRequestFor = (trace, event) => trace.temporalFilterLifecycle.requestEvents.find(request =>
   request.browserRequestId === event.request.captureId);
 
+const appendObservedRequest = (capture, {
+  name,
+  method = 'POST',
+  path = '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/reconcile',
+  body,
+  response,
+  status = 200,
+  startedAt,
+  responseAt,
+  mountEpoch = 5,
+  failure = null,
+}) => {
+  const timeOrigin = capture.requestEvents[0].atEpochMs - capture.requestEvents[0].atMonotonicMs;
+  const requestEvent = {
+    browserRequestId: `schema-fixture-browser-request-${name}`,
+    requestId: `schema-fixture-raw-request-${name}`,
+    method,
+    path,
+    status,
+    request: structuredClone(body),
+    response: structuredClone(response),
+    startedAt: timeOrigin + startedAt,
+    responseReceivedAt: status === null ? null : timeOrigin + responseAt,
+    completedAt: timeOrigin + (status === null ? startedAt + 2 : responseAt + 2),
+    responseMountEpoch: status === null ? null : mountEpoch,
+    failureMountEpoch: status === null ? mountEpoch : null,
+    isMutation: false,
+    failure: structuredClone(failure),
+    readCancellationDiagnostic: status === null,
+    responseCapture: status === null ? 'not-configured' : 'captured',
+    responseCaptureComplete: status !== null,
+    responseBodyCaptured: status !== null,
+    atMonotonicMs: startedAt,
+    atEpochMs: timeOrigin + startedAt,
+    mountEpoch,
+  };
+  capture.requestEvents.push(requestEvent);
+  capture.requestEvents.sort((left, right) => left.startedAt - right.startedAt);
+  return requestEvent.browserRequestId;
+};
+
+const appendObservedDOM = (capture, { receiptId = null, outputId = 'temporal-output', at, mountEpoch = 5 }) => {
+  const timeOrigin = capture.requestEvents[0].atEpochMs - capture.requestEvents[0].atMonotonicMs;
+  capture.domObservations.push({
+    capturedAtMonotonicMs: at,
+    capturedAtEpochMs: timeOrigin + at,
+    mountEpoch,
+    proposalStatus: null,
+    proposalId: null,
+    receiptId,
+    outputId,
+    columnId: null,
+    inputType: null,
+    inputValue: null,
+    operator: null,
+    rowIds: [],
+  });
+  capture.finalDOMObservationIndex = capture.domObservations.length - 1;
+};
+
+const appendLateReconcile = (capture, requestId) => {
+  capture.lateReconcileCaptureIds.push(requestId);
+};
+
 test('compiler binds synthetic adapter-produced DATE events, snapshots, DOM references, and request ledger', () => {
   const trace = makeJourney('date');
   const validated = validateTemporalFilterJourneyTrace(trace);
@@ -54,8 +118,12 @@ test('compiler binds synthetic adapter-produced DATE events, snapshots, DOM refe
   assert.match(compiled.moduleText, /TraceEvents == <<\[action \|-> "ExplorerCreated"/u);
   assert.match(compiled.configText, /CONSTANT InitialMountEpoch <- TraceInitialMountEpoch/u);
   assert.match(compiled.configText, /CONSTANT ObservedRequests <- TraceObservedRequests/u);
+  assert.match(compiled.configText, /CONSTANT ObservedDOM <- TraceObservedDOM/u);
+  assert.match(compiled.configText, /CONSTANT ObservedBuilderReads <- TraceObservedBuilderReads/u);
   assert.match(compiled.configText, /INVARIANT InvObservedMutationsConsumed/u);
   assert.match(compiled.configText, /INVARIANT InvReconcileEvidenceLinked/u);
+  assert.match(compiled.configText, /INVARIANT InvReconcilePossibleProducerRelations/u);
+  assert.match(compiled.configText, /INVARIANT InvReconcileTransportSemantics/u);
   assert.match(compiled.configText, /INVARIANT InvReloadReconcileBindsFreshSnapshot/u);
   assert.match(compiled.configText, /PROPERTY EventuallyComplete/u);
   assert.match(compiled.responseTimeBoundary, /responseReceivedAt/u);
@@ -98,6 +166,8 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
     startedAt: 9,
     responseReceivedAt: 10,
     completedAt: 11,
+    responseMountEpoch: 1,
+    failureMountEpoch: null,
     isMutation: false,
     atMonotonicMs: 10,
     atEpochMs: 10,
@@ -188,6 +258,139 @@ test('compiler binds reload DOM and Builder state to each actual reconcile reque
     rawStep.afterReadIndex].requestStartedAtEpochMs + 1;
   raw.completedAt = raw.responseReceivedAt + 1;
   assert.throws(() => compileTemporalFilterJourneyTrace(responseAfterReloadRead), /Reload post-settlement Builder GET must start/u);
+});
+
+test('same-owner reconcile responses with equal receipts remain ambiguous possible producers', { timeout: 30_000 }, () => {
+  const capture = makeTemporalFilterJourneyCaptureFixture('date');
+  const reconcile = {
+    snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId: 'temporal-output',
+  };
+  const firstId = appendObservedRequest(capture, {
+    name: 'duplicate-reconcile-first', body: reconcile,
+    response: { snapshotToken: 'snapshot-6', receiptId: 'same-content-receipt', outputs: [{ outputId: 'temporal-output' }] },
+    startedAt: 1480, responseAt: 1484,
+  });
+  const secondId = appendObservedRequest(capture, {
+    name: 'duplicate-reconcile-second', body: reconcile,
+    response: { snapshotToken: 'snapshot-6', receiptId: 'same-content-receipt', outputs: [{ outputId: 'temporal-output' }] },
+    startedAt: 1481, responseAt: 1486,
+  });
+  const previewId = appendObservedRequest(capture, {
+    name: 'duplicate-reconcile-preview',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/preview',
+    body: { receiptId: 'same-content-receipt', outputId: 'temporal-output' },
+    response: { receiptId: 'same-content-receipt', outputId: 'temporal-output' },
+    startedAt: 1490, responseAt: 1492,
+  });
+  appendLateReconcile(capture, firstId);
+  appendLateReconcile(capture, secondId);
+  appendObservedDOM(capture, { receiptId: 'same-content-receipt', at: 1500 });
+
+  const trace = adaptTemporalFilterJourney(capture);
+  const input = validateTemporalFilterJourneyTrace(trace);
+  const observedPreview = input.observedRequests.find(request => request.captureId === previewId);
+  assert.deepEqual(observedPreview.possibleReconcileProducerCaptureIds.sort(), [firstId, secondId].sort());
+  for (const requestId of [firstId, secondId]) {
+    const request = input.observedRequests.find(candidate => candidate.captureId === requestId);
+    assert.equal(request.reconcileDisposition, 'compatible-unattributed');
+    assert.deepEqual(request.reconcileCompatiblePreviewCaptureIds, [previewId]);
+  }
+
+  const result = runTlc(trace, 'DuplicateReceiptAmbiguity');
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /Model checking completed\. No error has been found\./u, result.output);
+});
+
+test('reconcile transport ledger proves owner invalidation, stale retry refresh, and actual cancellation', { timeout: 30_000 }, () => {
+  const invalidatedCapture = makeTemporalFilterJourneyCaptureFixture('date');
+  const oldReceipt = 'late-old-owner-receipt';
+  const invalidatedId = appendObservedRequest(invalidatedCapture, {
+    name: 'late-old-owner-reconcile',
+    body: { snapshotToken: 'snapshot-2', draftVersion: 2, draftDigest: 'draft-2', outputId: 'temporal-output' },
+    response: { snapshotToken: 'snapshot-2', receiptId: oldReceipt, outputs: [{ outputId: 'temporal-output' }] },
+    startedAt: 1075, responseAt: 1100, mountEpoch: 1,
+  });
+  const oldPreviewId = appendObservedRequest(invalidatedCapture, {
+    name: 'late-old-owner-preview',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/preview',
+    body: { receiptId: oldReceipt, outputId: 'temporal-output' },
+    response: { receiptId: oldReceipt, outputId: 'temporal-output' },
+    startedAt: 1110, responseAt: 1112, mountEpoch: 1,
+  });
+  appendLateReconcile(invalidatedCapture, invalidatedId);
+  appendObservedDOM(invalidatedCapture, { at: 1150, mountEpoch: 1 });
+
+  const invalidatedTrace = adaptTemporalFilterJourney(invalidatedCapture);
+  const invalidated = validateTemporalFilterJourneyTrace(invalidatedTrace);
+  const oldResponse = invalidated.observedRequests.find(request => request.captureId === invalidatedId);
+  assert.deepEqual(oldResponse.reconcileInvalidatedByCaptureIds,
+    ['schema-fixture-browser-request-choice-apply']);
+  assert.equal(oldResponse.reconcileDisposition, 'owner-invalidated');
+  assert.deepEqual(oldResponse.reconcileCompatiblePreviewCaptureIds, []);
+  assert.deepEqual(invalidated.observedRequests.find(request => request.captureId === oldPreviewId)
+    .possibleReconcileProducerCaptureIds, []);
+  const invalidatedResult = runTlc(invalidatedTrace, 'OwnerInvalidatedReconcile');
+  assert.equal(invalidatedResult.status, 0, invalidatedResult.output);
+
+  const retryCapture = makeTemporalFilterJourneyCaptureFixture('date');
+  const staleId = appendObservedRequest(retryCapture, {
+    name: 'stale-reconcile',
+    body: { snapshotToken: 'snapshot-5', draftVersion: 5, draftDigest: 'draft-5', outputId: 'temporal-output' },
+    response: { code: 'STALE_SNAPSHOT' },
+    status: 409,
+    startedAt: 1418, responseAt: 1424, mountEpoch: 4,
+  });
+  const retryId = appendObservedRequest(retryCapture, {
+    name: 'fresh-reconcile-retry',
+    body: { snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId: 'temporal-output' },
+    response: { snapshotToken: 'snapshot-6', receiptId: 'fresh-retry-receipt', outputs: [{ outputId: 'temporal-output' }] },
+    startedAt: 1435, responseAt: 1440, mountEpoch: 4,
+  });
+  appendObservedRequest(retryCapture, {
+    name: 'fresh-retry-preview',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/preview',
+    body: { receiptId: 'fresh-retry-receipt', outputId: 'temporal-output' },
+    response: { receiptId: 'fresh-retry-receipt', outputId: 'temporal-output' },
+    startedAt: 1441, responseAt: 1444, mountEpoch: 4,
+  });
+  const canceledId = appendObservedRequest(retryCapture, {
+    name: 'canceled-reconcile',
+    body: { snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId: 'temporal-output' },
+    response: null,
+    status: null,
+    startedAt: 1465,
+    mountEpoch: 5,
+    failure: { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true },
+  });
+  appendLateReconcile(retryCapture, staleId);
+  appendLateReconcile(retryCapture, retryId);
+  appendLateReconcile(retryCapture, canceledId);
+  appendObservedDOM(retryCapture, { receiptId: 'fresh-retry-receipt', at: 1470, mountEpoch: 5 });
+
+  const retryTrace = adaptTemporalFilterJourney(retryCapture);
+  const retryInput = validateTemporalFilterJourneyTrace(retryTrace);
+  const stale = retryInput.observedRequests.find(request => request.captureId === staleId);
+  assert.equal(stale.reconcileDisposition, 'stale-retry');
+  assert.deepEqual(stale.reconcileRetryFollowupCaptureIds, [retryId]);
+  const canceled = retryInput.observedRequests.find(request => request.captureId === canceledId);
+  assert.equal(canceled.status, 0);
+  assert.equal(canceled.reconcileDisposition, 'cancelled');
+  const retryResult = runTlc(retryTrace, 'StaleRetryAndCancel');
+  assert.equal(retryResult.status, 0, retryResult.output);
+
+  const unknownFailure = makeTemporalFilterJourneyCaptureFixture('date');
+  const unknownId = appendObservedRequest(unknownFailure, {
+    name: 'unknown-failed-reconcile',
+    body: { snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId: 'temporal-output' },
+    response: { code: 'INTERNAL_ERROR' },
+    status: 500,
+    startedAt: 1480, responseAt: 1482,
+    mountEpoch: 5,
+  });
+  appendLateReconcile(unknownFailure, unknownId);
+  appendObservedDOM(unknownFailure, { at: 1490, mountEpoch: 5 });
+  assert.throws(() => compileTemporalFilterJourneyTrace(adaptTemporalFilterJourney(unknownFailure)),
+    /failed without a recognized stale or retryable response/u);
 });
 
 test('synthetic DATE and DATE_TIME adapter captures pass their generated TLA trace instances', { timeout: 30_000 }, () => {
