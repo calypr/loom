@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "3a0cdbab539963a11dc673fdba6b4f52634dcc1a",
+  "models": {
+    "BuilderJourney": {
+      "module": "BuilderJourney.tla",
+      "safetyConfig": "BuilderJourneyGroupRelatedSource.cfg",
+      "actions": [
+        "Group",
+        "GroupAgain",
+        "ChoicePreview",
+        "ChoicePreviewComplete",
+        "ChoicePreviewError",
+        "AddColumn",
+        "CancelFilter",
+        "EditGroup",
+        "EditGroupAgain",
+        "RemoveGroup",
+        "Pivot",
+        "Preview",
+        "PreviewComplete",
+        "PreviewError",
+        "LatePreviewCompleteIgnored",
+        "LatePreviewErrorIgnored",
+        "PreviewRequestCancelled",
+        "GroupEditCancel",
+        "GroupRemovalCancel",
+        "Reload",
+        "ExpandRows",
+        "RelatedSourcePreview",
+        "RelatedSourceApply",
+        "RelatedSourceCancel"
+      ]
+    }
+  },
+  "actionBindings": {
+    "Group": {
+      "event": "group",
+      "trigger": "initial Group proposal applied to the saved Builder workspace"
+    },
+    "GroupAgain": {
+      "event": "group",
+      "trigger": "second Group creation proposal applied"
+    },
+    "ChoicePreview": {
+      "event": "choice-preview",
+      "trigger": "construction-choice-proposals request started for a selected field command"
+    },
+    "ChoicePreviewComplete": {
+      "event": "choice-preview-response",
+      "trigger": "successful ready choice preview with rendered rows for the same command ID"
+    },
+    "ChoicePreviewError": {
+      "event": "choice-preview-response",
+      "trigger": "choice preview request failed or returned an unusable preview"
+    },
+    "AddColumn": {
+      "event": "add-column",
+      "trigger": "first add-column selection applied"
+    },
+    "CancelFilter": {
+      "event": "cancel-filter",
+      "trigger": "filter proposal cancelled"
+    },
+    "EditGroup": {
+      "event": "edit-group",
+      "trigger": "COUNT_DISTINCT Group proposal applied before adding the related source"
+    },
+    "EditGroupAgain": {
+      "event": "edit-group",
+      "trigger": "Group round-trip proposal applied while retaining the related source"
+    },
+    "RemoveGroup": {
+      "event": "remove-group",
+      "trigger": "saved Group removed"
+    },
+    "Pivot": {
+      "event": "pivot",
+      "trigger": "pivot applied after two reshapes"
+    },
+    "Preview": {
+      "event": "preview",
+      "trigger": "native construction proposal preview request started"
+    },
+    "PreviewComplete": {
+      "event": "preview-response",
+      "trigger": "native proposal preview response completed and rendered"
+    },
+    "PreviewError": {
+      "event": "preview-response",
+      "trigger": "native proposal preview failed or was rejected"
+    },
+    "LatePreviewCompleteIgnored": {
+      "event": "preview-response",
+      "trigger": "late preview response arrived after a newer proposal owner and was ignored"
+    },
+    "LatePreviewErrorIgnored": {
+      "event": "preview-response",
+      "trigger": "late preview failure arrived after a newer proposal owner and was ignored"
+    },
+    "PreviewRequestCancelled": {
+      "event": "preview-request-cancelled",
+      "trigger": "current pending proposal preview request was cancelled without changing its observation"
+    },
+    "GroupEditCancel": {
+      "event": "group-edit-cancel",
+      "trigger": "Group edit was cancelled and actual before/after Builder reads prove saved state is unchanged"
+    },
+    "GroupRemovalCancel": {
+      "event": "group-removal-cancel",
+      "trigger": "Group removal was cancelled and actual before/after Builder reads prove saved state is unchanged"
+    },
+    "Reload": {
+      "event": "reload",
+      "trigger": "fresh postreload Builder read and mounted Group projection agree with persisted state"
+    },
+    "ExpandRows": {
+      "event": "expand-rows",
+      "trigger": "native related-row expansion proposal applied and actual Builder draft CAS advanced"
+    },
+    "RelatedSourcePreview": {
+      "event": "related-source-preview",
+      "trigger": "native RELATED_SOURCE proposal response and owner are retained; a consumed candidate also binds its later ready-panel DOM to that exact request"
+    },
+    "RelatedSourceApply": {
+      "event": "related-source-apply",
+      "trigger": "current RELATED_SOURCE proposal applied and actual saved Builder projection read back"
+    },
+    "RelatedSourceCancel": {
+      "event": "related-source-cancel",
+      "trigger": "current RELATED_SOURCE proposal cancelled and actual saved Builder projection stayed unchanged"
+    }
+  },
+  "observationFields": [
+    "status",
+    "canApply",
+    "proposalIdPresent",
+    "previewReceiptPresent",
+    "rowsPresent",
+    "receiptPresent",
+    "groupLifecycle",
+    "rowExpansionLifecycle",
+    "relatedSourceLifecycle"
+  ],
+  "journeyCase": {
+    "workflow": "standalone-reshape-group-edit-before-related-column/group-edit-before-related-column",
+    "traceName": "cda-builder-group-related-source",
+    "model": "BuilderJourney",
+    "exactActionCounts": true,
+    "requireNoUnmodeledMutations": true,
+    "nativeRequestLedger": {
+      "traceField": "nativeRequests",
+      "identityField": "browserRequestId",
+      "requiredFields": [
+        "index",
+        "browserRequestId",
+        "method",
+        "path",
+        "startedAt",
+        "isMutation"
+      ],
+      "optionalWhenUnavailable": ["requestId"]
+    },
+    "maxMountEpoch": 5,
+    "casTransitionCount": 7,
+    "readOnlySupportKinds": [
+      "builder-read",
+      "population-route-read",
+      "construction-capability-read",
+      "semantic-inventory-read",
+      "construction-choice-read",
+      "configured-column-context-read",
+      "related-field-choice-read",
+      "related-expand-choice-read",
+      "related-expand-contributor-read",
+      "construction-input-read",
+      "construction-category-discovery-read",
+      "table-preview-read",
+      "draft-reconcile-read",
+      "capability-read",
+      "row-definition-choices-read"
+    ],
+    "optionalActions": [
+      "PreviewError",
+      "LatePreviewCompleteIgnored",
+      "LatePreviewErrorIgnored",
+      "PreviewRequestCancelled"
+    ],
+    "rowExpansionStages": [
+      "SpecimenPatient",
+      "PatientObservation"
+    ],
+    "relatedSource": {
+      "finiteStates": [
+        "None",
+        "ObservationStatus"
+      ],
+      "resourceType": "Observation",
+      "fieldPath": "status",
+      "sourceRoute": [
+        {
+          "fromResourceType": "Specimen",
+          "toResourceType": "Patient"
+        },
+        {
+          "fromResourceType": "Patient",
+          "toResourceType": "Observation"
+        }
+      ],
+      "form": "ALL",
+      "contributorPolicy": "ALL_MATCHES",
+      "rowValuePolicy": "ALL"
+    }
+  },
+  "readOnlySupportRoutes": {
+    "builder-read": { "method": "GET", "pathSuffix": "/builder" },
+    "population-route-read": { "method": "POST", "pathSuffix": "/population-routes" },
+    "construction-capability-read": { "method": "POST", "pathSuffix": "/construction-capabilities" },
+    "semantic-inventory-read": { "method": "POST", "pathSuffix": "/semantic-inventory" },
+    "construction-choice-read": { "method": "POST", "pathSuffix": "/construction-choices" },
+    "configured-column-context-read": { "method": "POST", "pathSuffix": "/configured-column-context" },
+    "related-field-choice-read": { "method": "POST", "pathSuffix": "/related-field-choices" },
+    "related-expand-choice-read": { "method": "POST", "pathSuffix": "/related-expand-choices" },
+    "related-expand-contributor-read": { "method": "POST", "pathSuffix": "/related-expand-contributors" },
+    "construction-input-read": { "method": "POST", "pathSuffix": "/construction-inputs" },
+    "construction-category-discovery-read": { "method": "POST", "pathSuffix": "/construction-category-discoveries" },
+    "table-preview-read": { "method": "POST", "pathSuffix": "/preview" },
+    "draft-reconcile-read": { "method": "POST", "pathSuffix": "/reconcile" },
+    "capability-read": { "method": "GET", "pathSuffix": "/capability" },
+    "row-definition-choices-read": { "method": "GET", "pathSuffix": "/row-definition-choices" }
+  },
+  "phase1": {
+    "expectedTraceCount": 1,
+    "expectedScheduleCount": 1,
+    "expectedFindingCount": 0,
+    "requiredModels": [
+      "BuilderJourney"
+    ],
+    "requiredActions": [
+      "ExpandRows",
+      "Group",
+      "EditGroup",
+      "EditGroupAgain",
+      "Preview",
+      "PreviewComplete",
+      "GroupEditCancel",
+      "Reload",
+      "RelatedSourcePreview",
+      "RelatedSourceApply",
+      "RelatedSourceCancel"
+    ],
+    "requiredActionsByTrace": {
+      "cda-builder-group-related-source": [
+        "ExpandRows",
+        "Group",
+        "EditGroup",
+        "EditGroupAgain",
+        "Preview",
+        "PreviewComplete",
+        "GroupEditCancel",
+        "Reload",
+        "RelatedSourcePreview",
+        "RelatedSourceApply",
+        "RelatedSourceCancel"
+      ]
+    },
+    "requiredEvents": [
+      "expand-rows",
+      "group",
+      "edit-group",
+      "preview",
+      "preview-response",
+      "group-edit-cancel",
+      "reload",
+      "related-source-preview",
+      "related-source-apply",
+      "related-source-cancel"
+    ],
+    "requiredActionCountsByTrace": {
+      "cda-builder-group-related-source": {
+        "Group": 1,
+        "GroupAgain": 0,
+        "ChoicePreview": 0,
+        "ChoicePreviewComplete": 0,
+        "ChoicePreviewError": 0,
+        "AddColumn": 0,
+        "CancelFilter": 0,
+        "EditGroup": 1,
+        "EditGroupAgain": 1,
+        "RemoveGroup": 0,
+        "Pivot": 0,
+        "GroupEditCancel": 2,
+        "GroupRemovalCancel": 0,
+        "Reload": 5,
+        "ExpandRows": 2,
+        "RelatedSourceApply": 2,
+        "RelatedSourceCancel": 2
+      }
+    },
+    "requiredActionMinimumsByTrace": {
+      "cda-builder-group-related-source": {
+        "Preview": 7,
+        "PreviewComplete": 7,
+        "RelatedSourcePreview": 4
+      }
+    }
+  },
+  "unmodeledEventPolicy": {
+    "builder-read": "Read-only Builder responses retain actual saved workspace and draft snapshots.",
+    "population-route-read": "Read-only population route discovery supplies the native source route.",
+    "construction-capability-read": "Read-only construction capability discovery supplies chooser availability.",
+    "semantic-inventory-read": "Read-only semantic inventory supplies current source fields.",
+    "construction-choice-read": "Read-only construction choice discovery supplies related-source choices.",
+    "configured-column-context-read": "A configured-column context read supplies the selected source projection.",
+    "related-field-choice-read": "A related-field choice read supplies the native selected field candidate.",
+    "related-expand-choice-read": "Read-only related expansion choices supply the selected row route.",
+    "related-expand-contributor-read": "A related expansion contributor read supplies the exact native contributor choice.",
+    "construction-input-read": "A construction input read supplies the current saved step context.",
+    "construction-category-discovery-read": "A category discovery read supplies the native selected category.",
+    "table-preview-read": "Read-only source table previews are retained as supporting observations.",
+    "draft-reconcile-read": "A draft reconciliation read is retained as support for the current persisted Builder state.",
+    "capability-read": "A read-only capability response supplies the current Builder authoring choices.",
+    "row-definition-choices-read": "A read-only row-definition choice response supplies the current Builder row configuration options."
+  }
+}

@@ -72,6 +72,19 @@ const BUILDER_GROUP_TRACE_NAMES = new Set([
   'builder-authoring:group-entry',
   'builder-authoring:group-entry-raw-basic',
 ]);
+const BUILDER_CDA_GROUP_RELATED_TRACE_NAME = 'cda-builder-group-related-source';
+const BUILDER_CDA_GROUP_RELATED_ACTIONS = new Set([
+  'Group', 'EditGroup', 'EditGroupAgain', 'GroupEditCancel', 'Reload',
+  'ExpandRows', 'RelatedSourcePreview', 'RelatedSourceApply', 'RelatedSourceCancel',
+]);
+const BUILDER_CDA_ROW_EXPANSION_STAGES = ['SpecimenPatient', 'PatientObservation'];
+const BUILDER_CDA_SNAPSHOTLESS_SETTLEMENT_LABELS = new Set([
+  'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored',
+  'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+]);
+const BUILDER_CDA_OBSERVATIONLESS_SETTLEMENT_LABELS = new Set([
+  'Preview', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+]);
 const BUILDER_GROUP_PREVIEW_LABELS = new Set([
   'Preview',
   'PreviewComplete',
@@ -92,6 +105,8 @@ const BUILDER_GROUP_CANCEL_LABELS = new Set(['GroupEditCancel', 'GroupRemovalCan
 const BUILDER_GROUP_STEP_TOKENS = ['G1', 'G2'];
 const BUILDER_GROUP_CAPTURE_TOKENS = Array.from({ length: 12 }, (_, index) => 'c' + (index + 1));
 const BUILDER_GROUP_KEY_TOKENS = ['ID', 'Gender', 'Race', 'Other'];
+const BUILDER_CDA_OUTPUT_TOKENS = ['O0'];
+const BUILDER_CDA_DIGEST_TOKENS = Array.from({ length: 8 }, (_, index) => 'D' + index);
 
 function fail(message) {
   throw new Error(message);
@@ -184,7 +199,14 @@ function groupLifecycleEnabled(contract) {
     Object.keys(requiredCounts).some((traceName) => BUILDER_GROUP_TRACE_NAMES.has(traceName));
 }
 
-function groupProjectionProblem(group, where) {
+function builderJourneyCaseForTrace(contract, trace) {
+  const journeyCase = contract.journeyCase;
+  return isPlainObject(journeyCase) && trace?.name === journeyCase.traceName && trace?.model === journeyCase.model
+    ? journeyCase
+    : null;
+}
+
+function groupProjectionProblem(group, where, allowedAggregates = ['COUNT_ROWS']) {
   if (group === null) return null;
   if (!isPlainObject(group)) return where + ' must be a Group projection or null';
   if (typeof group.stepId !== 'string' || group.stepId.trim().length === 0) {
@@ -195,7 +217,9 @@ function groupProjectionProblem(group, where) {
     return where + '.keys must be an array of at most two non-empty raw key IDs';
   }
   if (new Set(group.keys).size !== group.keys.length) return where + '.keys cannot repeat a raw key ID';
-  if (group.aggregate !== 'COUNT_ROWS') return where + '.aggregate must be COUNT_ROWS for the bounded Group lifecycle';
+  if (!allowedAggregates.includes(group.aggregate)) {
+    return where + '.aggregate must be one of the bounded Group lifecycle aggregates: ' + allowedAggregates.join(', ');
+  }
   if (group.selectedKeyLabels !== undefined && (!Array.isArray(group.selectedKeyLabels) ||
       group.selectedKeyLabels.some((label) => typeof label !== 'string' || label.trim().length === 0))) {
     return where + '.selectedKeyLabels must be an array of non-empty strings when present';
@@ -203,10 +227,10 @@ function groupProjectionProblem(group, where) {
   return null;
 }
 
-function savedGroupProjectionProblem(saved, where) {
+function savedGroupProjectionProblem(saved, where, allowedAggregates = ['COUNT_ROWS']) {
   if (!isPlainObject(saved)) return where + ' must contain the actual saved Builder projection';
   if (!Object.hasOwn(saved, 'group')) return where + '.group is required';
-  const groupProblem = groupProjectionProblem(saved.group, where + '.group');
+  const groupProblem = groupProjectionProblem(saved.group, where + '.group', allowedAggregates);
   if (groupProblem) return groupProblem;
   if (!isPlainObject(saved.workspace) || !Array.isArray(saved.workspace.documents)) {
     return where + '.workspace.documents must preserve the actual Builder workspace documents';
@@ -261,7 +285,7 @@ function savedGroupProjectionProblem(saved, where) {
   return null;
 }
 
-function candidateIntentProblem(intent, where) {
+function candidateIntentProblem(intent, where, allowedAggregates = ['COUNT_ROWS']) {
   if (!isPlainObject(intent)) return where + ' must be an object';
   if (!['create', 'edit', 'remove'].includes(intent.kind)) return where + '.kind must be create, edit, or remove';
   if (intent.targetStepId !== null && (typeof intent.targetStepId !== 'string' || intent.targetStepId.trim().length === 0)) {
@@ -273,7 +297,7 @@ function candidateIntentProblem(intent, where) {
     return where + '.rawProposalBody must preserve the parsed construction-proposal request body';
   }
   for (const field of ['base', 'proposed']) {
-    const problem = groupProjectionProblem(intent[field], where + '.' + field);
+    const problem = groupProjectionProblem(intent[field], where + '.' + field, allowedAggregates);
     if (problem) return problem;
   }
   if (intent.kind === 'create' && (intent.targetStepId !== null || intent.base !== null || intent.proposed === null)) {
@@ -288,26 +312,27 @@ function candidateIntentProblem(intent, where) {
   return null;
 }
 
-function previewOwnerProjectionProblem(owner, where, nullable = false) {
+function previewOwnerProjectionProblem(owner, where, nullable = false, maxMountEpoch = 2, allowBrowserRequestId = false) {
   if (nullable && owner === null) return null;
   if (!isPlainObject(owner)) return where + ' must be an actual Preview owner or null when no proposal request fired';
-  if (!Number.isInteger(owner.mountEpoch) || owner.mountEpoch < 0 || owner.mountEpoch > 2) {
-    return where + '.mountEpoch must be a finite epoch in 0..2';
+  if (!Number.isInteger(owner.mountEpoch) || owner.mountEpoch < 0 || owner.mountEpoch > maxMountEpoch) {
+    return where + '.mountEpoch must be a finite epoch in 0..' + maxMountEpoch;
   }
   if (typeof owner.captureId !== 'string' || owner.captureId.trim().length === 0) {
+    if (allowBrowserRequestId && typeof owner.browserRequestId === 'string' && owner.browserRequestId.trim().length > 0) return null;
     return where + '.captureId must preserve the actual Preview request captureId';
   }
   return null;
 }
 
-function groupLifecycleShapeProblem(action, where, required) {
+function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, allowBrowserRequestId = false, allowedAggregates = ['COUNT_ROWS'], requireReloadEditorProjection = true) {
   const lifecycle = action.groupLifecycle;
   if (lifecycle === undefined) {
     return required ? where + '.groupLifecycle is required by the selected Group lifecycle contract' : null;
   }
   if (!isPlainObject(lifecycle)) return where + '.groupLifecycle must be an object';
-  if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.mountEpoch < 0 || lifecycle.mountEpoch > 2) {
-    return where + '.groupLifecycle.mountEpoch must be a finite epoch in 0..2';
+  if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.mountEpoch < 0 || lifecycle.mountEpoch > maxMountEpoch) {
+    return where + '.groupLifecycle.mountEpoch must be a finite epoch in 0..' + maxMountEpoch;
   }
   if (typeof lifecycle.documentTimeOrigin !== 'number' || !Number.isFinite(lifecycle.documentTimeOrigin) ||
       lifecycle.documentTimeOrigin <= 0) {
@@ -316,38 +341,40 @@ function groupLifecycleShapeProblem(action, where, required) {
 
   if (BUILDER_GROUP_PREVIEW_LABELS.has(action.label)) {
     if (!isPlainObject(lifecycle.owner)) return where + '.groupLifecycle.owner is required for a Group proposal request/settlement';
-    if (!Number.isInteger(lifecycle.owner.mountEpoch) || lifecycle.owner.mountEpoch < 0 || lifecycle.owner.mountEpoch > 2) {
-      return where + '.groupLifecycle.owner.mountEpoch must be a finite epoch in 0..2';
+    if (!Number.isInteger(lifecycle.owner.mountEpoch) || lifecycle.owner.mountEpoch < 0 || lifecycle.owner.mountEpoch > maxMountEpoch) {
+      return where + '.groupLifecycle.owner.mountEpoch must be a finite epoch in 0..' + maxMountEpoch;
     }
-    if (typeof lifecycle.owner.captureId !== 'string' || lifecycle.owner.captureId.trim().length === 0) {
+    const ownerIdentity = lifecycle.owner.captureId ?? (allowBrowserRequestId ? lifecycle.owner.browserRequestId : null);
+    if (typeof ownerIdentity !== 'string' || ownerIdentity.trim().length === 0) {
       return where + '.groupLifecycle.owner.captureId must preserve the actual request captureId';
     }
-    if (typeof action.request?.captureId !== 'string' || lifecycle.owner.captureId !== action.request.captureId) {
-      return where + '.groupLifecycle.owner.captureId must match the actual construction-proposal request captureId';
+    const requestIdentity = action.request?.captureId ?? (allowBrowserRequestId ? action.request?.browserRequestId : null);
+    if (typeof requestIdentity !== 'string' || ownerIdentity !== requestIdentity) {
+      return where + '.groupLifecycle.owner request identity must match the actual construction-proposal request';
     }
-    if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label) &&
-        lifecycle.owner.captureId !== action.settlement?.captureId) {
-      return where + '.groupLifecycle.owner.captureId must match the actual settlement captureId';
+    const settlementIdentity = action.settlement?.captureId ?? (allowBrowserRequestId ? action.settlement?.browserRequestId : null);
+    if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label) && ownerIdentity !== settlementIdentity) {
+      return where + '.groupLifecycle.owner request identity must match the actual settlement';
     }
   }
   if (action.label === 'Preview') {
-    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
     if (problem) return problem;
   }
   if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label)) {
-    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
     if (problem) return problem;
   }
   if (BUILDER_GROUP_APPLY_LABELS.has(action.label) || BUILDER_GROUP_CANCEL_LABELS.has(action.label) || action.label === 'Reload') {
     for (const field of ['savedBefore', 'savedAfter']) {
-      const problem = savedGroupProjectionProblem(lifecycle[field], where + '.groupLifecycle.' + field);
+      const problem = savedGroupProjectionProblem(lifecycle[field], where + '.groupLifecycle.' + field, allowedAggregates);
       if (problem) return problem;
     }
   }
   if (BUILDER_GROUP_APPLY_LABELS.has(action.label) || action.label === 'GroupRemovalCancel') {
-    const ownerProblemText = previewOwnerProjectionProblem(lifecycle.candidateOwner, where + '.groupLifecycle.candidateOwner');
+    const ownerProblemText = previewOwnerProjectionProblem(lifecycle.candidateOwner, where + '.groupLifecycle.candidateOwner', false, maxMountEpoch, allowBrowserRequestId);
     if (ownerProblemText) return ownerProblemText;
-    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
     if (problem) return problem;
   }
   if (action.label === 'GroupEditCancel') {
@@ -355,20 +382,41 @@ function groupLifecycleShapeProblem(action, where, required) {
       lifecycle.candidateOwner,
       where + '.groupLifecycle.candidateOwner',
       true,
+      maxMountEpoch,
+      allowBrowserRequestId,
     );
     if (ownerProblemText) return ownerProblemText;
     if (!Object.hasOwn(lifecycle, 'candidateIntent')) {
       return where + '.groupLifecycle.candidateIntent must explicitly preserve the proposal intent or null';
     }
     if (lifecycle.candidateIntent !== null) {
-      const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent');
+      const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
       if (problem) return problem;
     }
   }
   if (action.label === 'Reload') {
-    const problem = groupProjectionProblem(lifecycle.mountedGroup, where + '.groupLifecycle.mountedGroup');
+    const problem = groupProjectionProblem(lifecycle.mountedGroup, where + '.groupLifecycle.mountedGroup', allowedAggregates);
     if (problem) return problem;
-    if (lifecycle.mountedGroup !== null) {
+    if (!requireReloadEditorProjection) {
+      if (lifecycle.mountedGroup === null || canonicalJson({
+        stepId: lifecycle.mountedGroup.stepId,
+        keys: lifecycle.mountedGroup.keys,
+        aggregate: lifecycle.mountedGroup.aggregate,
+      }) !== canonicalJson({
+        stepId: lifecycle.savedAfter.group?.stepId,
+        keys: lifecycle.savedAfter.group?.keys,
+        aggregate: lifecycle.savedAfter.group?.aggregate,
+      })) {
+        return where + '.groupLifecycle.mountedGroup must match the actual postreload Builder Group projection';
+      }
+      if (!Object.hasOwn(lifecycle, 'mountedRelatedSource')) {
+        return where + '.groupLifecycle.mountedRelatedSource must explicitly preserve the actual mounted related source or null';
+      }
+      if (lifecycle.mountedGroup.evidence !== 'construction-history-dom' ||
+          typeof lifecycle.mountedGroup.historyText !== 'string' || lifecycle.mountedGroup.historyText.trim().length === 0) {
+        return where + '.groupLifecycle.mountedGroup must retain its actual construction-history DOM evidence';
+      }
+    } else if (lifecycle.mountedGroup !== null) {
       const target = lifecycle.clickedRowTarget;
       if (!isPlainObject(target) || target.evidence !== 'clicked-row-action-provenance' ||
           typeof target.testId !== 'string' || !target.testId.startsWith('construction-row-edit-') ||
@@ -395,7 +443,7 @@ function groupLifecycleShapeProblem(action, where, required) {
         return where + '.groupLifecycle.mountedGroup selectedKeyLabels must identify its exact raw selected key IDs';
       }
     }
-    if (lifecycle.savedAfter.group === null) {
+    if (requireReloadEditorProjection && lifecycle.savedAfter.group === null) {
       const rendered = lifecycle.renderedSourceRows;
       if (!isPlainObject(rendered) || !Array.isArray(rendered.headers) || rendered.headers.length === 0 ||
           rendered.headers.some((header) => typeof header !== 'string' || header.trim().length === 0) ||
@@ -406,6 +454,1347 @@ function groupLifecycleShapeProblem(action, where, required) {
       }
     }
   }
+  return null;
+}
+
+function savedBuilderDocument(saved, where) {
+  if (!isPlainObject(saved) || !isPlainObject(saved.workspace) || !Array.isArray(saved.workspace.documents)) {
+    return { problem: where + '.workspace.documents must preserve the actual Builder workspace documents' };
+  }
+  if (typeof saved.outputId !== 'string' || saved.outputId.trim().length === 0) {
+    return { problem: where + '.outputId must identify the selected Builder output' };
+  }
+  const documents = saved.workspace.documents.filter((document) => document?.output?.id === saved.outputId);
+  if (documents.length !== 1) return { problem: where + '.outputId must select exactly one document in the raw workspace' };
+  return { document: documents[0] };
+}
+
+function relatedSourceProjectionFromSteps(steps, columns, group, where, journeyCase) {
+  if (!Array.isArray(steps)) return { problem: where + '.construction.steps must preserve the raw selected construction steps' };
+  const relatedSteps = steps.filter((step) => step?.operation?.kind === 'RELATED_SOURCE');
+  if (relatedSteps.length > 1) return { problem: where + ' must contain at most one RELATED_SOURCE step' };
+  if (relatedSteps.length === 0) return { relatedSource: null };
+  if (!isPlainObject(group)) return { problem: where + ' RELATED_SOURCE must be bound to a persisted Group step' };
+  const step = relatedSteps[0];
+  const related = step.operation.relatedSource;
+  if (typeof step.id !== 'string' || step.id.trim().length === 0 || !isPlainObject(related)) {
+    return { problem: where + ' RELATED_SOURCE step must preserve its raw step ID and relatedSource operation' };
+  }
+  if (!Array.isArray(step.inputs) || step.inputs.length !== 1 ||
+      step.inputs[0]?.kind !== 'STEP_OUTPUT' || step.inputs[0]?.stepId !== group.stepId) {
+    return { problem: where + '.inputs must bind the RELATED_SOURCE step to the actual Group output stepId' };
+  }
+  const source = related.source;
+  if (!isPlainObject(source) || source.resourceType !== journeyCase.relatedSource.resourceType ||
+      source.path !== journeyCase.relatedSource.fieldPath ||
+      typeof source.candidateId !== 'string' || source.candidateId.trim().length === 0 ||
+      typeof source.nodeId !== 'string' || source.nodeId.trim().length === 0) {
+    return { problem: where + ' source must preserve the Observation.status candidate and node identities' };
+  }
+  if (!Array.isArray(related.route) || related.route.length !== journeyCase.relatedSource.sourceRoute.length ||
+      related.route.some((hop, index) => hop?.fromResourceType !== journeyCase.relatedSource.sourceRoute[index].fromResourceType ||
+        hop?.toResourceType !== journeyCase.relatedSource.sourceRoute[index].toResourceType)) {
+    return { problem: where + '.route must preserve the exact Specimen-to-Patient-to-Observation route' };
+  }
+  if (related.form !== journeyCase.relatedSource.form ||
+      related.contributorRule?.policy !== journeyCase.relatedSource.contributorPolicy ||
+      (related.rowValuePolicy ?? 'ALL') !== journeyCase.relatedSource.rowValuePolicy) {
+    return { problem: where + ' must preserve the native ALL form, ALL_MATCHES contributor rule, and ALL row-value policy' };
+  }
+  if (typeof related.choiceId !== 'string' || related.choiceId.trim().length === 0 ||
+      typeof related.outputColumnId !== 'string' || related.outputColumnId.trim().length === 0) {
+    return { problem: where + ' must preserve the native choice identity and output column identity' };
+  }
+  const outputs = Array.isArray(step.outputs) ? step.outputs.filter((output) => output?.id === related.outputColumnId) : [];
+  if (outputs.length !== 1) return { problem: where + '.outputs must contain exactly the RELATED_SOURCE outputColumnId' };
+  const output = outputs[0];
+  if (typeof output.name !== 'string' || typeof output.label !== 'string' || typeof output.type !== 'string') {
+    return { problem: where + ' RELATED_SOURCE output must preserve its name, label, and logical type' };
+  }
+  if (columns !== undefined) {
+    const matchingColumns = Array.isArray(columns)
+      ? columns.filter((column) => (column?.columnId ?? column?.id) === related.outputColumnId)
+      : [];
+    if (matchingColumns.length !== 1) return { problem: where + ' raw document columns must retain the RELATED_SOURCE output identity' };
+  }
+  return {
+    relatedSource: {
+      stepId: step.id,
+      inputStepId: step.inputs[0].stepId,
+      source: structuredClone(source),
+      route: structuredClone(related.route),
+      choiceId: related.choiceId,
+      form: related.form,
+      contributorPolicy: related.contributorRule.policy,
+      rowValuePolicy: related.rowValuePolicy ?? 'ALL',
+      outputColumnId: related.outputColumnId,
+      output: structuredClone(output),
+    },
+  };
+}
+
+function relatedSourceSnapshotProblem(saved, where, journeyCase, requireGroupProjection = true, allowedAggregates = ['COUNT_ROWS', 'COUNT_DISTINCT']) {
+  if (requireGroupProjection) {
+    const problem = savedGroupProjectionProblem(saved, where, allowedAggregates);
+    if (problem) return { problem };
+  }
+  const selected = savedBuilderDocument(saved, where);
+  if (selected.problem) return selected;
+  const steps = selected.document.construction?.steps ?? [];
+  const groupSteps = steps.filter((step) => step?.operation?.kind === 'GROUP');
+  if (groupSteps.length > 1) return { problem: where + ' must contain at most one GROUP step' };
+  const group = requireGroupProjection
+    ? saved.group
+    : groupSteps.length === 0 ? null : { stepId: groupSteps[0].id };
+  const derived = relatedSourceProjectionFromSteps(steps, selected.document.columns, group, where, journeyCase);
+  if (derived.problem) return derived;
+  if (requireGroupProjection) {
+    if (!Object.hasOwn(saved, 'relatedSource')) return { problem: where + '.relatedSource must explicitly preserve the actual related binding or null' };
+    if (canonicalJson(saved.relatedSource) !== canonicalJson(derived.relatedSource)) {
+      return { problem: where + '.relatedSource projection does not match the selected raw Builder workspace document' };
+    }
+  }
+  return { relatedSource: derived.relatedSource, document: selected.document };
+}
+
+function cdaCASProblem(saved, where) {
+  if (!isPlainObject(saved)) return where + ' must contain an actual saved Builder projection';
+  if (!Object.hasOwn(saved, 'group') || !Object.hasOwn(saved, 'relatedSource') ||
+      typeof saved.explorerId !== 'string' || saved.explorerId.trim().length === 0 ||
+      !Number.isInteger(saved.draftVersion) || saved.draftVersion < 0 ||
+      typeof saved.draftDigest !== 'string' || saved.draftDigest.trim().length === 0 ||
+      typeof saved.outputId !== 'string' || saved.outputId.trim().length === 0) {
+    return where + ' must preserve explorerId, group, relatedSource, outputId, draftVersion, and draftDigest';
+  }
+  return null;
+}
+
+function cdaEventTimeSnapshotUnavailable(action, lifecycle) {
+  return BUILDER_CDA_SNAPSHOTLESS_SETTLEMENT_LABELS.has(action?.label) &&
+    (action?.eventTimeSnapshot?.available === false || lifecycle?.eventTimeSnapshot?.available === false);
+}
+
+function cdaEventTimeMarkerUnavailable(action, lifecycle) {
+  return action?.eventTimeSnapshot?.available === false || lifecycle?.eventTimeSnapshot?.available === false;
+}
+
+function cdaSnapshotPairUnavailableProblem(action, lifecycle, where) {
+  const missingBefore = lifecycle?.savedBefore === null || lifecycle?.savedBefore === undefined;
+  const missingAfter = lifecycle?.savedAfter === null || lifecycle?.savedAfter === undefined;
+  if (missingBefore && missingAfter && cdaEventTimeSnapshotUnavailable(action, lifecycle)) return null;
+  if (missingBefore || missingAfter) {
+    return where + ' may omit event-time saved snapshots only when eventTimeSnapshot.available is false on a state-preserving preview settlement';
+  }
+  return null;
+}
+
+function cdaEventTimeObservationUnavailable(action, lifecycle) {
+  return cdaEventTimeMarkerUnavailable(action, lifecycle) &&
+    BUILDER_CDA_OBSERVATIONLESS_SETTLEMENT_LABELS.has(action?.label);
+}
+
+function cdaCASProjection(saved, tokens, where) {
+  const problem = cdaCASProblem(saved, where);
+  if (problem) return { problem };
+  const workspaceKey = saved.explorerId;
+  const outputToken = tokens.outputTokens.get(saved.outputId);
+  const versionStep = tokens.versionSteps.get(saved.draftVersion);
+  const digestToken = tokens.digestTokens.get(saved.draftDigest);
+  if (!tokens.workspaceTokens.has(workspaceKey) || !outputToken || versionStep === undefined || !digestToken) {
+    return { problem: where + ' CAS fields do not map to the finite observed-run token sequence' };
+  }
+  return {
+    value: '[workspaceToken |-> ' + tlaString(tokens.workspaceTokens.get(workspaceKey)) +
+      ', outputToken |-> ' + tlaString(outputToken) +
+      ', versionStep |-> ' + versionStep +
+      ', digestToken |-> ' + tlaString(digestToken) + ']',
+  };
+}
+
+function sameSavedDraft(left, right) {
+  return canonicalJson({
+    explorerId: left?.explorerId ?? null,
+    outputId: left?.outputId ?? null,
+    draftVersion: left?.draftVersion ?? null,
+    draftDigest: left?.draftDigest ?? null,
+    workspace: left?.workspace ?? null,
+  }) === canonicalJson({
+    explorerId: right?.explorerId ?? null,
+    outputId: right?.outputId ?? null,
+    draftVersion: right?.draftVersion ?? null,
+    draftDigest: right?.draftDigest ?? null,
+    workspace: right?.workspace ?? null,
+  });
+}
+
+function relatedCandidateIntentProblem(intent, lifecycle, where, journeyCase) {
+  if (!isPlainObject(intent) || !['add', 'remove'].includes(intent.kind)) {
+    return where + '.candidateIntent.kind must be add or remove';
+  }
+  if (typeof intent.targetStepId !== 'string' || intent.targetStepId.trim().length === 0) {
+    return where + '.candidateIntent.targetStepId must preserve the actual related step identity';
+  }
+  if (!Object.hasOwn(intent, 'base') || !Object.hasOwn(intent, 'proposed') ||
+      !isPlainObject(intent.rawProposalBody)) {
+    return where + '.candidateIntent must preserve base, proposed, and rawProposalBody';
+  }
+  const before = lifecycle.savedBefore;
+  const beforeSnapshot = relatedSourceSnapshotProblem(before, where + '.savedBefore', journeyCase, true, ['COUNT_ROWS', 'COUNT_DISTINCT']);
+  if (beforeSnapshot.problem) return beforeSnapshot.problem;
+  if (canonicalJson(intent.base) !== canonicalJson(beforeSnapshot.relatedSource)) {
+    return where + '.candidateIntent.base must match the actual saved related-source binding';
+  }
+  if (canonicalJson(intent.rawProposalBody) !== canonicalJson(lifecycle.request?.request)) {
+    return where + '.candidateIntent.rawProposalBody must match the actual construction-proposal request body';
+  }
+  const body = intent.rawProposalBody;
+  if (body.outputId !== before.outputId) {
+    return where + '.candidateIntent.rawProposalBody.outputId must match the actual selected Builder output';
+  }
+  if (intent.kind === 'add') {
+    if (intent.base !== null || !isPlainObject(intent.proposed)) {
+      return where + ' add intent must have no related-source base and a proposed related-source binding';
+    }
+    const candidateSteps = body.candidateConstruction?.steps;
+    if (!Array.isArray(candidateSteps) || body.changedStepId !== intent.targetStepId ||
+        intent.proposed.stepId !== intent.targetStepId) {
+      return where + ' add intent must bind its targetStepId to the actual changed RELATED_SOURCE step';
+    }
+    const rawGroupSteps = candidateSteps.filter((step) => step?.operation?.kind === 'GROUP');
+    if (rawGroupSteps.length !== 1 || rawGroupSteps[0].id !== before.group?.stepId) {
+      return where + ' add proposal must retain the actual Group step as its input';
+    }
+    const candidate = relatedSourceProjectionFromSteps(candidateSteps, undefined, before.group,
+      where + '.candidateIntent.rawProposalBody.candidateConstruction', journeyCase);
+    if (candidate.problem) return candidate.problem;
+    if (!candidate.relatedSource || canonicalJson(candidate.relatedSource) !== canonicalJson(intent.proposed)) {
+      return where + '.candidateIntent.proposed must match the native candidate construction source binding';
+    }
+    const responseSteps = lifecycle.response.candidateConstruction?.steps;
+    const responseCandidate = relatedSourceProjectionFromSteps(responseSteps, undefined, before.group,
+      where + '.response.candidateConstruction', journeyCase);
+    if (responseCandidate.problem) return responseCandidate.problem;
+    if (canonicalJson(responseCandidate.relatedSource) !== canonicalJson(intent.proposed)) {
+      return where + '.response candidate construction must preserve the requested related-source binding';
+    }
+    const requestRelatedStep = candidateSteps.find((step) => step?.id === intent.targetStepId);
+    const responseRelatedStep = responseSteps.find((step) => step?.id === intent.targetStepId);
+    if (canonicalJson(requestRelatedStep) !== canonicalJson(responseRelatedStep)) {
+      return where + ' native request/response candidate RELATED_SOURCE steps do not match';
+    }
+  } else {
+    if (!isPlainObject(intent.base) || intent.proposed !== null ||
+        intent.targetStepId !== intent.base.stepId ||
+        !Array.isArray(body.removeStepIds) || body.removeStepIds.length !== 1 ||
+        body.removeStepIds[0] !== intent.targetStepId) {
+      return where + ' remove intent must target exactly the saved RELATED_SOURCE step';
+    }
+    if (Array.isArray(body.candidateConstruction?.steps) &&
+        body.candidateConstruction.steps.some((step) => step?.operation?.kind === 'RELATED_SOURCE')) {
+      return where + ' remove proposal candidate must omit the targeted RELATED_SOURCE step';
+    }
+    const selected = savedBuilderDocument(before, where + '.savedBefore');
+    if (selected.problem) return selected.problem;
+    const beforeSteps = selected.document.construction?.steps ?? [];
+    const expectedCandidateSteps = beforeSteps.filter((step) => step.id !== intent.targetStepId);
+    const responseSteps = lifecycle.response.candidateConstruction?.steps;
+    if (!Array.isArray(responseSteps) || responseSteps.some((step) => step?.operation?.kind === 'RELATED_SOURCE') ||
+        canonicalJson(responseSteps) !== canonicalJson(expectedCandidateSteps)) {
+      return where + '.response removal candidate must restore the exact saved Group construction';
+    }
+  }
+  return null;
+}
+
+function relatedSourceLifecycleShapeProblem(action, where, required, journeyCase) {
+  const lifecycle = action.relatedSourceLifecycle;
+  if (lifecycle === undefined) {
+    return required ? where + '.relatedSourceLifecycle is required for the selected CDA related-source journey' : null;
+  }
+  if (!isPlainObject(lifecycle)) return where + '.relatedSourceLifecycle must be an object';
+  if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.mountEpoch < 0 || lifecycle.mountEpoch > journeyCase.maxMountEpoch) {
+    return where + '.relatedSourceLifecycle.mountEpoch must be a finite observed epoch in 0..' + journeyCase.maxMountEpoch;
+  }
+  if (typeof lifecycle.documentTimeOrigin !== 'number' || !Number.isFinite(lifecycle.documentTimeOrigin) ||
+      lifecycle.documentTimeOrigin <= 0) {
+    return where + '.relatedSourceLifecycle.documentTimeOrigin must preserve the positive browser timeOrigin';
+  }
+  if (!isPlainObject(lifecycle.owner) || lifecycle.owner.mountEpoch !== lifecycle.mountEpoch ||
+      !observedRequestKey(lifecycle.owner) || typeof lifecycle.owner.documentTimeOrigin !== 'number' ||
+      lifecycle.owner.documentTimeOrigin !== lifecycle.documentTimeOrigin) {
+    return where + '.relatedSourceLifecycle.owner must preserve the actual request identity, mount epoch, and document time origin';
+  }
+  const requestProblemText = requestProblem(lifecycle.request, where + '.relatedSourceLifecycle.request');
+  if (requestProblemText) return requestProblemText;
+  if (lifecycle.request.method !== 'POST' || lifecycle.request.path !== '/construction-proposals') {
+    return where + '.relatedSourceLifecycle.request must preserve the native construction-proposal request';
+  }
+  const responseProblemText = responseProblem(lifecycle.response, where + '.relatedSourceLifecycle.response');
+  if (responseProblemText) return responseProblemText;
+  const settlementProblemText = settlementProblem(lifecycle.settlement, where + '.relatedSourceLifecycle.settlement');
+  if (settlementProblemText) return settlementProblemText;
+  const identityProblem = actualRequestIdentityProblem(
+    lifecycle.owner,
+    lifecycle.request,
+    lifecycle.settlement,
+    where + '.relatedSourceLifecycle',
+  );
+  if (identityProblem) return identityProblem;
+  if (action.label === 'RelatedSourcePreview' &&
+      (!Number.isInteger(lifecycle.settlementObservedEpoch) ||
+       lifecycle.settlementObservedEpoch !== action.observedEpoch ||
+       lifecycle.settlementObservedEpoch !== lifecycle.mountEpoch)) {
+    return where + '.relatedSourceLifecycle.settlementObservedEpoch must match the actual response-settlement document epoch';
+  }
+  if (lifecycle.settlement.kind !== 'http-response' ||
+      typeof lifecycle.response.status !== 'number' || lifecycle.response.status < 200 || lifecycle.response.status >= 300 ||
+      lifecycle.response.proposalPreviewStatus !== 'READY') {
+    return where + '.relatedSourceLifecycle must retain a successful READY proposal response and settlement';
+  }
+  const savedBeforeProblem = relatedSourceSnapshotProblem(lifecycle.savedBefore,
+    where + '.relatedSourceLifecycle.savedBefore', journeyCase);
+  if (savedBeforeProblem.problem) return savedBeforeProblem.problem;
+  const savedAfterProblem = relatedSourceSnapshotProblem(lifecycle.savedAfter,
+    where + '.relatedSourceLifecycle.savedAfter', journeyCase);
+  if (savedAfterProblem.problem) return savedAfterProblem.problem;
+  if (canonicalJson(lifecycle.savedGroupInput) !== canonicalJson(lifecycle.savedBefore.group) ||
+      lifecycle.savedBefore.group?.stepId !== lifecycle.savedAfter.group?.stepId) {
+    return where + '.relatedSourceLifecycle.savedGroupInput must match the actual stable saved Group projection';
+  }
+  const intentProblem = relatedCandidateIntentProblem(
+    lifecycle.candidateIntent,
+    lifecycle,
+    where + '.relatedSourceLifecycle',
+    journeyCase,
+  );
+  if (intentProblem) return intentProblem;
+  const renderedObservation = lifecycle.renderedObservation;
+  const responsePreview = lifecycle.response.preview;
+  if (!Object.hasOwn(lifecycle, 'renderedObservation')) {
+    return where + '.relatedSourceLifecycle.renderedObservation must be retained explicitly as a matching observation or null';
+  }
+  if (renderedObservation !== null) {
+    const rendered = renderedObservation?.proposalPanel;
+    const panelObservedAt = renderedObservation?.proposalPanelObservedAt;
+    const panelBrowserRequestId = renderedObservation?.proposalPanelBrowserRequestId;
+    const renderedMount = lifecycle.renderedObservationMount;
+    const eventTimeSnapshot = lifecycle.eventTimeSnapshot;
+    if (!isPlainObject(renderedObservation) || !isPlainObject(renderedObservation.builder) ||
+        !isPlainObject(rendered) || !Object.keys(rendered).length || rendered.status !== 'ready' ||
+        typeof rendered.id !== 'string' || rendered.id !== lifecycle.response.proposalId ||
+        !Array.isArray(rendered.rows) ||
+        typeof responsePreview?.rowCount !== 'number' || rendered.rows.length !== responsePreview.rowCount ||
+        rendered.rows.some((row) => !Array.isArray(row) || row.length === 0 || row.some((cell) =>
+          !isPlainObject(cell) || typeof cell.text !== 'string' ||
+          (cell.title !== null && typeof cell.title !== 'string'))) ||
+        eventTimeSnapshot?.available !== true || !Number.isFinite(panelObservedAt) ||
+        panelObservedAt < lifecycle.settlement.completedAt ||
+        panelBrowserRequestId !== lifecycle.owner.browserRequestId ||
+        !isPlainObject(renderedMount) || renderedMount.mountEpoch !== lifecycle.settlementObservedEpoch ||
+        renderedMount.documentTimeOrigin !== eventTimeSnapshot.observationMount?.documentTimeOrigin ||
+        renderedMount.documentTimeOrigin !== eventTimeSnapshot.responseMount?.documentTimeOrigin ||
+        renderedMount.documentTimeOrigin !== lifecycle.owner.documentTimeOrigin) {
+      return where + '.relatedSourceLifecycle rendered candidate-ready observation must be a later DOM read owned by its actual settlement request and mount';
+    }
+  }
+  if (typeof lifecycle.response.proposalId !== 'string' || lifecycle.response.proposalId.trim().length === 0 ||
+      lifecycle.response.preview?.receiptId !== lifecycle.response.proposalId ||
+      lifecycle.response.preview?.rowsPresent !== true ||
+      lifecycle.response.preview?.outputId !== lifecycle.response.proposalOutputId) {
+    return where + '.relatedSourceLifecycle response preview must retain its proposal, receipt, output, and rows binding';
+  }
+  if (action.label === 'RelatedSourcePreview' && action.request !== undefined) {
+    if (action.request.browserRequestId !== lifecycle.request.browserRequestId ||
+        action.request.captureId !== lifecycle.request.captureId ||
+        canonicalJson(action.request.request) !== canonicalJson(lifecycle.request.request)) {
+      return where + ' action request must match the retained RELATED_SOURCE proposal request';
+    }
+    if (canonicalJson(action.response) !== canonicalJson(lifecycle.response) ||
+        canonicalJson(action.settlement) !== canonicalJson(lifecycle.settlement)) {
+      return where + ' action response and settlement must match the retained RELATED_SOURCE proposal request';
+    }
+    if (action.observation == null) {
+      if (!cdaEventTimeObservationUnavailable(action, lifecycle)) {
+        return where + ' RelatedSourcePreview may omit its response-event observation only with the explicit unavailable marker';
+      }
+    } else if (!isPlainObject(action.observation)) {
+      return where + ' RelatedSourcePreview must preserve its actual response-event observation or explicit null marker';
+    }
+  }
+  if (['RelatedSourceApply', 'RelatedSourceCancel'].includes(action.label)) {
+    const observed = action.observation;
+    if (!isPlainObject(observed) || !['idle', 'absent', 'unknown'].includes(observed.status) ||
+        observed.canApply !== false || observed.proposalIdPresent !== false ||
+        observed.previewReceiptPresent !== false || observed.rowsPresent !== false || observed.receiptPresent !== false ||
+        observed.proposalId !== null || observed.previewReceiptId !== null || observed.previewOutputId !== null) {
+      return where + ' ' + action.label + ' must retain a separate actual closed proposal observation';
+    }
+  }
+  return null;
+}
+
+function rowExpansionLifecycleShapeProblem(action, where, required, journeyCase) {
+  const lifecycle = action.rowExpansionLifecycle;
+  if (lifecycle === undefined) {
+    return required ? where + '.rowExpansionLifecycle is required for the observed CDA row expansion' : null;
+  }
+  if (!isPlainObject(lifecycle) || !journeyCase.rowExpansionStages.includes(lifecycle.stage)) {
+    return where + '.rowExpansionLifecycle.stage must be one of the ordered CDA row expansion stages';
+  }
+  if (typeof lifecycle.stepId !== 'string' || lifecycle.stepId.trim().length === 0 ||
+      !(lifecycle.inputStepId === null || (typeof lifecycle.inputStepId === 'string' && lifecycle.inputStepId.trim().length > 0)) ||
+      !Array.isArray(lifecycle.route) || lifecycle.route.length !== 1) {
+    return where + '.rowExpansionLifecycle must preserve its step, input step, and one-hop route';
+  }
+  const expectedRoute = lifecycle.stage === 'SpecimenPatient'
+    ? { fromResourceType: 'Specimen', toResourceType: 'Patient' }
+    : { fromResourceType: 'Patient', toResourceType: 'Observation' };
+  if (lifecycle.route[0]?.fromResourceType !== expectedRoute.fromResourceType ||
+      lifecycle.route[0]?.toResourceType !== expectedRoute.toResourceType) {
+    return where + '.rowExpansionLifecycle.route does not match its declared stage';
+  }
+  if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.mountEpoch < 0 ||
+      lifecycle.mountEpoch > journeyCase.maxMountEpoch || !isPlainObject(lifecycle.owner) ||
+      lifecycle.owner.mountEpoch !== lifecycle.mountEpoch || !observedRequestKey(lifecycle.owner) ||
+      typeof lifecycle.owner.documentTimeOrigin !== 'number' || lifecycle.owner.documentTimeOrigin <= 0) {
+    return where + '.rowExpansionLifecycle must preserve its bounded observed mountEpoch and actual request identity';
+  }
+  const requestProblemText = requestProblem(lifecycle.request, where + '.rowExpansionLifecycle.request');
+  if (requestProblemText) return requestProblemText;
+  if (lifecycle.request.method !== 'POST' || lifecycle.request.path !== '/construction-proposals' ||
+      typeof lifecycle.request.request?.candidateConstruction !== 'object') {
+    return where + '.rowExpansionLifecycle.request must preserve the native candidate construction body';
+  }
+  const previewSettlement = new Set([
+    'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+  ]).has(action.label);
+  const isSettledAction = previewSettlement || action.label === 'ExpandRows';
+  if (lifecycle.response !== undefined && lifecycle.response !== null) {
+    const responseProblemText = responseProblem(lifecycle.response, where + '.rowExpansionLifecycle.response');
+    if (responseProblemText) return responseProblemText;
+  } else if (['PreviewComplete', 'LatePreviewCompleteIgnored', 'ExpandRows'].includes(action.label)) {
+    return where + '.rowExpansionLifecycle.response is required for a successful proposal response';
+  }
+  const identityProblem = actualRequestIdentityProblem(lifecycle.owner, lifecycle.request,
+    previewSettlement ? action.settlement : undefined,
+    where + '.rowExpansionLifecycle');
+  if (identityProblem) return identityProblem;
+  if (isSettledAction && lifecycle.renderedObservation == null &&
+      (action.label === 'PreviewComplete' || !cdaEventTimeSnapshotUnavailable(action, lifecycle))) {
+    return where + '.rowExpansionLifecycle.renderedObservation may be null only when eventTimeSnapshot.available is false';
+  }
+  if (isSettledAction && lifecycle.renderedObservation != null &&
+      (!isPlainObject(lifecycle.renderedObservation) || !Object.keys(lifecycle.renderedObservation).length)) {
+    return where + '.rowExpansionLifecycle.renderedObservation must preserve the actual proposal DOM';
+  }
+  const unavailablePairProblem = cdaSnapshotPairUnavailableProblem(action, lifecycle, where + '.rowExpansionLifecycle');
+  if (unavailablePairProblem) return unavailablePairProblem;
+  if (lifecycle.savedBefore !== null && lifecycle.savedBefore !== undefined) {
+    for (const field of ['savedBefore', 'savedAfter']) {
+      const snapshot = lifecycle[field];
+      const problem = cdaCASProblem(snapshot, where + '.rowExpansionLifecycle.' + field);
+      if (problem) return problem;
+      const selected = savedBuilderDocument(snapshot, where + '.rowExpansionLifecycle.' + field);
+      if (selected.problem) return selected.problem;
+      const relation = relatedSourceSnapshotProblem(snapshot, where + '.rowExpansionLifecycle.' + field, journeyCase, true);
+      if (relation.problem) return relation.problem;
+      if (snapshot.group !== null || relation.relatedSource !== null) {
+        return where + '.rowExpansionLifecycle ' + field + ' cannot invent a RELATED_SOURCE before the Group journey';
+      }
+    }
+  }
+  return null;
+}
+
+function cdaGroupLifecycleSnapshotProblem(action, where, journeyCase) {
+  const lifecycle = action.groupLifecycle;
+  if (!isPlainObject(lifecycle)) return null;
+  if (BUILDER_GROUP_PREVIEW_LABELS.has(action.label)) {
+    if (!isPlainObject(lifecycle.owner) || lifecycle.owner.mountEpoch !== lifecycle.mountEpoch ||
+        lifecycle.owner.documentTimeOrigin !== lifecycle.documentTimeOrigin) {
+      return where + '.groupLifecycle.owner must retain the request-start mount epoch and document time origin';
+    }
+    const rawBodyProblem = candidateIntentRawBodyProblem(
+      lifecycle.candidateIntent,
+      where + '.groupLifecycle.candidateIntent',
+    );
+    if (rawBodyProblem) return rawBodyProblem;
+    if (!isPlainObject(action.request?.request) ||
+        canonicalJson(lifecycle.candidateIntent.rawProposalBody) !== canonicalJson(action.request.request)) {
+      return where + '.groupLifecycle.candidateIntent.rawProposalBody must match the actual native proposal request body';
+    }
+    if (action.response?.candidateConstruction !== undefined &&
+        canonicalJson(action.response.candidateConstruction) !==
+          canonicalJson(action.request.request.candidateConstruction)) {
+      return where + '.groupLifecycle native response candidate must match the actual proposal request construction';
+    }
+  }
+  const unavailablePairProblem = cdaSnapshotPairUnavailableProblem(action, lifecycle, where + '.groupLifecycle');
+  if (unavailablePairProblem) return unavailablePairProblem;
+  if ((lifecycle.savedBefore === null || lifecycle.savedBefore === undefined) &&
+      (lifecycle.savedAfter === null || lifecycle.savedAfter === undefined)) return null;
+  const before = lifecycle.savedBefore;
+  const after = lifecycle.savedAfter;
+  if (!isPlainObject(before) || !isPlainObject(after)) {
+    return where + '.groupLifecycle must preserve actual savedBefore and savedAfter Builder projections';
+  }
+  for (const [field, saved] of [['savedBefore', before], ['savedAfter', after]]) {
+    const snapshot = relatedSourceSnapshotProblem(saved, where + '.groupLifecycle.' + field, journeyCase);
+    if (snapshot.problem) return snapshot.problem;
+    const casProblem = cdaCASProblem(saved, where + '.groupLifecycle.' + field);
+    if (casProblem) return casProblem;
+  }
+  if (before.explorerId !== after.explorerId) {
+    return where + '.groupLifecycle cannot change the owning Explorer across one observed action';
+  }
+  if (['Preview', 'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+      'GroupEditCancel', 'Reload'].includes(action.label) && !sameSavedDraft(before, after)) {
+    return where + '.groupLifecycle ' + action.label + ' must preserve the exact saved Builder workspace and draft CAS';
+  }
+  if (['Group', 'EditGroup', 'EditGroupAgain', 'RemoveGroup'].includes(action.label) &&
+      canonicalJson(before.relatedSource) !== canonicalJson(after.relatedSource)) {
+    return where + '.groupLifecycle Group mutation must retain the exact related-source binding';
+  }
+  if (['Group', 'EditGroup', 'EditGroupAgain'].includes(action.label)) {
+    const intent = lifecycle.candidateIntent;
+    const candidateSteps = intent?.rawProposalBody?.candidateConstruction?.steps;
+    if (!Array.isArray(candidateSteps)) {
+      return where + '.groupLifecycle candidate must retain the complete native construction proposal';
+    }
+    const candidateRelated = relatedSourceProjectionFromSteps(candidateSteps, undefined,
+      intent.proposed, where + '.groupLifecycle candidateConstruction', journeyCase);
+    if (candidateRelated.problem) return candidateRelated.problem;
+    if (canonicalJson(candidateRelated.relatedSource) !== canonicalJson(before.relatedSource)) {
+      return where + '.groupLifecycle Group proposal must preserve the exact preexisting related-source binding';
+    }
+    const beforeDocument = savedBuilderDocument(before, where + '.groupLifecycle.savedBefore');
+    if (beforeDocument.problem) return beforeDocument.problem;
+    const savedRelatedStep = beforeDocument.document.construction?.steps?.find((step) =>
+      step?.operation?.kind === 'RELATED_SOURCE') ?? null;
+    const candidateRelatedStep = candidateSteps.find((step) => step?.operation?.kind === 'RELATED_SOURCE') ?? null;
+    if (canonicalJson(savedRelatedStep) !== canonicalJson(candidateRelatedStep)) {
+      return where + '.groupLifecycle Group candidate must retain the exact related-source step from the saved workspace';
+    }
+  }
+  if (action.label === 'Reload') {
+    const mountedGroup = lifecycle.mountedGroup;
+    const afterDocument = savedBuilderDocument(after, where + '.groupLifecycle.savedAfter');
+    if (afterDocument.problem) return afterDocument.problem;
+    const mountedKeyLabels = mountedGroup?.keyLabels;
+    const expectedKeyLabels = after.group?.keys?.map((key) => {
+      const column = afterDocument.document.columns?.find((candidate) =>
+        (candidate?.columnId ?? candidate?.id) === key);
+      return column?.label ?? null;
+    }) ?? [];
+    if (!Array.isArray(mountedKeyLabels) ||
+        canonicalJson(mountedKeyLabels) !== canonicalJson(expectedKeyLabels) ||
+        expectedKeyLabels.some((label) => typeof label !== 'string' ||
+          !mountedGroup.historyText.includes(label))) {
+      return where + '.groupLifecycle.mountedGroup.keyLabels must match displayed construction-history labels joined to raw selected columns';
+    }
+    const mountedProblem = mountedRelatedSourceProblem(
+      lifecycle.mountedRelatedSource,
+      after.relatedSource,
+      where + '.groupLifecycle.mountedRelatedSource',
+      journeyCase,
+    );
+    if (mountedProblem) return mountedProblem;
+  }
+  return null;
+}
+
+function mountedRelatedSourceProblem(mounted, savedRelatedSource, where, journeyCase) {
+  if (savedRelatedSource === null) {
+    return mounted === null ? null : where + ' must be null when the postreload workspace has no related source';
+  }
+  if (!isPlainObject(mounted) ||
+      typeof mounted.stepId !== 'string' || mounted.stepId !== savedRelatedSource.stepId ||
+      typeof mounted.inputStepId !== 'string' || mounted.inputStepId !== savedRelatedSource.inputStepId ||
+      typeof mounted.outputColumnId !== 'string' || mounted.outputColumnId !== savedRelatedSource.outputColumnId ||
+      mounted.source?.resourceType !== journeyCase.relatedSource.resourceType ||
+      mounted.source?.path !== journeyCase.relatedSource.fieldPath ||
+      !Array.isArray(mounted.route) ||
+      canonicalJson(mounted.route.map((hop) => ({
+        fromResourceType: hop?.fromResourceType,
+        toResourceType: hop?.toResourceType,
+      }))) !== canonicalJson(journeyCase.relatedSource.sourceRoute) ||
+      !isPlainObject(mounted.visibleColumn) || mounted.visibleColumn.id !== savedRelatedSource.outputColumnId ||
+      mounted.visibleColumn.visible !== true || typeof mounted.visibleColumn.label !== 'string' ||
+      mounted.visibleColumn.label !== savedRelatedSource.output.label ||
+      typeof (mounted.visibleColumn.evidence ?? mounted.visibleColumn.source) !== 'string' ||
+      (mounted.visibleColumn.evidence ?? mounted.visibleColumn.source).trim().length === 0 ||
+      typeof mounted.historyText !== 'string' || mounted.historyText.trim().length === 0 ||
+      journeyCase.relatedSource.sourceRoute.some((hop) =>
+        !mounted.historyText.includes(hop.fromResourceType) || !mounted.historyText.includes(hop.toResourceType))) {
+    return where + ' must preserve actual postreload history, route, input, output, source, and visible column identities';
+  }
+  return null;
+}
+
+function cdaNativePathSuffix(path) {
+  if (typeof path !== 'string') return null;
+  const authoringPrefix = '/authoring/v2';
+  const marker = authoringPrefix + '/';
+  const markerIndex = path.lastIndexOf(marker);
+  if (markerIndex >= 0) return path.slice(markerIndex + authoringPrefix.length);
+  return path.startsWith('/') ? path : null;
+}
+
+function cdaNativePathBase(path) {
+  if (typeof path !== 'string') return null;
+  const marker = '/authoring/v2/';
+  const markerIndex = path.lastIndexOf(marker);
+  return markerIndex > 0 ? path.slice(0, markerIndex) : null;
+}
+
+function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) {
+  if (!Array.isArray(trace.nativeRequests)) {
+    return { message: where + '.nativeRequests must preserve the complete native observer request ledger for CDA coverage' };
+  }
+  const modeledRequestIDs = new Map();
+  const wireRequestIDs = new Map();
+  const browserRequestIDs = new Map();
+  const captureRequestIDs = new Map();
+  const unmodeledRequestIDs = new Set();
+  const classifiedNativeRequests = new Map();
+  const observedRequestStarts = [];
+  const previewStarts = new Map();
+  const previewSettlements = new Map();
+  const settlementTimingProblem = (request, settlement, actionIndex, label) => {
+    const completedAt = Number.isFinite(settlement?.completedAt)
+      ? settlement.completedAt
+      : settlement?.responseReceivedAt;
+    if (!isPlainObject(settlement) || !Number.isFinite(settlement.startedAt) ||
+        !Number.isFinite(completedAt) || settlement.startedAt !== request.startedAt ||
+        completedAt < request.startedAt) {
+      return where + '.actions[' + actionIndex + '] ' + label + ' settlement must preserve matching request start and later completion times';
+    }
+    return null;
+  };
+  const registerRequest = (request, actionIndex, label) => {
+    const requestID = observedRequestKey(request);
+    if (!requestID) return where + '.actions[' + actionIndex + '] ' + label + ' must preserve its actual captureId or browserRequestId';
+    if (typeof request.browserRequestId !== 'string' || request.browserRequestId.length === 0 ||
+        !Number.isInteger(request.index) || request.index < 0 ||
+        typeof request.startedAt !== 'number' || !Number.isFinite(request.startedAt) || request.startedAt <= 0) {
+      return where + '.actions[' + actionIndex + '] ' + label + ' must preserve its native observer index and request start time';
+    }
+    const prior = modeledRequestIDs.get(requestID);
+    if (prior) {
+      return where + '.actions[' + actionIndex + '] mutating request identity ' + requestID +
+        ' is already mapped to ' + prior.label + ' at action ' + prior.actionIndex;
+    }
+    modeledRequestIDs.set(requestID, { label, actionIndex });
+    if (browserRequestIDs.has(request.browserRequestId)) {
+      return where + '.actions[' + actionIndex + '] browserRequestId duplicates another observed native request';
+    }
+    browserRequestIDs.set(request.browserRequestId, { label, actionIndex });
+    if (typeof request.captureId === 'string' && request.captureId.length > 0) {
+      if (captureRequestIDs.has(request.captureId)) {
+        return where + '.actions[' + actionIndex + '] captureId duplicates another observed native request';
+      }
+      captureRequestIDs.set(request.captureId, { label, actionIndex });
+    }
+    const wireRequestID = request.requestId;
+    if (typeof wireRequestID === 'string' && wireRequestID.length > 0) {
+      const priorWireRequest = wireRequestIDs.get(wireRequestID);
+      if (priorWireRequest) {
+        return where + '.actions[' + actionIndex + '] wire requestId is already mapped to ' +
+          priorWireRequest.label + ' at action ' + priorWireRequest.actionIndex;
+      }
+      wireRequestIDs.set(wireRequestID, { label, actionIndex });
+    }
+    classifiedNativeRequests.set(request.browserRequestId, {
+      method: request.method,
+      path: request.path,
+      index: request.index,
+      startedAt: request.startedAt,
+      requestId: request.requestId,
+      isMutation: true,
+      label,
+      actionIndex,
+    });
+    observedRequestStarts.push({ index: request.index, startedAt: request.startedAt, label, actionIndex });
+    return null;
+  };
+  const previewSettlementLabels = new Set([
+    'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+  ]);
+  const applyLabels = new Set(['Group', 'GroupAgain', 'EditGroup', 'EditGroupAgain', 'RemoveGroup', 'ExpandRows', 'RelatedSourceApply']);
+  for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
+    const action = trace.actions[actionIndex];
+    const actionWhere = where + '.actions[' + actionIndex + ']';
+    if (action.label === 'Preview') {
+      if (action.request?.method !== 'POST' || action.request?.path !== '/construction-proposals') {
+        return { message: actionWhere + ' Preview must preserve the native construction-proposals request', actionIndex };
+      }
+      const requestID = observedRequestKey(action.request);
+      if (!requestID) return { message: actionWhere + ' Preview has no actual request identity', actionIndex };
+      if (previewStarts.has(requestID)) {
+        return { message: actionWhere + ' Preview request identity duplicates a prior proposal request', actionIndex };
+      }
+      const problem = registerRequest(action.request, actionIndex, 'Preview');
+      if (problem) return { message: problem, actionIndex };
+      previewStarts.set(requestID, { action, actionIndex });
+    } else if (previewSettlementLabels.has(action.label)) {
+      const requestID = observedRequestKey(action.request);
+      const start = previewStarts.get(requestID);
+      if (!start) return { message: actionWhere + ' proposal settlement has no modeled Preview request owner', actionIndex };
+      if (previewSettlements.has(requestID)) {
+        return { message: actionWhere + ' request identity has more than one proposal settlement', actionIndex };
+      }
+      previewSettlements.set(requestID, actionIndex);
+    } else if (action.label === 'RelatedSourcePreview') {
+      if (action.request?.method !== 'POST' || action.request?.path !== '/construction-proposals') {
+        return { message: actionWhere + ' RelatedSourcePreview must preserve the native construction-proposals request', actionIndex };
+      }
+      const problem = registerRequest(action.request, actionIndex, 'RelatedSourcePreview');
+      if (problem) return { message: problem, actionIndex };
+      const timingProblem = settlementTimingProblem(action.request, action.settlement, actionIndex, 'RelatedSourcePreview');
+      if (timingProblem) return { message: timingProblem, actionIndex };
+    } else if (applyLabels.has(action.label)) {
+      if (action.request?.method !== 'POST' || action.request.path !== '/commands') {
+        return { message: actionWhere + ' Apply must preserve the native /commands POST request', actionIndex };
+      }
+      const problem = registerRequest(action.request, actionIndex, action.label + ' Apply');
+      if (problem) return { message: problem, actionIndex };
+      const timingProblem = settlementTimingProblem(action.request, action.settlement, actionIndex, action.label + ' Apply');
+      if (timingProblem) return { message: timingProblem, actionIndex };
+    }
+  }
+  for (const [requestID, start] of previewStarts) {
+    if (!previewSettlements.has(requestID)) {
+      return { message: where + '.actions[' + start.actionIndex + '] Preview request has no modeled response settlement', actionIndex: start.actionIndex };
+    }
+  }
+  for (const event of trace.unmodeledEvents ?? []) {
+    const eventKind = event?.kind;
+    const supportRoute = contract.readOnlySupportRoutes?.[eventKind];
+    if (!journeyCase.readOnlySupportKinds.includes(eventKind) || !contract.unmodeledEventPolicy?.[eventKind] ||
+        !supportRoute || typeof event.reason !== 'string' || event.reason.trim().length === 0) {
+      return { message: where + '.unmodeledEvents may contain only allowlisted support kinds with an explicit reason' };
+    }
+    const supportRequests = Array.isArray(event.requests)
+      ? event.requests
+      : [isPlainObject(event.request) ? event.request : event];
+    if (supportRequests.length === 0 || supportRequests.some((request) => !isPlainObject(request))) {
+      return { message: where + '.unmodeledEvents[' + eventKind + '].requests must retain each actual support request' };
+    }
+    for (const supportRequest of supportRequests) {
+      const requestID = observedRequestKey(supportRequest);
+      const method = supportRequest.method;
+      const path = supportRequest.path;
+      if (typeof supportRequest.browserRequestId !== 'string' || supportRequest.browserRequestId.length === 0 ||
+          !Number.isInteger(supportRequest.index) || supportRequest.index < 0 ||
+          typeof supportRequest.startedAt !== 'number' || !Number.isFinite(supportRequest.startedAt) ||
+          supportRequest.startedAt <= 0 || supportRequest.isMutation !== false || method !== supportRoute.method ||
+          path !== supportRoute.pathSuffix || !requestID) {
+        return { message: where + '.unmodeledEvents[' + eventKind + '] request must be independently marked non-mutating and match its method/path allowlist' };
+      }
+      if (modeledRequestIDs.has(requestID) || unmodeledRequestIDs.has(requestID)) {
+        return { message: where + '.unmodeledEvents request identity duplicates a modeled mutating request' };
+      }
+      const wireRequestID = supportRequest.requestId;
+      if (browserRequestIDs.has(supportRequest.browserRequestId)) {
+        return { message: where + '.unmodeledEvents browserRequestId duplicates another observed native request' };
+      }
+      browserRequestIDs.set(supportRequest.browserRequestId, { label: eventKind, actionIndex: -1 });
+      if (typeof supportRequest.captureId === 'string' && supportRequest.captureId.length > 0) {
+        if (captureRequestIDs.has(supportRequest.captureId)) {
+          return { message: where + '.unmodeledEvents captureId duplicates another observed native request' };
+        }
+        captureRequestIDs.set(supportRequest.captureId, { label: eventKind, actionIndex: -1 });
+      }
+      if (typeof wireRequestID === 'string' && wireRequestID.length > 0 && wireRequestIDs.has(wireRequestID)) {
+        return { message: where + '.unmodeledEvents wire requestId duplicates a modeled request' };
+      }
+      unmodeledRequestIDs.add(requestID);
+      if (typeof wireRequestID === 'string' && wireRequestID.length > 0) {
+        wireRequestIDs.set(wireRequestID, { label: eventKind, actionIndex: -1 });
+      }
+      classifiedNativeRequests.set(supportRequest.browserRequestId, {
+        method,
+        path,
+        index: supportRequest.index,
+        startedAt: supportRequest.startedAt,
+        requestId: supportRequest.requestId,
+        isMutation: false,
+        label: eventKind,
+        actionIndex: -1,
+      });
+      observedRequestStarts.push({ index: supportRequest.index, startedAt: supportRequest.startedAt, label: eventKind, actionIndex: -1 });
+      modeledRequestIDs.set(requestID, { label: eventKind, actionIndex: -1 });
+    }
+  }
+  const nativeBrowserIDs = new Set();
+  const nativeWireIDs = new Set();
+  const nativePathBases = new Set();
+  const supportRoutesBySuffix = new Map(Object.entries(contract.readOnlySupportRoutes ?? {})
+    .map(([kind, route]) => [route.method + ' ' + route.pathSuffix, kind]));
+  for (const [nativeIndex, entry] of trace.nativeRequests.entries()) {
+    if (!isPlainObject(entry) || typeof entry.browserRequestId !== 'string' || entry.browserRequestId.length === 0 ||
+        !Number.isInteger(entry.index) || entry.index < 0 || typeof entry.startedAt !== 'number' ||
+        !Number.isFinite(entry.startedAt) || entry.startedAt <= 0 || typeof entry.method !== 'string' ||
+        typeof entry.path !== 'string' || typeof entry.isMutation !== 'boolean') {
+      return { message: where + '.nativeRequests[' + nativeIndex + '] must preserve native browserRequestId, index, start time, method, path, and isMutation' };
+    }
+    if (nativeBrowserIDs.has(entry.browserRequestId)) {
+      return { message: where + '.nativeRequests browserRequestId must be unique across the complete observer ledger' };
+    }
+    nativeBrowserIDs.add(entry.browserRequestId);
+    if (typeof entry.requestId === 'string' && entry.requestId.length > 0) {
+      if (nativeWireIDs.has(entry.requestId)) {
+        return { message: where + '.nativeRequests wire requestId must be unique across the complete observer ledger' };
+      }
+      nativeWireIDs.add(entry.requestId);
+    }
+    const pathSuffix = cdaNativePathSuffix(entry.path);
+    if (!pathSuffix) return { message: where + '.nativeRequests[' + nativeIndex + '].path must be an owned absolute authoring route' };
+    const pathBase = cdaNativePathBase(entry.path);
+    if (pathBase !== null) nativePathBases.add(pathBase);
+    if (entry.isMutation) {
+      if (entry.method !== 'POST' || !['/construction-proposals', '/commands'].includes(pathSuffix)) {
+        return { message: where + '.nativeRequests contains an unknown mutating request; all mutating routes must be modeled' };
+      }
+    } else if (!supportRoutesBySuffix.has(entry.method + ' ' + pathSuffix)) {
+      return { message: where + '.nativeRequests contains an unknown read-only method/path route outside the support allowlist' };
+    }
+    const classified = classifiedNativeRequests.get(entry.browserRequestId);
+    if (!classified) {
+      return { message: where + '.nativeRequests contains an observed request with no modeled action or explicit read-only support binding' };
+    }
+    const classifiedRequestId = typeof classified.requestId === 'string' ? classified.requestId : null;
+    const ledgerRequestId = typeof entry.requestId === 'string' ? entry.requestId : null;
+    if (classified.isMutation !== entry.isMutation || classified.method !== entry.method ||
+        cdaNativePathSuffix(classified.path) !== pathSuffix || classified.index !== entry.index ||
+        classified.startedAt !== entry.startedAt || classifiedRequestId !== ledgerRequestId) {
+      return { message: where + '.nativeRequests entry must match its exact action/support binding and chronology' };
+    }
+    if (!entry.isMutation && !journeyCase.readOnlySupportKinds.includes(supportRoutesBySuffix.get(entry.method + ' ' + pathSuffix))) {
+      return { message: where + '.nativeRequests read-only request has no declared support kind' };
+    }
+  }
+  if (nativePathBases.size > 1) {
+    return { message: where + '.nativeRequests must retain one owned project authoring base path' };
+  }
+  for (const browserRequestId of classifiedNativeRequests.keys()) {
+    if (!nativeBrowserIDs.has(browserRequestId)) {
+      return { message: where + ' modeled/support request is absent from the complete native observer ledger' };
+    }
+  }
+  const byObserverIndex = [...observedRequestStarts].sort((left, right) => left.index - right.index);
+  for (let index = 1; index < byObserverIndex.length; index += 1) {
+    const previous = byObserverIndex[index - 1];
+    const current = byObserverIndex[index];
+    if (current.index === previous.index) {
+      return { message: where + ' native request observer index must be unique across modeled and support requests' };
+    }
+    if (current.startedAt < previous.startedAt) {
+      return { message: where + ' native request start times must follow the observer index chronology' };
+    }
+  }
+  for (const [requestID, settlementIndex] of previewSettlements) {
+    const start = previewStarts.get(requestID);
+    const settlement = trace.actions[settlementIndex];
+    const timingProblem = settlementTimingProblem(
+      start.action.request,
+      settlement?.settlement,
+      settlementIndex,
+      'Preview',
+    );
+    if (timingProblem) return { message: timingProblem, actionIndex: settlementIndex };
+  }
+  return null;
+}
+
+function rawRelatedExpandStep(steps, stepId, where) {
+  if (!Array.isArray(steps)) return { problem: where + '.candidateConstruction.steps must preserve the raw proposal steps' };
+  const matches = steps.filter((step) => step?.id === stepId && step?.operation?.kind === 'RELATED_EXPAND');
+  if (matches.length !== 1) return { problem: where + ' must identify exactly one native RELATED_EXPAND candidate step' };
+  return { step: matches[0] };
+}
+
+function cdaRowExpansionConsistencyProblem(trace, where, journeyCase) {
+  const actions = trace.actions;
+  const rowStarts = actions
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => action.label === 'Preview' && isPlainObject(action.rowExpansionLifecycle));
+  const applyActions = actions
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => action.label === 'ExpandRows');
+  if (applyActions.length !== journeyCase.rowExpansionStages.length) {
+    return { message: where + '.actions must contain exactly two modeled ExpandRows applies' };
+  }
+  let priorAfter = null;
+  const latestRequestByStage = new Map();
+  const latestReadyByStage = new Map();
+  const settlementLabels = new Set([
+    'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+  ]);
+  const startForRequest = new Map();
+  const startByIndex = new Map();
+  for (const start of rowStarts) {
+    const lifecycle = start.action.rowExpansionLifecycle;
+    const requestKey = observedRequestKey(start.action.request);
+    if (!requestKey || observedRequestKey(lifecycle.owner) !== requestKey) {
+      return { message: where + '.actions[' + start.index + '] row Preview must bind actual request and lifecycle owners' };
+    }
+    if (startForRequest.has(requestKey)) {
+      return { message: where + '.actions[' + start.index + '] repeats a row Preview request identity' };
+    }
+    startForRequest.set(requestKey, start);
+    startByIndex.set(start.index, { requestKey, stage: lifecycle.stage });
+  }
+  for (let actionIndex = 0; actionIndex < actions.length; actionIndex += 1) {
+    const action = actions[actionIndex];
+    const start = startByIndex.get(actionIndex);
+    if (start) {
+      latestRequestByStage.set(start.stage, start.requestKey);
+      latestReadyByStage.delete(start.stage);
+      continue;
+    }
+    if (!settlementLabels.has(action.label) || !isPlainObject(action.rowExpansionLifecycle)) continue;
+    const lifecycle = action.rowExpansionLifecycle;
+    const requestKey = observedRequestKey(action.request);
+    const requestStart = startForRequest.get(requestKey);
+    if (!requestStart || actionIndex <= requestStart.index) {
+      return { message: where + '.actions[' + actionIndex + '] row preview settlement has no preceding request owner' };
+    }
+    if (lifecycle.stage !== requestStart.action.rowExpansionLifecycle.stage ||
+        lifecycle.stepId !== requestStart.action.rowExpansionLifecycle.stepId ||
+        lifecycle.inputStepId !== requestStart.action.rowExpansionLifecycle.inputStepId ||
+        canonicalJson(lifecycle.route) !== canonicalJson(requestStart.action.rowExpansionLifecycle.route)) {
+      return { message: where + '.actions[' + actionIndex + '] row preview settlement changed stage, step, input, or route identity' };
+    }
+    if (action.label === 'PreviewComplete') {
+      if (latestRequestByStage.get(lifecycle.stage) !== requestKey) {
+        return { message: where + '.actions[' + actionIndex + '] current row PreviewComplete must settle the latest request for its stage' };
+      }
+      latestReadyByStage.set(lifecycle.stage, requestKey);
+    } else if (['PreviewError', 'PreviewRequestCancelled'].includes(action.label) &&
+        latestRequestByStage.get(lifecycle.stage) === requestKey) {
+      latestReadyByStage.delete(lifecycle.stage);
+    }
+  }
+  const appliesByStage = applyActions.map(({ action }) => action.rowExpansionLifecycle?.stage);
+  if (canonicalJson(appliesByStage) !== canonicalJson(journeyCase.rowExpansionStages)) {
+    return { message: where + ' ExpandRows applies must occur in SpecimenPatient then PatientObservation order' };
+  }
+  for (let stageIndex = 0; stageIndex < journeyCase.rowExpansionStages.length; stageIndex += 1) {
+    const expectedStage = journeyCase.rowExpansionStages[stageIndex];
+    const applied = applyActions[stageIndex];
+    const applyLifecycle = applied.action.rowExpansionLifecycle;
+    const requestKey = observedRequestKey(applyLifecycle?.owner);
+    const start = startForRequest.get(requestKey);
+    const settlementMatches = actions
+      .map((action, index) => ({ action, index }))
+      .filter(({ action, index }) => action.label === 'PreviewComplete' &&
+        isPlainObject(action.rowExpansionLifecycle) && observedRequestKey(action.request) === requestKey && index < applied.index);
+    if (!start || settlementMatches.length !== 1 || latestReadyByStage.get(expectedStage) !== requestKey ||
+        applyLifecycle?.stage !== expectedStage || start.action.rowExpansionLifecycle.stage !== expectedStage) {
+      return { message: where + '.actions[' + applied.index + '] ExpandRows must consume the latest successful row proposal for its stage' };
+    }
+    const settlement = settlementMatches[0];
+    const startLifecycle = start.action.rowExpansionLifecycle;
+    const settlementLifecycle = settlement.action.rowExpansionLifecycle;
+    if (!(start.index < settlement.index && settlement.index < applied.index) ||
+        [settlementLifecycle, applyLifecycle].some((lifecycle) =>
+          lifecycle?.stepId !== startLifecycle.stepId || lifecycle?.inputStepId !== startLifecycle.inputStepId ||
+          canonicalJson(lifecycle?.route) !== canonicalJson(startLifecycle.route))) {
+      return { message: where + ' row expansion request, response, and Apply lifecycle identities must remain in order' };
+    }
+    if (start.action.owner?.attempt !== settlement.action.owner?.attempt ||
+        start.action.owner?.attempt !== applied.action.owner?.attempt) {
+      return { message: where + ' row expansion request, response, and Apply must retain the same P1/P2 owner' };
+    }
+    const startOwnerProblem = actualRequestIdentityProblem(startLifecycle.owner, startLifecycle.request,
+      undefined, where + '.actions[' + start.index + '].rowExpansionLifecycle');
+    if (startOwnerProblem) return { message: startOwnerProblem, actionIndex: start.index };
+    for (const record of [start, settlement]) {
+      if (observedRequestKey(record.action.request) !== requestKey ||
+          canonicalJson(record.action.request?.request) !== canonicalJson(startLifecycle.request.request)) {
+        return { message: where + '.actions[' + record.index + '] must retain the actual row proposal request identity/body' };
+      }
+    }
+    if (observedRequestKey(startLifecycle.owner) !== requestKey ||
+        observedRequestKey(settlementLifecycle.owner) !== requestKey ||
+        observedRequestKey(applyLifecycle.owner) !== requestKey) {
+      return { message: where + ' row expansion lifecycle owner must bind to its actual Preview request', actionIndex: start.index };
+    }
+    const previewResponse = settlementLifecycle.response;
+    const applyProposalResponse = applyLifecycle.response;
+    if (typeof previewResponse?.proposalId !== 'string' ||
+        previewResponse.proposalId !== settlement.action.response?.proposalId ||
+        canonicalJson(previewResponse.candidateConstruction) !== canonicalJson(settlement.action.response?.candidateConstruction) ||
+        previewResponse.proposalId !== applyProposalResponse?.proposalId ||
+        canonicalJson(previewResponse.candidateConstruction) !== canonicalJson(applyProposalResponse.candidateConstruction)) {
+      return { message: where + ' row expansion preview and Apply must retain the same actual proposal response' };
+    }
+    const rendered = settlementLifecycle.renderedObservation?.proposalPanel ?? settlementLifecycle.renderedObservation;
+    const observed = settlement.action.observation;
+    const snapshotlessDOM = rendered == null && cdaEventTimeSnapshotUnavailable(settlement.action, settlementLifecycle);
+    if (!snapshotlessDOM && (!isPlainObject(rendered) || rendered.status !== 'ready' ||
+        rendered.id !== previewResponse.proposalId ||
+        observed?.proposalId !== previewResponse.proposalId ||
+        observed?.previewReceiptId !== previewResponse.preview?.receiptId ||
+        observed?.previewOutputId !== previewResponse.preview?.outputId ||
+        !Array.isArray(rendered.rows) || rendered.rows.length !== previewResponse.preview?.rowCount ||
+        rendered.rows.some((row) => !Array.isArray(row) || row.length === 0 || row.some((cell) =>
+          !isPlainObject(cell) || typeof cell.text !== 'string' ||
+          (cell.title !== null && typeof cell.title !== 'string'))))) {
+      return { message: where + ' PreviewComplete must retain the actual ready row expansion proposal DOM' };
+    }
+    const body = startLifecycle.request.request;
+    const candidateRequest = rawRelatedExpandStep(body.candidateConstruction?.steps, startLifecycle.stepId,
+      where + '.actions[' + start.index + '].rowExpansionLifecycle.request');
+    if (candidateRequest.problem) return { message: candidateRequest.problem };
+    const candidateResponse = rawRelatedExpandStep(previewResponse.candidateConstruction?.steps, startLifecycle.stepId,
+      where + '.actions[' + settlement.index + '].rowExpansionLifecycle.response');
+    if (candidateResponse.problem) return { message: candidateResponse.problem };
+    const candidateStep = candidateRequest.step;
+    const responseStep = candidateResponse.step;
+    if (canonicalJson(candidateStep) !== canonicalJson(responseStep) ||
+        body.changedStepId !== startLifecycle.stepId) {
+      return { message: where + ' row expansion raw proposal body and response must retain the same changed step' };
+    }
+    const rawRoute = candidateStep.operation.relatedExpand.route;
+    if (canonicalJson(rawRoute) !== canonicalJson(startLifecycle.route)) {
+      return { message: where + '.rowExpansionLifecycle.route must match the native proposal RELATED_EXPAND route' };
+    }
+    const rawStepInput = candidateStep.inputs?.find((input) => input.kind === 'STEP_OUTPUT')?.stepId ?? null;
+    if (rawStepInput !== startLifecycle.inputStepId) {
+      return { message: where + '.rowExpansionLifecycle.inputStepId must match the native proposal step input' };
+    }
+    if (stageIndex === 0 && startLifecycle.inputStepId !== null) {
+      return { message: where + ' SpecimenPatient must start from source_projection without a prior construction step' };
+    }
+    if (stageIndex > 0 && startLifecycle.inputStepId !== applyActions[stageIndex - 1].action.rowExpansionLifecycle.stepId) {
+      return { message: where + ' PatientObservation must consume the preceding RELATED_EXPAND step output' };
+    }
+    const before = startLifecycle.savedBefore;
+    const after = applyLifecycle.savedAfter;
+    if (priorAfter && !sameSavedDraft(priorAfter, before)) {
+      return { message: where + ' row expansion stages must apply to the actual preceding saved Builder workspace' };
+    }
+    const beforeDocument = savedBuilderDocument(before, where + '.rowExpansionLifecycle.savedBefore');
+    const afterDocument = savedBuilderDocument(after, where + '.rowExpansionLifecycle.savedAfter');
+    if (beforeDocument.problem) return { message: beforeDocument.problem };
+    if (afterDocument.problem) return { message: afterDocument.problem };
+    const beforeStepCount = (beforeDocument.document.construction?.steps ?? []).filter((step) => step.id === startLifecycle.stepId).length;
+    const afterSteps = afterDocument.document.construction?.steps ?? [];
+    const savedStepMatches = afterSteps.filter((step) => step.id === startLifecycle.stepId && step.operation?.kind === 'RELATED_EXPAND');
+    if (beforeStepCount !== 0 || savedStepMatches.length !== 1 ||
+        canonicalJson(savedStepMatches[0]) !== canonicalJson(candidateStep)) {
+      return { message: where + ' applied row expansion must persist the exact proposed step in the selected Builder workspace' };
+    }
+    const applyCommands = applied.action.request?.request?.commands;
+    if (!Array.isArray(applyCommands) || !applyCommands.some((command) =>
+      command?.type === 'APPLY_CONSTRUCTION_PROPOSAL' && command.proposalId === previewResponse.proposalId)) {
+      return { message: where + '.actions[' + applied.index + '] must apply the current row proposal ID through /commands' };
+    }
+    if (applied.action.response?.status < 200 || applied.action.response?.status >= 300 ||
+        canonicalJson(applied.action.response.workspace) !== canonicalJson(after.workspace) ||
+        applied.action.response.draftVersion !== after.draftVersion ||
+        applied.action.response.draftDigest !== after.draftDigest) {
+      return { message: where + '.actions[' + applied.index + '] Apply response must match the saved Builder workspace and draft CAS' };
+    }
+    priorAfter = after;
+  }
+  return null;
+}
+
+function cdaJourneyLifecycleConsistencyProblem(trace, where, journeyCase, contract) {
+  const mutatingLabels = new Set(['ExpandRows', 'Group', 'EditGroup', 'EditGroupAgain', 'RelatedSourceApply']);
+  const epochs = new Set();
+  const epochOrigins = new Map();
+  const originEpochs = new Map();
+  const relatedPreviewRequests = new Set();
+  const previewSettlements = new Map();
+  const groupMutations = [];
+  const groupCancels = [];
+  const reloads = [];
+  const groupProposalPreviews = new Map();
+  let currentSaved = null;
+  let draftTransitions = 0;
+  let activeRelatedCandidate = null;
+  const cancellationKinds = [];
+  const applyKinds = [];
+
+  const snapshotsFor = (action) => {
+    if (isPlainObject(action.rowExpansionLifecycle)) return action.rowExpansionLifecycle;
+    if (isPlainObject(action.relatedSourceLifecycle)) return action.relatedSourceLifecycle;
+    if (isPlainObject(action.groupLifecycle)) return action.groupLifecycle;
+    return null;
+  };
+  const originProblem = (epoch, origin, actionWhere) => {
+    epochs.add(epoch);
+    const priorOrigin = epochOrigins.get(epoch);
+    if (priorOrigin !== undefined && priorOrigin !== origin) {
+      return actionWhere + ' documentTimeOrigin changed within one mount epoch';
+    }
+    const priorEpoch = originEpochs.get(origin);
+    if (priorEpoch !== undefined && priorEpoch !== epoch) {
+      return actionWhere + ' reused one documentTimeOrigin across distinct mount epochs';
+    }
+    epochOrigins.set(epoch, origin);
+    originEpochs.set(origin, epoch);
+    return null;
+  };
+  const lifecycleEvidenceMatches = (source, target, actionWhere) => {
+    if (observedRequestKey(source.owner) !== observedRequestKey(target.owner) ||
+        canonicalJson(source.candidateIntent) !== canonicalJson(target.candidateIntent) ||
+        canonicalJson(source.request) !== canonicalJson(target.request) ||
+        canonicalJson(source.response) !== canonicalJson(target.response) ||
+        canonicalJson(source.settlement) !== canonicalJson(target.settlement)) {
+      return actionWhere + ' must retain the current related-source proposal owner, intent, request, response, and settlement';
+    }
+    return null;
+  };
+
+  for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
+    const action = trace.actions[actionIndex];
+    const actionWhere = where + '.actions[' + actionIndex + ']';
+    const previewSettlement = new Set([
+      'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored',
+      'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
+    ]).has(action.label);
+    const lifecycle = snapshotsFor(action);
+    if (!lifecycle || !isPlainObject(lifecycle.savedBefore) || !isPlainObject(lifecycle.savedAfter)) {
+      const unavailableProblem = cdaSnapshotPairUnavailableProblem(action, lifecycle, actionWhere);
+      if (unavailableProblem) return { message: unavailableProblem, actionIndex };
+      const lifecycleOrigin = lifecycle.documentTimeOrigin ?? lifecycle.owner?.documentTimeOrigin;
+      if (Number.isInteger(lifecycle.mountEpoch) && lifecycleOrigin !== undefined) {
+        const originProblemText = originProblem(lifecycle.mountEpoch, lifecycleOrigin, actionWhere);
+        if (originProblemText) return { message: originProblemText, actionIndex };
+        epochs.add(lifecycle.mountEpoch);
+      }
+      if (Number.isInteger(action.observedEpoch)) epochs.add(action.observedEpoch);
+      if (lifecycle.owner?.mountEpoch !== undefined) epochs.add(lifecycle.owner.mountEpoch);
+      if (lifecycle.candidateOwner?.mountEpoch !== undefined) epochs.add(lifecycle.candidateOwner.mountEpoch);
+      if (action.label === 'PreviewComplete' && isPlainObject(action.groupLifecycle)) {
+        const requestKey = observedRequestKey(action.groupLifecycle.owner);
+        if (requestKey) {
+          const preview = groupProposalPreviews.get(requestKey) ?? {};
+          preview.settlement = action;
+          groupProposalPreviews.set(requestKey, preview);
+        }
+      }
+      continue;
+    }
+    const before = lifecycle.savedBefore;
+    const after = lifecycle.savedAfter;
+    const beforeCAS = cdaCASProblem(before, actionWhere + '.savedBefore');
+    if (beforeCAS) return { message: beforeCAS, actionIndex };
+    const afterCAS = cdaCASProblem(after, actionWhere + '.savedAfter');
+    if (afterCAS) return { message: afterCAS, actionIndex };
+    if (before.explorerId !== after.explorerId) {
+      return { message: actionWhere + ' cannot change the owning Explorer across one observed action', actionIndex };
+    }
+    const lifecycleOrigin = lifecycle.documentTimeOrigin ?? lifecycle.owner?.documentTimeOrigin;
+    if (lifecycleOrigin !== undefined) {
+      if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.owner?.mountEpoch !== undefined &&
+          lifecycle.owner.mountEpoch !== lifecycle.mountEpoch ||
+          lifecycle.documentTimeOrigin !== undefined && lifecycle.owner?.documentTimeOrigin !== undefined &&
+          lifecycle.documentTimeOrigin !== lifecycle.owner.documentTimeOrigin) {
+        return { message: actionWhere + ' request owner and lifecycle must preserve the same actual request-start epoch/timeOrigin', actionIndex };
+      }
+      const problem = originProblem(lifecycle.mountEpoch, lifecycleOrigin, actionWhere);
+      if (problem) return { message: problem, actionIndex };
+    }
+    if (Number.isInteger(lifecycle.mountEpoch)) epochs.add(lifecycle.mountEpoch);
+    if (Number.isInteger(action.observedEpoch)) epochs.add(action.observedEpoch);
+    if (action.observedEpoch !== undefined &&
+        (!Number.isInteger(action.observedEpoch) || action.observedEpoch < 0 || action.observedEpoch > journeyCase.maxMountEpoch)) {
+      return { message: actionWhere + '.observedEpoch must be an actual finite mount epoch in 0..' + journeyCase.maxMountEpoch, actionIndex };
+    }
+    if (lifecycle.owner?.mountEpoch !== undefined) epochs.add(lifecycle.owner.mountEpoch);
+    if (lifecycle.candidateOwner?.mountEpoch !== undefined) epochs.add(lifecycle.candidateOwner.mountEpoch);
+    if (Number.isInteger(lifecycle.mountEpoch) && lifecycle.owner?.mountEpoch !== undefined &&
+        lifecycle.owner.mountEpoch !== lifecycle.mountEpoch &&
+        ['RelatedSourcePreview', 'RelatedSourceApply', 'RelatedSourceCancel'].includes(action.label)) {
+      return { message: actionWhere + ' related-source proposal owner epoch must match its captured mount epoch', actionIndex };
+    }
+    if (lifecycle.owner?.mountEpoch !== undefined && lifecycle.mountEpoch !== undefined &&
+        ['RelatedSourcePreview', 'RelatedSourceApply', 'RelatedSourceCancel'].includes(action.label) &&
+        lifecycle.owner.mountEpoch !== lifecycle.mountEpoch) {
+      return { message: actionWhere + ' related-source proposal owner must belong to the current mount epoch', actionIndex };
+    }
+    if (lifecycle.owner?.mountEpoch !== undefined && lifecycle.mountEpoch !== undefined &&
+        action.label === 'Preview' && lifecycle.owner.mountEpoch !== lifecycle.mountEpoch) {
+      return { message: actionWhere + ' Preview request owner must belong to the current mount epoch', actionIndex };
+    }
+    if (currentSaved === null) currentSaved = before;
+    else if (!previewSettlement && !sameSavedDraft(currentSaved, before)) {
+      return { message: actionWhere + ' savedBefore does not match the preceding observed Builder state', actionIndex };
+    }
+    if (mutatingLabels.has(action.label)) {
+      if (after.draftVersion !== before.draftVersion + 1 || after.draftDigest === before.draftDigest ||
+          canonicalJson(after.workspace) === canonicalJson(before.workspace)) {
+        return { message: actionWhere + ' Apply must advance exactly one real Builder draft CAS and change saved workspace', actionIndex };
+      }
+      draftTransitions += 1;
+      currentSaved = after;
+    } else {
+      if (!sameSavedDraft(before, after)) {
+        return { message: actionWhere + ' state-preserving event must retain exact saved workspace and draft CAS', actionIndex };
+      }
+      if (!previewSettlement) currentSaved = before;
+    }
+
+    if (['Group', 'EditGroup', 'EditGroupAgain'].includes(action.label)) {
+      groupMutations.push({ label: action.label, before, after });
+    }
+    if (action.label === 'GroupEditCancel') groupCancels.push(action);
+    if (action.label === 'Reload') reloads.push(action);
+
+    if (['Preview', 'PreviewComplete'].includes(action.label) && isPlainObject(action.groupLifecycle)) {
+      const requestKey = observedRequestKey(action.groupLifecycle.owner);
+      if (requestKey) {
+        const preview = groupProposalPreviews.get(requestKey) ?? {};
+        if (action.label === 'Preview') preview.start = action;
+        else preview.settlement = action;
+        groupProposalPreviews.set(requestKey, preview);
+      }
+    }
+
+    if (['Group', 'EditGroup', 'EditGroupAgain'].includes(action.label)) {
+      const groupLifecycle = action.groupLifecycle;
+      const candidateKey = observedRequestKey(groupLifecycle.candidateOwner);
+      const preview = groupProposalPreviews.get(candidateKey);
+      if (!preview?.start || !preview?.settlement ||
+          canonicalJson(preview.settlement.groupLifecycle.candidateIntent) !== canonicalJson(groupLifecycle.candidateIntent) ||
+          preview.start.owner?.attempt !== action.owner?.attempt) {
+        return { message: actionWhere + ' Group Apply must consume its current observed Preview candidate owner', actionIndex };
+      }
+      const applyCommand = action.request?.request?.commands?.find((command) =>
+        command?.type === 'APPLY_CONSTRUCTION_PROPOSAL');
+      if (!applyCommand || applyCommand.proposalId !== preview.settlement.response?.proposalId) {
+        return { message: actionWhere + ' Group Apply request must consume the proposalId from its current Preview response', actionIndex };
+      }
+      const response = action.response;
+      if (!isPlainObject(response) || response.status < 200 || response.status >= 300 ||
+          canonicalJson(response.workspace) !== canonicalJson(after.workspace) ||
+          response.draftVersion !== after.draftVersion || response.draftDigest !== after.draftDigest) {
+        return { message: actionWhere + ' Group Apply response must match the actual saved Builder workspace and draft CAS', actionIndex };
+      }
+    }
+
+    if (action.label === 'RelatedSourcePreview') {
+      const related = action.relatedSourceLifecycle;
+      const requestKey = observedRequestKey(related.owner);
+      if (!requestKey || relatedPreviewRequests.has(requestKey)) {
+        return { message: actionWhere + '.relatedSourceLifecycle.owner must identify one unique actual proposal request', actionIndex };
+      }
+      relatedPreviewRequests.add(requestKey);
+      previewSettlements.set(requestKey, action);
+      activeRelatedCandidate = { requestKey, action };
+    } else if (['RelatedSourceCancel', 'RelatedSourceApply'].includes(action.label)) {
+      const related = action.relatedSourceLifecycle;
+      const requestKey = observedRequestKey(related.owner);
+      if (!activeRelatedCandidate) {
+        return { message: actionWhere + ' has no current related-source proposal candidate', actionIndex };
+      }
+      if (requestKey !== activeRelatedCandidate.requestKey ||
+          canonicalJson(related.candidateIntent) !== canonicalJson(activeRelatedCandidate.action.relatedSourceLifecycle.candidateIntent) ||
+          action.owner?.attempt !== activeRelatedCandidate.action.owner?.attempt) {
+        return { message: actionWhere + ' must consume the current related-source candidate owner and intent', actionIndex };
+      }
+      const evidenceProblem = lifecycleEvidenceMatches(activeRelatedCandidate.action.relatedSourceLifecycle, related, actionWhere);
+      if (evidenceProblem) return { message: evidenceProblem, actionIndex };
+      const selectedPreviewLifecycle = activeRelatedCandidate.action.relatedSourceLifecycle;
+      if (!isPlainObject(selectedPreviewLifecycle.renderedObservation) ||
+          selectedPreviewLifecycle.renderedObservation.proposalPanel?.status !== 'ready' ||
+          selectedPreviewLifecycle.renderedObservation.proposalPanel?.id !== selectedPreviewLifecycle.response.proposalId ||
+          selectedPreviewLifecycle.renderedObservation.proposalPanelBrowserRequestId !==
+            selectedPreviewLifecycle.owner.browserRequestId ||
+          !Number.isFinite(selectedPreviewLifecycle.renderedObservation.proposalPanelObservedAt) ||
+          selectedPreviewLifecycle.renderedObservation.proposalPanelObservedAt < selectedPreviewLifecycle.settlement.completedAt ||
+          selectedPreviewLifecycle.renderedObservationMount?.mountEpoch !== selectedPreviewLifecycle.settlementObservedEpoch ||
+          selectedPreviewLifecycle.renderedObservationMount?.documentTimeOrigin !==
+            selectedPreviewLifecycle.owner.documentTimeOrigin) {
+        return {
+          message: actionWhere + ' must consume a candidate with its own later READY panel observation from the exact proposal owner and mount',
+          actionIndex,
+        };
+      }
+      const intent = related.candidateIntent;
+      if (action.label === 'RelatedSourceCancel') {
+        cancellationKinds.push(intent.kind);
+      } else {
+        applyKinds.push(intent.kind);
+        const body = action.request?.request;
+        const command = Array.isArray(body?.commands)
+          ? body.commands.find((candidate) => candidate?.type === 'APPLY_CONSTRUCTION_PROPOSAL')
+          : null;
+        if (!command || command.proposalId !== related.response.proposalId) {
+          return { message: actionWhere + ' Apply request must consume the proposalId from the current candidate', actionIndex };
+        }
+        if ((intent.kind === 'add' &&
+              (before.relatedSource !== null || canonicalJson(after.relatedSource) !== canonicalJson(intent.proposed))) ||
+            (intent.kind === 'remove' &&
+              (canonicalJson(before.relatedSource) !== canonicalJson(intent.base) || after.relatedSource !== null))) {
+          return { message: actionWhere + ' Apply saved related-source state does not match the actual candidate intent', actionIndex };
+        }
+        if (canonicalJson(before.group) !== canonicalJson(after.group)) {
+          return { message: actionWhere + ' related-source Apply must retain the exact saved Group configuration', actionIndex };
+        }
+        const response = action.response;
+        if (!isPlainObject(response) || response.status < 200 || response.status >= 300 ||
+            canonicalJson(response.workspace) !== canonicalJson(after.workspace) ||
+            response.draftVersion !== after.draftVersion || response.draftDigest !== after.draftDigest) {
+          return { message: actionWhere + ' Apply response must match the actual saved Builder workspace and draft CAS', actionIndex };
+        }
+        const afterDocument = savedBuilderDocument(after, actionWhere + '.relatedSourceLifecycle.savedAfter');
+        if (afterDocument.problem) return { message: afterDocument.problem, actionIndex };
+        const candidateSteps = related.response.candidateConstruction?.steps;
+        const savedSteps = afterDocument.document.construction?.steps ?? [];
+        if (!Array.isArray(candidateSteps) || canonicalJson(candidateSteps) !== canonicalJson(savedSteps)) {
+          return { message: actionWhere + ' Apply must persist the exact current proposal construction', actionIndex };
+        }
+      }
+      activeRelatedCandidate = null;
+    }
+  }
+
+  if (draftTransitions !== journeyCase.casTransitionCount) {
+    return { message: where + ' observed ' + draftTransitions + ' draft transitions, expected ' + journeyCase.casTransitionCount };
+  }
+  if (canonicalJson(groupMutations.map(({ label }) => label)) !== canonicalJson(['Group', 'EditGroup', 'EditGroupAgain']) ||
+      canonicalJson(groupMutations.map(({ after }) => after.group?.aggregate)) !==
+        canonicalJson(['COUNT_ROWS', 'COUNT_DISTINCT', 'COUNT_ROWS'])) {
+    return { message: where + ' Group lifecycle must create, edit to COUNT_DISTINCT, then round-trip to COUNT_ROWS' };
+  }
+  if (groupCancels.length !== 2 || groupCancels.some((action) =>
+      !['COUNT_DISTINCT', 'COUNT_ROWS'].includes(action.groupLifecycle?.candidateIntent?.proposed?.aggregate))) {
+    return { message: where + ' must retain the first COUNT_DISTINCT Cancel and the Group round-trip Cancel' };
+  }
+  if (canonicalJson(cancellationKinds) !== canonicalJson(['add', 'remove']) ||
+      canonicalJson(applyKinds) !== canonicalJson(['add', 'remove'])) {
+    return { message: where + ' must observe add/cancel/reopen/apply and removal/cancel/reopen/apply related-source lifecycles' };
+  }
+  const reloadStates = reloads.map((action) => ({
+    aggregate: action.groupLifecycle?.savedAfter?.group?.aggregate ?? null,
+    related: action.groupLifecycle?.savedAfter?.relatedSource === null ? 'None' : 'ObservationStatus',
+  }));
+  const expectedReloadStates = [
+    { aggregate: 'COUNT_ROWS', related: 'None' },
+    { aggregate: 'COUNT_DISTINCT', related: 'None' },
+    { aggregate: 'COUNT_DISTINCT', related: 'ObservationStatus' },
+    { aggregate: 'COUNT_ROWS', related: 'ObservationStatus' },
+    { aggregate: 'COUNT_ROWS', related: 'None' },
+  ];
+  if (canonicalJson(reloadStates) !== canonicalJson(expectedReloadStates)) {
+    return { message: where + ' reload snapshots must preserve the Group round-trip and exact related-source state' };
+  }
+  if (epochs.size !== journeyCase.maxMountEpoch + 1 ||
+      [...epochs].sort((left, right) => left - right).some((epoch, index) => epoch !== index) ||
+      epochOrigins.size !== journeyCase.maxMountEpoch + 1 || originEpochs.size !== journeyCase.maxMountEpoch + 1) {
+    return { message: where + ' must derive six distinct documentTimeOrigin values for mount epochs 0..5' };
+  }
+  const requestCoverageProblem = cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract);
+  if (requestCoverageProblem) return requestCoverageProblem;
+  const rowExpansionProblem = cdaRowExpansionConsistencyProblem(trace, where, journeyCase);
+  if (rowExpansionProblem) return rowExpansionProblem;
   return null;
 }
 
@@ -440,7 +1829,11 @@ function candidateIntentRawBodyProblem(intent, where) {
   return null;
 }
 
-function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
+function journeyGroupLifecycleConsistencyProblem(trace, where, enabled, {
+  maxMountEpoch = 2,
+  allowBrowserRequestId = false,
+  allowedAggregates = ['COUNT_ROWS'],
+} = {}) {
   const stepIds = new Map();
   const rawGroupKeys = new Map();
   const captureIds = new Map();
@@ -486,6 +1879,9 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
     const lifecycle = action.groupLifecycle;
     if (!lifecycle) continue;
     if (!enabled && !BUILDER_GROUP_LIFECYCLE_LABELS.has(action.label)) continue;
+    if (!Number.isInteger(lifecycle.mountEpoch) || lifecycle.mountEpoch < 0 || lifecycle.mountEpoch > maxMountEpoch) {
+      return { message: actionWhere + '.groupLifecycle.mountEpoch is outside the selected bounded epoch domain', actionIndex };
+    }
     if (lifecycle.documentTimeOrigin !== undefined) {
       const priorOrigin = documentOrigins.get(lifecycle.mountEpoch);
       if (priorOrigin !== undefined && priorOrigin !== lifecycle.documentTimeOrigin) {
@@ -494,9 +1890,15 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
       documentOrigins.set(lifecycle.mountEpoch, lifecycle.documentTimeOrigin);
     }
     if (lifecycle.owner) {
-      const rawCaptureId = lifecycle.owner.captureId;
+      const rawCaptureId = observedRequestKey(lifecycle.owner);
+      if (!rawCaptureId || (!allowBrowserRequestId && !rawCaptureId.startsWith('capture:'))) {
+        return { message: actionWhere + '.groupLifecycle.owner must preserve a bounded native capture identity', actionIndex };
+      }
+      if (!Number.isInteger(lifecycle.owner.mountEpoch) || lifecycle.owner.mountEpoch < 0 || lifecycle.owner.mountEpoch > maxMountEpoch) {
+        return { message: actionWhere + '.groupLifecycle.owner.mountEpoch is outside the selected bounded epoch domain', actionIndex };
+      }
       if (!captureIds.has(rawCaptureId)) captureIds.set(rawCaptureId, captureIds.size);
-      if (captureIds.size > BUILDER_GROUP_CAPTURE_TOKENS.length) {
+      if (!allowBrowserRequestId && captureIds.size > BUILDER_GROUP_CAPTURE_TOKENS.length) {
         return { message: actionWhere + '.groupLifecycle.owner.captureId exceeds the finite capture token bound', actionIndex };
       }
       const priorEpoch = captureEpochs.get(rawCaptureId);
@@ -521,9 +1923,16 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
       }
     }
     if (lifecycle.candidateOwner) {
-      const rawCaptureId = lifecycle.candidateOwner.captureId;
+      const rawCaptureId = observedRequestKey(lifecycle.candidateOwner);
+      if (!rawCaptureId || (!allowBrowserRequestId && !rawCaptureId.startsWith('capture:'))) {
+        return { message: actionWhere + '.groupLifecycle.candidateOwner must preserve a bounded native capture identity', actionIndex };
+      }
+      if (!Number.isInteger(lifecycle.candidateOwner.mountEpoch) || lifecycle.candidateOwner.mountEpoch < 0 ||
+          lifecycle.candidateOwner.mountEpoch > maxMountEpoch) {
+        return { message: actionWhere + '.groupLifecycle.candidateOwner.mountEpoch is outside the selected bounded epoch domain', actionIndex };
+      }
       if (!captureIds.has(rawCaptureId)) captureIds.set(rawCaptureId, captureIds.size);
-      if (captureIds.size > BUILDER_GROUP_CAPTURE_TOKENS.length) {
+      if (!allowBrowserRequestId && captureIds.size > BUILDER_GROUP_CAPTURE_TOKENS.length) {
         return { message: actionWhere + '.groupLifecycle.candidateOwner.captureId exceeds the finite capture token bound', actionIndex };
       }
       const priorEpoch = captureEpochs.get(rawCaptureId);
@@ -543,7 +1952,7 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
           return { message: actionWhere + '.groupLifecycle.candidateOwner must be null when GroupEditCancel has no proposal intent', actionIndex };
         }
       } else {
-        const expectedIntent = previewIntents.get(candidateOwner?.captureId);
+        const expectedIntent = previewIntents.get(observedRequestKey(candidateOwner));
         if (!expectedIntent || expectedIntent !== canonicalJson(intent)) {
           return { message: actionWhere + '.groupLifecycle cancel candidateIntent does not match its actual candidateOwner Preview', actionIndex };
         }
@@ -554,6 +1963,8 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled) {
     for (const field of ['savedBefore', 'savedAfter']) {
       const saved = lifecycle[field];
       if (!isPlainObject(saved)) continue;
+      const groupProblem = groupProjectionProblem(saved.group, actionWhere + '.groupLifecycle.' + field + '.group', allowedAggregates);
+      if (groupProblem) return { message: groupProblem, actionIndex };
       const problem = addGroup(saved.group, actionWhere);
       if (problem) return { message: problem, actionIndex };
     }
@@ -620,16 +2031,18 @@ async function acquireTlcJar() {
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const options = { allowPartial: false, quiet: false, traces: null, output: null, contract: null };
+  const options = { allowPartial: false, quiet: false, shapeOnly: false, traces: null, output: null,
+    contract: null };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--allow-partial') options.allowPartial = true;
     else if (arg === '--quiet') options.quiet = true;
+    else if (arg === '--shape-only') options.shapeOnly = true;
     else if (arg === '--traces') options.traces = args[++index];
     else if (arg === '--output') options.output = args[++index];
     else if (arg === '--contract') options.contract = args[++index];
     else if (arg === '--help' || arg === '-h') {
-      console.log('usage: node scripts/verify-builder-traces.mjs --traces <traces.json> [--output <report.json>] [--contract <contract.json>] [--allow-partial] [--quiet]');
+      console.log('usage: node scripts/verify-builder-traces.mjs --traces <traces.json> [--output <report.json>] [--contract <contract.json>] [--allow-partial] [--shape-only] [--quiet]');
       process.exit(0);
     } else {
       fail('unknown argument ' + arg + '; use --help for usage');
@@ -707,6 +2120,22 @@ function validateContract(contract) {
       }
     }
   }
+  if (phase1.requiredActionMinimumsByTrace !== undefined) {
+    if (!isPlainObject(phase1.requiredActionMinimumsByTrace)) {
+      fail('trace contract phase1.requiredActionMinimumsByTrace must be an object when present');
+    }
+    for (const [traceName, actionCounts] of Object.entries(phase1.requiredActionMinimumsByTrace)) {
+      if (!traceName.trim() || !isPlainObject(actionCounts)) {
+        fail('trace contract phase1.requiredActionMinimumsByTrace entries must map non-empty trace names to action-count objects');
+      }
+      for (const [action, count] of Object.entries(actionCounts)) {
+        if (!Number.isInteger(count) || count < 0 ||
+            !Object.values(contract.models).some((definition) => definition.actions.includes(action))) {
+          fail('trace contract phase1.requiredActionMinimumsByTrace values must name known actions and non-negative integer counts');
+        }
+      }
+    }
+  }
   if (!Array.isArray(phase1.requiredEvents) || phase1.requiredEvents.some((event) => typeof event !== 'string')) {
     fail('trace contract phase1.requiredEvents must be an array of strings');
   }
@@ -715,6 +2144,88 @@ function validateContract(contract) {
   }
   for (const model of phase1.requiredModels ?? []) {
     if (!contract.models[model]) fail('trace contract phase1.requiredModels names unknown model ' + model);
+  }
+  if (contract.journeyCase !== undefined) {
+    const journeyCase = contract.journeyCase;
+    if (!isPlainObject(journeyCase) || journeyCase.model !== 'BuilderJourney' ||
+        journeyCase.traceName !== BUILDER_CDA_GROUP_RELATED_TRACE_NAME ||
+        typeof journeyCase.workflow !== 'string' || journeyCase.workflow.trim().length === 0) {
+      fail('trace contract journeyCase must identify the cda-builder-group-related-source BuilderJourney');
+    }
+    if (journeyCase.exactActionCounts !== true || journeyCase.requireNoUnmodeledMutations !== true ||
+        journeyCase.maxMountEpoch !== 5 || journeyCase.casTransitionCount !== 7) {
+      fail('trace contract journeyCase must require exact semantic counts, no unmodeled mutations, five reload epochs, and seven draft transitions');
+    }
+    const nativeRequestLedger = journeyCase.nativeRequestLedger;
+    if (!isPlainObject(nativeRequestLedger) || nativeRequestLedger.traceField !== 'nativeRequests' ||
+        nativeRequestLedger.identityField !== 'browserRequestId' ||
+        canonicalJson(nativeRequestLedger.requiredFields) !== canonicalJson([
+          'index', 'browserRequestId', 'method', 'path', 'startedAt', 'isMutation',
+        ]) || canonicalJson(nativeRequestLedger.optionalWhenUnavailable) !== canonicalJson(['requestId'])) {
+      fail('trace contract journeyCase must define the complete nativeRequests observer ledger schema');
+    }
+    if (!Array.isArray(journeyCase.readOnlySupportKinds) ||
+        journeyCase.readOnlySupportKinds.some((kind) => typeof kind !== 'string' || kind.trim().length === 0) ||
+        canonicalJson([...journeyCase.readOnlySupportKinds].sort()) !==
+          canonicalJson(Object.keys(contract.unmodeledEventPolicy ?? {}).sort())) {
+      fail('trace contract journeyCase must explicitly enumerate every allowed read-only support event kind');
+    }
+    if (!isPlainObject(contract.readOnlySupportRoutes) ||
+        canonicalJson(Object.keys(contract.readOnlySupportRoutes).sort()) !==
+          canonicalJson([...journeyCase.readOnlySupportKinds].sort())) {
+      fail('trace contract readOnlySupportRoutes must bind every support kind to an explicit method and path suffix');
+    }
+    for (const [kind, route] of Object.entries(contract.readOnlySupportRoutes)) {
+      if (!isPlainObject(route) || !['GET', 'POST'].includes(route.method) ||
+          typeof route.pathSuffix !== 'string' || !route.pathSuffix.startsWith('/')) {
+        fail('trace contract read-only route ' + kind + ' must define GET/POST and a path suffix');
+      }
+    }
+    if (!Array.isArray(journeyCase.optionalActions) || journeyCase.optionalActions.some((action) => typeof action !== 'string')) {
+      fail('trace contract journeyCase.optionalActions must list the modelled actions with variable counts');
+    }
+    if (!Array.isArray(journeyCase.rowExpansionStages) ||
+        canonicalJson(journeyCase.rowExpansionStages) !== canonicalJson(BUILDER_CDA_ROW_EXPANSION_STAGES)) {
+      fail('trace contract journeyCase must declare the ordered SpecimenPatient and PatientObservation row expansion stages');
+    }
+    const relatedSource = journeyCase.relatedSource;
+    const route = relatedSource?.sourceRoute;
+    if (!isPlainObject(relatedSource) ||
+        canonicalJson(relatedSource.finiteStates) !== canonicalJson(['None', 'ObservationStatus']) ||
+        relatedSource.resourceType !== 'Observation' || relatedSource.fieldPath !== 'status' ||
+        relatedSource.form !== 'ALL' || relatedSource.contributorPolicy !== 'ALL_MATCHES' ||
+        relatedSource.rowValuePolicy !== 'ALL' || !Array.isArray(route) || route.length !== 2 ||
+        route[0]?.fromResourceType !== 'Specimen' || route[0]?.toResourceType !== 'Patient' ||
+        route[1]?.fromResourceType !== 'Patient' || route[1]?.toResourceType !== 'Observation') {
+      fail('trace contract journeyCase must bind the finite Observation.status related-source route and ALL policies');
+    }
+    const builderActions = contract.models.BuilderJourney?.actions;
+    const caseCounts = phase1.requiredActionCountsByTrace?.[journeyCase.traceName];
+    const minimumCounts = phase1.requiredActionMinimumsByTrace?.[journeyCase.traceName];
+    const countedActions = new Set([
+      ...Object.keys(caseCounts ?? {}),
+      ...Object.keys(minimumCounts ?? {}),
+      ...journeyCase.optionalActions,
+    ]);
+    if (!Array.isArray(builderActions) || !isPlainObject(caseCounts) || !isPlainObject(minimumCounts) ||
+        canonicalJson([...countedActions].sort()) !== canonicalJson([...builderActions].sort())) {
+      fail('trace contract journeyCase must assign every BuilderJourney action an exact, minimum, or variable count policy');
+    }
+    if (journeyCase.optionalActions.some((action) =>
+      Object.hasOwn(caseCounts, action) || Object.hasOwn(minimumCounts, action))) {
+      fail('trace contract journeyCase optional action labels cannot also have exact or minimum counts');
+    }
+    for (const action of Object.keys(minimumCounts)) {
+      if (Object.hasOwn(caseCounts, action)) fail('trace contract journeyCase action ' + action + ' cannot have both exact and minimum counts');
+    }
+    for (const action of BUILDER_CDA_GROUP_RELATED_ACTIONS) {
+      if (!builderActions.includes(action) || !contract.actionBindings[action]) {
+        fail('trace contract journeyCase is missing the BuilderJourney binding for ' + action);
+      }
+    }
+    if (!phase1.requiredActionsByTrace?.[journeyCase.traceName]) {
+      fail('trace contract journeyCase must declare required actions for its exact trace');
+    }
   }
   return contract;
 }
@@ -773,9 +2284,10 @@ function requiredOwnerForAction(model, label) {
     ]).has(label);
   }
   if (model === 'BuilderJourney') {
-    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return true;
+    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError|RelatedSourcePreview|RelatedSourceCancel)$/.test(label)) return true;
     return new Set([
       'Group', 'GroupAgain', 'AddColumn', 'EditGroup', 'EditGroupAgain', 'RemoveGroup',
+      'ExpandRows', 'RelatedSourceApply',
     ]).has(label);
   }
   return false;
@@ -794,8 +2306,8 @@ function expectedOwnerKind(model, label) {
     if (/^(?:ScheduleDiscovery|DiscoveryComplete)/.test(label)) return 'discovery';
   }
   if (model === 'BuilderJourney') {
-    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError)$/.test(label)) return 'proposal';
-    if (/^(?:Group|GroupAgain|AddColumn|EditGroup|EditGroupAgain|RemoveGroup)$/.test(label)) return 'apply';
+    if (/^(?:Preview|PreviewComplete|PreviewError|LatePreviewCompleteIgnored|LatePreviewErrorIgnored|PreviewRequestCancelled|ChoicePreview|ChoicePreviewComplete|ChoicePreviewError|RelatedSourcePreview|RelatedSourceCancel)$/.test(label)) return 'proposal';
+    if (/^(?:Group|GroupAgain|AddColumn|EditGroup|EditGroupAgain|RemoveGroup|ExpandRows|RelatedSourceApply)$/.test(label)) return 'apply';
   }
   return null;
 }
@@ -810,6 +2322,7 @@ function requestProblem(request, where) {
   }
   if (request.captureId !== undefined && typeof request.captureId !== 'string') return where + '.captureId must be a string when present';
   if (request.commandId !== undefined && request.commandId !== null && typeof request.commandId !== 'string') return where + '.commandId must be a string or null when present';
+  if (request.browserRequestId !== undefined && typeof request.browserRequestId !== 'string') return where + '.browserRequestId must be a string when present';
   return null;
 }
 
@@ -821,6 +2334,7 @@ function responseProblem(response, where) {
   if (response.requestId !== undefined && response.requestId !== null && typeof response.requestId !== 'string') return where + '.requestId must be a string or null when present';
   if (response.captureId !== undefined && typeof response.captureId !== 'string') return where + '.captureId must be a string when present';
   if (response.commandId !== undefined && response.commandId !== null && typeof response.commandId !== 'string') return where + '.commandId must be a string or null when present';
+  if (response.browserRequestId !== undefined && typeof response.browserRequestId !== 'string') return where + '.browserRequestId must be a string when present';
   if (response.proposalId !== undefined && response.proposalId !== null && typeof response.proposalId !== 'string') {
     return where + '.proposalId must be a string or null when present';
   }
@@ -847,6 +2361,36 @@ function responseProblem(response, where) {
     }
     if (response.preview.rowsPresent !== undefined && typeof response.preview.rowsPresent !== 'boolean') {
       return where + '.preview.rowsPresent must be a boolean';
+    }
+  }
+  return null;
+}
+
+function observedRequestKey(value) {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.captureId === 'string' && value.captureId.length > 0) return 'capture:' + value.captureId;
+  if (typeof value.browserRequestId === 'string' && value.browserRequestId.length > 0) return 'browser:' + value.browserRequestId;
+  return null;
+}
+
+function actualRequestIdentityProblem(owner, request, settlement, where) {
+  const ownerKey = observedRequestKey(owner);
+  const requestKey = observedRequestKey(request);
+  const settlementKey = observedRequestKey(settlement);
+  if (!ownerKey || !requestKey || ownerKey !== requestKey) {
+    return where + ' owner identity must match the actual native request captureId or browserRequestId';
+  }
+  if (settlement && settlementKey !== ownerKey) {
+    return where + ' owner identity must match the actual request settlement captureId or browserRequestId';
+  }
+  for (const field of ['captureId', 'browserRequestId', 'requestId']) {
+    if (owner?.[field] !== undefined && owner?.[field] !== null &&
+        request?.[field] !== undefined && request?.[field] !== null && owner[field] !== request[field]) {
+      return where + ' owner.' + field + ' must match the native request';
+    }
+    if (owner?.[field] !== undefined && owner?.[field] !== null &&
+        settlement?.[field] !== undefined && settlement?.[field] !== null && owner[field] !== settlement[field]) {
+      return where + ' owner.' + field + ' must match the native settlement';
     }
   }
   return null;
@@ -1042,8 +2586,16 @@ function settlementProblem(settlement, where) {
   if (!['http-response', 'request-failed'].includes(settlement.kind)) {
     return where + '.kind must be http-response or request-failed';
   }
-  if (typeof settlement.captureId !== 'string' || settlement.captureId.length === 0) {
-    return where + '.captureId must be a non-empty string';
+  const hasCaptureId = typeof settlement.captureId === 'string' && settlement.captureId.length > 0;
+  const hasBrowserRequestId = typeof settlement.browserRequestId === 'string' && settlement.browserRequestId.length > 0;
+  if (!hasCaptureId && !hasBrowserRequestId) {
+    return where + ' must preserve a non-empty captureId or browserRequestId';
+  }
+  if (settlement.requestId !== undefined && settlement.requestId !== null && typeof settlement.requestId !== 'string') {
+    return where + '.requestId must be a string or null when present';
+  }
+  if (settlement.browserRequestId !== undefined && typeof settlement.browserRequestId !== 'string') {
+    return where + '.browserRequestId must be a string when present';
   }
   if (settlement.errorText !== undefined && typeof settlement.errorText !== 'string') {
     return where + '.errorText must be a string when present';
@@ -1397,6 +2949,14 @@ function reconcileObservationProblem(reconcile, where) {
   return null;
 }
 
+function cdaRowExpansionLifecycleActionIndexes(trace) {
+  const actions = Array.isArray(trace.actions) ? trace.actions : [];
+  return new Set(actions
+    .map((action, index) => ({ action, index }))
+    .filter(({ action }) => action?.rowExpansionLifecycle !== undefined || action?.label === 'ExpandRows')
+    .map(({ index }) => index));
+}
+
 function traceShapeProblem(trace, index, contract, events) {
   const where = 'traces[' + index + ']';
   if (!isPlainObject(trace)) return { message: where + ' must be an object' };
@@ -1404,9 +2964,15 @@ function traceShapeProblem(trace, index, contract, events) {
   if (typeof trace.model !== 'string' || !contract.models[trace.model]) {
     return { message: where + '.model "' + String(trace.model) + '" is not defined by the contract' };
   }
+  const journeyCase = contract.journeyCase;
+  if (journeyCase && (trace.name !== journeyCase.traceName || trace.model !== journeyCase.model)) {
+    return { message: where + ' must match the exact static BuilderJourney case ' + journeyCase.traceName };
+  }
   const actions = new Set(contract.models[trace.model].actions);
-  const hasGroupLifecycleContract = trace.model === 'BuilderJourney' &&
-    groupLifecycleEnabled(contract) && BUILDER_GROUP_TRACE_NAMES.has(trace.name);
+  const hasCdaRelatedCase = Boolean(builderJourneyCaseForTrace(contract, trace));
+  const cdaRowLifecycleIndexes = hasCdaRelatedCase ? cdaRowExpansionLifecycleActionIndexes(trace) : new Set();
+  const hasGroupLifecycleContract = trace.model === 'BuilderJourney' && (
+    (groupLifecycleEnabled(contract) && BUILDER_GROUP_TRACE_NAMES.has(trace.name)) || hasCdaRelatedCase);
   if (!Array.isArray(trace.actions)) return { message: where + '.actions must be an array' };
   if (trace.unmodeledEvents !== undefined) {
     if (!Array.isArray(trace.unmodeledEvents)) {
@@ -1416,7 +2982,8 @@ function traceShapeProblem(trace, index, contract, events) {
       const event = trace.unmodeledEvents[eventIndex];
       const eventWhere = where + '.unmodeledEvents[' + eventIndex + ']';
       if (!isPlainObject(event) || typeof event.kind !== 'string' || typeof event.note !== 'string' ||
-          event.classification !== 'unsupported' || typeof event.reason !== 'string' || event.reason.trim().length === 0) {
+          (event.classification !== 'unsupported' && !(hasCdaRelatedCase && event.classification === 'read-only-support')) ||
+          typeof event.reason !== 'string' || event.reason.trim().length === 0) {
         return { message: eventWhere + ' must include kind, note, classification "unsupported", and a non-empty reason' };
       }
     }
@@ -1554,44 +3121,53 @@ function traceShapeProblem(trace, index, contract, events) {
       if (action.owner !== undefined && !requiredOwnerForAction(trace.model, action.label)) {
         return { message: actionWhere + '.owner is not valid for a local BuilderJourney event', actionIndex };
       }
-      const previewSettlement = ['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled'].includes(action.label);
+      const localLifecycleOwner = hasCdaRelatedCase && action.label === 'RelatedSourceCancel';
+      const previewSettlement = ['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled']
+        .includes(action.label) || (hasCdaRelatedCase && action.label === 'RelatedSourcePreview');
       const choiceSettlement = ['ChoicePreviewComplete', 'ChoicePreviewError'].includes(action.label);
       const requestStart = ['Preview', 'ChoicePreview'].includes(action.label);
-      if (action.owner && action.request === undefined) return { message: actionWhere + '.request is required for an owned BuilderJourney action', actionIndex };
-      if (!requestStart && action.owner && action.response === undefined) {
+      if (action.owner && action.request === undefined && !localLifecycleOwner) return { message: actionWhere + '.request is required for an owned BuilderJourney action', actionIndex };
+      if (!requestStart && !localLifecycleOwner && action.owner && action.response === undefined) {
         return { message: actionWhere + '.response is required for a BuilderJourney settlement action', actionIndex };
       }
-      if (!requestStart && action.owner && action.settlement === undefined) {
+      if (!requestStart && !localLifecycleOwner && action.owner && action.settlement === undefined) {
         return { message: actionWhere + '.settlement is required for a BuilderJourney settlement action', actionIndex };
       }
-      if (action.owner && (typeof action.request?.captureId !== 'string' || action.request.captureId.length === 0)) {
-        return { message: actionWhere + '.request.captureId is required for an owned BuilderJourney action', actionIndex };
+      if (action.owner && !localLifecycleOwner) {
+        const requestKey = observedRequestKey(action.request);
+        if (!requestKey) return { message: actionWhere + '.request must preserve its captureId or browserRequestId', actionIndex };
+        if (!hasCdaRelatedCase && (typeof action.request?.captureId !== 'string' || action.request.captureId.length === 0)) {
+          return { message: actionWhere + '.request.captureId is required for an owned BuilderJourney action', actionIndex };
+        }
+        if (!requestStart && observedRequestKey(action.settlement) !== requestKey) {
+          return { message: actionWhere + ' request identity does not match settlement identity', actionIndex };
+        }
+        if (!requestStart && action.response !== null && action.response !== undefined) {
+          for (const field of ['captureId', 'browserRequestId', 'requestId']) {
+            if (action.request[field] != null && action.response[field] != null && action.request[field] !== action.response[field]) {
+              return { message: actionWhere + ' request and response ' + field + ' values do not match', actionIndex };
+            }
+          }
+        }
       }
-      if (action.owner && !requestStart && action.request?.captureId !== action.settlement?.captureId) {
-        return { message: actionWhere + '.request.captureId does not match settlement.captureId', actionIndex };
-      }
-      if (action.owner && !requestStart && action.response !== null && action.request?.captureId !== action.response?.captureId) {
-        return { message: actionWhere + '.request.captureId does not match response.captureId', actionIndex };
-      }
-      if (action.owner && !requestStart && action.response !== null && action.request?.requestId != null && action.response?.requestId != null &&
-          action.request?.requestId !== action.response?.requestId) {
-        return { message: actionWhere + '.non-null wire requestIds do not match', actionIndex };
-      }
-      if (action.owner && !requestStart && action.response === null &&
+      if (action.owner && !requestStart && !localLifecycleOwner && action.response === null &&
           (!['PreviewError', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled', 'ChoicePreviewError'].includes(action.label) || action.settlement?.kind !== 'request-failed')) {
         return { message: actionWhere + ' response:null is allowed only for a request-failed preview, cancellation, or choice-preview error settlement', actionIndex };
       }
-      if (action.owner && !requestStart && action.response !== null && action.settlement?.kind !== 'http-response') {
+      if (action.owner && !requestStart && !localLifecycleOwner && action.response !== null && action.settlement?.kind !== 'http-response') {
         return { message: actionWhere + ' HTTP response requires settlement.kind http-response', actionIndex };
       }
-      if (action.owner && !requestStart && action.response === null && action.settlement?.kind !== 'request-failed') {
+      if (action.owner && !requestStart && !localLifecycleOwner && action.response === null && action.settlement?.kind !== 'request-failed') {
         return { message: actionWhere + ' response:null requires settlement.kind request-failed', actionIndex };
       }
       if (previewSettlement || choiceSettlement) {
-        const captureId = action.request?.captureId;
-        if (typeof captureId !== 'string' || captureId.length === 0 ||
-            action.settlement?.captureId !== captureId ||
-            (action.response !== null && action.response?.captureId !== captureId)) {
+        const requestKey = observedRequestKey(action.request);
+        if (!requestKey || observedRequestKey(action.settlement) !== requestKey) {
+          return { message: actionWhere + ' request/response settlement must preserve the same captureId or browserRequestId', actionIndex };
+        }
+        if (!hasCdaRelatedCase && (typeof action.request?.captureId !== 'string' || action.request.captureId.length === 0 ||
+            action.settlement?.captureId !== action.request.captureId ||
+            (action.response !== null && action.response?.captureId !== action.request.captureId))) {
           return { message: actionWhere + ' request/response captureId must be present and identical', actionIndex };
         }
       }
@@ -1612,7 +3188,7 @@ function traceShapeProblem(trace, index, contract, events) {
           previous.request.captureId === action.request.captureId;
         if (!previous || previous.label !== 'Preview' ||
             canonicalJson(previous.owner) !== canonicalJson(action.owner) || !sameRequest ||
-            action.request?.path !== 'construction-proposals') {
+          action.request?.path !== 'construction-proposals') {
           return {
             message: actionWhere + ' PreviewRequestCancelled must match the immediately preceding Preview owner and request capture',
             actionIndex,
@@ -1629,18 +3205,122 @@ function traceShapeProblem(trace, index, contract, events) {
       if (action.label === 'AddColumn' && action.request?.path !== 'commands') {
         return { message: actionWhere + ' AddColumn requires the actual commands request', actionIndex };
       }
+      if (hasCdaRelatedCase && action.label === 'RelatedSourcePreview' &&
+          action.request?.path !== '/construction-proposals') {
+        return { message: actionWhere + ' RelatedSourcePreview requires the actual construction-proposals request', actionIndex };
+      }
+      if (hasCdaRelatedCase && ['ExpandRows', 'RelatedSourceApply'].includes(action.label) &&
+          action.request?.path !== '/commands') {
+        return { message: actionWhere + ' apply action requires the actual commands request', actionIndex };
+      }
     }
-    const observation = observationProblem(action.observation, actionWhere + '.observation', trace.model);
+    const absentCdaObservationAllowed = hasCdaRelatedCase && action.observation == null &&
+      cdaEventTimeObservationUnavailable(action, action.groupLifecycle ?? action.rowExpansionLifecycle ?? action.relatedSourceLifecycle);
+    if (hasCdaRelatedCase && action.observation == null && !absentCdaObservationAllowed) {
+      return { message: actionWhere + '.observation may be absent only for an explicitly unavailable event-time observation not consumed by its Cda operator', actionIndex };
+    }
+    const observation = absentCdaObservationAllowed
+      ? null
+      : observationProblem(action.observation, actionWhere + '.observation', trace.model);
     if (observation) return { message: observation, actionIndex };
     if (trace.model === 'BuilderJourney') {
       const evidenceProblem = journeyPreviewEvidenceProblem(action, actionWhere);
       if (evidenceProblem) return { message: evidenceProblem, actionIndex };
+      if (hasCdaRelatedCase && action.label === 'PreviewComplete' && action.observation?.status === 'ready') {
+        const panel = action.renderedObservation?.proposalPanel;
+        const preview = action.response?.preview;
+        const eventSnapshot = action.eventTimeSnapshot;
+        const renderedMount = action.renderedObservationMount;
+        const owner = action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner;
+        const panelObservedAt = action.renderedObservation?.proposalPanelObservedAt;
+        const panelBrowserRequestId = action.renderedObservation?.proposalPanelBrowserRequestId;
+        if (!isPlainObject(panel) || panel.status !== 'ready' || panel.id !== action.response?.proposalId ||
+            !Array.isArray(panel.rows) || !isPlainObject(preview) || preview.rowsPresent !== true ||
+            !Number.isInteger(preview.rowCount) || panel.rows.length !== preview.rowCount ||
+            panel.rows.some((row) => !Array.isArray(row) || row.length === 0 || row.some((cell) =>
+              !isPlainObject(cell) || typeof cell.text !== 'string' ||
+              (cell.title !== null && typeof cell.title !== 'string'))) ||
+            eventSnapshot?.available !== true || !Number.isFinite(panelObservedAt) ||
+            panelObservedAt < action.settlement?.completedAt ||
+            panelBrowserRequestId !== action.request?.browserRequestId ||
+            !isPlainObject(renderedMount) || renderedMount.mountEpoch !== action.observedEpoch ||
+            renderedMount.documentTimeOrigin !== eventSnapshot.observationMount?.documentTimeOrigin ||
+            renderedMount.documentTimeOrigin !== eventSnapshot.responseMount?.documentTimeOrigin ||
+            !Number.isInteger(owner?.mountEpoch) || owner.mountEpoch !== action.observedEpoch) {
+          return { message: actionWhere + ' PreviewComplete must retain its actual ready proposal panel and rendered rows', actionIndex };
+        }
+      }
+      if (hasCdaRelatedCase && ['LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored'].includes(action.label)) {
+        const panel = action.renderedObservation?.proposalPanel;
+        const classification = action.lateClassification;
+        const panelObservedAt = action.renderedObservation?.proposalPanelObservedAt;
+        const panelBrowserRequestId = action.renderedObservation?.proposalPanelBrowserRequestId;
+        if (classification?.available !== true || !isPlainObject(panel) ||
+            panelBrowserRequestId !== classification.ownerBrowserRequestId ||
+            classification.ownerBrowserRequestId === action.request?.browserRequestId ||
+            classification.renderedPanelProposalId !== panel.id ||
+            classification.observedAt !== panelObservedAt || !Number.isFinite(panelObservedAt) ||
+            !Number.isFinite(classification.ownerStartedAt) || !Number.isFinite(classification.ownerCompletedAt) ||
+            classification.ownerStartedAt <= action.request.startedAt ||
+            classification.ownerCompletedAt > panelObservedAt || panelObservedAt < action.settlement?.completedAt) {
+          return { message: actionWhere + ' late preview transition must retain an actual newer request owner and its later rendered candidate panel', actionIndex };
+        }
+      }
+      const isCdaRowExpansionAction = hasCdaRelatedCase && cdaRowLifecycleIndexes.has(actionIndex);
+      if (hasCdaRelatedCase) {
+        if (BUILDER_GROUP_PREVIEW_LABELS.has(action.label) &&
+            (!Number.isInteger(action.observedEpoch) || action.observedEpoch < 0 ||
+             action.observedEpoch > journeyCase.maxMountEpoch)) {
+          return { message: actionWhere + '.observedEpoch must preserve the actual current document epoch for each proposal request and settlement', actionIndex };
+        }
+        if (isCdaRowExpansionAction) {
+          if (action.groupLifecycle !== undefined) {
+            return { message: actionWhere + ' row expansion proposal cannot claim a Group candidate lifecycle', actionIndex };
+          }
+          const rowProblem = rowExpansionLifecycleShapeProblem(action, actionWhere, true, journeyCase);
+          if (rowProblem) return { message: rowProblem, actionIndex };
+        } else if (action.rowExpansionLifecycle !== undefined) {
+          return { message: actionWhere + '.rowExpansionLifecycle is only valid on the two row previews and ExpandRows actions', actionIndex };
+        }
+        if (['RelatedSourcePreview', 'RelatedSourceApply', 'RelatedSourceCancel'].includes(action.label)) {
+          const relatedProblem = relatedSourceLifecycleShapeProblem(action, actionWhere, true, journeyCase);
+          if (relatedProblem) return { message: relatedProblem, actionIndex };
+        } else if (action.relatedSourceLifecycle !== undefined) {
+          return { message: actionWhere + '.relatedSourceLifecycle is only valid on related-source lifecycle actions', actionIndex };
+        }
+      }
       const groupLifecycleProblem = groupLifecycleShapeProblem(
         action,
         actionWhere,
-        hasGroupLifecycleContract && BUILDER_GROUP_LIFECYCLE_LABELS.has(action.label),
+        hasGroupLifecycleContract && BUILDER_GROUP_LIFECYCLE_LABELS.has(action.label) && !isCdaRowExpansionAction,
+        journeyCase?.maxMountEpoch ?? 2,
+        hasCdaRelatedCase,
+        hasCdaRelatedCase ? ['COUNT_ROWS', 'COUNT_DISTINCT'] : ['COUNT_ROWS'],
+        !hasCdaRelatedCase,
       );
       if (groupLifecycleProblem) return { message: groupLifecycleProblem, actionIndex };
+      if (hasCdaRelatedCase && action.groupLifecycle !== undefined) {
+        const cdaGroupProblem = cdaGroupLifecycleSnapshotProblem(action, actionWhere, journeyCase);
+        if (cdaGroupProblem) return { message: cdaGroupProblem, actionIndex };
+      }
+    }
+  }
+  if (hasCdaRelatedCase) {
+    const expectedExactCounts = contract.phase1.requiredActionCountsByTrace[journeyCase.traceName];
+    const expectedMinimumCounts = contract.phase1.requiredActionMinimumsByTrace[journeyCase.traceName];
+    const actualCounts = new Map();
+    for (const action of trace.actions) actualCounts.set(action.label, (actualCounts.get(action.label) ?? 0) + 1);
+    for (const [label, expected] of Object.entries(expectedExactCounts)) {
+      const actual = actualCounts.get(label) ?? 0;
+      if (actual !== expected) {
+        return { message: 'trace "' + trace.name + '" action ' + label + ' count expected ' + expected + ', found ' + actual };
+      }
+    }
+    for (const [label, minimum] of Object.entries(expectedMinimumCounts)) {
+      const actual = actualCounts.get(label) ?? 0;
+      if (actual < minimum) {
+        return { message: 'trace "' + trace.name + '" action ' + label + ' minimum expected ' + minimum + ', found ' + actual };
+      }
     }
   }
   if (trace.model === 'ReconcileLifecycle') {
@@ -1652,8 +3332,17 @@ function traceShapeProblem(trace, index, contract, events) {
       trace,
       where,
       hasGroupLifecycleContract,
+      {
+        maxMountEpoch: journeyCase?.maxMountEpoch ?? 2,
+        allowBrowserRequestId: hasCdaRelatedCase,
+        allowedAggregates: hasCdaRelatedCase ? ['COUNT_ROWS', 'COUNT_DISTINCT'] : ['COUNT_ROWS'],
+      },
     );
     if (groupLifecycleConsistencyProblem) return groupLifecycleConsistencyProblem;
+    if (hasCdaRelatedCase) {
+      const cdaLifecycleProblem = cdaJourneyLifecycleConsistencyProblem(trace, where, journeyCase, contract);
+      if (cdaLifecycleProblem) return cdaLifecycleProblem;
+    }
     const choiceProblem = journeyChoiceTraceProblem(trace, where);
     if (choiceProblem) return choiceProblem;
     const previewStartByCapture = new Map();
@@ -1665,17 +3354,18 @@ function traceShapeProblem(trace, index, contract, events) {
       const action = trace.actions[actionIndex];
       const actionWhere = where + '.actions[' + actionIndex + ']';
       if (action.label === 'Preview') {
-        const captureId = action.request?.captureId;
+        const captureId = observedRequestKey(action.request);
+        if (!captureId) return { message: actionWhere + '.request must preserve a captureId or browserRequestId', actionIndex };
         if (previewStartByCapture.has(captureId)) {
-          return { message: actionWhere + '.request.captureId duplicates another Preview request', actionIndex };
+          return { message: actionWhere + '.request identity duplicates another Preview request', actionIndex };
         }
         previewStartByCapture.set(captureId, { action, actionIndex });
       }
       if (!previewSettlementLabels.has(action.label)) continue;
-      const captureId = action.request?.captureId;
+      const captureId = observedRequestKey(action.request);
       const start = previewStartByCapture.get(captureId);
       if (!start) {
-        return { message: actionWhere + ' has no Preview request with the same captureId', actionIndex };
+        return { message: actionWhere + ' has no Preview request with the same captureId or browserRequestId', actionIndex };
       }
       if (pairedPreviewCaptures.has(captureId)) {
         return { message: actionWhere + ' duplicates a preview settlement for the same captureId', actionIndex };
@@ -1684,13 +3374,15 @@ function traceShapeProblem(trace, index, contract, events) {
       const settlementRequest = action.request;
       if (canonicalJson(start.action.owner) !== canonicalJson(action.owner) ||
           request.method !== settlementRequest.method || request.path !== settlementRequest.path ||
-          request.captureId !== captureId || settlementRequest.captureId !== captureId) {
-        return { message: actionWhere + ' preview settlement must match its Preview owner, method, path, and captureId', actionIndex };
+          observedRequestKey(request) !== captureId || observedRequestKey(settlementRequest) !== captureId) {
+        return { message: actionWhere + ' preview settlement must match its Preview owner, method, path, and request identity', actionIndex };
       }
-      const wireIds = [request.requestId, settlementRequest.requestId, action.response?.requestId]
-        .filter((requestId) => requestId !== null && requestId !== undefined);
-      if (wireIds.some((requestId) => requestId !== wireIds[0])) {
-        return { message: actionWhere + ' preview settlement has a mismatched non-null wire requestId', actionIndex };
+      for (const field of ['captureId', 'browserRequestId', 'requestId']) {
+        const identities = [request[field], settlementRequest[field], action.response?.[field]]
+          .filter((value) => value !== null && value !== undefined);
+        if (identities.some((value) => value !== identities[0])) {
+          return { message: actionWhere + ' preview settlement has mismatched non-null ' + field + ' values', actionIndex };
+        }
       }
       pairedPreviewCaptures.add(captureId);
     }
@@ -1705,12 +3397,12 @@ function traceShapeProblem(trace, index, contract, events) {
     const requestCaptureIds = new Set();
     const registerCapture = (captureId, location) => {
       if (typeof captureId !== 'string' || captureId.length === 0) return null;
-      if (requestCaptureIds.has(captureId)) return location + '.captureId duplicates another request capture';
+      if (requestCaptureIds.has(captureId)) return location + ' duplicates another native request identity';
       requestCaptureIds.add(captureId);
       return null;
     };
     if (trace.initialPreview) {
-      const problem = registerCapture(trace.initialPreview.request.captureId, where + '.initialPreview.request');
+      const problem = registerCapture(observedRequestKey(trace.initialPreview.request), where + '.initialPreview.request');
       if (problem) return { message: problem };
     }
     for (let actionIndex = 0; actionIndex < trace.actions.length; actionIndex += 1) {
@@ -1720,7 +3412,7 @@ function traceShapeProblem(trace, index, contract, events) {
         'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
         'ChoicePreviewComplete', 'ChoicePreviewError',
       ].includes(action.label)) continue;
-      const problem = registerCapture(action.request.captureId, where + '.actions[' + actionIndex + '].request');
+      const problem = registerCapture(observedRequestKey(action.request), where + '.actions[' + actionIndex + '].request');
       if (problem) return { message: problem, actionIndex };
     }
   }
@@ -1743,6 +3435,8 @@ function traceKey(trace) {
       response: action.response ?? null,
       settlement: action.settlement ?? null,
       groupLifecycle: action.groupLifecycle ?? null,
+      rowExpansionLifecycle: action.rowExpansionLifecycle ?? null,
+      relatedSourceLifecycle: action.relatedSourceLifecycle ?? null,
     })),
   });
 }
@@ -2054,6 +3748,190 @@ function collectGroupLifecycleTokens(trace) {
   return { stepTokens, captureTokens, keyTokens };
 }
 
+function cdaLifecycleOwner(action) {
+  return action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner ?? action.relatedSourceLifecycle?.owner ?? null;
+}
+
+function cdaCandidateOwner(action) {
+  return action.groupLifecycle?.candidateOwner ?? action.rowExpansionLifecycle?.owner ?? action.relatedSourceLifecycle?.owner ?? null;
+}
+
+function cdaSavedSnapshots(action) {
+  const lifecycle = action.groupLifecycle ?? action.rowExpansionLifecycle ?? action.relatedSourceLifecycle;
+  return isPlainObject(lifecycle) ? [lifecycle.savedBefore, lifecycle.savedAfter].filter(isPlainObject) : [];
+}
+
+function collectCdaTokens(trace, journeyCase) {
+  const stepTokens = new Map();
+  const captureTokens = new Map();
+  const keyTokens = new Map();
+  const outputTokens = new Map();
+  const digestTokens = new Map();
+  const versionSteps = new Map();
+  const workspaceTokens = new Map();
+  const snapshotByVersion = new Map();
+  let priorRawVersion;
+  let latestVersionStep = -1;
+  const addStep = (stepId) => {
+    if (typeof stepId === 'string' && !stepTokens.has(stepId)) {
+      stepTokens.set(stepId, BUILDER_GROUP_STEP_TOKENS[stepTokens.size]);
+    }
+  };
+  const addGroup = (group) => {
+    if (!isPlainObject(group)) return;
+    addStep(group.stepId);
+    for (const key of group.keys ?? []) {
+      if (!keyTokens.has(key)) keyTokens.set(key, BUILDER_GROUP_KEY_TOKENS[keyTokens.size]);
+    }
+  };
+  const addGroupIntent = (intent) => {
+    if (!isPlainObject(intent)) return;
+    addStep(intent.targetStepId);
+    addGroup(intent.base);
+    addGroup(intent.proposed);
+  };
+  const addOwner = (owner) => {
+    const identity = observedRequestKey(owner);
+    if (identity && !captureTokens.has(identity)) {
+      captureTokens.set(identity, 'c' + (captureTokens.size + 1));
+    }
+  };
+
+  for (const action of trace.actions) {
+    addOwner(cdaLifecycleOwner(action));
+    addOwner(action.groupLifecycle?.candidateOwner);
+    addOwner(cdaCandidateOwner(action));
+    addGroupIntent(action.groupLifecycle?.candidateIntent);
+    for (const saved of cdaSavedSnapshots(action)) {
+      addGroup(saved.group);
+      const cdaCASProblemText = cdaCASProblem(saved, 'CDA token collection');
+      if (cdaCASProblemText) fail(cdaCASProblemText);
+      const workspaceKey = saved.explorerId;
+      if (!workspaceTokens.has(workspaceKey)) workspaceTokens.set(workspaceKey, 'W1');
+      if (workspaceTokens.size > 1) fail('CDA trace changed Explorer identity across its saved Builder snapshots');
+      if (!outputTokens.has(saved.outputId)) {
+        const token = BUILDER_CDA_OUTPUT_TOKENS[outputTokens.size];
+        if (!token) fail('CDA trace observed more output identities than its finite output-token domain');
+        outputTokens.set(saved.outputId, token);
+      }
+      if (!versionSteps.has(saved.draftVersion)) {
+        const versionStep = versionSteps.size;
+        if (versionStep > journeyCase.casTransitionCount) fail('CDA trace observed more draft versions than its finite snapshot domain');
+        if (priorRawVersion !== undefined && saved.draftVersion !== priorRawVersion + 1) {
+          fail('CDA trace draftVersion sequence must advance by one for each persisted Apply');
+        }
+        versionSteps.set(saved.draftVersion, versionStep);
+        priorRawVersion = saved.draftVersion;
+      }
+      if (!digestTokens.has(saved.draftDigest)) {
+        const digestToken = BUILDER_CDA_DIGEST_TOKENS[digestTokens.size];
+        if (!digestToken) fail('CDA trace observed more raw draft digests than its finite digest-token domain');
+        digestTokens.set(saved.draftDigest, digestToken);
+      }
+      const currentVersionStep = versionSteps.get(saved.draftVersion);
+      if (currentVersionStep < latestVersionStep && !BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label)) {
+        fail('CDA trace saved Builder state snapshots cannot move backward outside a retained proposal settlement');
+      }
+      latestVersionStep = Math.max(latestVersionStep, currentVersionStep);
+      const signature = canonicalJson({
+        explorerId: saved.explorerId,
+        outputId: saved.outputId,
+        draftVersion: saved.draftVersion,
+        draftDigest: saved.draftDigest,
+        workspace: saved.workspace,
+      });
+      const priorSignature = snapshotByVersion.get(saved.draftVersion);
+      if (priorSignature !== undefined && priorSignature !== signature) {
+        fail('CDA trace reuses a draftVersion with different raw workspace/output/digest state');
+      }
+      snapshotByVersion.set(saved.draftVersion, signature);
+    }
+  }
+  if (versionSteps.size !== journeyCase.casTransitionCount + 1) {
+    fail('CDA trace must preserve the initial draft plus all seven observed Apply CAS states');
+  }
+  for (const action of trace.actions) {
+    for (const lifecycle of [action.groupLifecycle, action.relatedSourceLifecycle]) {
+      if (!isPlainObject(lifecycle)) continue;
+      addGroup(lifecycle.savedBefore?.group);
+      addGroup(lifecycle.savedAfter?.group);
+      addGroup(lifecycle.mountedGroup);
+      addGroupIntent(lifecycle.candidateIntent);
+    }
+  }
+  if (stepTokens.size > BUILDER_GROUP_STEP_TOKENS.length || keyTokens.size > BUILDER_GROUP_KEY_TOKENS.length) {
+    fail('CDA trace exceeds the finite Group step or data-key token domain');
+  }
+  return { stepTokens, captureTokens, keyTokens, outputTokens, digestTokens, versionSteps, workspaceTokens };
+}
+
+function cdaCaptureToken(owner, tokens) {
+  const identity = observedRequestKey(owner);
+  const token = tokens.captureTokens.get(identity);
+  if (!token) fail('CDA request owner does not map to its unique finite trace token');
+  return tlaString(token);
+}
+
+function cdaGroupProjectionForTla(group, tokens) {
+  return groupRecordForTla(group, tokens.stepTokens, tokens.keyTokens);
+}
+
+function cdaRelatedSourceRecordForTla(related, tokens) {
+  if (related === null || related === undefined) {
+    return '[sourceToken |-> "None", relatedStepToken |-> "None", inputGroupStepToken |-> "None", outputColumnToken |-> "None", routeToken |-> "None"]';
+  }
+  if (!isPlainObject(related) || !tokens.stepTokens.has(related.inputStepId)) {
+    fail('CDA related-source projection must map its actual input Group step');
+  }
+  return '[sourceToken |-> "ObservationStatus", relatedStepToken |-> "R1", inputGroupStepToken |-> ' +
+    tlaString(tokens.stepTokens.get(related.inputStepId)) + ', outputColumnToken |-> "O1", routeToken |-> "SpecimenPatientObservation"]';
+}
+
+function cdaSnapshotRecordForTla(saved, tokens, journeyCase, where) {
+  const problem = relatedSourceSnapshotProblem(saved, where, journeyCase);
+  if (problem.problem) fail(problem.problem);
+  const workspaceToken = tokens.workspaceTokens.get(saved.explorerId);
+  const outputToken = tokens.outputTokens.get(saved.outputId);
+  const versionStep = tokens.versionSteps.get(saved.draftVersion);
+  const digestToken = tokens.digestTokens.get(saved.draftDigest);
+  if (!workspaceToken || !outputToken || versionStep === undefined || !digestToken) {
+    fail(where + ' snapshot values do not map to the finite observed-run tokens');
+  }
+  return '[workspaceToken |-> ' + tlaString(workspaceToken) +
+    ', group |-> ' + cdaGroupProjectionForTla(saved.group, tokens) +
+    ', relatedSource |-> ' + cdaRelatedSourceRecordForTla(saved.relatedSource, tokens) +
+    ', outputToken |-> ' + tlaString(outputToken) +
+    ', draftVersion |-> ' + versionStep +
+    ', draftDigest |-> ' + tlaString(digestToken) + ']';
+}
+
+function cdaRelatedIntentForTla(intent, tokens) {
+  if (!isPlainObject(intent)) return 'NoRelatedSourceIntent';
+  const targetStep = intent.kind === 'add' ? 'None' : 'R1';
+  return '[kind |-> ' + tlaString(intent.kind) +
+    ', targetStepId |-> ' + tlaString(targetStep) +
+    ', groupInputStep |-> "G1"' +
+    ', base |-> ' + cdaRelatedSourceRecordForTla(intent.base, tokens) +
+    ', proposed |-> ' + cdaRelatedSourceRecordForTla(intent.proposed, tokens) + ']';
+}
+
+function cdaRowExpansionIntentForTla(lifecycle) {
+  if (lifecycle?.stage === 'SpecimenPatient') return 'CdaSpecimenPatientIntent';
+  if (lifecycle?.stage === 'PatientObservation') return 'CdaPatientObservationIntent';
+  fail('CDA row expansion proposal has no bounded observed stage');
+}
+
+function cdaOwnerRecordForTla(owner, tokens) {
+  if (!isPlainObject(owner)) return 'NoPreviewOwner';
+  const ownerEpoch = owner.mountEpoch;
+  if (!Number.isInteger(ownerEpoch)) fail('CDA proposal owner must bind to its actual request-start mountEpoch');
+  return '[mountEpoch |-> ' + ownerEpoch + ', captureId |-> ' + cdaCaptureToken(owner, tokens) + ']';
+}
+
+function cdaGroupInputToken(saved, tokens) {
+  return saved.group === null ? '"None"' : tlaString(tokens.stepTokens.get(saved.group.stepId));
+}
+
 function groupRecordForTla(group, stepTokens, keyTokens) {
   if (group === null || group === undefined) return 'NoGroup';
   const shape = ['EmptyKeys', 'ByID', 'ByIDGender'][group.keys.length];
@@ -2111,6 +3989,82 @@ function groupLifecycleRecords(trace) {
   });
 }
 
+function cdaSnapshotForActionLifecycle(action, lifecycle, field, tokens, journeyCase, where) {
+  if ((lifecycle[field] === null || lifecycle[field] === undefined) &&
+      cdaEventTimeSnapshotUnavailable(action, lifecycle)) return '"NoCdaSnapshot"';
+  return cdaSnapshotRecordForTla(lifecycle[field], tokens, journeyCase, where + '.' + field);
+}
+
+function cdaLifecycleRecords(trace, tokens, journeyCase) {
+  return trace.actions.map((action, index) => {
+    const where = 'trace.actions[' + index + ']';
+    const lifecycle = action.groupLifecycle ?? action.rowExpansionLifecycle ?? action.relatedSourceLifecycle;
+    if (!isPlainObject(lifecycle)) return '"NoCdaLifecycle"';
+    const owner = action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner ?? action.relatedSourceLifecycle?.owner;
+    const lifecycleEpoch = Number.isInteger(lifecycle.mountEpoch) ? lifecycle.mountEpoch : null;
+    const observedEpoch = Number.isInteger(action.observedEpoch)
+      ? action.observedEpoch
+      : Number.isInteger(lifecycle.observedEpoch) ? lifecycle.observedEpoch : lifecycleEpoch;
+    const rawCandidateOwner = action.groupLifecycle?.candidateOwner ??
+      action.relatedSourceLifecycle?.owner ?? action.rowExpansionLifecycle?.owner;
+    const ownerEpochValue = Number.isInteger(owner?.mountEpoch)
+      ? owner.mountEpoch
+      : Number.isInteger(rawCandidateOwner?.mountEpoch)
+        ? rawCandidateOwner.mountEpoch
+        : lifecycleEpoch;
+    if (!Number.isInteger(observedEpoch) || !Number.isInteger(ownerEpochValue)) {
+      fail(where + ' must preserve actual observed and proposal-owner mount epochs');
+    }
+    const ownerEpoch = ownerEpochValue;
+    const captureId = owner ? cdaCaptureToken(owner, tokens) : '"NoCapture"';
+    const candidateOwner = cdaOwnerRecordForTla(
+      rawCandidateOwner,
+      tokens,
+    );
+    const before = cdaSnapshotForActionLifecycle(action, lifecycle, 'savedBefore', tokens, journeyCase, where);
+    const after = cdaSnapshotForActionLifecycle(action, lifecycle, 'savedAfter', tokens, journeyCase, where);
+    const mountEpoch = observedEpoch;
+    const noEventSnapshot = (lifecycle.savedBefore === null || lifecycle.savedBefore === undefined) &&
+      (lifecycle.savedAfter === null || lifecycle.savedAfter === undefined) &&
+      cdaEventTimeSnapshotUnavailable(action, lifecycle);
+    const savedGroupInput = noEventSnapshot
+      ? '"NoGroupInputObserved"'
+      : cdaGroupInputToken(lifecycle.savedBefore, tokens);
+    const intent = action.relatedSourceLifecycle
+      ? cdaRelatedIntentForTla(lifecycle.candidateIntent, tokens)
+      : action.rowExpansionLifecycle
+        ? cdaRowExpansionIntentForTla(lifecycle)
+        : candidateIntentForTla(lifecycle.candidateIntent, tokens.stepTokens, tokens.keyTokens);
+    const mountedGroup = isPlainObject(action.groupLifecycle?.mountedGroup)
+      ? cdaGroupProjectionForTla(action.groupLifecycle.mountedGroup, tokens)
+      : 'NoGroup';
+    const mountedRelated = action.label === 'Reload'
+      ? cdaRelatedSourceRecordForTla(action.groupLifecycle.mountedRelatedSource, tokens)
+      : cdaRelatedSourceRecordForTla(null, tokens);
+    const stageToken = action.rowExpansionLifecycle
+      ? tlaString(action.rowExpansionLifecycle.stage)
+      : '"NoStage"';
+    const tableTokens = action.rowExpansionLifecycle?.stage === 'SpecimenPatient'
+      ? ['Specimen', 'Patient']
+      : action.rowExpansionLifecycle?.stage === 'PatientObservation'
+        ? ['Patient', 'Observation']
+        : ['NoTable', 'NoTable'];
+    return '[mountEpoch |-> ' + mountEpoch +
+      ', ownerEpoch |-> ' + ownerEpoch +
+      ', captureId |-> ' + captureId +
+      ', candidateOwner |-> ' + candidateOwner +
+      ', intent |-> ' + intent +
+      ', savedGroupInput |-> ' + savedGroupInput +
+      ', savedBefore |-> ' + before +
+      ', savedAfter |-> ' + after +
+      ', stageToken |-> ' + stageToken +
+      ', savedBeforeTable |-> ' + tlaString(tableTokens[0]) +
+      ', savedAfterTable |-> ' + tlaString(tableTokens[1]) +
+      ', observedMountedGroup |-> ' + mountedGroup +
+      ', observedMountedRelated |-> ' + mountedRelated + ']';
+  });
+}
+
 function actionGroupLifecycleMatches(enabled) {
   if (!enabled) return 'ActionGroupLifecycleMatches(index) == TRUE';
   return [
@@ -2162,7 +4116,47 @@ function actionGroupLifecycleMatches(enabled) {
   ].join('\n');
 }
 
-function actionOwnerMatches(model, hasGroupLifecycle = false) {
+function actionCdaLifecycleMatches() {
+  return [
+    'ActionCdaLifecycleMatches(index) ==',
+    '  LET label == TraceActions[index + 1]',
+    '      lifecycle == TraceCdaLifecycles[index + 1]',
+    '      attempt == TraceOwnerAttempts[index + 1]',
+    '  IN CASE label = "Preview" ->',
+    '         /\\ CdaPreview(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "PreviewComplete" ->',
+    '         /\\ CdaPreviewComplete(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "PreviewError" ->',
+    '         /\\ CdaPreviewError(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId, TraceObservations[index + 1].proposalIdPresent)',
+    '       [] label = "PreviewRequestCancelled" ->',
+    '         /\\ CdaPreviewRequestCancelled(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "LatePreviewCompleteIgnored" ->',
+    '         /\\ CdaLatePreviewCompleteIgnored(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "LatePreviewErrorIgnored" ->',
+    '         /\\ CdaLatePreviewErrorIgnored(attempt, lifecycle.mountEpoch, lifecycle.ownerEpoch, lifecycle.captureId)',
+    '       [] label = "ExpandRows" ->',
+    '         /\\ ExpandRows(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.stageToken, lifecycle.savedBeforeTable, lifecycle.savedAfterTable, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "Group" ->',
+    '         /\\ CdaGroup(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "EditGroup" ->',
+    '         /\\ CdaEditGroup(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "EditGroupAgain" ->',
+    '         /\\ CdaEditGroupAgain(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "GroupEditCancel" ->',
+    '         /\\ CdaGroupEditCancel(lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "Reload" ->',
+    '         /\\ CdaReload(lifecycle.mountEpoch, lifecycle.savedBefore, lifecycle.savedAfter, lifecycle.observedMountedGroup, lifecycle.observedMountedRelated)',
+    '       [] label = "RelatedSourcePreview" ->',
+    '         /\\ RelatedSourcePreview(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "RelatedSourceApply" ->',
+    '         /\\ RelatedSourceApply(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] label = "RelatedSourceCancel" ->',
+    '         /\\ RelatedSourceCancel(attempt, lifecycle.mountEpoch, lifecycle.candidateOwner, lifecycle.intent, lifecycle.savedGroupInput, lifecycle.savedBefore, lifecycle.savedAfter)',
+    '       [] OTHER -> FALSE',
+  ].join('\n');
+}
+
+function actionOwnerMatches(model, hasGroupLifecycle = false, hasCdaRelatedCase = false) {
   if (model === 'ConstructionLifecycle') {
     return [
       'ActionOwnerMatches(index) ==',
@@ -2216,6 +4210,10 @@ function actionOwnerMatches(model, hasGroupLifecycle = false) {
       '       [] label \\in {"ChoicePreviewComplete", "ChoicePreviewError"} -> choicePreviewOwner = attempt',
       '       [] label = "AddColumn" -> /\\ attempt = choicePreviewOwner /\\ choicePreview = "ready"',
       '       [] label \\in {"Group", "GroupAgain", "EditGroup", "EditGroupAgain", "RemoveGroup"} -> attempt = proposalPreviewOwner',
+      ...(hasCdaRelatedCase ? [
+        '       [] label = "RelatedSourcePreview" -> /\\ attempt \\in {"P1", "P2"} /\\ proposalPreviewOwner\' = attempt',
+        '       [] label \\in {"RelatedSourceCancel", "ExpandRows", "RelatedSourceApply"} -> attempt = proposalPreviewOwner',
+      ] : []),
       '       [] OTHER -> TRUE',
     ].join('\n');
   }
@@ -2284,7 +4282,8 @@ function actionIdentityPreserved(model) {
   ].join('\n');
 }
 
-function generateModule(trace, moduleName, hasGroupLifecycle) {
+function generateModule(trace, moduleName, hasGroupLifecycle, journeyCase = null) {
+  if (journeyCase) return generateCdaTraceModule(trace, moduleName, journeyCase);
   const actions = ['"Init"', ...trace.actions.map((action) => tlaString(action.label))];
   const ownerAttempts = ['"NoAttempt"', ...trace.actions.map((action) => tlaString(traceOwnerValue(action)))];
   const expectedProposals = ['"NoExpectedProposal"', ...trace.actions.map((action) => tlaString(traceExpectedProposalValue(action)))];
@@ -2304,8 +4303,11 @@ function generateModule(trace, moduleName, hasGroupLifecycle) {
         ? builderJourneyObservationMapping
         : constructionLifecycleObservationMapping;
   const reconcileTrace = trace.model === 'ReconcileLifecycle';
+  const legacyBuilderJourneyTrace = trace.model === 'BuilderJourney';
   const traceVariables = reconcileTrace ? 'VARIABLES traceIndex, traceRequestIds' : 'VARIABLES traceIndex';
-  const traceTuple = reconcileTrace ? '<<vars, traceIndex, traceRequestIds>>' : '<<vars, traceIndex>>';
+  const traceTuple = reconcileTrace
+    ? '<<vars, traceIndex, traceRequestIds>>'
+    : legacyBuilderJourneyTrace ? '<<vars, CdaVars, traceIndex>>' : '<<vars, traceIndex>>';
   const traceInitIdentity = reconcileTrace
     ? [
         '  /\\ traceIndex = 0',
@@ -2343,9 +4345,11 @@ function generateModule(trace, moduleName, hasGroupLifecycle) {
         '       /\\ ActionIdentityPreserved(traceIndex + 1)',
         '       /\\ ActionGroupLifecycleMatches(traceIndex + 1)',
         '       /\\ ObsMatchesNext(TraceObservations[traceIndex + 1])',
+        ...(legacyBuilderJourneyTrace ? ['       /\\ UNCHANGED CdaVars'] : []),
         "       /\\ traceIndex' = traceIndex + 1",
-        '  ELSE /\\ UNCHANGED vars',
-        '       /\\ UNCHANGED traceIndex',
+        ...(legacyBuilderJourneyTrace
+          ? ['  ELSE UNCHANGED <<vars, CdaVars, traceIndex>>']
+          : ['  ELSE /\\ UNCHANGED vars', '       /\\ UNCHANGED traceIndex']),
       ];
   const nextApplicable = trace.model === 'ConstructionLifecycle'
     ? [
@@ -2395,6 +4399,7 @@ function generateModule(trace, moduleName, hasGroupLifecycle) {
     '',
     'TraceInit ==',
     '  /\\ Init',
+    ...(legacyBuilderJourneyTrace ? ['  /\\ CdaInit'] : []),
     ...traceInitIdentity,
     '',
     'TraceNext ==',
@@ -2415,7 +4420,77 @@ function generateModule(trace, moduleName, hasGroupLifecycle) {
   ].join('\n');
 }
 
-function generateConfig(trace, hasGroupLifecycle) {
+function generateCdaTraceModule(trace, moduleName, journeyCase) {
+  const tokens = collectCdaTokens(trace, journeyCase);
+  const actions = trace.actions.map((action) => tlaString(action.label));
+  const ownerAttempts = trace.actions.map((action) => tlaString(traceOwnerValue(action)));
+    const observations = trace.actions.map((action) => action.observation == null
+      ? '"NoEventTimeObservation"'
+      : tlaObservation(action.observation));
+  const lifecycles = cdaLifecycleRecords(trace, tokens, journeyCase);
+  if (lifecycles.length !== actions.length || ownerAttempts.length !== actions.length || observations.length !== actions.length) {
+    fail('generated CDA lifecycle, observation, owner, and action rows must align exactly');
+  }
+  return [
+    '---------------- MODULE ' + moduleName + ' ----------------',
+    'EXTENDS ' + trace.model + ', Naturals, Sequences, TLC',
+    '',
+    'VARIABLES traceIndex',
+    '',
+    'TraceActions == ' + tlaSequence(actions),
+    '',
+    'TraceObservations == ' + tlaSequence(observations),
+    '',
+    'TraceOwnerAttempts == ' + tlaSequence(ownerAttempts),
+    '',
+    'TraceCdaLifecycles == ' + tlaSequence(lifecycles),
+    '',
+    actionCdaLifecycleMatches(),
+    '',
+    'TraceInit ==',
+    '  /\\ Init',
+    '  /\\ CdaInit',
+    '  /\\ traceIndex = 0',
+    '',
+    'TraceNext ==',
+    '  IF traceIndex < Len(TraceActions)',
+    '  THEN /\\ CdaNext',
+    '       /\\ ActionCdaLifecycleMatches(traceIndex)',
+    "       /\\ traceIndex' = traceIndex + 1",
+    '       /\\ UNCHANGED <<vars, cdaWitnessStage>>',
+    '  ELSE UNCHANGED <<vars, CdaVars, traceIndex>>',
+    '',
+    'TraceProgress ==',
+    '  \\/ traceIndex = Len(TraceActions)',
+    '  \\/ ENABLED TraceNext',
+    '',
+    'TraceSpec == TraceInit /\\ [][TraceNext]_<<vars, CdaVars, traceIndex>>',
+    '',
+    '====',
+    '',
+  ].join('\n');
+}
+
+function generateConfig(trace, hasGroupLifecycle, journeyCase = null, tokens = null) {
+  if (journeyCase) {
+    const captureIds = [...tokens.captureTokens.values()];
+    if (captureIds.length === 0) fail('CDA trace must retain unique observed proposal owner IDs');
+    return [
+      'SPECIFICATION TraceSpec',
+      'CONSTANTS CaptureIds = {' + captureIds.map(tlaString).join(', ') + '}',
+      'INVARIANT CdaTypeOK',
+      'INVARIANT CdaGroupEditsPreserveRelatedBinding',
+      'INVARIANT CdaCanceledProposalsPreserveExactSavedStateAndCAS',
+      'INVARIANT CdaRelatedApplyRequiresCurrentOwnerAndSavedGroupInput',
+      'INVARIANT CdaRelatedRemovalRestoresPriorGroupAndSourceState',
+      'INVARIANT CdaReloadRestoresPersistedGroupAndRelatedBinding',
+      'INVARIANT CdaApplyUsesCurrentCandidate',
+      'INVARIANT CdaRowsOnlyAfterProposalPreview',
+      'INVARIANT CdaOldOwnerCannotSettleCurrentPreview',
+      'INVARIANT TraceProgress',
+      '',
+    ].join('\n');
+  }
   return [
     'SPECIFICATION TraceSpec',
     ...(trace.model === 'BuilderJourney'
@@ -2456,7 +4531,7 @@ function outputTail(text, lines = 30) {
   return split.slice(-lines).join('\n');
 }
 
-function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle) {
+function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = null) {
   const runDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-traces-'));
   const modelDirectory = join(runDirectory, 'model');
   const metadataDirectory = join(runDirectory, 'states');
@@ -2466,8 +4541,9 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle) {
   const moduleFile = moduleName + '.tla';
   const configFile = moduleName + '.cfg';
   copyFileSync(resolve(ROOT, MODEL_DIR, trace.model + '.tla'), join(modelDirectory, trace.model + '.tla'));
-  writeFileSync(join(modelDirectory, moduleFile), generateModule(trace, moduleName, hasGroupLifecycle));
-  writeFileSync(join(modelDirectory, configFile), generateConfig(trace, hasGroupLifecycle));
+  const cdaTokens = journeyCase ? collectCdaTokens(trace, journeyCase) : null;
+  writeFileSync(join(modelDirectory, moduleFile), generateModule(trace, moduleName, hasGroupLifecycle, journeyCase));
+  writeFileSync(join(modelDirectory, configFile), generateConfig(trace, hasGroupLifecycle, journeyCase, cdaTokens));
   const args = [
     '-XX:+UseParallelGC', '-cp', jarPath, 'tlc2.TLC',
     '-workers', '4',
@@ -2536,6 +4612,28 @@ function reportUnmodeledEvents(traces, policy = {}) {
       byKind: Object.fromEntries(unclassified),
     },
     traces: entries,
+  };
+}
+
+function cdaRequestCoverageReceipt(trace) {
+  const mutatingLabels = new Set([
+    'Preview', 'RelatedSourcePreview', 'Group', 'EditGroup', 'EditGroupAgain',
+    'ExpandRows', 'RelatedSourceApply',
+  ]);
+  const requests = Array.isArray(trace.nativeRequests) ? trace.nativeRequests : [];
+  const observedMutations = requests.filter((request) => request?.isMutation === true);
+  const modeledBrowserIDs = trace.actions
+    .filter((action) => mutatingLabels.has(action.label))
+    .map((action) => action.request?.browserRequestId)
+    .filter((browserRequestId) => typeof browserRequestId === 'string' && browserRequestId.length > 0);
+  const mapped = new Set(modeledBrowserIDs);
+  const observedIDs = observedMutations.map((request) => request?.browserRequestId).filter(Boolean);
+  const uniqueObservedIDs = new Set(observedIDs);
+  return {
+    observed: observedMutations.length,
+    modeled: observedMutations.filter((request) => mapped.has(request.browserRequestId)).length,
+    unmapped: observedMutations.filter((request) => !mapped.has(request.browserRequestId)).length,
+    duplicates: observedIDs.length - uniqueObservedIDs.size,
   };
 }
 
@@ -2622,6 +4720,23 @@ async function main() {
     }
     if (Object.keys(mismatches).length > 0) actionCountMismatchesByTrace[traceName] = mismatches;
   }
+  const actionCountMinimumMismatchesByTrace = {};
+  for (const [traceName, minimumCountsByAction] of Object.entries(contract.phase1.requiredActionMinimumsByTrace ?? {})) {
+    const trace = traces.find((candidate) => candidate.name === traceName);
+    if (!trace) continue;
+    const modelActions = new Set(contract.models[trace?.model]?.actions ?? []);
+    const actualCounts = new Map();
+    for (const action of trace?.actions ?? []) {
+      const label = normalizedActionLabel(trace.model, action.label, modelActions) ?? action.label;
+      actualCounts.set(label, (actualCounts.get(label) ?? 0) + 1);
+    }
+    const mismatches = {};
+    for (const [action, minimum] of Object.entries(minimumCountsByAction)) {
+      const actual = actualCounts.get(action) ?? 0;
+      if (actual < minimum) mismatches[action] = { minimum, actual };
+    }
+    if (Object.keys(mismatches).length > 0) actionCountMinimumMismatchesByTrace[traceName] = mismatches;
+  }
   const coverageProblems = [];
   if (!options.allowPartial) {
     if (missingActions.length > 0) coverageProblems.push('required actions missing: ' + missingActions.join(', '));
@@ -2633,6 +4748,11 @@ async function main() {
     for (const [traceName, mismatches] of Object.entries(actionCountMismatchesByTrace)) {
       for (const [action, count] of Object.entries(mismatches)) {
         coverageProblems.push('trace "' + traceName + '" action ' + action + ' count expected ' + count.expected + ', found ' + count.actual);
+      }
+    }
+    for (const [traceName, mismatches] of Object.entries(actionCountMinimumMismatchesByTrace)) {
+      for (const [action, count] of Object.entries(mismatches)) {
+        coverageProblems.push('trace "' + traceName + '" action ' + action + ' minimum expected ' + count.minimum + ', found ' + count.actual);
       }
     }
   }
@@ -2647,7 +4767,7 @@ async function main() {
   let javaVersion = null;
   let jarPath = null;
   const runResults = new Map();
-  if (shapeProblems.size < traces.length) {
+  if (shapeProblems.size < traces.length && !options.shapeOnly) {
     javaVersion = verifyJava();
     jarPath = await acquireTlcJar();
   }
@@ -2662,11 +4782,16 @@ async function main() {
       });
       continue;
     }
+    if (options.shapeOnly) {
+      runResults.set(key, { status: 'shape-pass' });
+      continue;
+    }
     uniqueIndex += 1;
     const trace = traces[firstIndex];
     if (!options.quiet) console.log('Validating ' + trace.model + ' trace "' + trace.name + '" (' + trace.actions.length + ' actions, ' + indexes.length + ' copy/copies)...');
     const traceHasGroupLifecycle = hasGroupLifecycle && BUILDER_GROUP_TRACE_NAMES.has(trace.name);
-    runResults.set(key, runTlc(jarPath, trace, uniqueIndex, traceHasGroupLifecycle));
+    const traceJourneyCase = builderJourneyCaseForTrace(contract, trace);
+    runResults.set(key, runTlc(jarPath, trace, uniqueIndex, traceHasGroupLifecycle, traceJourneyCase));
   }
 
   const modelCounts = {};
@@ -2677,7 +4802,10 @@ async function main() {
     modelCounts[trace.model] = modelCount + 1;
     const structuralFailure = shapeProblems.get(index) ?? (run?.structuralFailure ?? null);
     const actionCount = Array.isArray(trace.actions) ? trace.actions.length : 0;
-    const status = !structuralFailure && run && run.status === 'pass' ? 'pass' : 'fail';
+    const expectedRunStatus = options.shapeOnly ? 'shape-pass' : 'pass';
+    const status = !structuralFailure && run && run.status === expectedRunStatus
+      ? expectedRunStatus
+      : 'fail';
     const failure = structuralFailure ? { ...structuralFailure } : (run?.failure ? { ...run.failure } : null);
     const entry = {
       name: trace.name,
@@ -2702,9 +4830,13 @@ async function main() {
     return entry;
   });
 
-  const invalid = reportTraces.filter((trace) => trace.status !== 'pass');
+  const expectedPassingStatus = options.shapeOnly ? 'shape-pass' : 'pass';
+  const invalid = reportTraces.filter((trace) => trace.status !== expectedPassingStatus);
+  const unmodeledEventSummary = reportUnmodeledEvents(traces, contract.unmodeledEventPolicy);
   const report = {
     schemaVersion: 1,
+    validationMode: options.shapeOnly ? 'shape-only' : 'formal-replay',
+    formalReplayPerformed: !options.shapeOnly,
     sourceProfile: provenance.profile,
     sourceCommit: provenance.head,
     contractSourceCommit: payload.contractSourceCommit,
@@ -2719,12 +4851,44 @@ async function main() {
       requiredActions: { missing: missingActions },
       requiredActionsByTrace: { missing: missingActionsByTrace },
       requiredActionCountsByTrace: { mismatches: actionCountMismatchesByTrace },
+      requiredActionMinimumsByTrace: { mismatches: actionCountMinimumMismatchesByTrace },
       requiredEvents: { missing: missingEvents },
     },
     traces: reportTraces,
-    unmodeledEvents: reportUnmodeledEvents(traces, contract.unmodeledEventPolicy),
+    unmodeledEvents: unmodeledEventSummary,
     ...(options.allowPartial ? { partial: true } : {}),
   };
+  const journeyCase = contract.journeyCase;
+  if (journeyCase) {
+    const cdaTrace = traces.find((trace) => trace.name === journeyCase.traceName);
+    const traceEntry = reportTraces.find((trace) => trace.name === journeyCase.traceName);
+    const replayStatus = options.shapeOnly
+      ? 'not-run'
+      : traceEntry?.status === 'pass' && countProblems.length === 0 && coverageProblems.length === 0 &&
+          unmodeledEventSummary.unclassified.total === 0
+        ? 'pass'
+        : 'fail';
+    report.builderJourneyTrace = {
+      traceName: journeyCase.traceName,
+      nativeCaseKey: journeyCase.workflow,
+      tracePath: resolve(process.cwd(), options.traces),
+      replayReportPath: options.output ? resolve(process.cwd(), options.output) : null,
+      selfTestReportPath: null,
+      actionLabels: cdaTrace?.actions?.map((action) => action.label) ?? [],
+      status: replayStatus === 'pass' ? 'pending-self-test' : 'fail',
+      replayStatus,
+      selfTestStatus: 'not-run',
+      requestCoverage: cdaTrace ? cdaRequestCoverageReceipt(cdaTrace) : {
+        observed: 0, modeled: 0, unmapped: 0, duplicates: 0,
+      },
+      requiredActionCountsByTrace: { mismatches: actionCountMismatchesByTrace },
+      requiredActionMinimumsByTrace: { mismatches: actionCountMinimumMismatchesByTrace },
+      unmodeledEvents: {
+        total: unmodeledEventSummary.total,
+        unclassified: { total: unmodeledEventSummary.unclassified.total },
+      },
+    };
+  }
   if (javaVersion) report.tool = { name: 'TLC', version: TLC_VERSION, sha256: TLC_SHA256, java: javaVersion };
   const outputPath = options.output ? writeReport(options.output, report) : null;
 
@@ -2741,6 +4905,9 @@ async function main() {
     if (missingModels.length > 0) console.log('Missing required models: ' + missingModels.join(', '));
     for (const [traceName, mismatches] of Object.entries(actionCountMismatchesByTrace)) {
       console.log('Required action counts for ' + traceName + ': ' + JSON.stringify(mismatches));
+    }
+    for (const [traceName, mismatches] of Object.entries(actionCountMinimumMismatchesByTrace)) {
+      console.log('Required action minimums for ' + traceName + ': ' + JSON.stringify(mismatches));
     }
   }
 
@@ -2769,7 +4936,9 @@ async function main() {
     }
     fail('Builder trace validation failed');
   }
-  console.log('PASS Builder trace validation: all ' + report.traceCount + ' traces match TLC model paths.');
+  console.log(options.shapeOnly
+    ? 'PASS Builder trace structural validation: all ' + report.traceCount + ' traces satisfy captured lifecycle projections; TLC replay skipped.'
+    : 'PASS Builder trace validation: all ' + report.traceCount + ' traces match TLC model paths.');
 }
 
 main().catch((error) => {

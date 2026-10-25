@@ -14,6 +14,7 @@ const valueFor = (name) => {
 const journeyOnly = args.includes('--journey-only');
 const formalOnly = args.includes('--formal-only');
 const tracesPath = valueFor('--traces');
+const selfTestOutputPath = valueFor('--output');
 const contractPath = valueFor('--contract') ?? (journeyOnly
   ? 'verification/builder-interactions/builder-journey-contract.json'
   : 'verification/builder-interactions/builder-trace-contract.json');
@@ -1464,9 +1465,258 @@ if (journeyOnly) {
       }
     }
   }
+
+  let cdaControlsPassed = true;
+  const cdaControlResults = [];
+  const cdaJourneyCase = contract.journeyCase;
+  if (cdaJourneyCase?.traceName === 'cda-builder-group-related-source') {
+    const cdaTrace = payload.traces?.find(trace => trace.name === cdaJourneyCase.traceName);
+    if (!tracesPath || !cdaTrace) {
+      console.error('FAIL CDA structural fixture: --traces must contain the registered cda-builder-group-related-source trace');
+      cdaControlsPassed = false;
+    } else {
+      const runCdaShape = (label, fixture, expectedDiagnostic = null) => {
+        const path = join(workDirectory, 'cda-' + label + '.json');
+        writeFileSync(path, JSON.stringify(fixture, null, 2) + '\n');
+        const result = spawnSync(process.execPath, [
+          'scripts/verify-builder-traces.mjs',
+          '--traces', path,
+          '--contract', contractPath,
+          '--allow-partial',
+          '--shape-only',
+          '--quiet',
+        ], { cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+        const output = (result.stdout || '') + (result.stderr || '');
+        const passed = expectedDiagnostic === null
+          ? result.status === 0
+          : result.status !== 0 && output.includes(expectedDiagnostic) && output.includes('Builder trace validation failed');
+        cdaControlResults.push({ name: label, status: passed ? 'pass' : 'fail' });
+        if (!passed) {
+          console.error((expectedDiagnostic === null ? 'FAIL ' : 'FAIL ') + 'CDA structural fixture ' + label +
+            (expectedDiagnostic ? ': expected rejection containing ' + expectedDiagnostic : ': unmutated trace did not satisfy the static projection contract'));
+          console.error(output.split('\n').slice(-16).join('\n'));
+          cdaControlsPassed = false;
+        } else {
+          console.log('PASS CDA structural fixture ' + label + (expectedDiagnostic ? ': rejected intended mutation' : ': unmutated lifecycle projections accepted'));
+        }
+      };
+      const baseline = { ...payload, traces: [cdaTrace] };
+      runCdaShape('positive-observed-projection', baseline);
+      const mutateCda = (label, expectedDiagnostic, mutate) => {
+        const fixture = JSON.parse(JSON.stringify(baseline));
+        const trace = fixture.traces[0];
+        mutate(trace);
+        runCdaShape(label, fixture, expectedDiagnostic);
+      };
+      const requiredAction = (trace, label, predicate = () => true) => {
+        const action = trace.actions.find(candidate => candidate.label === label && predicate(candidate));
+        if (!action) throw new Error('CDA trace lacks the required ' + label + ' lifecycle for its self-test mutation');
+        return action;
+      };
+      const relationApply = trace => requiredAction(trace, 'RelatedSourceApply');
+      const relationCancel = trace => requiredAction(trace, 'RelatedSourceCancel');
+      const relatedPreview = trace => requiredAction(trace, 'RelatedSourcePreview');
+      const relatedPreviewForConsumer = (trace, label) => {
+        const consumer = requiredAction(trace, label);
+        const ownerId = consumer.relatedSourceLifecycle?.owner?.browserRequestId;
+        const preview = trace.actions.find(action => action.label === 'RelatedSourcePreview' &&
+          action.relatedSourceLifecycle?.owner?.browserRequestId === ownerId);
+        if (!preview) throw new Error('CDA trace lacks the selected RelatedSourcePreview for ' + label);
+        return preview;
+      };
+
+      mutateCda('missing-related-snapshot', 'must preserve explorerId, group, relatedSource', trace => {
+        delete relatedPreview(trace).relatedSourceLifecycle.savedAfter.relatedSource;
+      });
+      mutateCda('wrong-related-input-group-binding', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.inputStepId = 'wrong-group-step-self-test';
+      });
+      mutateCda('wrong-related-source-path', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.source.path = 'code';
+      });
+      mutateCda('wrong-related-route', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.route[0].toResourceType = 'Encounter';
+      });
+      mutateCda('wrong-related-output-identity', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.outputColumnId = 'wrong-output-self-test';
+      });
+      mutateCda('wrong-related-all-policy', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.form = 'FIRST';
+      });
+      mutateCda('wrong-related-choice-identity', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.choiceId = 'wrong-choice-self-test';
+      });
+      mutateCda('wrong-related-contributor-policy', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.contributorPolicy = 'ANY_MATCH';
+      });
+      mutateCda('wrong-related-row-value-policy', 'candidateIntent.proposed must match', trace => {
+        relationApply(trace).relatedSourceLifecycle.candidateIntent.proposed.rowValuePolicy = 'FIRST';
+      });
+      mutateCda('wrong-group-aggregate', 'group aggregate diverges from the GROUP step', trace => {
+        const action = requiredAction(trace, 'EditGroup');
+        action.groupLifecycle.savedAfter.group.aggregate = 'COUNT_ROWS';
+      });
+      mutateCda('related-cancel-mutates-saved-cas', 'state-preserving event must retain exact saved workspace and draft CAS', trace => {
+        const action = relationCancel(trace);
+        action.relatedSourceLifecycle.savedAfter.draftDigest += '-mutated-self-test';
+      });
+      mutateCda('related-apply-without-current-candidate', 'Apply request must consume the proposalId from the current candidate', trace => {
+        const action = relationApply(trace);
+        const command = action.request.request.commands.find(candidate => candidate.type === 'APPLY_CONSTRUCTION_PROPOSAL');
+        command.proposalId += '-stale-self-test';
+      });
+      mutateCda('related-cancel-without-owner-ready-panel', 'must consume a candidate with its own later READY panel observation', trace => {
+        relatedPreviewForConsumer(trace, 'RelatedSourceCancel').relatedSourceLifecycle.renderedObservation = null;
+      });
+      mutateCda('related-apply-without-owner-ready-panel', 'must consume a candidate with its own later READY panel observation', trace => {
+        relatedPreviewForConsumer(trace, 'RelatedSourceApply').relatedSourceLifecycle.renderedObservation = null;
+      });
+      mutateCda('related-owner-mismatch', 'owner identity must match the actual native request', trace => {
+        relationApply(trace).relatedSourceLifecycle.owner.browserRequestId = 'different-owner-self-test';
+      });
+      mutateCda('stale-related-owner-mount-epoch', 'actual request identity, mount epoch, and document time origin', trace => {
+        const lifecycle = relationApply(trace).relatedSourceLifecycle;
+        lifecycle.owner.mountEpoch = (lifecycle.mountEpoch + 1) % (cdaJourneyCase.maxMountEpoch + 1);
+      });
+      mutateCda('reload-loses-related-binding', 'mountedRelatedSource', trace => {
+        const action = requiredAction(trace, 'Reload', candidate => candidate.groupLifecycle.savedAfter.relatedSource !== null);
+        action.groupLifecycle.mountedRelatedSource = null;
+      });
+      mutateCda('reload-invents-related-binding', 'mountedRelatedSource', trace => {
+        const action = requiredAction(trace, 'Reload', candidate => candidate.groupLifecycle.savedAfter.relatedSource === null);
+        const savedRelated = relationApply(trace).relatedSourceLifecycle.savedAfter.relatedSource;
+        action.groupLifecycle.mountedRelatedSource = JSON.parse(JSON.stringify(savedRelated));
+      });
+      mutateCda('group-round-trip-drops-related-binding', 'relatedSource projection does not match', trace => {
+        const action = requiredAction(trace, 'EditGroupAgain');
+        action.groupLifecycle.savedAfter.relatedSource = null;
+      });
+      mutateCda('same-version-workspace-mutation', 'state-preserving event must retain exact saved workspace and draft CAS', trace => {
+        const action = relationCancel(trace);
+        action.relatedSourceLifecycle.savedAfter.workspace.explorer.title += ' changed at same version';
+      });
+      mutateCda('same-version-digest-mutation', 'state-preserving event must retain exact saved workspace and draft CAS', trace => {
+        const action = relationCancel(trace);
+        action.relatedSourceLifecycle.savedAfter.draftDigest += '-same-version-self-test';
+      });
+      mutateCda('duplicate-mutating-request-id', 'browserRequestId duplicates another observed native request', trace => {
+        const applies = trace.actions.filter(action => action.label === 'RelatedSourceApply');
+        applies[1].request.browserRequestId = applies[0].request.browserRequestId;
+        applies[1].response.browserRequestId = applies[0].request.browserRequestId;
+        applies[1].settlement.browserRequestId = applies[0].request.browserRequestId;
+      });
+      mutateCda('orphaned-proposal-request', 'Preview request has no modeled response settlement', trace => {
+        const original = requiredAction(trace, 'Preview', action => action.groupLifecycle?.candidateIntent?.kind === 'edit');
+        const copy = JSON.parse(JSON.stringify(original));
+        const suffix = '-orphan-self-test';
+        copy.request.browserRequestId += suffix;
+        copy.groupLifecycle.owner.browserRequestId += suffix;
+        if (typeof copy.request.requestId === 'string') {
+          copy.request.requestId += suffix;
+          copy.groupLifecycle.owner.requestId += suffix;
+          if (typeof copy.owner?.requestId === 'string') copy.owner.requestId += suffix;
+        }
+        if (typeof copy.request.captureId === 'string') {
+          copy.request.captureId += suffix;
+          copy.request.request.captureId += suffix;
+          copy.groupLifecycle.owner.captureId += suffix;
+          copy.groupLifecycle.candidateIntent.rawProposalBody.captureId += suffix;
+          if (typeof copy.owner?.captureId === 'string') copy.owner.captureId += suffix;
+        }
+        copy.observedEpoch = original.observedEpoch;
+        const index = trace.actions.indexOf(original);
+        trace.actions.splice(index + 1, 0, copy);
+      });
+      mutateCda('unallowlisted-post-support-event', 'method/path allowlist', trace => {
+        trace.unmodeledEvents.push({
+          kind: 'table-preview-read',
+          note: 'self-test unknown POST',
+          classification: 'unsupported',
+          reason: 'self-test unknown method/path must be rejected',
+          requests: [{ method: 'POST', path: '/authoring/v2/unknown', isMutation: false,
+            browserRequestId: 'unknown-post-self-test', requestId: 'unknown-post-wire-self-test' }],
+        });
+      });
+      mutateCda('read-only-support-mutation-flag', 'independently marked non-mutating', trace => {
+        const event = trace.unmodeledEvents.find(candidate => Array.isArray(candidate.requests) && candidate.requests.length > 0);
+        if (!event) throw new Error('CDA trace lacks grouped read-only support requests for the mutation-flag control');
+        event.requests[0].isMutation = true;
+      });
+      mutateCda('duplicate-native-request-observer-index', 'native request observer index must be unique', trace => {
+        const applies = trace.actions.filter(action => action.label === 'RelatedSourceApply');
+        applies[1].request.index = applies[0].request.index;
+      });
+      mutateCda('native-ledger-missing-modeled-request', 'modeled/support request is absent from the complete native observer ledger', trace => {
+        const action = relationApply(trace);
+        trace.nativeRequests = trace.nativeRequests.filter(entry => entry.browserRequestId !== action.request.browserRequestId);
+      });
+      mutateCda('missing-native-request-ledger', '.nativeRequests must preserve the complete native observer request ledger', trace => {
+        delete trace.nativeRequests;
+      });
+      mutateCda('native-ledger-unknown-mutating-route', 'unknown mutating request', trace => {
+        const request = JSON.parse(JSON.stringify(trace.nativeRequests.find(entry => entry.isMutation === true)));
+        request.index = Math.max(...trace.nativeRequests.map(entry => entry.index)) + 1;
+        request.startedAt = Math.max(...trace.nativeRequests.map(entry => entry.startedAt)) + 1;
+        request.browserRequestId += '-unknown-ledger-self-test';
+        if (typeof request.requestId === 'string') request.requestId += '-unknown-ledger-self-test';
+        request.path = '/authoring/v2/unknown-mutating-route';
+        trace.nativeRequests.push(request);
+      });
+      mutateCda('native-ledger-unbound-read-only-request', 'no modeled action or explicit read-only support binding', trace => {
+        const request = JSON.parse(JSON.stringify(trace.nativeRequests.find(entry => entry.isMutation === false)));
+        request.index = Math.max(...trace.nativeRequests.map(entry => entry.index)) + 1;
+        request.startedAt = Math.max(...trace.nativeRequests.map(entry => entry.startedAt)) + 1;
+        request.browserRequestId += '-unbound-ledger-self-test';
+        if (typeof request.requestId === 'string') request.requestId += '-unbound-ledger-self-test';
+        trace.nativeRequests.push(request);
+      });
+      mutateCda('native-ledger-duplicate-browser-request-id', 'browserRequestId must be unique across the complete observer ledger', trace => {
+        trace.nativeRequests.push(JSON.parse(JSON.stringify(trace.nativeRequests[0])));
+      });
+      mutateCda('nonmonotonic-native-request-start-time', 'native request start times must follow the observer index chronology', trace => {
+        const applies = trace.actions.filter(action => action.label === 'RelatedSourceApply');
+        applies[1].request.startedAt = applies[0].request.startedAt - 1;
+        applies[1].settlement.startedAt = applies[1].request.startedAt;
+      });
+      const observedOwnerEpochs = new Set(cdaTrace.actions
+        .filter(action => ['Preview', 'RelatedSourcePreview'].includes(action.label))
+        .map(action => (action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner ??
+          action.relatedSourceLifecycle?.owner)?.mountEpoch)
+        .filter(Number.isInteger));
+      for (const epoch of [...observedOwnerEpochs].sort((left, right) => left - right)) {
+        mutateCda('request-owner-mount-epoch-' + epoch,
+          'INVALID trace', trace => {
+            const proposal = trace.actions.find(action =>
+              ['Preview', 'RelatedSourcePreview'].includes(action.label) &&
+              (action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner ??
+                action.relatedSourceLifecycle?.owner)?.mountEpoch === epoch);
+            if (!proposal) throw new Error('CDA trace lacks a proposal owner at observed mount epoch ' + epoch);
+            const lifecycle = proposal.groupLifecycle ?? proposal.rowExpansionLifecycle ?? proposal.relatedSourceLifecycle;
+            lifecycle.owner.mountEpoch = (epoch + 1) % (cdaJourneyCase.maxMountEpoch + 1);
+          });
+      }
+
+      if (selfTestOutputPath) {
+        const allSelfTestsPassed = crossEvidencePassed && choiceProofPassed && requestCancellationPassed &&
+          repeatEditOwnerPassed && repeatEditRequiredPassed && lateAbortOwnerPassed &&
+          groupLifecycleControlsPassed && cdaControlsPassed &&
+          cdaControlResults.every(result => result.status === 'pass');
+        const receipt = {
+          traceName: cdaJourneyCase.traceName,
+          nativeCaseKey: cdaJourneyCase.workflow,
+          tracePath: resolve(ROOT, tracesPath),
+          status: allSelfTestsPassed ? 'pass' : 'fail',
+          mutationControls: cdaControlResults,
+        };
+        mkdirSync(dirname(resolve(ROOT, selfTestOutputPath)), { recursive: true });
+        writeFileSync(resolve(ROOT, selfTestOutputPath), JSON.stringify(receipt, null, 2) + '\n');
+      }
+    }
+  }
   rmSync(workDirectory, { recursive: true, force: true });
   if (!crossEvidencePassed || !choiceProofPassed || !requestCancellationPassed
-    || !repeatEditOwnerPassed || !repeatEditRequiredPassed || !lateAbortOwnerPassed || !groupLifecycleControlsPassed) process.exit(1);
+    || !repeatEditOwnerPassed || !repeatEditRequiredPassed || !lateAbortOwnerPassed || !groupLifecycleControlsPassed
+    || !cdaControlsPassed) process.exit(1);
   console.log('PASS BuilderJourney cross-evidence, choice-proof, and request-cancellation self-test');
   process.exit(0);
 }
