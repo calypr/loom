@@ -2,22 +2,29 @@
 
 The family rules in `verification/builder-interactions/mjs-focused-check-families.json` discover matching Node tests through the existing obligation import edges. The migration command validates each test-to-oracle-to-workflow-to-case chain, applies a generated JSON attachment consumed by the canonical registry, and adds the matching source-claim links. It does not infer TLA coverage.
 
-## Reproduce the migration
+## Recreate the initial application
 
-Regenerate and verify the catalogue before planning:
+The accepted non-empty plan was generated from clean pre-apply baseline `66c55c067`. The exact reviewed plan is [`evidence/initial-applied-plan.json`](evidence/initial-applied-plan.json), SHA-256 `7352000f4e7a0ef14802095faf3deb1ce8513a36ec38c5b07129a6b6a6a345aa`. It records two attachments, twelve domain claim edits, and two discovery edits with token `b2c9ac4cfde17ad3b5535ead0df5954d9823bd06f3104804684df01acdef7f2e`.
+
+Recreate that plan in a separate worktree at the baseline:
 
 ```bash
-node scripts/build-test-obligations.mjs
+git worktree add --detach /tmp/loom-mjs-focused-check-baseline 66c55c067
+cd /tmp/loom-mjs-focused-check-baseline
 node scripts/build-test-obligations.mjs --check
 node scripts/migrate-mjs-focused-checks.mjs --plan > /tmp/mjs-focused-check-plan.json
 ```
 
-Review the two case attachments, twelve claim edits, and source hashes in the plan. Copy its `planToken` into the apply command, then verify the registry consumes the result:
+Review the plan and apply its token. Then regenerate obligations for the new claim links and verify the registry consumes the attachments:
 
 ```bash
-node scripts/migrate-mjs-focused-checks.mjs --apply --plan-token <reviewed-plan-token>
+node scripts/migrate-mjs-focused-checks.mjs --apply --plan-token b2c9ac4cfde17ad3b5535ead0df5954d9823bd06f3104804684df01acdef7f2e
+node scripts/build-test-obligations.mjs
+node scripts/build-test-obligations.mjs --check
 node scripts/migrate-mjs-focused-checks.mjs --check
 ```
+
+On the current applied checkout, `--plan` correctly reports a no-op with zero pending edits; it will not recreate the initial twelve claim edits. The current no-op token is `bb0a25ded72289dcea6a27f95610bee659fa8c2492ae10cc36b76fd01289972d`.
 
 Run the registered checks through the existing runner:
 
