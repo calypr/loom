@@ -1,0 +1,44 @@
+{
+  "fixtureKind": "sanitized-incomplete-temporal-capture-unit-input",
+  "nativeBrowserProof": false,
+  "sourceArtifact": "formal-temporal-date-a1eed12f-20261025-run1/report-native-report.json",
+  "sourceReportSha256": "bdc4bbb7aa885528bcb83299f20acab3f74b3e7b80f35ba9340afe830799948c",
+  "report": {
+    "status": "failed",
+    "scenario": "basic-temporal-filter",
+    "case": "date",
+    "targetBuilderJourneyTracePresent": false,
+    "canonicalJourneyTracePresent": false,
+    "formalProofAssertionCount": 0
+  },
+  "rawCaptureShape": {
+    "schemaVersion": 1,
+    "scenario": "basic-temporal-filter",
+    "caseName": "date",
+    "projectPresentAtCaptureScope": true,
+    "explorerPresentAtCaptureScope": true,
+    "builderReadCount": 18,
+    "firstSavedBuilderReadFields": [
+      "readId",
+      "requestStartedAtMonotonicMs",
+      "requestStartedAtEpochMs",
+      "requestMountEpoch",
+      "capturedAtMonotonicMs",
+      "capturedAtEpochMs",
+      "mountEpoch",
+      "status",
+      "requestId",
+      "catalogGeneration",
+      "snapshotToken",
+      "draftVersion",
+      "draftDigest",
+      "workspaceDocuments"
+    ],
+    "missingSavedBuilderReadOwnershipFields": [
+      "requestMethod",
+      "requestPath",
+      "requestProject",
+      "requestExplorerId"
+    ]
+  }
+}

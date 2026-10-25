@@ -38,6 +38,10 @@ import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journe
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
+const policyReceiptHistoryFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/native-policy-receipt-history.fixture.json', import.meta.url), 'utf8'));
+const incompleteTemporalDateFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/native-temporal-date-incomplete-capture.fixture.json', import.meta.url), 'utf8'));
 const makeRepositoryArtifactDirectory = (prefix) => {
   const artifacts = join(REPOSITORY_ROOT, '.artifacts');
   mkdirSync(artifacts, { recursive: true });
@@ -51,6 +55,19 @@ const canonicalJson = (value) => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const copy = (value) => structuredClone(value);
+const directApiBuilderPath = (project, explorerId) =>
+  `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`;
+const bindSyntheticTemporalBuilderReadOwnership = (capture) => {
+  const requestPath = directApiBuilderPath(capture.project, capture.explorerId);
+  capture.builderReads = capture.builderReads.map(read => ({
+    ...read,
+    requestMethod: 'GET',
+    requestPath,
+    requestProject: capture.project,
+    requestExplorerId: capture.explorerId,
+  }));
+  return capture;
+};
 
 test('native request coverage accounts for setup mutations without action credit or double counting', () => {
   const valid = {
@@ -421,7 +438,8 @@ const nativeFormalConformanceFixtureProducers = Object.freeze({
     trace: makeSyntheticPolicyOneJourneyTrace(),
   }),
   'temporal-filter-journey-v1': ({ adapter }) => {
-    const capture = makeTemporalFilterJourneyCaptureFixture(adapter.caseName);
+    const capture = bindSyntheticTemporalBuilderReadOwnership(
+      makeTemporalFilterJourneyCaptureFixture(adapter.caseName));
     return {
       synthetic: true,
       producer: 'checked-in makeTemporalFilterJourneyCaptureFixture + adaptTemporalFilterJourney',
@@ -430,7 +448,7 @@ const nativeFormalConformanceFixtureProducers = Object.freeze({
   },
 });
 
-const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, scenarioID, caseName }) => {
+const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, scenarioID, caseName, traceProvenance = {} }) => {
   assert.equal(typeof adapter.validateTrace, 'function',
     `${binding.captureAdapter} must expose its production trace validator.`);
   assert.equal(typeof adapter.compileTrace, 'function',
@@ -460,7 +478,16 @@ const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, s
   assert.deepEqual(controls.map(control => control.name), contract.nativeJourney.requiredMutationControlNames);
   const actionLabels = trace.actions.map(action => action.label);
   const tracePath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.trace.json`);
-  const traceDocument = { schemaVersion: 1, fixture: { kind: 'synthetic-unit-fixture' }, traces: [trace] };
+  const replayReportPath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.tla.json`);
+  const traceDocument = {
+    schemaVersion: 1,
+    sourceProfile: 'journey',
+    sourceCommit: traceProvenance.sourceCommit ?? 'b'.repeat(40),
+    sourceFingerprint: traceProvenance.sourceFingerprint ?? 'c'.repeat(64),
+    contractSourceCommit: contract.sourceCommit,
+    fixture: { kind: 'synthetic-unit-fixture', nativeBrowserProof: false },
+    traces: [trace],
+  };
   writeFileSync(tracePath, JSON.stringify(traceDocument));
   const traceSha256 = sha256(readFileSync(tracePath));
   const selfTestReportPath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.self-test.json`);
@@ -470,6 +497,7 @@ const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, s
     traceName: binding.name,
     nativeCaseKey: `${scenarioID}/${caseName}`,
     tracePath,
+    replayReportPath,
     traceSha256,
     actionLabels,
     status: 'pending-self-test',
@@ -496,12 +524,125 @@ const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, s
     nativeCaseKey: `${scenarioID}/${caseName}`,
     actionLabels,
     tracePath,
+    replayReportPath,
     traceSha256,
     selfTestReportPath,
     contract,
     traceDocument,
     requestCoverageFields: adapter.requestCoverageFields,
   });
+};
+
+const makeSyntheticTemporalOuterEvidenceFixture = ({ t, trace, binding, registeredCase, adapter }) => {
+  const root = makeRepositoryArtifactDirectory('native-temporal-outer-inspector-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const contract = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, binding.contract), 'utf8'));
+  const proofSourcePath = 'proof-source.txt';
+  const proofSourceBytes = Buffer.from('synthetic native DATE proof source');
+  writeFileSync(join(root, proofSourcePath), proofSourceBytes);
+  const proofSourceEntry = { path: proofSourcePath, sha256: sha256(proofSourceBytes) };
+  const proofSourceFingerprint = sha256(canonicalJson([proofSourceEntry]));
+  const manifestPath = join(root, 'verification/builder-interactions/builder-preview-contract.json');
+  mkdirSync(resolve(manifestPath, '..'), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify({ sources: [proofSourceEntry] }));
+  const contractPath = join(root, binding.contract);
+  mkdirSync(resolve(contractPath, '..'), { recursive: true });
+  writeFileSync(contractPath, JSON.stringify(contract));
+
+  const traceProvenance = {
+    sourceCommit: 'a'.repeat(40),
+    sourceFingerprint: proofSourceFingerprint,
+  };
+  const receipt = syntheticAdapterReceiptFor({
+    root, trace, binding, adapter, contract,
+    scenarioID: 'basic-temporal-filter', caseName: 'date', traceProvenance,
+  });
+  receipt.requiredMutationControlNames = contract.nativeJourney.requiredMutationControlNames;
+  const traceDocument = JSON.parse(readFileSync(receipt.tracePath, 'utf8'));
+  const replayReceipt = {
+    ...copy(receipt),
+    status: 'pending-self-test',
+    selfTestStatus: 'not-run',
+    selfTestReportPath: null,
+  };
+  delete replayReceipt.mutationControls;
+  const replay = {
+    sourceProfile: 'journey',
+    sourceCommit: traceProvenance.sourceCommit,
+    sourceFingerprint: proofSourceFingerprint,
+    contractSourceCommit: contract.sourceCommit,
+    traceSha256: receipt.traceSha256,
+    traceCount: 1,
+    uniqueTraceCount: 1,
+    validatedCount: 1,
+    invalidCount: 0,
+    coverage: {
+      requiredModels: { missing: [] },
+      requiredActions: { missing: [] },
+      requiredActionsByTrace: { missing: {} },
+      requiredEvents: { missing: [] },
+    },
+    unmodeledEvents: receipt.unmodeledEvents,
+    traces: [{
+      name: trace.name,
+      model: trace.model,
+      status: 'pass',
+      actionCount: trace.actions.length,
+      tlc: { stateCount: 1, distinctStateCount: 1, depth: 1 },
+    }],
+    builderJourneyTrace: replayReceipt,
+  };
+  writeFileSync(receipt.replayReportPath, JSON.stringify(replay));
+  const selfTest = {
+    traceName: binding.name,
+    nativeCaseKey: 'basic-temporal-filter/date',
+    tracePath: receipt.tracePath,
+    traceSha256: receipt.traceSha256,
+    selfTestReportPath: receipt.selfTestReportPath,
+    status: 'pass',
+    mutationControls: receipt.mutationControls,
+  };
+  writeFileSync(receipt.selfTestReportPath, JSON.stringify(selfTest));
+  const report = {
+    scenario: 'basic-temporal-filter',
+    case: 'date',
+    nativeBrowserProof: false,
+    target: { builderJourneyTrace: receipt },
+    assertions: [{ name: binding.formalProofAssertion, status: 'passed', evidence: receipt }],
+  };
+  const reportPath = join(root, 'synthetic-date-native-report.json');
+  writeFileSync(reportPath, JSON.stringify(report));
+  return {
+    root,
+    report,
+    reportPath,
+    registeredCase,
+    receipt,
+    replay,
+    selfTest,
+    traceDocument,
+    sourceStatus: { status: 'current' },
+  };
+};
+
+const rewriteSyntheticTemporalOuterTrace = (fixture, trace) => {
+  const traceDocument = copy(fixture.traceDocument);
+  traceDocument.traces[0] = trace;
+  const traceBytes = Buffer.from(JSON.stringify(traceDocument));
+  writeFileSync(fixture.receipt.tracePath, traceBytes);
+  const traceSha256 = sha256(traceBytes);
+  const receipt = { ...copy(fixture.receipt), traceSha256 };
+  const replay = copy(fixture.replay);
+  replay.traceSha256 = traceSha256;
+  replay.builderJourneyTrace.traceSha256 = traceSha256;
+  const selfTest = { ...copy(fixture.selfTest), traceSha256 };
+  const report = copy(fixture.report);
+  report.target.builderJourneyTrace = receipt;
+  report.assertions[0].evidence = receipt;
+  writeFileSync(receipt.replayReportPath, JSON.stringify(replay));
+  writeFileSync(receipt.selfTestReportPath, JSON.stringify(selfTest));
+  writeFileSync(fixture.reportPath, JSON.stringify(report));
+  return { ...fixture, report, receipt, replay, selfTest, traceDocument };
 };
 
 test('synthetic conformance covers every registered native lifecycle from focused plan through production trace consumers', (t) => {
@@ -912,6 +1053,144 @@ test('current browser evidence requires the retained replay receipt and passing 
   tamperedTrace.traces[0].actions[0].label = 'PreviewError';
   writeFileSync(fixture.evidence.tracePath, JSON.stringify(tamperedTrace));
   assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /do not bind the exact retained trace bytes/);
+});
+
+test('sanitized Policy receipts accept the complete retained shape and reject missing, partial, and duplicate proof assertions', () => {
+  assert.equal(policyReceiptHistoryFixture.nativeBrowserProof, false,
+    'Portable Policy receipt excerpts are unit inputs, not browser proof artifacts.');
+  assert.match(policyReceiptHistoryFixture.completeAccepted.sourceReportSha256, /^[0-9a-f]{64}$/u);
+  assert.match(policyReceiptHistoryFixture.historicalB2ePartial.sourceReportSha256, /^[0-9a-f]{64}$/u);
+  assert(policyReceiptHistoryFixture.historicalB2ePartial.assertionReceiptKeys.includes('actionCount'));
+  assert.equal(Object.hasOwn(policyReceiptHistoryFixture.historicalB2ePartial.assertionReceipt, 'traceName'), false,
+    'The historical b2e assertion receipt must retain its actual partial shape.');
+
+  const scenarioID = 'builder-authoring';
+  const caseName = 'patient-one-disagreement';
+  const registeredCase = scenarioCaseFor(scenarioID, caseName);
+  const binding = registeredCase.journeyTrace;
+  const toReport = evidence => ({
+    scenario: scenarioID,
+    case: caseName,
+    target: { builderJourneyTrace: copy(evidence.targetReceipt) },
+    assertions: [{
+      name: evidence.assertionName,
+      status: evidence.assertionStatus,
+      evidence: copy(evidence.assertionReceipt),
+    }],
+  });
+  const completeReport = toReport(policyReceiptHistoryFixture.completeAccepted);
+  const completeReceipt = nativeBuilderJourneyReceiptFromReport(completeReport, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  });
+  assert.deepEqual(completeReceipt, policyReceiptHistoryFixture.completeAccepted.assertionReceipt);
+  assert.equal(completeReceipt.status, 'pass');
+  assert.equal(completeReceipt.replayStatus, 'pass');
+  assert.equal(completeReceipt.selfTestStatus, 'pass');
+  assert.equal(completeReceipt.requestCoverage.unmapped, 0);
+  assert.equal(completeReceipt.requestCoverage.duplicates, 0);
+
+  const partialReport = toReport(policyReceiptHistoryFixture.historicalB2ePartial);
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(partialReport, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /traceName must match the registered trace/u,
+  'The old b2e outer report must fail because its assertion contains only summary fields.');
+  assert.throws(() => currentFormalJourneyEvidence(REPOSITORY_ROOT, partialReport, registeredCase,
+    { status: 'current' }, '.artifacts/never-read-policy-b2e-report.json'),
+  /traceName must match the registered trace/u,
+  'The outer evidence inspector must reject the same historical partial assertion before resolving archive paths.');
+
+  const missingAssertion = copy(completeReport);
+  missingAssertion.assertions = [];
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(missingAssertion, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /exactly one registered formal proof assertion/u);
+
+  const duplicateAssertion = copy(completeReport);
+  duplicateAssertion.assertions.push(copy(duplicateAssertion.assertions[0]));
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(duplicateAssertion, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /exactly one registered formal proof assertion/u);
+});
+
+test('DATE compiler and outer inspector bind each saved Builder read to its owned project and Explorer route', (t) => {
+  assert.equal(incompleteTemporalDateFixture.nativeBrowserProof, false,
+    'The retained a1eed DATE capture is incomplete and must never be treated as browser proof.');
+  assert.equal(incompleteTemporalDateFixture.report.status, 'failed');
+  assert.equal(incompleteTemporalDateFixture.report.targetBuilderJourneyTracePresent, false);
+  assert.equal(incompleteTemporalDateFixture.report.canonicalJourneyTracePresent, false);
+  assert.equal(incompleteTemporalDateFixture.report.formalProofAssertionCount, 0);
+  assert.deepEqual(incompleteTemporalDateFixture.rawCaptureShape.missingSavedBuilderReadOwnershipFields,
+    ['requestMethod', 'requestPath', 'requestProject', 'requestExplorerId']);
+
+  const scenarioID = 'basic-temporal-filter';
+  const caseName = 'date';
+  const registeredCase = scenarioCaseFor(scenarioID, caseName);
+  const binding = registeredCase.journeyTrace;
+  const incompleteReport = {
+    scenario: scenarioID,
+    case: caseName,
+    status: incompleteTemporalDateFixture.report.status,
+    nativeBrowserProof: false,
+    target: {},
+    assertions: [],
+  };
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(incompleteReport, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /exactly one registered formal proof assertion/u);
+  assert.throws(() => currentFormalJourneyEvidence(REPOSITORY_ROOT, incompleteReport, registeredCase,
+    { status: 'current' }, '.artifacts/never-read-incomplete-date-report.json'),
+  /exactly one registered formal proof assertion/u,
+  'The outer inspector must not promote the retained DATE browser report without a canonical proof receipt.');
+
+  const adapter = builderFormalAdapterForBinding(binding);
+  const contract = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, binding.contract), 'utf8'));
+  const capture = bindSyntheticTemporalBuilderReadOwnership(makeTemporalFilterJourneyCaptureFixture(caseName));
+  const trace = adaptTemporalFilterJourney(capture);
+  for (const read of trace.temporalFilterLifecycle.builderReads) {
+    assert.equal(read.requestMethod, 'GET');
+    assert.equal(read.requestPath, directApiBuilderPath(capture.project, capture.explorerId));
+    assert.equal(read.requestProject, capture.project);
+    assert.equal(read.requestExplorerId, capture.explorerId);
+  }
+  assert.equal(adapter.validateTrace(trace).caseName, caseName);
+  assert.match(adapter.compileTrace(trace, { moduleName: 'TemporalDateOwnedReadPositive' }).moduleText,
+    /TraceObservedBuilderReads/u);
+
+  const outer = makeSyntheticTemporalOuterEvidenceFixture({
+    t, trace, binding, registeredCase, adapter,
+  });
+  const accepted = currentFormalJourneyEvidence(outer.root, outer.report, registeredCase,
+    outer.sourceStatus, outer.reportPath);
+  assert.equal(accepted.status, 'current');
+  assert.equal(accepted.name, binding.name);
+
+  const wrongPath = `${directApiBuilderPath(capture.project, capture.explorerId).replace(
+    '/authoring/v2/builder', '/authoring/v2/capability')}`;
+  const tamperedTrace = copy(trace);
+  const tamperedRead = tamperedTrace.temporalFilterLifecycle.builderReads[0];
+  tamperedRead.requestPath = wrongPath;
+  assert.equal(tamperedRead.requestProject, capture.project,
+    'The path mutation leaves the exact project identity unchanged.');
+  assert.equal(tamperedRead.requestExplorerId, capture.explorerId,
+    'The path mutation leaves the exact Explorer identity unchanged.');
+  assert.notEqual(tamperedRead.requestPath, directApiBuilderPath(tamperedRead.requestProject,
+    tamperedRead.requestExplorerId));
+  assert.throws(() => adapter.compileTrace(tamperedTrace, { moduleName: 'TemporalDateOwnedReadPathTamper' }),
+    /exact encoded project and Explorer route/u,
+    'DATE TLA compilation must reject a Builder GET path tamper even when project and Explorer fields still match.');
+
+  const tamperedCapture = copy(capture);
+  tamperedCapture.builderReads[0].requestPath = wrongPath;
+  assert.equal(tamperedCapture.builderReads[0].requestProject, capture.project);
+  assert.equal(tamperedCapture.builderReads[0].requestExplorerId, capture.explorerId);
+  assert.throws(() => adaptTemporalFilterJourney(tamperedCapture), /created Explorer route/u,
+    'The canonical producer must reject the same read-path-only mutation.');
+
+  const tamperedOuter = rewriteSyntheticTemporalOuterTrace(outer, tamperedTrace);
+  assert.throws(() => currentFormalJourneyEvidence(tamperedOuter.root, tamperedOuter.report,
+    registeredCase, tamperedOuter.sourceStatus, tamperedOuter.reportPath),
+  /exact encoded project and Explorer route/u,
+  'The outer inspector must reject a tampered read path even after all report/trace hashes are rebound.');
 });
 
 test('CDA request coverage binds false-flag proposal previews and true-flag commands, but rejects unknown false POSTs', () => {
