@@ -295,23 +295,47 @@ function cdaCreateGroupTargetStepProblem(intent, where, savedBefore = undefined)
     return where + '.targetStepId must match the actual proposed new Group stepId';
   }
   const body = intent.rawProposalBody;
-  const steps = body?.candidateConstruction?.steps;
-  const matchingGroups = Array.isArray(steps)
-    ? steps.filter((step) => step?.id === intent.targetStepId && step?.operation?.kind === 'GROUP')
+  const candidateConstruction = body?.candidateConstruction;
+  const steps = candidateConstruction?.steps;
+  const groupSteps = Array.isArray(steps)
+    ? steps.filter((step) => step?.operation?.kind === 'GROUP')
     : [];
-  if (body?.changedStepId !== intent.targetStepId || matchingGroups.length !== 1) {
-    return where + '.targetStepId must match changedStepId and exactly one proposed GROUP step';
+  const matchingGroups = groupSteps.filter((step) => step?.id === intent.targetStepId);
+  if (body?.changedStepId !== intent.targetStepId || groupSteps.length !== 1 || matchingGroups.length !== 1) {
+    return where + '.targetStepId must match changedStepId and candidateConstruction must contain exactly one proposed GROUP step';
   }
-  if (savedBefore !== undefined) {
-    if (!isPlainObject(savedBefore) || savedBefore.group !== null) {
-      return where + ' create intent requires a savedBefore projection with no Group';
+  if (new Set(steps.map((step) => step?.id)).size !== steps.length ||
+      steps.some((step) => typeof step?.id !== 'string' || step.id.length === 0)) {
+    return where + '.rawProposalBody.candidateConstruction step IDs must be unique';
+  }
+  if (!isPlainObject(savedBefore) || savedBefore.group !== null) {
+    return where + ' create intent requires a savedBefore projection with no Group';
+  }
+  const selected = savedBuilderDocument(savedBefore, where + '.savedBefore');
+  if (selected.problem) return selected.problem;
+  const savedConstruction = selected.document.construction;
+  if (!isPlainObject(savedConstruction) || !Array.isArray(savedConstruction.steps)) {
+    return where + '.savedBefore must retain the actual construction before appending a new Group';
+  }
+  const savedSteps = savedConstruction.steps;
+  if (savedSteps.some((step) => step?.id === intent.targetStepId)) {
+    return where + '.targetStepId must be new and absent from the savedBefore construction';
+  }
+  if (steps.length !== savedSteps.length + 1 || steps[savedSteps.length]?.id !== intent.targetStepId ||
+      steps[savedSteps.length]?.operation?.kind !== 'GROUP') {
+    return where + '.rawProposalBody.candidateConstruction must append exactly one new GROUP after the savedBefore steps';
+  }
+  for (let index = 0; index < savedSteps.length; index += 1) {
+    if (canonicalJson(steps[index]) !== canonicalJson(savedSteps[index])) {
+      return where + '.rawProposalBody.candidateConstruction must preserve every savedBefore step before appending the new Group';
     }
-    const selected = savedBuilderDocument(savedBefore, where + '.savedBefore');
-    if (selected.problem) return selected.problem;
-    const savedSteps = selected.document.construction?.steps ?? [];
-    if (savedSteps.some((step) => step?.id === intent.targetStepId)) {
-      return where + '.targetStepId must be new and absent from the savedBefore construction';
-    }
+  }
+  const savedConstructionMetadata = structuredClone(savedConstruction);
+  const candidateConstructionMetadata = structuredClone(candidateConstruction);
+  delete savedConstructionMetadata.steps;
+  delete candidateConstructionMetadata.steps;
+  if (canonicalJson(savedConstructionMetadata) !== canonicalJson(candidateConstructionMetadata)) {
+    return where + '.rawProposalBody.candidateConstruction must preserve savedBefore construction metadata';
   }
   return null;
 }
@@ -1057,7 +1081,8 @@ function cdaGroupCandidateResponseProblem(intent, savedBefore, requestedConstruc
   }
   const beforeDocument = savedBuilderDocument(savedBefore, where + '.savedBefore');
   if (beforeDocument.problem) return beforeDocument.problem;
-  const savedGroupSteps = (beforeDocument.document.construction?.steps ?? []).filter((step) =>
+  const savedConstructionSteps = beforeDocument.document.construction?.steps ?? [];
+  const savedGroupSteps = savedConstructionSteps.filter((step) =>
     step?.id === savedBefore.group.stepId && step?.operation?.kind === 'GROUP');
   const requestedGroupSteps = requestedConstruction.steps.filter((step) =>
     step?.id === intent.targetStepId && step?.operation?.kind === 'GROUP');
@@ -1119,6 +1144,8 @@ function cdaGroupCandidateResponseProblem(intent, savedBefore, requestedConstruc
   const savedGroupOutputs = savedGroupStep.outputs ?? [];
   const requestedGroupOutputs = requestedGroupStep.outputs ?? [];
   if (savedGroupOutputs.length !== requestedGroupOutputs.length) return mismatch;
+  const savedAffectedGroupOutputs = savedGroupOutputs.filter((output) => output?.id === affectedOutputId);
+  if (savedAffectedGroupOutputs.length !== 1) return mismatch;
   let changedAggregateOutput = false;
   for (let outputIndex = 0; outputIndex < savedGroupOutputs.length; outputIndex += 1) {
     const savedOutput = savedGroupOutputs[outputIndex];
@@ -1144,11 +1171,28 @@ function cdaGroupCandidateResponseProblem(intent, savedBefore, requestedConstruc
       canonicalJson(groupOutputMatches[0]) !== canonicalJson(responseGroupOutputMatches[0])) return mismatch;
   const groupOutput = responseGroupOutputMatches[0];
   const groupStepIndex = requestedConstruction.steps.indexOf(requestedGroupStep);
+  const savedGroupStepIndex = savedConstructionSteps.indexOf(savedGroupStep);
+  const savedRelatedSteps = savedConstructionSteps.filter((step) => step?.operation?.kind === 'RELATED_SOURCE' &&
+    Array.isArray(step.inputs) && step.inputs.length === 1 && step.inputs[0]?.kind === 'STEP_OUTPUT' &&
+    step.inputs[0]?.stepId === intent.targetStepId &&
+    (step.outputs ?? []).some((output) => output?.id === affectedOutputId));
+  if (savedRelatedSteps.length !== 1 || savedConstructionSteps.indexOf(savedRelatedSteps[0]) <= savedGroupStepIndex) {
+    return mismatch;
+  }
+  const savedRelatedOutputMatches = (savedRelatedSteps[0].outputs ?? []).filter((output) =>
+    output?.id === affectedOutputId);
+  if (savedRelatedOutputMatches.length !== 1 || typeof savedRelatedOutputMatches[0].name !== 'string' ||
+      typeof savedRelatedOutputMatches[0].label !== 'string' ||
+      savedRelatedOutputMatches[0].id !== savedAffectedGroupOutputs[0].id) {
+    return mismatch;
+  }
+  const savedRelatedOutput = savedRelatedOutputMatches[0];
   const relatedStepIndexes = [];
   for (let stepIndex = groupStepIndex + 1; stepIndex < requestedConstruction.steps.length; stepIndex += 1) {
     const step = requestedConstruction.steps[stepIndex];
     const inputs = step?.inputs;
-    if (step?.operation?.kind === 'RELATED_SOURCE' && Array.isArray(inputs) && inputs.length === 1 &&
+    if (step?.id === savedRelatedSteps[0].id && step?.operation?.kind === 'RELATED_SOURCE' &&
+        Array.isArray(inputs) && inputs.length === 1 &&
         inputs[0]?.kind === 'STEP_OUTPUT' && inputs[0]?.stepId === intent.targetStepId &&
         (step.outputs ?? []).some((output) => output?.id === affectedOutputId)) {
       relatedStepIndexes.push(stepIndex);
@@ -1175,6 +1219,9 @@ function cdaGroupCandidateResponseProblem(intent, savedBefore, requestedConstruc
       const responseOutput = responseStep.outputs[outputIndex];
       if (requestedOutput?.id !== responseOutput?.id) return mismatch;
       if (stepIndex === relatedStepIndex && requestedOutput.id === affectedOutputId) {
+        if (requestedOutput.name !== savedRelatedOutput.name || requestedOutput.label !== savedRelatedOutput.label) {
+          return where + ' request RELATED_SOURCE carried Group output name/label must match the saved raw RELATED_SOURCE output';
+        }
         const requestedComparable = { ...requestedOutput };
         const responseComparable = { ...responseOutput };
         delete requestedComparable.name;
@@ -1201,11 +1248,6 @@ function cdaGroupLifecycleSnapshotProblem(action, where, journeyCase) {
         lifecycle.owner.documentTimeOrigin !== lifecycle.documentTimeOrigin) {
       return where + '.groupLifecycle.owner must retain the request-start mount epoch and document time origin';
     }
-    const rawBodyProblem = candidateIntentRawBodyProblem(
-      lifecycle.candidateIntent,
-      where + '.groupLifecycle.candidateIntent',
-    );
-    if (rawBodyProblem) return rawBodyProblem;
     if (journeyCase) {
       const targetProblem = cdaCreateGroupTargetStepProblem(
         lifecycle.candidateIntent,
@@ -1214,6 +1256,11 @@ function cdaGroupLifecycleSnapshotProblem(action, where, journeyCase) {
       );
       if (targetProblem) return targetProblem;
     }
+    const rawBodyProblem = candidateIntentRawBodyProblem(
+      lifecycle.candidateIntent,
+      where + '.groupLifecycle.candidateIntent',
+    );
+    if (rawBodyProblem) return rawBodyProblem;
     if (!isPlainObject(action.request?.request) ||
         canonicalJson(lifecycle.candidateIntent.rawProposalBody) !== canonicalJson(action.request.request)) {
       return where + '.groupLifecycle.candidateIntent.rawProposalBody must match the actual native proposal request body';

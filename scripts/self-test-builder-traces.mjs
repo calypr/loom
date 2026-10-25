@@ -757,9 +757,49 @@ const cdaGroupCreateTargetIdentityTest = () => {
     id: target, operation: { kind: 'RELATED_EXPAND' }, outputs: [],
   });
   const savedBeforeCollisionRejected = Boolean(groupLifecycleShapeProblem(savedBeforeCollision, 'fixture', true, ...options));
+  const createCandidateMutationRejected = (mutate, expectedDiagnostic) => {
+    const changed = structuredClone(action);
+    const changedIntent = changed.groupLifecycle.candidateIntent;
+    mutate(changedIntent.rawProposalBody.candidateConstruction, changedIntent);
+    if (changed.request?.request) {
+      changed.request.request.candidateConstruction =
+        structuredClone(changedIntent.rawProposalBody.candidateConstruction);
+    }
+    const validatorDiagnostic = groupLifecycleShapeProblem(changed, 'fixture', true, ...options);
+    const snapshotDiagnostic = cdaGroupLifecycleSnapshotProblem(
+      changed, 'fixture', contract.journeyCase,
+    );
+    let compilerRejected = false;
+    try {
+      cdaCandidateIntentForTla(changedIntent, tokens.stepTokens, tokens.keyTokens,
+        'fixture.groupLifecycle.candidateIntent', changed.groupLifecycle.savedBefore);
+    } catch {
+      compilerRejected = true;
+    }
+    return typeof validatorDiagnostic === 'string' && validatorDiagnostic.includes(expectedDiagnostic) &&
+      typeof snapshotDiagnostic === 'string' && snapshotDiagnostic.includes(expectedDiagnostic) && compilerRejected;
+  };
+  const extraGroupRejected = createCandidateMutationRejected((construction) => {
+    construction.steps.push({
+      id: 'extra-group-self-test', operation: { kind: 'GROUP', group: {
+        keys: [{ inputColumnId: 'key-self-test' }], aggregates: [{ operation: 'COUNT_ROWS' }],
+      } }, outputs: [{ id: 'extra-output-self-test' }],
+    });
+  }, 'candidateConstruction must contain exactly one proposed GROUP step');
+  const wrongExistingStepRejected = createCandidateMutationRejected((construction) => {
+    construction.steps[0].outputs[0].label = 'changed existing step label';
+  }, 'must preserve every savedBefore step before appending the new Group');
+  const duplicateTargetIdRejected = createCandidateMutationRejected((construction, candidateIntent) => {
+    const existingStepId = construction.steps[0].id;
+    construction.steps.at(-1).id = existingStepId;
+    candidateIntent.targetStepId = existingStepId;
+    candidateIntent.proposed.stepId = existingStepId;
+    candidateIntent.rawProposalBody.changedStepId = existingStepId;
+  }, 'candidateConstruction step IDs must be unique');
   return shapeAccepted && typeof target === 'string' && target === proposedStep && target === bodyTarget &&
     targetAbsentFromSavedBefore && targetAbstractedToNoStep && wrongTargetRejected && missingTargetRejected &&
-    wrongChangedStepIdRejected && savedBeforeCollisionRejected;
+    wrongChangedStepIdRejected && savedBeforeCollisionRejected && extraGroupRejected &&
+    wrongExistingStepRejected && duplicateTargetIdRejected;
 };
 const cdaGroupTokenDomainTest = () => {
   const trace = payload?.traces?.find(candidate => candidate.name === 'cda-builder-group-related-source');
@@ -991,6 +1031,19 @@ const cdaGroupCandidateOutputPropagationTest = () => {
     action.response.candidateConstruction.steps[groupIndex].outputs.find(item => item.id === customOutputId).label =
       'response overwrote authored label';
   });
+  const requestSideMetadataRejected = (field, value) => {
+    const action = structuredClone(customAction);
+    action.request.request.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId)[field] = value;
+    action.groupLifecycle.candidateIntent.rawProposalBody.candidateConstruction =
+      structuredClone(action.request.request.candidateConstruction);
+    const problem = cdaGroupLifecycleSnapshotProblem(
+      action, 'fixture.requestSideGroupOutputPropagation', journeyCase,
+    );
+    return typeof problem === 'string' &&
+      problem.includes('request RELATED_SOURCE carried Group output name/label must match the saved raw RELATED_SOURCE output');
+  };
+  const wrongRequestRelatedNameRejected = requestSideMetadataRejected('name', 'unrelated_request_name');
+  const wrongRequestRelatedLabelRejected = requestSideMetadataRejected('label', 'unrelated request label');
   const wrongOutputIdRejected = mutationRejected(action => {
     action.response.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId).id =
       'different-output-id';
@@ -1006,7 +1059,8 @@ const cdaGroupCandidateOutputPropagationTest = () => {
     action.response.candidateConstruction.steps[relatedIndex].inputs[0].stepId = 'different-group-step';
   });
   return acceptedActual && acceptedCustom && defaultOverwriteRejected && unrelatedLabelRejected &&
-    changedGroupNameRejected && changedGroupLabelRejected && wrongOutputIdRejected &&
+    changedGroupNameRejected && changedGroupLabelRejected && wrongRequestRelatedNameRejected &&
+    wrongRequestRelatedLabelRejected && wrongOutputIdRejected &&
     wrongOutputTypeRejected && wrongOperationRejected && wrongGroupInputRejected;
 };
 const cdaLatePreviewObservationTest = () => {
