@@ -315,6 +315,28 @@ export const readPatientOneChoiceEditor = (doc = globalThis.document) => {
   };
 };
 
+export const openPolicyOneAddColumnsEditor = async (workflow, { readBuilder, expectedSavedState }) => {
+  const { page } = workflow;
+  const rowSettings = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+  const backToTable = rowSettings.getByRole('button', { name: 'Back to table', exact: true });
+  await workflow.action('return to table after applying empty-key COUNT_ROWS Group', backToTable,
+    () => backToTable.click(), {
+      after: () => rowSettings.waitFor({ state: 'hidden' }),
+    });
+  const afterNavigation = await readBuilder();
+  assert.deepEqual(afterNavigation.workspace, expectedSavedState.workspace,
+    'returning to the table after Group Apply must preserve the exact saved workspace');
+  assert.equal(afterNavigation.draftVersion, expectedSavedState.draftVersion,
+    'returning to the table after Group Apply must preserve the saved draft version');
+  assert.equal(afterNavigation.draftDigest, expectedSavedState.draftDigest,
+    'returning to the table after Group Apply must preserve the saved draft digest');
+
+  const addColumns = page.getByTestId('construction-action-add-columns');
+  await workflow.action('open Add Columns for raw Patient ID', addColumns, () => addColumns.click(), {
+    after: () => page.getByRole('region', { name: 'Add columns editor', exact: true }).waitFor({ state: 'visible' }),
+  });
+};
+
 const requireCheck = (workflow, dimension, name, passed, evidence = {}) =>
   workflow.check(dimension, name, passed, evidence);
 
@@ -595,10 +617,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     },
   });
 
-  await workflow.action('open Add Columns for raw Patient ID', page.getByTestId('construction-action-add-columns'),
-    () => page.getByTestId('construction-action-add-columns').click(), {
-      after: () => page.getByRole('region', { name: 'Add columns editor', exact: true }).waitFor({ state: 'visible' }),
-    });
+  await openPolicyOneAddColumnsEditor(workflow, { readBuilder, expectedSavedState: groupedBuilder });
   const addColumnsPolicy = page.getByRole('combobox', { name: 'Values per grouped row', exact: true });
   await addColumnsPolicy.waitFor({ state: 'visible' });
   await workflow.action('set Patient ID grouped-row policy to ONE', addColumnsPolicy,
@@ -1245,8 +1264,12 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   });
   await workflow.action('Apply Group removal to restore Patient rows', page.getByTestId('construction-apply-proposal'),
     () => page.getByTestId('construction-apply-proposal').click(), {
-      after: () => waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
-        expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })) }),
+      after: async () => {
+        await waitForBuilderRenderedGrid(page, { tableSelector: renderedTableSelector,
+          expectedRows: fixtureIDs.map(patientID => ({ [sourceIdColumn.label]: patientID })) });
+        await page.getByRole('dialog', { name: 'Row definition settings', exact: true })
+          .waitFor({ state: 'hidden' });
+      },
     });
   const removalApplyStarted = await removalApplyAttempt.started;
   const removalApplyExchange = await removalApplyAttempt.settled;

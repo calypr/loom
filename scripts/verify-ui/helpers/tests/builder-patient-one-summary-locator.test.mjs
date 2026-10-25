@@ -6,6 +6,7 @@ import { findRenderedBuilderHeaderIndex } from '../builder-rendered-grid.mjs';
 import {
   capturePatientOnePreOneState,
   isNativeGroupProposalReady,
+  openPolicyOneAddColumnsEditor,
   readNativeGroupProposal,
   readPatientOneChoiceEditor,
   readNativeGroupSummary,
@@ -56,6 +57,75 @@ const rowIntentProposalHTML = `
       </div>
     </dialog>
   </main>
+`;
+const policyOneAddColumnsHTML = `
+  <style>
+    #add-columns-action { position: absolute; top: 1rem; left: 1rem; z-index: 1; }
+    #row-settings-overlay { position: fixed; inset: 0; z-index: 50; overflow-y: auto; background: white; }
+  </style>
+  <main>
+    <button id="add-columns-action" type="button" data-testid="construction-action-add-columns"
+      aria-label="Add columns: Bring more information into each row.">Add columns</button>
+    <section aria-label="Add columns editor" data-testid="construction-operation-editor"
+      data-output-id="out_patients" hidden>
+      <label>
+        Values from each row's contributing records
+        <select aria-label="Values per grouped row">
+          <option value="ALL" selected>Keep all distinct values</option>
+          <option value="ONE">Require one distinct value</option>
+        </select>
+      </label>
+      <div role="tablist" aria-label="Column types">
+        <button id="add-columns-tab-coded" type="button" role="tab" aria-selected="true">Coded values</button>
+        <button id="add-columns-tab-fields" type="button" role="tab" aria-selected="false">Other fields</button>
+      </div>
+      <div id="add-columns-tabpanel" role="tabpanel" aria-labelledby="add-columns-tab-coded" hidden>
+        <div data-testid="feature-catalog-raw-fields">
+          <button type="button" aria-label="Select Patient.id" aria-pressed="false">Patient ID</button>
+        </div>
+      </div>
+      <aside aria-label="Selected feature action" hidden>
+        <p role="status">1 feature selected</p>
+        <button type="button">Add 1 selected feature</button>
+      </aside>
+    </section>
+    <div id="row-settings-overlay">
+      <div role="dialog" aria-modal="true" aria-label="Row definition settings">
+        <button id="back-to-table" type="button">Back to table</button>
+        <button type="button" data-testid="construction-action-group-rows" aria-pressed="true">
+          Group and summarize
+        </button>
+      </div>
+    </div>
+  </main>
+  <script>
+    const overlay = document.querySelector('#row-settings-overlay');
+    document.querySelector('#back-to-table').addEventListener('click', () => overlay.remove());
+    const addColumns = document.querySelector('#add-columns-action');
+    const editor = document.querySelector('[aria-label="Add columns editor"]');
+    addColumns.addEventListener('click', () => { editor.hidden = false; });
+    const codedTab = document.querySelector('#add-columns-tab-coded');
+    const fieldsTab = document.querySelector('#add-columns-tab-fields');
+    const tabPanel = document.querySelector('#add-columns-tabpanel');
+    fieldsTab.addEventListener('click', () => {
+      codedTab.setAttribute('aria-selected', 'false');
+      fieldsTab.setAttribute('aria-selected', 'true');
+      tabPanel.setAttribute('aria-labelledby', fieldsTab.id);
+      tabPanel.hidden = false;
+    });
+    const field = document.querySelector('[aria-label="Select Patient.id"]');
+    const action = document.querySelector('[aria-label="Selected feature action"]');
+    field.addEventListener('click', () => {
+      field.setAttribute('aria-pressed', 'true');
+      action.hidden = false;
+    });
+    action.querySelector('button').addEventListener('click', () => {
+      const error = document.createElement('p');
+      error.setAttribute('role', 'alert');
+      error.textContent = 'Patient.id has multiple distinct values.';
+      action.append(error);
+    });
+  </script>
 `;
 
 test('Patient ONE reads Summary 1 from the sibling Reshape editor', async () => {
@@ -108,6 +178,74 @@ test('Patient ONE proposal reader and ready wait observe the row-intent preview 
   assert(countIndex >= 0, `rendered proposal must include Row count: ${JSON.stringify(proposal.headers)}`);
   assert.deepEqual(JSON.parse(proposal.rows[0][idIndex].raw), ['dev-patient-001', 'dev-patient-002']);
   assert.equal(proposal.rows[0][countIndex].text, '2');
+});
+
+test('Policy ONE returns from Group settings before exercising the Add Columns through submit DOM contract', async () => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(policyOneAddColumnsHTML);
+    const savedState = {
+      workspace: { documents: [{ output: { id: 'out_patients' }, construction: { steps: [{ id: 'group-1' }] } }] },
+      draftVersion: 3,
+      draftDigest: 'draft-after-group',
+    };
+    const readBuilderCalls = [];
+    const workflowActionLabels = [];
+    const workflow = {
+      page,
+      action: async (label, _locator, click, { after } = {}) => {
+        workflowActionLabels.push(label);
+        await click();
+        await after?.();
+      },
+    };
+
+    await openPolicyOneAddColumnsEditor(workflow, {
+      readBuilder: async () => {
+        readBuilderCalls.push(true);
+        return structuredClone(savedState);
+      },
+      expectedSavedState: savedState,
+    });
+    assert.deepEqual(workflowActionLabels, [
+      'return to table after applying empty-key COUNT_ROWS Group',
+      'open Add Columns for raw Patient ID',
+    ]);
+    assert.equal(readBuilderCalls.length, 1,
+      'the workflow must independently read the saved Group frame after closing row settings and before opening Add Columns');
+    assert.equal(await page.getByRole('dialog', { name: 'Row definition settings', exact: true }).count(), 0);
+
+    const editor = page.getByRole('region', { name: 'Add columns editor', exact: true });
+    const policy = editor.getByRole('combobox', { name: 'Values per grouped row', exact: true });
+    await policy.selectOption('ONE');
+    await editor.getByRole('tab', { name: 'Other fields', exact: true }).click();
+    const patientIDChoice = editor.locator('[data-testid="feature-catalog-raw-fields"] button[aria-label="Select Patient.id"]');
+    assert.equal(await patientIDChoice.count(), 1);
+    await patientIDChoice.click();
+    assert.equal(await patientIDChoice.getAttribute('aria-pressed'), 'true');
+
+    const selectedOne = await page.evaluate(readPatientOneChoiceEditor);
+    assert.equal(selectedOne.editorOpen, true);
+    assert.equal(selectedOne.editorDocumentId, 'out_patients');
+    assert.equal(selectedOne.selectedField, 'Patient.id');
+    assert.equal(selectedOne.fieldSelected, true);
+    assert.equal(selectedOne.policy, 'ONE');
+    assert.deepEqual(selectedOne.availablePolicies, ['ALL', 'ONE']);
+    assert.equal(selectedOne.errorVisible, false);
+
+    await editor.getByRole('button', { name: 'Add 1 selected feature', exact: true }).click();
+    await editor.locator('[aria-label="Selected feature action"] [role="alert"]')
+      .waitFor({ state: 'visible' });
+    const rejectedOne = await page.evaluate(readPatientOneChoiceEditor);
+    assert.equal(rejectedOne.editorMountIdentity, selectedOne.editorMountIdentity);
+    assert.equal(rejectedOne.selectedField, 'Patient.id');
+    assert.equal(rejectedOne.policy, 'ONE');
+    assert.equal(rejectedOne.errorVisible, true);
+    assert.match(rejectedOne.errorText, /multiple distinct values/);
+  } finally {
+    await browser.close();
+  }
 });
 
 test('Patient ONE recovery observation retains the same editor controls and exact rendered rows', () => {
