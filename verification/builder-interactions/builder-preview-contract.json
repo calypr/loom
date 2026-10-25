@@ -464,7 +464,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-      "sha256": "18eadf2250ab7a140992cb70e58e713dbee01c367a261f9dc376107796e5a73c",
+      "sha256": "40b00c64c0870c42b35379591b2aec2de8d6327b6542c85f625f16f4eeed66d3",
       "contract": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow."
     },
     {

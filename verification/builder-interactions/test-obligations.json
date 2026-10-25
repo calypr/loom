@@ -38084,6 +38084,15 @@
         {
           "kind": "literal-import-candidate",
           "evidence": "static-only-candidate",
+          "sourcePath": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+          "targetPath": "scripts/verify-ui/helpers/cda-playwright.mjs",
+          "specifier": "../cda-playwright.mjs",
+          "line": 18,
+          "column": 30
+        },
+        {
+          "kind": "literal-import-candidate",
+          "evidence": "static-only-candidate",
           "sourcePath": "scripts/verify-ui/helpers/tests/group-one-conflict-policy-selector.test.mjs",
           "targetPath": "scripts/verify-ui/helpers/cda-playwright.mjs",
           "specifier": "../cda-playwright.mjs",
@@ -107995,11 +108004,11 @@
       "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
       "roleHint": "test",
       "present": true,
-      "sha256": "e82411ccf87dda5a2d3dd812787a828753fb0e1e50c78b843d533b6191cc0507",
+      "sha256": "e5b4bbab1723e34d5ab5a9199a7121526d2c2c4b0185654fe5c24f2d19f91df3",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "e82411ccf87dda5a2d3dd812787a828753fb0e1e50c78b843d533b6191cc0507",
-      "purpose": "Tests the protected Explorer request guard, Group edit render budgets, saved Group key-label resolution, and closed related-source disclosure/header identity checks.",
+      "currentSha256": "e5b4bbab1723e34d5ab5a9199a7121526d2c2c4b0185654fe5c24f2d19f91df3",
+      "purpose": "Tests protected Explorer scope, Group edit render budgets, saved Group key labels, collapsed related-source history, semantic headers, and browser-evaluation callback arguments.",
       "role": "test",
       "testLayer": "node-test",
       "sourceReview": {
@@ -108022,61 +108031,66 @@
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 21,
+            "line": 22,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 23,
+            "line": 24,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 29,
+            "line": 30,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 31,
+            "line": 32,
             "kind": "test assertions exercise the stated contract"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 38,
-            "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
             "line": 39,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 40,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 64,
+            "line": 65,
             "kind": "tests Group key labels resolved from source columns and expansion step outputs"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 79,
+            "line": 80,
             "kind": "tests missing and conflicting saved Group key identities fail closed"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 101,
+            "line": 102,
             "kind": "tests RELATED_SOURCE DOM projection within a closed Column adjustments disclosure"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 153,
+            "line": 163,
             "kind": "rejects mismatched saved output IDs and labels against DOM/header evidence"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 127,
+            "kind": "exercises the actual browserEval page.evaluate callback and default empty arguments"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "f9911b4e13bb1d22fc1058401ddae51cb0e5ed20"
+        "reviewedCommit": "735233f01bd27db7d876827154fdf89f3b4b94f0"
       },
       "sourceRevision": {
-        "commit": "f9911b4e13bb1d22fc1058401ddae51cb0e5ed20",
-        "sha256": "e82411ccf87dda5a2d3dd812787a828753fb0e1e50c78b843d533b6191cc0507"
+        "commit": "735233f01bd27db7d876827154fdf89f3b4b94f0",
+        "sha256": "e5b4bbab1723e34d5ab5a9199a7121526d2c2c4b0185654fe5c24f2d19f91df3"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -108098,32 +108112,32 @@
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 21,
+            "line": 22,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 23,
+            "line": 24,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 29,
+            "line": 30,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 31,
+            "line": 32,
             "kind": "test assertions exercise the stated contract"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 38,
-            "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
             "line": 39,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 40,
             "kind": "test assertions exercise the stated contract"
           }
         ],
@@ -108131,45 +108145,45 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L21:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L22:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
           "semanticClaimId": "helper.protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            21,
-            23,
+            22,
             24,
             25,
-            26
+            26,
+            27
           ],
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L29:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L30:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
           "semanticClaimId": "helper.group-edit-action-to-render-recording-enforces-the-five-second-budget",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            29,
-            31,
-            33,
-            35
+            30,
+            32,
+            34,
+            36
           ],
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L38:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L39:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
           "semanticClaimId": "helper.group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            38,
             39,
-            43,
+            40,
             44,
-            49,
+            45,
             50,
             51,
-            55,
-            60,
-            61
+            52,
+            56,
+            61,
+            62
           ],
           "independence": "derived"
         }
@@ -108243,7 +108257,7 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 21,
+            "line": 22,
             "kind": "test body and assertion call"
           }
         ],
@@ -403077,11 +403091,11 @@
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
       "roleHint": "browser-workflow",
       "present": true,
-      "sha256": "18eadf2250ab7a140992cb70e58e713dbee01c367a261f9dc376107796e5a73c",
+      "sha256": "40b00c64c0870c42b35379591b2aec2de8d6327b6542c85f625f16f4eeed66d3",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "18eadf2250ab7a140992cb70e58e713dbee01c367a261f9dc376107796e5a73c",
-      "purpose": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow; captured related history records actual disclosure state and semantic header text.",
+      "currentSha256": "40b00c64c0870c42b35379591b2aec2de8d6327b6542c85f625f16f4eeed66d3",
+      "purpose": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow; captures collapsed history and semantic table headers through the browser document callback.",
       "role": "browser-workflow",
       "testLayer": "browser-workflow",
       "sourceReview": {
@@ -403216,14 +403230,19 @@
             "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
             "line": 464,
             "kind": "retains CSS-rendered headers and semantic textContent separately"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
+            "line": 148,
+            "kind": "runs the history projection as a zero-argument browser document callback"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "f9911b4e13bb1d22fc1058401ddae51cb0e5ed20"
+        "reviewedCommit": "735233f01bd27db7d876827154fdf89f3b4b94f0"
       },
       "sourceRevision": {
-        "commit": "f9911b4e13bb1d22fc1058401ddae51cb0e5ed20",
-        "sha256": "18eadf2250ab7a140992cb70e58e713dbee01c367a261f9dc376107796e5a73c"
+        "commit": "735233f01bd27db7d876827154fdf89f3b4b94f0",
+        "sha256": "40b00c64c0870c42b35379591b2aec2de8d6327b6542c85f625f16f4eeed66d3"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -577851,13 +577870,13 @@
         {
           "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L29:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L30:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            29,
-            31,
-            33,
-            35
+            30,
+            32,
+            34,
+            36
           ]
         }
       ]
@@ -577933,19 +577952,19 @@
         {
           "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L38:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L39:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            38,
             39,
-            43,
+            40,
             44,
-            49,
+            45,
             50,
             51,
-            55,
-            60,
-            61
+            52,
+            56,
+            61,
+            62
           ]
         }
       ]
@@ -587814,14 +587833,14 @@
         {
           "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L21:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L22:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            21,
-            23,
+            22,
             24,
             25,
-            26
+            26,
+            27
           ]
         }
       ]
