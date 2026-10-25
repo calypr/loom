@@ -524,12 +524,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "fa7780aec4020084a7fd5ec53d96a38697f0494c1a55117173141e0ca82bce6e",
+      "sha256": "73e6918281d67a2bf1982a2e25a8c782b81f80ad7b20386b4b3781604469842d",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
-      "sha256": "af6b9066e3e9fe1a852fac02c8815e400d4e3ab91db008e5e86948edef16e2ef",
+      "sha256": "8a6859d101da2339857cc9152a2f2174b0be273060d8fd075e743980cc650980",
       "contract": "Policy One captured workflow and transport ledger validation."
     },
     {
@@ -544,17 +544,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs",
-      "sha256": "fe7cb123328fdab07ed9b4cedb464c2a42ca4504a24060580956e40a538abb5e",
+      "sha256": "ff2a36dbabbd457e8c9d1859054ed9542bd8e67f47085ff9794e1c433f90bccb",
       "contract": "Complete synthetic Policy One lifecycle for adapter and TLC unit checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "ce17f62159bbd08f6175ebe06a4c891db91ef530f7bb4f464f5d50b50189d700",
+      "sha256": "89679611be25f6e94afa3eb60dc6ef339d37f8d9c62de0b34d2ce4348fdb2ccd",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "504a7ddc7840830a2ca84811ed8beca422566c5d7aed7a96502a1ef4f055e23d",
+      "sha256": "a0e3817482991f5f41b49229d98c1ad60687975d0a87b89b74da867099712365",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -589,7 +589,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-transport-observer.mjs",
-      "sha256": "64cc856c8d4a3931bf747a35af5d2f83dac8be81c023f064262373f76d035440",
+      "sha256": "9563fcee4bcfd31628549f316467343d0189c531df1ff3b0f654edae61e794f8",
       "contract": "Captures the complete Policy One setup and formal authoring transport span by exact Playwright request identity."
     }
   ]
