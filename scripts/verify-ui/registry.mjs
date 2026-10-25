@@ -993,7 +993,6 @@ const registryRows = [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
-              'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs',
             ],
           },
         ],
