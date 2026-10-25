@@ -152,7 +152,9 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     body: { title: 'temporal fixture Explorer' }, response: { explorerId: 'explorer-temporal' }, isMutation: true, status: 201,
   });
   const sourceRequestId = addRequest({ name: 'source-table', path: commandPath,
-    body: { commands: [{ type: 'CREATE_TABLE' }] }, response: { accepted: true }, isMutation: true });
+    body: { commandId: 'source-table-command', snapshotToken: 'source-table-snapshot',
+      expectedDraftVersion: 1, expectedDraftDigest: 'draft-1', commands: [{ type: 'CREATE_TABLE' }] },
+    response: { accepted: true }, isMutation: true });
   const choiceProposalId = addRequest({ name: 'choice-proposal', path: choiceProposalPath,
     body: { commandId: choiceCommandId, snapshotToken: choiceSnapshotToken,
       expectedDraftVersion: 2, expectedDraftDigest: 'draft-2', outputId, constructionChoices: [choiceSelection] },

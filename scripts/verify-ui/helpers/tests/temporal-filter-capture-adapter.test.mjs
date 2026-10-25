@@ -51,10 +51,16 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
   const choiceProposal = rawCapture.requestEvents.find(event => event.browserRequestId ===
     'schema-fixture-browser-request-choice-proposal');
   assert.deepEqual(choiceProposal.response.candidateColumnIds, ['birth-date-column']);
+  assert.equal(choiceProposal.request.expectedDraftVersion, 2);
+  assert.equal(choiceProposal.request.expectedDraftDigest, 'draft-2');
   const choiceApply = rawCapture.requestEvents.find(event => event.browserRequestId ===
     'schema-fixture-browser-request-choice-apply').request.commands[0];
   assert.deepEqual(choiceApply.constructionChoice, { choiceId: 'temporal-field-choice', form: 'VALUE' });
   assert.equal(Object.hasOwn(choiceApply, 'columnId'), false);
+  const sourceCreate = rawCapture.requestEvents.find(event => event.browserRequestId ===
+    'schema-fixture-browser-request-source-table');
+  assert.equal(sourceCreate.request.expectedDraftVersion, 1);
+  assert.equal(sourceCreate.request.expectedDraftDigest, 'draft-1');
 });
 
 test('adapter schema fixtures keep DATE_TIME request, response, and saved literals separate', () => {
