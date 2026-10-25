@@ -56,6 +56,7 @@ test('compiler binds synthetic adapter-produced DATE events, snapshots, DOM refe
   assert.match(compiled.configText, /CONSTANT ObservedRequests <- TraceObservedRequests/u);
   assert.match(compiled.configText, /INVARIANT InvObservedMutationsConsumed/u);
   assert.match(compiled.configText, /PROPERTY EventuallyComplete/u);
+  assert.match(compiled.responseTimeBoundary, /responseReceivedAt/u);
   assert.equal(compiled.eventCount, trace.actions.length);
 });
 
@@ -92,7 +93,8 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
     status: 200,
     request: {},
     response: {},
-    startedAt: 10,
+    startedAt: 9,
+    responseReceivedAt: 10,
     completedAt: 11,
     isMutation: false,
     atMonotonicMs: 10,
@@ -108,6 +110,24 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
   const rawDOMTamper = makeJourney('date');
   rawDOMTamper.temporalFilterLifecycle.domObservations[3].rowIds = ['dev-patient-001'];
   assert.throws(() => compileTemporalFilterJourneyTrace(rawDOMTamper), /DOM observation must resolve from its actual raw DOM index/u);
+
+  const builderReadBeforeCommandResponse = makeTemporalFilterJourneyCaptureFixture('date');
+  const sourceCommand = builderReadBeforeCommandResponse.requestEvents.find(request =>
+    request.browserRequestId === 'schema-fixture-browser-request-source-table');
+  sourceCommand.responseReceivedAt = builderReadBeforeCommandResponse.builderReads[2].requestStartedAtEpochMs + 1;
+  sourceCommand.completedAt = sourceCommand.responseReceivedAt + 1;
+  const beforeReadTrace = adaptTemporalFilterJourney(builderReadBeforeCommandResponse);
+  assert.throws(() => compileTemporalFilterJourneyTrace(beforeReadTrace), /post-settlement Builder GET must start after/u);
+
+  const readyDOMBeforeProposalResponse = makeTemporalFilterJourneyCaptureFixture('date');
+  const firstProposal = readyDOMBeforeProposalResponse.requestEvents.find(request =>
+    request.browserRequestId === 'schema-fixture-browser-request-first-create');
+  const firstProposalDOM = readyDOMBeforeProposalResponse.domObservations[
+    readyDOMBeforeProposalResponse.steps[3].domObservationIndex];
+  firstProposal.responseReceivedAt = firstProposalDOM.capturedAtEpochMs + 1;
+  firstProposal.completedAt = firstProposal.responseReceivedAt + 1;
+  const beforeReadyTrace = adaptTemporalFilterJourney(readyDOMBeforeProposalResponse);
+  assert.throws(() => compileTemporalFilterJourneyTrace(beforeReadyTrace), /DOM observation must follow the bound request response arrival/u);
 });
 
 test('synthetic DATE and DATE_TIME adapter captures pass their generated TLA trace instances', { timeout: 30_000 }, () => {

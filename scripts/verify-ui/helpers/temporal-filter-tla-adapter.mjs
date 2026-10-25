@@ -481,6 +481,17 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const actionCounts = countBy(trace.actions.map(event => event.action));
   for (const [label, count] of expectedCounts) assert.equal(actionCounts.get(label), count);
   const rawRequests = lifecycle.requestEvents;
+  for (const read of lifecycle.builderReads) {
+    assert(Number.isFinite(read.requestStartedAtEpochMs) && Number.isFinite(read.capturedAtEpochMs),
+      `Builder read ${read.readId} must retain request-start and body-observation epoch times.`);
+    assert(read.capturedAtEpochMs >= read.requestStartedAtEpochMs,
+      `Builder read ${read.readId} response body must follow its actual GET start.`);
+    assert(Number.isInteger(read.requestMountEpoch) && Number.isInteger(read.mountEpoch));
+  }
+  for (const observation of lifecycle.domObservations) {
+    assert(Number.isFinite(observation.capturedAtEpochMs) && Number.isInteger(observation.mountEpoch),
+      'Each DOM observation must retain its actual epoch time and mount.');
+  }
   for (const request of rawRequests) {
     assert(typeof request.isMutation === 'boolean', 'Observer request ledger must retain mutation classification.');
     assert(typeof request.method === 'string' && typeof request.path === 'string');
@@ -490,8 +501,14 @@ export const validateTemporalFilterJourneyTrace = trace => {
       assert(!request.isMutation && request.readCancellationDiagnostic === true &&
         request.failure?.canceled === true && isProposalRequest(request),
       `Observer request ${request.browserRequestId} may omit status only for a captured read-only proposal cancellation.`);
+      assert(request.responseReceivedAt === null || request.responseReceivedAt === undefined,
+        `Canceled request ${request.browserRequestId} must not invent a response-arrival time.`);
     } else {
       assert(Number.isFinite(request.status), `Observer request ${request.browserRequestId} must retain its response status.`);
+      assert(Number.isFinite(request.responseReceivedAt),
+        `Observer request ${request.browserRequestId} must retain the actual response-arrival time.`);
+      assert(request.responseReceivedAt >= request.startedAt && request.completedAt >= request.responseReceivedAt,
+        `Observer request ${request.browserRequestId} must order start, response arrival, and body-capture completion.`);
     }
     if (!request.isMutation && !isProposalRequest(request)) {
       assert(supportedPureRead(lifecycle, request),
@@ -524,16 +541,30 @@ export const validateTemporalFilterJourneyTrace = trace => {
       `${event.action} after snapshot must resolve from its actual raw Builder read index.`);
     assert.deepEqual(event.ui, domAt(lifecycle, rawStep.domObservationIndex),
       `${event.action} DOM observation must resolve from its actual raw DOM index.`);
+    const beforeRead = rawStep.beforeReadIndex === null || rawStep.beforeReadIndex === undefined
+      ? null : lifecycle.builderReads[rawStep.beforeReadIndex];
+    const afterRead = rawStep.afterReadIndex === null || rawStep.afterReadIndex === undefined
+      ? null : lifecycle.builderReads[rawStep.afterReadIndex];
+    const domObservation = rawStep.domObservationIndex === null || rawStep.domObservationIndex === undefined
+      ? null : lifecycle.domObservations[rawStep.domObservationIndex];
     if (requestCaptureId === null) {
       assert.equal(event.request, null, `${event.action} without a captured request must remain request-free.`);
       if (rawStep.domObservationIndex !== null && rawStep.domObservationIndex !== undefined) {
-        const observation = lifecycle.domObservations[rawStep.domObservationIndex];
+        const observation = domObservation;
         assert.equal(event.atMonotonicMs, observation.capturedAtMonotonicMs,
           `${event.action} timestamp must come from its actual DOM observation.`);
         assert.equal(event.atEpochMs, observation.capturedAtEpochMs,
           `${event.action} epoch time must come from its actual DOM observation.`);
         assert.equal(event.mountEpoch, observation.mountEpoch,
           `${event.action} mount epoch must come from its actual DOM observation.`);
+      }
+      if (beforeRead && domObservation) {
+        assert(beforeRead.capturedAtEpochMs <= domObservation.capturedAtEpochMs,
+          `${event.action} pre-action Builder read must precede its DOM observation.`);
+      }
+      if (afterRead && domObservation) {
+        assert(domObservation.capturedAtEpochMs >= afterRead.capturedAtEpochMs,
+          `${event.action} DOM observation must follow its bound post-action Builder response.`);
       }
     } else {
       const raw = rawRequestById.get(requestCaptureId);
@@ -557,6 +588,24 @@ export const validateTemporalFilterJourneyTrace = trace => {
         `${event.action} model response must map to the matching captured response body.`);
       assert.equal(Number.isFinite(raw.completedAt), true,
         `${event.action} request must have a settled matching response.`);
+      assert(Number.isFinite(raw.responseReceivedAt),
+        `${event.action} request must retain the network response-arrival boundary.`);
+      if (beforeRead) {
+        assert(beforeRead.capturedAtEpochMs <= raw.startedAt,
+          `${event.action} precondition Builder read must complete before the bound request starts.`);
+      }
+      if (afterRead) {
+        assert(afterRead.requestStartedAtEpochMs >= raw.responseReceivedAt,
+          `${event.action} post-settlement Builder GET must start after the bound request response arrives.`);
+      }
+      if (domObservation) {
+        assert(domObservation.capturedAtEpochMs >= raw.responseReceivedAt,
+          `${event.action} DOM observation must follow the bound request response arrival.`);
+      }
+      if (afterRead && domObservation) {
+        assert(domObservation.capturedAtEpochMs >= afterRead.capturedAtEpochMs,
+          `${event.action} DOM observation must follow its actual post-settlement Builder response.`);
+      }
       actionRequestIds.push(requestCaptureId);
     }
     assert.equal(event.request?.isMutation ?? false, MUTATION_ACTIONS.has(event.action),
@@ -569,6 +618,10 @@ export const validateTemporalFilterJourneyTrace = trace => {
       assert.equal(request.method, 'POST');
       assert(isProposalRequest(request),
         `${event.action} proposal link must be a construction proposal request.`);
+      if (Number.isFinite(request.responseReceivedAt) && domObservation) {
+        assert(domObservation.capturedAtEpochMs >= request.responseReceivedAt,
+          `${event.action} DOM observation must follow the linked proposal response arrival.`);
+      }
     }
     if (requestCaptureId !== null && event.action.startsWith('FilterProposed(')) {
       assert(linkedProposals.includes(requestCaptureId),
@@ -632,6 +685,7 @@ export const validateTemporalFilterJourneyTrace = trace => {
     mutationCount: expectedMutations.length,
     proposalCount: expectedProposals.length,
     pureReadCaptureIds,
+    responseTimeBoundary: 'Use responseReceivedAt as the network response-arrival boundary; completedAt only proves observer body capture settled and may lag the UI response.',
     timestampEncoding: 'relative integer ticks for TLC comparisons; exact captured timestamps remain beside each model event as strings and in raw lifecycle evidence',
   };
 };
@@ -702,6 +756,7 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     mutationCount: input.mutationCount,
     proposalCount: input.proposalCount,
     pureReadCaptureIds: input.pureReadCaptureIds,
+    responseTimeBoundary: input.responseTimeBoundary,
     timestampEncoding: input.timestampEncoding,
   };
 };
