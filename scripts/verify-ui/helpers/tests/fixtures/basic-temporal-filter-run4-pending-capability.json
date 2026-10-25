@@ -1,0 +1,81 @@
+{
+  "sourceRun": "bf7532025-date-20261025-run4",
+  "ownerScope": {
+    "uiOrigin": "http://127.0.0.1:30000",
+    "project": "loom_dev_verify_mvo4s9f6-9ed2356",
+    "explorerId": "verify-f6-9ed2356-patient-birthdate-filter",
+    "browserExplorerRoot": "/api/v1/projects/loom_dev_verify_mvo4s9f6%252F9ed2356/explorers/verify-f6-9ed2356-patient-birthdate-filter",
+    "outputId": "out_569d20ac294617a85bde9018"
+  },
+  "builderReadProjection": {
+    "projectionNote": "Minimal synthetic Builder snapshot shape for focused helper behavior; the retained Playwright Builder response body was truncated.",
+    "readId": "synthetic-run4-cas-matching-builder-read",
+    "status": 200,
+    "snapshotToken": "sha256:4bbc822872738fe0a3f2d118615ab35d6db6a48797642a3b10d78ebd807babf1",
+    "draftVersion": 6,
+    "draftDigest": "sha256:61c7833c95409f45ee599459ece42438eab64cecc688f0c230b2b4ccb339891f",
+    "workspaceDocuments": [
+      { "output": { "id": "out_569d20ac294617a85bde9018" } }
+    ]
+  },
+  "pendingRequest": {
+    "index": 70,
+    "browserRequestId": "playwright-71",
+    "requestId": "construction-capabilities-6da28800-fa44-4dae-9b23-2c8e43788e3d",
+    "method": "POST",
+    "origin": "http://127.0.0.1:30000",
+    "path": "/api/v1/projects/loom_dev_verify_mvo4s9f6%252F9ed2356/explorers/verify-f6-9ed2356-patient-birthdate-filter/authoring/v2/construction-capabilities",
+    "status": null,
+    "request": {
+      "snapshotToken": "sha256:4bbc822872738fe0a3f2d118615ab35d6db6a48797642a3b10d78ebd807babf1",
+      "expectedDraftVersion": 6,
+      "expectedDraftDigest": "sha256:61c7833c95409f45ee599459ece42438eab64cecc688f0c230b2b4ccb339891f",
+      "outputId": "out_569d20ac294617a85bde9018",
+      "stageId": "source_projection"
+    },
+    "response": null,
+    "startedAt": 1792951097988,
+    "responseReceivedAt": null,
+    "completedAt": null,
+    "responseMountEpoch": null,
+    "failureMountEpoch": null,
+    "isMutation": false,
+    "failure": null,
+    "readCancellationDiagnostic": false,
+    "responseCapture": "not-configured",
+    "responseCaptureComplete": true,
+    "responseBodyCaptured": false,
+    "responseCaptureError": null,
+    "networkComplete": false,
+    "settlement": "pending"
+  },
+  "distinctLaterResponse": {
+    "index": 76,
+    "browserRequestId": "playwright-77",
+    "requestId": "construction-capabilities-59e05fd0-815e-458e-8e26-11259c5ec9d7",
+    "method": "POST",
+    "origin": "http://127.0.0.1:30000",
+    "path": "/api/v1/projects/loom_dev_verify_mvo4s9f6%252F9ed2356/explorers/verify-f6-9ed2356-patient-birthdate-filter/authoring/v2/construction-capabilities",
+    "status": 200,
+    "request": {
+      "snapshotToken": "sha256:4bbc822872738fe0a3f2d118615ab35d6db6a48797642a3b10d78ebd807babf1",
+      "expectedDraftVersion": 6,
+      "expectedDraftDigest": "sha256:61c7833c95409f45ee599459ece42438eab64cecc688f0c230b2b4ccb339891f",
+      "outputId": "out_569d20ac294617a85bde9018",
+      "stageId": "source_projection"
+    },
+    "responseFacts": {
+      "snapshotToken": "sha256:4bbc822872738fe0a3f2d118615ab35d6db6a48797642a3b10d78ebd807babf1",
+      "draftVersion": 6,
+      "draftDigest": "sha256:61c7833c95409f45ee599459ece42438eab64cecc688f0c230b2b4ccb339891f",
+      "outputId": "out_569d20ac294617a85bde9018"
+    },
+    "startedAt": 1792951098486,
+    "responseReceivedAt": 1792951098831,
+    "completedAt": 1792951098847,
+    "networkComplete": true,
+    "responseCapture": "captured",
+    "responseCaptureComplete": true,
+    "responseBodyCaptured": true
+  }
+}

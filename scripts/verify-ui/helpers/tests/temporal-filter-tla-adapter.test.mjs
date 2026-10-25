@@ -26,15 +26,41 @@ const tlcJar = process.env.TLA2TOOLS_JAR;
 
 const makeJourney = caseName => adaptTemporalFilterJourney(makeTemporalFilterJourneyCaptureFixture(caseName));
 const OBSERVED_DATE_PROJECT = 'loom_dev_verify_mvo2jf3p-3be4623';
+const refreshCaptureExit = capture => {
+  const requests = capture.requestEvents;
+  const pending = requests.filter(request => request.settlement === 'pending');
+  const responseReads = requests.filter(request => request.settlement === 'response-body-pending');
+  capture.captureExit.requestCount = requests.length;
+  capture.captureExit.afterObserverIndex = requests.at(-1)?.index ?? -1;
+  capture.captureExit.pendingObserverIndexes = pending.map(request => request.index);
+  capture.captureExit.pendingBrowserRequestIds = pending.map(request => request.browserRequestId);
+  capture.captureExit.pendingResponseReadObserverIndexes = responseReads.map(request => request.index);
+  capture.captureExit.deadlineReached = pending.length > 0;
+  capture.captureExit.observedAtEpochMs = Math.max(capture.captureExit.observedAtEpochMs,
+    ...requests.flatMap(request => [request.startedAt, request.responseReceivedAt, request.completedAt])
+      .filter(Number.isFinite));
+  capture.captureExit.observedAtMonotonicMs = Math.max(capture.captureExit.observedAtMonotonicMs,
+    ...requests.map(request => request.atMonotonicMs).filter(Number.isFinite));
+  capture.captureExit.scope = structuredClone(capture.pendingReadScope);
+  return capture;
+};
 const rebaseCaptureToObservedDateProject = capture => {
   const sourceRoot = fixtureProjectExplorerCollectionPath(capture.project);
   const browserRoot = fixtureProjectExplorerCollectionPath(OBSERVED_DATE_PROJECT);
   capture.project = OBSERVED_DATE_PROJECT;
+  capture.browserExplorerRoot = `${browserRoot}/${encodeURIComponent(capture.explorerId)}`;
+  capture.pendingReadScope = {
+    ...capture.pendingReadScope,
+    project: OBSERVED_DATE_PROJECT,
+    browserExplorerRoot: capture.browserExplorerRoot,
+  };
+  capture.captureExit.scope = structuredClone(capture.pendingReadScope);
   capture.requestEvents = capture.requestEvents.map(request => {
     assert(request.path.startsWith(sourceRoot),
       `Synthetic request ${request.browserRequestId} must start on the original fixture project route.`);
     return { ...request, path: `${browserRoot}${request.path.slice(sourceRoot.length)}` };
   });
+  refreshCaptureExit(capture);
   return browserRoot;
 };
 const makeObservedDateRouteJourney = () => {
@@ -104,6 +130,7 @@ test('compiler and TLA retain bootstrap capability requests on the canonical bro
       browserRequestId: 'schema-fixture-bootstrap-capability-get',
       requestId: 'builder-bootstrap-capability-1',
       method: 'GET',
+      origin: capture.uiOrigin,
       path: `${browserExplorerPath}/${encodeURIComponent(bootstrapExplorer)}/authoring/v2/capability`,
       request: null,
       response: {},
@@ -115,6 +142,7 @@ test('compiler and TLA retain bootstrap capability requests on the canonical bro
       browserRequestId: 'schema-fixture-bootstrap-construction-capabilities',
       requestId: 'builder-bootstrap-capabilities-1',
       method: 'POST',
+      origin: capture.uiOrigin,
       path: `${browserExplorerPath}/${encodeURIComponent(bootstrapExplorer)}/authoring/v2/construction-capabilities`,
       request: { outputId: 'bootstrap-output' },
       response: { capabilities: [] },
@@ -131,6 +159,8 @@ test('compiler and TLA retain bootstrap capability requests on the canonical bro
     responseMountEpoch: 1,
     failureMountEpoch: null,
     isMutation: false,
+    networkComplete: true,
+    settlement: 'response',
     failure: null,
     readCancellationDiagnostic: false,
     responseCapture: 'captured',
@@ -140,6 +170,7 @@ test('compiler and TLA retain bootstrap capability requests on the canonical bro
   }));
   capture.requestEvents = [...bootstrapRequests, ...capture.requestEvents]
     .map((request, index) => ({ ...request, index }));
+  refreshCaptureExit(capture);
 
   const trace = adaptTemporalFilterJourney(capture);
   const input = validateTemporalFilterJourneyTrace(trace);
@@ -147,6 +178,29 @@ test('compiler and TLA retain bootstrap capability requests on the canonical bro
   assert.equal(input.observedRequests.find(request => request.captureId === bootstrapRequests[0].browserRequestId).startedAt, 0,
     'TLA relative time origin must include the request that began before the first semantic action.');
   const result = runTlc(trace, 'BootstrapCapabilityRequests');
+  assert.equal(result.status, 0, result.output);
+});
+
+test('TLA binds a pending safe capability read to its exact capture-exit index without response credit', { timeout: 30_000 }, () => {
+  const capture = makeTemporalFilterJourneyCaptureFixture('date', { pendingCapabilities: true });
+  const trace = adaptTemporalFilterJourney(capture);
+  const input = validateTemporalFilterJourneyTrace(trace);
+  assert.deepEqual(capture.captureExit.pendingObserverIndexes, [70]);
+  assert.deepEqual(capture.captureExit.pendingBrowserRequestIds, ['playwright-71']);
+  assert.equal(capture.requestEvents.at(-2).status, null);
+  assert.equal(capture.requestEvents.at(-2).response, null);
+  assert.equal(capture.requestEvents.at(-2).requestId,
+    'construction-capabilities-6da28800-fa44-4dae-9b23-2c8e43788e3d');
+  assert.equal(capture.requestEvents.at(-1).index, 76);
+  assert.equal(capture.requestEvents.at(-1).status, 200);
+  assert.equal(capture.requestEvents.at(-1).browserRequestId, 'playwright-77');
+  assert.notEqual(capture.requestEvents.at(-2).browserRequestId, capture.requestEvents.at(-1).browserRequestId);
+  assert.deepEqual(input.observedCaptureExit.pendingObserverIndexes, [70]);
+  assert.deepEqual(input.observedCaptureExit.pendingCaptureIds, ['playwright-71']);
+  const compiled = compileTemporalFilterJourneyTrace(trace, { moduleName: 'TemporalPendingCapability' });
+  assert.match(compiled.moduleText, /TraceCaptureExit/u);
+  assert.match(compiled.configText, /CONSTANT CaptureExit <- TraceCaptureExit/u);
+  const result = runTlc(trace, 'PendingCapability');
   assert.equal(result.status, 0, result.output);
 });
 
@@ -160,6 +214,7 @@ test('compiler rejects read-only POST capability paths outside the recorded proj
       browserRequestId: `schema-fixture-browser-request-${requestName}`,
       requestId: `schema-fixture-raw-request-${requestName}`,
       method: 'POST',
+      origin: capture.uiOrigin,
       path,
       status: 200,
       request: {},
@@ -170,6 +225,8 @@ test('compiler rejects read-only POST capability paths outside the recorded proj
       responseMountEpoch: 5,
       failureMountEpoch: null,
       isMutation: false,
+      networkComplete: true,
+      settlement: 'response',
       failure: null,
       readCancellationDiagnostic: false,
       responseCapture: 'captured',
@@ -180,6 +237,7 @@ test('compiler rejects read-only POST capability paths outside the recorded proj
       mountEpoch: 5,
     };
     capture.requestEvents.push(request);
+    refreshCaptureExit(capture);
     trace.nativeRequests.push({
       index: request.index,
       browserRequestId: request.browserRequestId,
@@ -261,6 +319,7 @@ const appendObservedRequest = (capture, {
     browserRequestId: `schema-fixture-browser-request-${name}`,
     requestId: `schema-fixture-raw-request-${name}`,
     method,
+    origin: capture.uiOrigin,
     path,
     status,
     request: structuredClone(body),
@@ -271,10 +330,12 @@ const appendObservedRequest = (capture, {
     responseMountEpoch: status === null ? null : mountEpoch,
     failureMountEpoch: status === null ? mountEpoch : null,
     isMutation: false,
+    networkComplete: true,
+    settlement: status === null ? 'request-failed' : 'response',
     failure: structuredClone(failure),
     readCancellationDiagnostic: status === null,
     responseCapture: status === null ? 'not-configured' : 'captured',
-    responseCaptureComplete: status !== null,
+      responseCaptureComplete: true,
     responseBodyCaptured: status !== null,
     atMonotonicMs: startedAt,
     atEpochMs: timeOrigin + startedAt,
@@ -283,6 +344,7 @@ const appendObservedRequest = (capture, {
   capture.requestEvents.push(requestEvent);
   capture.requestEvents.sort((left, right) => left.startedAt - right.startedAt);
   capture.requestEvents.forEach((request, index) => { request.index = index; });
+  refreshCaptureExit(capture);
   return requestEvent.browserRequestId;
 };
 
@@ -384,6 +446,7 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
     browserRequestId: 'unclassified-false-post',
     requestId: 'raw-unclassified-false-post',
     method: 'POST',
+    origin: unknownFalsePost.temporalFilterLifecycle.uiOrigin,
     path: '/api/v1/projects/loom_dev_verify_temporal/unclassified-read',
     status: 200,
     request: {},
@@ -394,10 +457,18 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
     responseMountEpoch: 1,
     failureMountEpoch: null,
     isMutation: false,
+    failure: null,
+    readCancellationDiagnostic: false,
+    responseCapture: 'captured',
+    responseCaptureComplete: true,
+    responseBodyCaptured: true,
+    networkComplete: true,
+    settlement: 'response',
     atMonotonicMs: 10,
     atEpochMs: 10,
     mountEpoch: 1,
   });
+  refreshCaptureExit(unknownFalsePost.temporalFilterLifecycle);
   unknownFalsePost.nativeRequests.push({
     index: unknownFalsePost.temporalFilterLifecycle.requestEvents.at(-1).index,
     browserRequestId: 'unclassified-false-post',

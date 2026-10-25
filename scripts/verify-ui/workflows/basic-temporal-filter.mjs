@@ -831,13 +831,24 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     { expectedIDs: expectedAllIDs, sourceColumns: savedDocument.columns, outputId });
 
   const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: target.sourceRoot, encoding: 'utf8' }).trim();
-  report.temporalFilterJourney = await capture.finish({
+  const pendingReadScope = {
+    uiOrigin,
+    project,
+    explorerId: explorer,
+    browserExplorerRoot,
+    outputId,
+  };
+  const captureMetadata = {
     caseName,
     sourceCommit,
     sourceFingerprint: context.sourceAtStart?.fingerprint ?? report.target.sourceFingerprint ?? null,
     project,
     generation: target.fixtureGeneration,
     bootstrapExplorerId: target.bootstrapExplorerId,
+    explorerId: explorer,
+    uiOrigin,
+    browserExplorerRoot,
+    pendingReadScope,
     resourceType: contract.resourceType,
     fieldPath: contract.fieldPath,
     fixturePath: oracle.path,
@@ -846,7 +857,25 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     ids: oracle.ids,
     outputId,
     temporalColumnId: temporalColumn.columnId,
-  });
+  };
+  const captureCheckpoint = capture.checkpoint(captureMetadata);
+  report.temporalFilterCaptureCheckpoint = captureCheckpoint;
+  try {
+    report.temporalFilterJourney = await capture.finish({
+      ...captureMetadata,
+      checkpointId: captureCheckpoint.checkpointId,
+    });
+  } catch (error) {
+    const failureCheckpoint = capture.checkpoint(captureMetadata);
+    report.temporalFilterCaptureFailure = {
+      checkpointId: failureCheckpoint.checkpointId,
+      observedAtEpochMs: Date.now(),
+      name: error?.name ?? 'Error',
+      message: String(error?.message ?? error),
+    };
+    report.temporalFilterCaptureFailureCheckpoint = failureCheckpoint;
+    throw error;
+  }
   report.journeyTrace = adaptTemporalFilterJourney(report.temporalFilterJourney);
 
   const { writeAndReplayBuilderJourneyTrace } = await import('../helpers/builder-journey-trace.mjs');

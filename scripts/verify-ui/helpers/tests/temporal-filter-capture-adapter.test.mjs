@@ -13,6 +13,19 @@ import {
   TEMPORAL_FILTER_FIXTURE_BASE_TIME,
 } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 
+const refreshCaptureExit = capture => {
+  const requests = capture.requestEvents;
+  const pending = requests.filter(request => request.settlement === 'pending');
+  const responseReads = requests.filter(request => request.settlement === 'response-body-pending');
+  capture.captureExit.requestCount = requests.length;
+  capture.captureExit.afterObserverIndex = requests.at(-1)?.index ?? -1;
+  capture.captureExit.pendingObserverIndexes = pending.map(request => request.index);
+  capture.captureExit.pendingBrowserRequestIds = pending.map(request => request.browserRequestId);
+  capture.captureExit.pendingResponseReadObserverIndexes = responseReads.map(request => request.index);
+  capture.captureExit.deadlineReached = pending.length > 0;
+  return capture;
+};
+
 test('Temporal lifecycle recorder is installed before the first navigation can issue authoring requests', () => {
   const source = readFileSync(new URL('../../workflows/basic-temporal-filter.mjs', import.meta.url), 'utf8');
   const captureStart = source.indexOf('createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 0 })');
@@ -112,6 +125,7 @@ test('capture retains and drains a construction-capabilities request that settle
     browserRequestId: 'bootstrap-construction-capabilities',
     requestId: 'builder-bootstrap-1',
     method: 'POST',
+    origin: 'http://127.0.0.1:30000',
     path: '/api/v1/projects/loom_dev_verify_temporal/explorers/bootstrap-temporal/authoring/v2/construction-capabilities',
     status: 200,
     request: { outputId: 'bootstrap-output' },
@@ -122,6 +136,7 @@ test('capture retains and drains a construction-capabilities request that settle
     responseMountEpoch: null,
     failureMountEpoch: null,
     isMutation: false,
+    networkComplete: false,
     failure: null,
     readCancellationDiagnostic: false,
     responseCapture: 'pending',
@@ -150,13 +165,18 @@ test('capture retains and drains a construction-capabilities request that settle
   networkObserver.byRequest.set(request, entry);
   page.emit('request', request);
   page.emit('framenavigated', mainFrame);
-  const finished = capture.finish({ resourceType: 'Patient', bootstrapExplorerId: 'bootstrap-temporal' });
+  const metadata = { resourceType: 'Patient', bootstrapExplorerId: 'bootstrap-temporal' };
+  const checkpoint = capture.checkpoint(metadata);
+  const finished = capture.finish({ ...metadata, checkpointId: checkpoint.checkpointId });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(settled, false, 'Capture.finish must wait for the outstanding request instead of dropping it.');
   assert.equal(typeof waitForSettlement, 'function', 'Capture.finish must register for the request settlement.');
+  entry.status = 200;
+  entry.response = { capabilities: [] };
   entry.responseReceivedAt = now + 1;
   entry.completedAt = now + 2;
   entry.responseMountEpoch = 1;
+  entry.networkComplete = true;
   entry.responseCapture = 'captured';
   entry.responseCaptureComplete = true;
   entry.responseBodyCaptured = true;
@@ -205,6 +225,7 @@ test('capture windows retain late reconcile IDs and their response-mount DOM evi
       browserRequestId: name,
       requestId: `request-${name}`,
       method: 'POST',
+      origin: 'http://127.0.0.1:30000',
       path: '/api/v1/projects/p/explorers/e/authoring/v2/reconcile',
       request: { snapshotToken: 'snapshot-3', draftVersion: 3, draftDigest: 'draft-3', outputId: 'temporal-output' },
       response: { snapshotToken: 'snapshot-3', receiptId: 'late-reconcile-receipt',
@@ -214,6 +235,7 @@ test('capture windows retain late reconcile IDs and their response-mount DOM evi
       responseReceivedAt: at + 1,
       completedAt: at + 2,
       isMutation: false,
+      networkComplete: true,
       failure: null,
       readCancellationDiagnostic: false,
       responseCapture: 'captured',
@@ -243,7 +265,9 @@ test('capture windows retain late reconcile IDs and their response-mount DOM evi
   for (const request of [first, second]) {
     page.emit('response', { request: () => request.request });
   }
-  const rawCapture = await capture.finish({ resourceType: 'Patient' });
+  const metadata = { resourceType: 'Patient' };
+  const checkpoint = capture.checkpoint(metadata);
+  const rawCapture = await capture.finish({ ...metadata, checkpointId: checkpoint.checkpointId });
   assert.deepEqual(rawCapture.lateReconcileCaptureIds, ['late-reconcile-1', 'late-reconcile-2']);
   assert.equal(rawCapture.finalDOMObservationIndex, 0);
   assert.equal(rawCapture.domObservations[0].receiptId, 'late-reconcile-receipt');
@@ -413,6 +437,7 @@ test('adapter retains an unassigned late reconcile and its actual final DOM obse
     browserRequestId: captureId,
     requestId: 'schema-fixture-raw-request-late-reconcile',
     method: 'POST',
+    origin: rawCapture.uiOrigin,
     path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/reconcile',
     status: 200,
     request: { snapshotToken: 'snapshot-6', draftVersion: 6, draftDigest: 'draft-6', outputId: rawCapture.outputId },
@@ -423,6 +448,8 @@ test('adapter retains an unassigned late reconcile and its actual final DOM obse
     responseMountEpoch: 5,
     failureMountEpoch: null,
     isMutation: false,
+    networkComplete: true,
+    settlement: 'response',
     failure: null,
     readCancellationDiagnostic: false,
     responseCapture: 'captured',
@@ -432,6 +459,7 @@ test('adapter retains an unassigned late reconcile and its actual final DOM obse
     atEpochMs: 1_700_000_001_470,
     mountEpoch: 5,
   });
+  refreshCaptureExit(rawCapture);
 
   const journeyTrace = adaptTemporalFilterJourney(rawCapture);
   assert.deepEqual(journeyTrace.temporalFilterLifecycle.lateReconcileCaptureIds, [captureId]);
@@ -464,6 +492,7 @@ test('adapter rejects an observer write that no semantic action consumes', () =>
     browserRequestId: 'schema-fixture-browser-request-unexpected-write',
     requestId: 'schema-fixture-raw-request-unexpected-write',
     method: 'POST',
+    origin: rawCapture.uiOrigin,
     path: '/api/v1/projects/loom_dev_verify_temporal/unexpected-write',
     status: 200,
     request: {},
@@ -474,10 +503,18 @@ test('adapter rejects an observer write that no semantic action consumes', () =>
     responseMountEpoch: 5,
     failureMountEpoch: null,
     isMutation: true,
+    networkComplete: true,
+    settlement: 'response',
+    failure: null,
+    readCancellationDiagnostic: false,
+    responseCapture: 'not-configured',
+    responseCaptureComplete: true,
+    responseBodyCaptured: false,
     atMonotonicMs: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
     atEpochMs: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
     mountEpoch: 5,
   });
+  refreshCaptureExit(rawCapture);
   assert.throws(() => adaptTemporalFilterJourney(rawCapture), /Every observer-classified write must be consumed exactly once/);
 });
 

@@ -70,7 +70,7 @@ const filterConstruction = (spec, intent, predicate = spec.initial.savedValue) =
   ],
 });
 
-export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
+export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pendingCapabilities = false } = {}) => {
   const spec = CASES[caseName];
   const outputId = 'temporal-output';
   const filterStepInitial = makeFilterStep('saved-filter-step', {
@@ -140,6 +140,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       browserRequestId: captureId,
       requestId: `schema-fixture-raw-request-${name}`,
       method: 'POST',
+      origin: 'http://127.0.0.1:30000',
       path,
       status,
       request: clone(body),
@@ -150,6 +151,8 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       responseMountEpoch: status === null ? null : mountEpoch,
       failureMountEpoch: status === null ? mountEpoch : null,
       isMutation,
+      networkComplete: true,
+      settlement: status === null ? 'request-failed' : 'response',
       failure: clone(failure),
       readCancellationDiagnostic,
       responseCapture,
@@ -360,19 +363,121 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       reconcileCaptureIds: [removeReloadReconcileId], mountEpoch: 5 }),
   ];
 
+  const project = 'loom_dev_verify_temporal';
+  const explorerId = 'explorer-temporal';
+  const uiOrigin = 'http://127.0.0.1:30000';
+  const browserExplorerRoot = '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal';
+  if (pendingCapabilities) {
+    const lastRead = builderReads.at(-1);
+    const atMonotonicMs = 1_500;
+    const atEpochMs = epochOffset + atMonotonicMs;
+    const capabilityRequest = {
+      snapshotToken: lastRead.snapshotToken,
+      expectedDraftVersion: lastRead.draftVersion,
+      expectedDraftDigest: lastRead.draftDigest,
+      outputId,
+      stageId: 'source_projection',
+    };
+    requestEvents.push({
+      index: 70,
+      browserRequestId: 'playwright-71',
+      requestId: 'construction-capabilities-6da28800-fa44-4dae-9b23-2c8e43788e3d',
+      method: 'POST',
+      origin: uiOrigin,
+      path: `${browserExplorerRoot}/authoring/v2/construction-capabilities`,
+      status: null,
+      request: clone(capabilityRequest),
+      response: null,
+      startedAt: atEpochMs,
+      responseReceivedAt: null,
+      completedAt: null,
+      responseMountEpoch: null,
+      failureMountEpoch: null,
+      isMutation: false,
+      failure: null,
+      readCancellationDiagnostic: false,
+      responseCapture: 'not-configured',
+      responseCaptureComplete: true,
+      responseBodyCaptured: false,
+      networkComplete: false,
+      settlement: 'pending',
+      atMonotonicMs,
+      atEpochMs,
+      mountEpoch: 5,
+    });
+    requestEvents.push({
+      index: 76,
+      browserRequestId: 'playwright-77',
+      requestId: 'construction-capabilities-59e05fd0-815e-458e-8e26-11259c5ec9d7',
+      method: 'POST',
+      origin: uiOrigin,
+      path: `${browserExplorerRoot}/authoring/v2/construction-capabilities`,
+      status: 200,
+      request: clone(capabilityRequest),
+      response: {
+        snapshotToken: lastRead.snapshotToken,
+        draftVersion: lastRead.draftVersion,
+        draftDigest: lastRead.draftDigest,
+        outputId,
+      },
+      startedAt: atEpochMs + 5,
+      responseReceivedAt: atEpochMs + 10,
+      completedAt: atEpochMs + 12,
+      responseMountEpoch: 5,
+      failureMountEpoch: null,
+      isMutation: false,
+      failure: null,
+      readCancellationDiagnostic: false,
+      responseCapture: 'captured',
+      responseCaptureComplete: true,
+      responseBodyCaptured: true,
+      networkComplete: true,
+      settlement: 'response',
+      atMonotonicMs: atMonotonicMs + 5,
+      atEpochMs: atEpochMs + 5,
+      mountEpoch: 5,
+    });
+  }
+  const pendingIndexes = requestEvents.filter(request => request.settlement === 'pending').map(request => request.index);
+  const pendingCaptureIds = requestEvents.filter(request => request.settlement === 'pending')
+    .map(request => request.browserRequestId);
+  const captureCheckpointId = `schema-fixture-capture-checkpoint-${caseName}`;
+  const pendingReadScope = { uiOrigin, project, explorerId, browserExplorerRoot, outputId };
+  const drainStartedAtEpochMs = epochOffset + 2_000;
+  const captureExit = {
+    checkpointId: captureCheckpointId,
+    drainStartedAtEpochMs,
+    drainStartedAtMonotonicMs: 2_000,
+    observedAtEpochMs: drainStartedAtEpochMs + (pendingIndexes.length > 0 ? 5_000 : 1),
+    observedAtMonotonicMs: 2_000 + (pendingIndexes.length > 0 ? 5_000 : 1),
+    drainTimeoutMs: 5_000,
+    deadlineReached: pendingIndexes.length > 0,
+    afterObserverIndex: requestEvents.at(-1)?.index ?? -1,
+    requestCount: requestEvents.length,
+    pendingObserverIndexes: pendingIndexes,
+    pendingBrowserRequestIds: pendingCaptureIds,
+    pendingResponseReadObserverIndexes: [],
+    scope: pendingReadScope,
+  };
+
   return {
     schemaVersion: 1,
     scenario: 'basic-temporal-filter',
     caseName,
     sourceCommit: 'a'.repeat(40),
     sourceFingerprint: { sha256: 'b'.repeat(64), files: 48 },
-    project: 'loom_dev_verify_temporal',
+    project,
     generation: 'basic-temporal-generation',
     resourceType: spec.resourceType,
     fieldPath: spec.fieldPath,
     fixturePath: `testdata/basic-temporal-filter/${spec.resourceType}.ndjson`,
     fixtureSha256: 'c'.repeat(64),
     bootstrapExplorerId: 'schema-fixture-bootstrap-explorer',
+    explorerId,
+    uiOrigin,
+    browserExplorerRoot,
+    checkpointId: captureCheckpointId,
+    pendingReadScope,
     rows: clone(spec.rows),
     ids: spec.rows.map(row => row.id),
     outputId,
@@ -381,6 +486,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     builderReads,
     domObservations,
     steps,
+    captureExit,
     lateReconcileCaptureIds: [],
     finalDOMObservationIndex: null,
   };

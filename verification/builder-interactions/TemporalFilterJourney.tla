@@ -1,7 +1,7 @@
 ---------------- MODULE TemporalFilterJourney ----------------
 EXTENDS Naturals, Integers, FiniteSets, Sequences, TLC
 
-CONSTANTS Profile, Case, ModelEvents, ObservedRequests, ObservedDOM, ObservedBuilderReads, InitialMountEpoch
+CONSTANTS Profile, Case, ModelEvents, ObservedRequests, CaptureExit, ObservedDOM, ObservedBuilderReads, InitialMountEpoch
 
 (***************************************************************************
 The public transition operators consume normalized events with action,
@@ -51,8 +51,10 @@ NoRequest == [captureId |-> No, requestId |-> No, isMutation |-> FALSE,
                method |-> No, path |-> No, status |-> No,
                body |-> No, responseBody |-> No]
 NoObservedRequest ==
-  [captureId |-> No, isMutation |-> FALSE, method |-> No, path |-> No,
-   requestId |-> No, status |-> 0,
+  [observerIndex |-> 0, captureId |-> No, isMutation |-> FALSE, method |-> No,
+   origin |-> No, path |-> No, requestId |-> No, settlement |-> No,
+   networkComplete |-> FALSE, responseHeadersObserved |-> FALSE,
+   responseBodyPending |-> FALSE, status |-> 0,
    startedAt |-> 0, startedAtExact |-> "0",
    responseReceivedAt |-> No, responseReceivedAtExact |-> No,
    completedAt |-> 0, completedAtExact |-> "0",
@@ -320,10 +322,12 @@ Event(ordinal, action, mount, request, before, after, ui, filter) ==
    reconcileCaptureIds |-> <<>>,
    evidenceKind |-> "abstract-model-fixture"]
 
-AbstractObservedRequest(captureId, isMutation, method, path, status,
+AbstractObservedRequest(observerIndex, captureId, isMutation, method, path, status,
                         candidateColumnIds, receiptId, outputId) ==
-  [captureId |-> captureId, isMutation |-> isMutation,
-   requestId |-> No, method |-> method, path |-> path, status |-> status,
+  [observerIndex |-> observerIndex, captureId |-> captureId, isMutation |-> isMutation,
+   requestId |-> No, method |-> method, origin |-> "http://127.0.0.1:30000",
+   path |-> path, settlement |-> "response", networkComplete |-> TRUE,
+   responseHeadersObserved |-> TRUE, responseBodyPending |-> FALSE, status |-> status,
    startedAt |-> 0, startedAtExact |-> "0",
    responseReceivedAt |-> 1, responseReceivedAtExact |-> "1",
    completedAt |-> 2, completedAtExact |-> "2",
@@ -351,9 +355,12 @@ AbstractObservedRequest(captureId, isMutation, method, path, status,
    reconcileDOMObservationIndexes |-> <<>>,
    reconcileOwnerChangeCaptureIds |-> <<>>,
    reconcileRetryFollowupCaptureIds |-> <<>>]
-AbstractReconcileRequest(captureId, snapshotToken, draftVersion, draftDigest,
+AbstractReconcileRequest(observerIndex, captureId, snapshotToken, draftVersion, draftDigest,
                          outputId, receiptId, mount, ordinal, domIndex) ==
-  [captureId |-> captureId, requestId |-> No, isMutation |-> FALSE, method |-> "POST",
+  [observerIndex |-> observerIndex, captureId |-> captureId, requestId |-> No,
+   isMutation |-> FALSE, method |-> "POST", origin |-> "http://127.0.0.1:30000",
+   settlement |-> "response", networkComplete |-> TRUE,
+   responseHeadersObserved |-> TRUE, responseBodyPending |-> FALSE,
    path |-> "/authoring/v2/reconcile", status |-> 200,
    startedAt |-> ordinal * 1000 - 3, startedAtExact |-> ToString(ordinal * 1000 - 3),
    responseReceivedAt |-> ordinal * 1000 - 2, responseReceivedAtExact |-> ToString(ordinal * 1000 - 2),
@@ -393,32 +400,46 @@ AbstractObservedDOM ==
      mountEpoch |-> Mount(4), receiptId |-> "Receipt-reconcile-remove",
      outputId |-> AbstractOutputId, rowIds |-> Case.sourceRowIds]>>
 AbstractObservedRequests ==
-  <<AbstractObservedRequest("capture-explorer", TRUE, "POST", "/explorers", 201, No, No, No),
-    AbstractObservedRequest("capture-table", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest("capture-column", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest("capture-choice-column", FALSE, "POST",
+  <<AbstractObservedRequest(0, "capture-explorer", TRUE, "POST", "/explorers", 201, No, No, No),
+    AbstractObservedRequest(1, "capture-table", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(2, "capture-column", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(3, "capture-choice-column", FALSE, "POST",
       "/authoring/v2/construction-choice-proposals", 200,
       <<AbstractTemporalColumnId>>, "Receipt-column", AbstractOutputId),
-    AbstractObservedRequest("capture-proposal-P-cancel", FALSE, "POST",
+    AbstractObservedRequest(4, "capture-proposal-P-cancel", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-cancel", AbstractOutputId),
-    AbstractObservedRequest("capture-apply-create", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest("capture-proposal-P-create", FALSE, "POST",
+    AbstractObservedRequest(5, "capture-apply-create", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(6, "capture-proposal-P-create", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-create", AbstractOutputId),
-    AbstractObservedRequest("capture-apply-edit", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest("capture-proposal-P-edit", FALSE, "POST",
+    AbstractObservedRequest(7, "capture-apply-edit", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(8, "capture-proposal-P-edit", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-edit", AbstractOutputId),
-    AbstractObservedRequest("capture-proposal-P-remove", FALSE, "POST",
+    AbstractObservedRequest(9, "capture-proposal-P-remove", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-remove", AbstractOutputId),
-    AbstractObservedRequest("capture-remove-filter", TRUE, "POST",
+    AbstractObservedRequest(10, "capture-remove-filter", TRUE, "POST",
       "/authoring/v2/commands", 200, No, No, No),
-    AbstractReconcileRequest("capture-reconcile-source", "Fixture-snapshot-token",
+    AbstractReconcileRequest(11, "capture-reconcile-source", "Fixture-snapshot-token",
       2, "draft-source", AbstractOutputId, "Receipt-reconcile-source", Mount(1), 6, 0),
-    AbstractReconcileRequest("capture-reconcile-create", "Fixture-snapshot-token",
+    AbstractReconcileRequest(12, "capture-reconcile-create", "Fixture-snapshot-token",
       3, "draft-create", AbstractOutputId, "Receipt-reconcile-create", Mount(2), 9, 1),
-    AbstractReconcileRequest("capture-reconcile-edit", "Fixture-snapshot-token",
+    AbstractReconcileRequest(13, "capture-reconcile-edit", "Fixture-snapshot-token",
       4, "draft-edit", AbstractOutputId, "Receipt-reconcile-edit", Mount(3), 13, 2),
-    AbstractReconcileRequest("capture-reconcile-remove", "Fixture-snapshot-token",
+    AbstractReconcileRequest(14, "capture-reconcile-remove", "Fixture-snapshot-token",
       5, "draft-remove", AbstractOutputId, "Receipt-reconcile-remove", Mount(4), 16, 3)>>
+AbstractCaptureExit ==
+  [checkpointId |-> "abstract-capture-exit",
+   drainStartedAt |-> 17000, drainStartedAtExact |-> "17000",
+   observedAt |-> 22000, observedAtExact |-> "22000",
+   drainStartedMonotonic |-> 17000, observedAtMonotonic |-> 5022000,
+   drainTimeoutMonotonicTicks |-> 5000000,
+   drainTimeoutMs |-> 5000, deadlineReached |-> FALSE,
+   afterObserverIndex |-> 14, requestCount |-> 15,
+   pendingObserverIndexes |-> <<>>, pendingCaptureIds |-> <<>>,
+   pendingResponseReadObserverIndexes |-> <<>>,
+   uiOrigin |-> "http://127.0.0.1:30000",
+   project |-> "loom_dev_verify_temporal", explorerId |-> "explorer-temporal",
+   browserExplorerRoot |-> "/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal",
+   outputId |-> AbstractOutputId]
 AbstractObservedBuilderReads == <<>>
 
 ProposalBody(saved, outputId, candidateSteps) ==
@@ -1321,6 +1342,9 @@ EventMutationCount ==
 InvObservedRequestIDsUnique ==
   \A i, j \in 1..Len(ObservedRequests):
     i # j => ObservedRequests[i].captureId # ObservedRequests[j].captureId
+InvObservedRequestIndexesUnique ==
+  \A i, j \in 1..Len(ObservedRequests):
+    i # j => ObservedRequests[i].observerIndex # ObservedRequests[j].observerIndex
 InvObservedMutationsConsumed ==
   /\ ObservedMutationIds = EventMutationIds
   /\ Cardinality(ObservedMutationIds) = ObservedMutationCount
@@ -1343,26 +1367,89 @@ InvObservedRequestChronology ==
   \A request \in SequenceSet(ObservedRequests):
     /\ request.captureId # No
     /\ request.startedAtExact # No
-    /\ request.completedAtExact # No
-    /\ IF request.status = 0
-         THEN /\ request.failureCanceled = TRUE
+    /\ request.startedAt \in Int
+    /\ IF request.settlement = "pending"
+         THEN /\ request.status = 0
+              /\ request.completedAt = No
+              /\ request.completedAtExact = No
+              /\ request.responseReceivedAt = No
+              /\ request.responseMountEpoch = No
+              /\ request.failureMountEpoch = No
+              /\ request.failureCanceled = FALSE
+              /\ request.isMutation = FALSE
+              /\ request.networkComplete = FALSE
+              /\ request.responseHeadersObserved = FALSE
+              /\ request.responseBodyPending = FALSE
+              /\ request.method = "POST"
+              /\ request.origin = CaptureExit.uiOrigin
+              /\ request.requestOutputId = CaptureExit.outputId
+              /\ (request.path = CaptureExit.browserExplorerRoot
+                    \o "/authoring/v2/construction-capabilities"
+                  \/ request.path = CaptureExit.browserExplorerRoot
+                    \o "/authoring/v2/semantic-inventory")
+         ELSE IF request.settlement = "request-failed"
+         THEN /\ request.status = 0
+              /\ request.completedAt \in Int
+              /\ request.completedAtExact # No
+              /\ request.failureCanceled = TRUE
               /\ request.responseReceivedAt = No
               /\ request.responseMountEpoch = No
               /\ request.failureMountEpoch \in Nat
               /\ request.isMutation = FALSE
+              /\ request.networkComplete = TRUE
+              /\ request.responseHeadersObserved = FALSE
+              /\ request.responseBodyPending = FALSE
               /\ (EndsWith(request.path, "/reconcile")
                   \/ EndsWith(request.path, "/preview")
                   \/ EndsWith(request.path, "/construction-proposals")
                   \/ EndsWith(request.path, "/construction-choice-proposals"))
-         ELSE /\ request.status \in 100..599
+         ELSE /\ request.settlement = "response"
+              /\ request.status \in 100..599
               /\ request.responseReceivedAt \in Int
-              /\ request.startedAt \in Int
               /\ request.completedAt \in Int
               /\ request.startedAt <= request.responseReceivedAt
               /\ request.responseReceivedAt <= request.completedAt
               /\ request.requestMountEpoch \in Nat
               /\ request.responseMountEpoch \in Nat
               /\ request.failureMountEpoch = No
+              /\ request.networkComplete = TRUE
+              /\ request.responseHeadersObserved = TRUE
+              /\ request.responseBodyPending = FALSE
+              /\ request.completedAtExact # No
+
+PendingObservedRequests ==
+  {request \in SequenceSet(ObservedRequests): request.settlement = "pending"}
+PendingObservedIndexes ==
+  {request.observerIndex : request \in PendingObservedRequests}
+PendingObservedCaptureIds ==
+  {request.captureId : request \in PendingObservedRequests}
+InvCaptureExitPendingReads ==
+  /\ CaptureExit.checkpointId # No
+  /\ CaptureExit.drainStartedAt \in Int
+  /\ CaptureExit.observedAt \in Int
+  /\ CaptureExit.drainStartedAt <= CaptureExit.observedAt
+  /\ CaptureExit.drainStartedMonotonic \in Int
+  /\ CaptureExit.observedAtMonotonic \in Int
+  /\ CaptureExit.drainStartedMonotonic <= CaptureExit.observedAtMonotonic
+  /\ CaptureExit.drainTimeoutMs = 5000
+  /\ CaptureExit.drainTimeoutMonotonicTicks = CaptureExit.drainTimeoutMs * 1000
+  /\ CaptureExit.requestCount = Len(ObservedRequests)
+  /\ CaptureExit.afterObserverIndex = ObservedRequests[Len(ObservedRequests)].observerIndex
+  /\ CaptureExit.outputId = ModelEvents[Len(ModelEvents)].after.outputId
+  /\ CaptureExit.pendingResponseReadObserverIndexes = <<>>
+  /\ CaptureExit.deadlineReached = (Cardinality(PendingObservedRequests) > 0)
+  /\ SequenceSet(CaptureExit.pendingObserverIndexes) = PendingObservedIndexes
+  /\ Len(CaptureExit.pendingObserverIndexes) = Cardinality(PendingObservedIndexes)
+  /\ SequenceSet(CaptureExit.pendingCaptureIds) = PendingObservedCaptureIds
+  /\ Len(CaptureExit.pendingCaptureIds) = Cardinality(PendingObservedCaptureIds)
+  /\ \A request \in SequenceSet(ObservedRequests):
+       request.startedAt <= CaptureExit.observedAt
+  /\ IF Cardinality(PendingObservedRequests) > 0
+       THEN /\ CaptureExit.observedAtMonotonic - CaptureExit.drainStartedMonotonic
+              >= CaptureExit.drainTimeoutMonotonicTicks
+            /\ \A request \in PendingObservedRequests:
+                 request.observerIndex \in SequenceSet(CaptureExit.pendingObserverIndexes)
+       ELSE TRUE
 InvObservedBuilderReadChronology ==
   \A read \in SequenceSet(ObservedBuilderReads):
     /\ read.readId # No

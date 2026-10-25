@@ -159,7 +159,9 @@ test('shared writer replays both synthetic Temporal contracts and all registered
   });
 
   for (const spec of cases) {
-    const capture = makeTemporalFilterJourneyCaptureFixture(spec.caseName);
+    const capture = makeTemporalFilterJourneyCaptureFixture(spec.caseName, {
+      pendingCapabilities: spec.caseName === 'date',
+    });
     const trace = adaptTemporalFilterJourney(capture);
     const tracePath = join(directory, `${spec.caseName}.trace.json`);
     process.env.LOOM_JOURNEY_TRACE = tracePath;

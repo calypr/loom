@@ -219,7 +219,7 @@
         "event": "Reload"
       }
     ],
-    "coverageBasis": "Temporal compiler/TLC predicates bind the 16 ordered actions to captured observer request identity, response status, owner/CAS and chronology, Builder read snapshots, and mounted DOM receipt/output/row IDs; the independent Basic Observation.effectiveDateTime oracle and lifecycle assertions check exact fixture identities and typed DATE_TIME input, request, response, saved value, cancel, apply, edit, removal, reload, and restoration.",
+    "coverageBasis": "Temporal compiler/TLC predicates bind the 16 ordered actions to captured observer request identity, response status, owner/CAS and chronology, Builder read snapshots, and mounted DOM receipt/output/row IDs. Every captured request retains its physical identity; an unresolved capability or semantic-inventory read is admitted only at the explicit bounded capture exit under the exact project, Explorer, origin, output, and saved CAS, with no response, header, body, owner, or receipt credit. The independent Basic Observation.effectiveDateTime oracle and lifecycle assertions check exact fixture identities and typed DATE_TIME input, request, response, saved value, cancel, apply, edit, removal, reload, and restoration.",
     "valueKind": "DATE_TIME",
     "resourceType": "Observation",
     "fieldPath": "effectiveDateTime"

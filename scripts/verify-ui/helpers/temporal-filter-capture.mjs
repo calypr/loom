@@ -1,8 +1,35 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
+import {
+  TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
+  validateTemporalPendingReadScope,
+} from './temporal-filter-pending-read.mjs';
 
 const clone = value => value === undefined ? null : structuredClone(value);
+const jsonSafe = (value, label = 'capture checkpoint', ancestors = new Set()) => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    assert(Number.isFinite(value), `${label} must not contain non-finite numbers.`);
+    return value;
+  }
+  assert(typeof value === 'object', `${label} must contain only JSON values.`);
+  assert(!ancestors.has(value), `${label} must not contain cycles.`);
+  ancestors.add(value);
+  let result;
+  if (Array.isArray(value)) {
+    result = value.map((item, index) => jsonSafe(item, `${label}[${index}]`, ancestors));
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    assert(prototype === Object.prototype || prototype === null,
+      `${label} must not contain non-JSON object instances.`);
+    result = Object.fromEntries(Object.entries(value).map(([key, item]) =>
+      [key, jsonSafe(item, `${label}.${key}`, ancestors)]));
+  }
+  ancestors.delete(value);
+  return result;
+};
 
 const eventStamp = mountEpoch => ({
   atMonotonicMs: performance.now(),
@@ -10,10 +37,18 @@ const eventStamp = mountEpoch => ({
   mountEpoch,
 });
 
-export const createTemporalFilterCapture = ({ page, networkObserver, initialMountEpoch = 0 }) => {
+export const createTemporalFilterCapture = ({
+  page,
+  networkObserver,
+  initialMountEpoch = 0,
+  finishDrainTimeoutMs = TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
+}) => {
   assert(page && networkObserver, 'Temporal-filter capture requires the workflow Page and network observer.');
   assert(Number.isInteger(initialMountEpoch) && initialMountEpoch >= 0,
     'Temporal-filter capture mount epoch must be a nonnegative integer.');
+  assert(Number.isInteger(finishDrainTimeoutMs) && finishDrainTimeoutMs > 0 &&
+    finishDrainTimeoutMs <= TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
+  'Temporal-filter capture drain must be positive and cannot exceed the production five-second budget.');
   const requestStartIndex = networkObserver.requests.length;
   const requestStamps = new WeakMap();
   const responseMountEpochs = new WeakMap();
@@ -24,6 +59,69 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
   const steps = [];
   let mountEpoch = initialMountEpoch;
   let finished = false;
+
+  const requestEvent = entry => {
+    const stamp = requestStamps.get(entry);
+    assert(stamp, `Observed request ${entry.browserRequestId} is missing its request-event timestamp.`);
+    const settlement = entry.status !== undefined && entry.status !== null
+      ? entry.networkComplete && entry.responseCaptureComplete ? 'response' : 'response-body-pending'
+      : entry.failure ? 'request-failed' : 'pending';
+    return {
+      index: entry.index,
+      browserRequestId: entry.browserRequestId,
+      ...(typeof entry.requestId === 'string' ? { requestId: entry.requestId } : {}),
+      method: entry.method,
+      origin: entry.origin ?? null,
+      path: entry.path,
+      status: entry.status ?? null,
+      request: clone(networkObserver.requestBody(entry)),
+      response: clone(extraResponseBodies.has(entry) ? extraResponseBodies.get(entry) : networkObserver.responseBody(entry)),
+      startedAt: entry.startedAt,
+      responseReceivedAt: entry.responseReceivedAt ?? null,
+      completedAt: entry.completedAt ?? null,
+      responseMountEpoch: responseMountEpochs.get(entry) ?? null,
+      failureMountEpoch: failureMountEpochs.get(entry) ?? null,
+      isMutation: Boolean(entry.isMutation),
+      failure: clone(entry.failure),
+      readCancellationDiagnostic: Boolean(entry.readCancellationDiagnostic),
+      responseCapture: entry.responseCapture ?? null,
+      responseCaptureComplete: Boolean(entry.responseCaptureComplete),
+      responseBodyCaptured: Boolean(entry.responseBodyCaptured),
+      ...(entry.responseCaptureError ? { responseCaptureError: entry.responseCaptureError } : {}),
+      networkComplete: Boolean(entry.networkComplete),
+      settlement,
+      atMonotonicMs: stamp.atMonotonicMs,
+      atEpochMs: stamp.atEpochMs,
+      mountEpoch: stamp.mountEpoch,
+    };
+  };
+
+  const checkpoint = metadata => {
+    const entries = networkObserver.requests.slice(requestStartIndex);
+    const at = eventStamp(mountEpoch);
+    const requestEvents = entries.map(requestEvent);
+    const pending = requestEvents.filter(event => event.settlement === 'pending');
+    const pendingResponseReads = requestEvents.filter(event => event.settlement === 'response-body-pending');
+    const checkpointData = jsonSafe({
+      schemaVersion: 1,
+      checkpointId: randomUUID(),
+      checkpointedAtEpochMs: at.atEpochMs,
+      checkpointedAtMonotonicMs: at.atMonotonicMs,
+      requestStartIndex,
+      requestCount: requestEvents.length,
+      afterObserverIndex: requestEvents.at(-1)?.index ?? requestStartIndex - 1,
+      pendingObserverIndexes: pending.map(event => event.index),
+      pendingBrowserRequestIds: pending.map(event => event.browserRequestId),
+      pendingResponseReadObserverIndexes: pendingResponseReads.map(event => event.index),
+      ...metadata,
+      requestEvents,
+      builderReads,
+      domObservations,
+      steps,
+    });
+    assert.doesNotThrow(() => JSON.stringify(checkpointData), 'Capture checkpoint must be JSON-safe.');
+    return checkpointData;
+  };
 
   const onRequest = request => {
     const entry = networkObserver.byRequest.get(request);
@@ -185,10 +283,10 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
   const requestsSince = (fromIndex, predicate = () => true) =>
     networkObserver.requests.slice(fromIndex).filter(predicate);
 
-  const settleRequests = async entries => {
+  const settleRequests = async (entries, { timeoutMs = TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS } = {}) => {
     await Promise.all(entries.map(entry => networkObserver.waitForResponse(candidate => candidate === entry, {
       fromIndex: entry.index,
-      timeoutMs: 5_000,
+      timeoutMs,
     })));
   };
 
@@ -199,16 +297,50 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
 
   const finish = async metadata => {
     assert(!finished, 'Temporal-filter capture can only finish once.');
+    assert(typeof metadata?.checkpointId === 'string' && metadata.checkpointId.length > 0,
+      'Temporal-filter capture finish must bind its pre-drain checkpoint identity.');
+    const drainStartedAtMonotonicMs = performance.now();
+    const drainStartedAtEpochMs = Date.now();
+    const drainDeadlineMonotonicMs = drainStartedAtMonotonicMs + finishDrainTimeoutMs;
     const settledEntries = new Set();
+    const acceptedPendingEntries = new Set();
     let finalDOMObservationIndex = null;
     for (;;) {
       const endIndex = networkObserver.requests.length;
       const entries = networkObserver.requests.slice(requestStartIndex, endIndex);
-      const pending = entries.filter(entry => !settledEntries.has(entry));
+      for (const entry of entries) {
+        if (entry.networkComplete && entry.responseCaptureComplete) settledEntries.add(entry);
+      }
+      const pending = entries.filter(entry => !settledEntries.has(entry) && !acceptedPendingEntries.has(entry));
       if (pending.length > 0) {
-        await settleRequests(pending);
-        for (const entry of pending) settledEntries.add(entry);
-        continue;
+        const remainingMs = Math.floor(drainDeadlineMonotonicMs - performance.now());
+        if (remainingMs > 0) {
+          const outcomes = await Promise.allSettled(pending.map(entry => networkObserver.waitForResponse(
+            candidate => candidate === entry, { fromIndex: entry.index, timeoutMs: remainingMs })));
+          outcomes.forEach((outcome, index) => {
+            if (outcome.status === 'fulfilled') settledEntries.add(pending[index]);
+          });
+          const unexpectedFailure = outcomes.find(outcome => outcome.status === 'rejected' &&
+            !/^Timed out waiting for the scoped response after \d+ms\.$/u.test(String(outcome.reason?.message ?? outcome.reason)));
+          if (unexpectedFailure) throw unexpectedFailure.reason;
+          if (performance.now() < drainDeadlineMonotonicMs) continue;
+        }
+
+        const currentEntries = networkObserver.requests.slice(requestStartIndex);
+        for (const entry of currentEntries) {
+          if (entry.networkComplete && entry.responseCaptureComplete) settledEntries.add(entry);
+        }
+        const unresolved = currentEntries.filter(entry => !settledEntries.has(entry));
+        const partialResponseReads = unresolved.filter(entry => entry.status !== undefined && entry.status !== null);
+        assert.deepEqual(partialResponseReads.map(entry => entry.index), [],
+          'Temporal-filter capture cannot exit while a response-body read is pending.');
+        for (const entry of unresolved) {
+          const stamp = requestStamps.get(entry);
+          assert(stamp && stamp.atMonotonicMs <= drainDeadlineMonotonicMs,
+            `Request ${entry.browserRequestId} started after the bounded temporal capture drain.`);
+          validateTemporalPendingReadScope(requestEvent(entry), metadata.pendingReadScope, builderReads);
+          acceptedPendingEntries.add(entry);
+        }
       }
 
       const linkedCaptureIds = new Set(steps.flatMap(step => step.reconcileCaptureIds));
@@ -237,9 +369,6 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
       if (networkObserver.requests.length === endIndex) break;
     }
     const entries = networkObserver.requests.slice(requestStartIndex);
-    for (const entry of entries) {
-      assert(requestStamps.has(entry), `Observed request ${entry.browserRequestId} is missing its request-event timestamp.`);
-    }
     const linkedCaptureIds = new Set(steps.flatMap(step => step.reconcileCaptureIds));
     const lateReconcileCaptureIds = entries.filter(entry => entry.method === 'POST' &&
       entry.path.endsWith('/reconcile') && !linkedCaptureIds.has(entry.browserRequestId))
@@ -249,35 +378,35 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
     page.off('framenavigated', onFrameNavigated);
     page.off('response', onResponse);
     page.off('requestfailed', onRequestFailed);
-    const requestEvents = entries.map(entry => {
-      const stamp = requestStamps.get(entry);
-      const event = {
-        index: entry.index,
-        browserRequestId: entry.browserRequestId,
-        ...(typeof entry.requestId === 'string' ? { requestId: entry.requestId } : {}),
-        method: entry.method,
-        path: entry.path,
-        status: entry.status ?? null,
-        request: clone(networkObserver.requestBody(entry)),
-        response: clone(extraResponseBodies.has(entry) ? extraResponseBodies.get(entry) : networkObserver.responseBody(entry)),
-        startedAt: entry.startedAt,
-        responseReceivedAt: entry.responseReceivedAt ?? null,
-        completedAt: entry.completedAt ?? null,
-        responseMountEpoch: responseMountEpochs.get(entry) ?? null,
-        failureMountEpoch: failureMountEpochs.get(entry) ?? null,
-        isMutation: Boolean(entry.isMutation),
-        failure: clone(entry.failure),
-        readCancellationDiagnostic: Boolean(entry.readCancellationDiagnostic),
-        responseCapture: entry.responseCapture ?? null,
-        responseCaptureComplete: Boolean(entry.responseCaptureComplete),
-        responseBodyCaptured: Boolean(entry.responseBodyCaptured),
-        ...(entry.responseCaptureError ? { responseCaptureError: entry.responseCaptureError } : {}),
-        atMonotonicMs: stamp.atMonotonicMs,
-        atEpochMs: stamp.atEpochMs,
-        mountEpoch: stamp.mountEpoch,
-      };
-      return event;
-    });
+    const requestEvents = entries.map(requestEvent);
+    const pendingEvents = requestEvents.filter(event => event.settlement === 'pending');
+    const pendingResponseReadEvents = requestEvents.filter(event => event.settlement === 'response-body-pending');
+    assert.deepEqual(pendingResponseReadEvents.map(event => event.index), [],
+      'Temporal-filter capture cannot leave response-body reads pending at its exit.');
+    const acceptedPendingIndexes = new Set([...acceptedPendingEntries].map(entry => entry.index));
+    assert(pendingEvents.every(event => acceptedPendingIndexes.has(event.index)),
+    'Every unresolved temporal request must be retained by the accepted pending-read boundary.');
+    const observedAtEpochMs = Date.now();
+    const observedAtMonotonicMs = performance.now();
+    const captureExit = {
+      checkpointId: metadata.checkpointId,
+      drainStartedAtEpochMs,
+      drainStartedAtMonotonicMs,
+      observedAtEpochMs,
+      observedAtMonotonicMs,
+      drainTimeoutMs: finishDrainTimeoutMs,
+      deadlineReached: pendingEvents.length > 0,
+      afterObserverIndex: requestEvents.at(-1)?.index ?? requestStartIndex - 1,
+      requestCount: requestEvents.length,
+      pendingObserverIndexes: pendingEvents.map(event => event.index),
+      pendingBrowserRequestIds: pendingEvents.map(event => event.browserRequestId),
+      pendingResponseReadObserverIndexes: [],
+      scope: clone(metadata.pendingReadScope),
+    };
+    if (pendingEvents.length > 0) {
+      assert(observedAtMonotonicMs - drainStartedAtMonotonicMs >= finishDrainTimeoutMs,
+        'Pending temporal reads require the full bounded capture exit interval.');
+    }
     return {
       schemaVersion: 1,
       scenario: 'basic-temporal-filter',
@@ -286,6 +415,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
       builderReads,
       domObservations,
       steps,
+      captureExit,
       lateReconcileCaptureIds,
       finalDOMObservationIndex,
     };
@@ -305,6 +435,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
     requestsSince,
     settleRequests,
     associateResponseBody,
+    checkpoint,
     finish,
   };
 };

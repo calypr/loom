@@ -8,6 +8,10 @@ import {
   TEMPORAL_FILTER_ACTION_EVENT_PAIRS,
   TEMPORAL_FILTER_CAPTURE_KIND,
 } from './temporal-filter-trace-adapter.mjs';
+import {
+  TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
+  validateTemporalPendingReadScope,
+} from './temporal-filter-pending-read.mjs';
 
 const REQUIRED_LABELS = Object.freeze([
   'ExplorerCreated',
@@ -797,6 +801,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
     'Raw temporal evidence must retain the bootstrap Explorer whose first-navigation reads are scoped.');
   assert(lifecycle.outputId && lifecycle.temporalColumnId,
     'Raw temporal evidence must retain its actual output and temporal-column IDs.');
+  assert(lifecycle.captureExit && typeof lifecycle.captureExit === 'object',
+    'Raw temporal evidence must retain the actual bounded capture-exit boundary.');
   assert.deepEqual(lifecycle.rows, contract.rows,
     'Raw temporal rows must match the independent literal fixture oracle.');
   assert.deepEqual(lifecycle.ids, contract.rows.map(row => row.id),
@@ -815,6 +821,52 @@ export const validateTemporalFilterJourneyTrace = trace => {
     startedAt: request.startedAt,
     isMutation: request.isMutation,
   })), 'Common nativeRequests must preserve each actual observer index, browser ID, request ID, and start event.');
+  const captureExit = lifecycle.captureExit;
+  assert(typeof captureExit.checkpointId === 'string' && captureExit.checkpointId.length > 0,
+    'Capture exit must link the pre-drain JSON-safe checkpoint identity.');
+  assert.equal(captureExit.checkpointId, lifecycle.checkpointId,
+    'Capture exit and lifecycle must retain the same explicit checkpoint identity.');
+  assert(Number.isSafeInteger(captureExit.drainStartedAtEpochMs) &&
+    Number.isSafeInteger(captureExit.observedAtEpochMs) &&
+    captureExit.observedAtEpochMs >= captureExit.drainStartedAtEpochMs,
+  'Capture exit must retain its actual drain start and observation times.');
+  assert(Number.isFinite(captureExit.drainStartedAtMonotonicMs) &&
+    Number.isFinite(captureExit.observedAtMonotonicMs) &&
+    captureExit.observedAtMonotonicMs >= captureExit.drainStartedAtMonotonicMs,
+  'Capture exit must retain its actual monotonic drain interval.');
+  assert.equal(captureExit.drainTimeoutMs, TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
+    'Capture exit must preserve the existing five-second drain budget.');
+  assert.equal(typeof captureExit.deadlineReached, 'boolean');
+  assert.equal(captureExit.requestCount, lifecycle.requestEvents.length,
+    'Capture exit must account for every retained physical request.');
+  assert.equal(captureExit.afterObserverIndex, lifecycle.requestEvents.at(-1)?.index ?? -1,
+    'Capture exit must retain the final actual observer index.');
+  assert.deepEqual(captureExit.scope, lifecycle.pendingReadScope,
+    'Capture exit must bind the exact project, Explorer, origin, and output scope.');
+  const pendingRequests = lifecycle.requestEvents.filter(request => request.settlement === 'pending');
+  const pendingResponseReads = lifecycle.requestEvents.filter(request => request.settlement === 'response-body-pending');
+  assert.deepEqual(captureExit.pendingObserverIndexes, pendingRequests.map(request => request.index),
+    'Capture exit must enumerate the exact unresolved physical request indexes.');
+  assert.deepEqual(captureExit.pendingBrowserRequestIds, pendingRequests.map(request => request.browserRequestId),
+    'Capture exit must retain the actual browser IDs for each unresolved physical request.');
+  assert.deepEqual(captureExit.pendingResponseReadObserverIndexes, pendingResponseReads.map(request => request.index),
+    'Capture exit must account for pending response-body reads explicitly.');
+  assert.deepEqual(captureExit.pendingResponseReadObserverIndexes, [],
+    'Formal capture cannot exit with a response body still being read.');
+  assert.equal(captureExit.deadlineReached, pendingRequests.length > 0,
+    'Only physical requests still pending at the bounded deadline may use the pending-read contract.');
+  if (pendingRequests.length > 0) {
+    assert(captureExit.observedAtMonotonicMs - captureExit.drainStartedAtMonotonicMs >= TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
+      'Pending reads require the actual five-second capture deadline.');
+    for (const request of pendingRequests) {
+      validateTemporalPendingReadScope(request, lifecycle.pendingReadScope, lifecycle.builderReads);
+    }
+  }
+  const lastObservedRequestTime = lifecycle.requestEvents.flatMap(request => [
+    request.startedAt, request.responseReceivedAt, request.completedAt,
+  ]).filter(Number.isFinite).reduce((maximum, value) => Math.max(maximum, value), 0);
+  assert(captureExit.observedAtEpochMs >= lastObservedRequestTime,
+    'Capture exit must follow every actual request start, response, and completion it retains.');
   assert(Array.isArray(lifecycle.lateReconcileCaptureIds),
     'Raw capture must retain reconcile IDs outside the semantic-step request windows.');
   assert(lifecycle.finalDOMObservationIndex === null ||
@@ -847,12 +899,22 @@ export const validateTemporalFilterJourneyTrace = trace => {
   }
   for (const request of rawRequests) {
     assert(typeof request.isMutation === 'boolean', 'Observer request ledger must retain mutation classification.');
-    assert(typeof request.method === 'string' && typeof request.path === 'string');
-    assert(Number.isFinite(request.startedAt) && Number.isFinite(request.completedAt),
-      `Observer request ${request.browserRequestId} must have one settled response.`);
-    if (request.status === null) {
+    assert(typeof request.method === 'string' && typeof request.path === 'string' && typeof request.origin === 'string');
+    assert(Number.isFinite(request.startedAt));
+    assert(request.completedAt === null || Number.isFinite(request.completedAt));
+    assert(typeof request.networkComplete === 'boolean');
+    if (request.settlement === 'pending') {
+      validateTemporalPendingReadScope(request, lifecycle.pendingReadScope, lifecycle.builderReads);
+      assert.equal(request.completedAt, null);
+      assert.equal(request.status, null);
+      assert.equal(request.networkComplete, false);
+      assert.equal(request.responseCaptureComplete, true);
+      assert.equal(request.responseBodyCaptured, false);
+    } else if (request.status === null) {
+      assert.equal(request.settlement, 'request-failed');
       assert(!request.isMutation && request.readCancellationDiagnostic === true &&
         request.failure?.canceled === true &&
+        request.networkComplete === true && request.responseCaptureComplete === true &&
         (isProposalRequest(request) || isReconcileRequest(request) || isPreviewRequest(request)),
       `Observer request ${request.browserRequestId} may omit status only for a captured temporal preview or proposal cancellation.`);
       assert(request.responseReceivedAt === null || request.responseReceivedAt === undefined,
@@ -862,14 +924,22 @@ export const validateTemporalFilterJourneyTrace = trace => {
       assert(Number.isInteger(request.failureMountEpoch),
         `Canceled request ${request.browserRequestId} must retain its actual failure mount epoch.`);
     } else {
+      assert.equal(request.settlement, 'response');
       assert(Number.isInteger(request.status) && request.status >= 100 && request.status <= 599,
         `Observer request ${request.browserRequestId} must retain its actual HTTP status code.`);
       assert(Number.isFinite(request.responseReceivedAt),
         `Observer request ${request.browserRequestId} must retain the actual response-arrival time.`);
+      assert(Number.isFinite(request.completedAt),
+        `Observer request ${request.browserRequestId} must retain its actual completion time.`);
       assert(request.responseReceivedAt >= request.startedAt && request.completedAt >= request.responseReceivedAt,
         `Observer request ${request.browserRequestId} must order start, response arrival, and body-capture completion.`);
       assert(Number.isInteger(request.responseMountEpoch),
         `Observer request ${request.browserRequestId} must retain its actual response mount epoch.`);
+      assert.equal(request.networkComplete, true);
+      assert.equal(request.responseCaptureComplete, true,
+        `Observer request ${request.browserRequestId} cannot leave a response-body read open.`);
+      assert.equal(request.responseCaptureError ?? null, null,
+        `Observer request ${request.browserRequestId} cannot hide a response-body capture failure.`);
       assert(request.failureMountEpoch === null || request.failureMountEpoch === undefined,
         `Successful response ${request.browserRequestId} must not retain a request-failure mount epoch.`);
     }
@@ -1148,11 +1218,17 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const modelEvents = trace.actions.map((event, index) => projectModelEvent(
     event, rawStepByActionIndex[index], lifecycle, timeOrigin, initialMountEpoch));
   const observedRequests = rawRequests.map(request => ({
+    observerIndex: request.index,
     captureId: request.browserRequestId,
     requestId: noIfAbsent(request.requestId),
     isMutation: Boolean(request.isMutation),
     method: request.method,
+    origin: request.origin,
     path: request.path,
+    settlement: request.settlement,
+    networkComplete: request.networkComplete,
+    responseHeadersObserved: request.status !== null && Number.isFinite(request.responseReceivedAt),
+    responseBodyPending: request.settlement === 'response-body-pending',
     status: noIfAbsent(request.status) === NO ? 0 : request.status,
     startedAt: Math.round(request.startedAt - timeOrigin.epochMs),
     startedAtExact: String(request.startedAt),
@@ -1205,6 +1281,28 @@ export const validateTemporalFilterJourneyTrace = trace => {
     requestEvidence: opaqueJSON(request.request),
     responseEvidence: opaqueJSON(request.response),
   }));
+  const observedCaptureExit = {
+    checkpointId: captureExit.checkpointId,
+    drainStartedAt: captureExit.drainStartedAtEpochMs - timeOrigin.epochMs,
+    drainStartedAtExact: String(captureExit.drainStartedAtEpochMs),
+    observedAt: captureExit.observedAtEpochMs - timeOrigin.epochMs,
+    observedAtExact: String(captureExit.observedAtEpochMs),
+    drainStartedMonotonic: Math.round((captureExit.drainStartedAtMonotonicMs - timeOrigin.monotonicMs) * 1_000),
+    observedAtMonotonic: Math.round((captureExit.observedAtMonotonicMs - timeOrigin.monotonicMs) * 1_000),
+    drainTimeoutMonotonicTicks: captureExit.drainTimeoutMs * 1_000,
+    drainTimeoutMs: captureExit.drainTimeoutMs,
+    deadlineReached: captureExit.deadlineReached,
+    afterObserverIndex: captureExit.afterObserverIndex,
+    requestCount: captureExit.requestCount,
+    pendingObserverIndexes: captureExit.pendingObserverIndexes,
+    pendingCaptureIds: captureExit.pendingBrowserRequestIds,
+    pendingResponseReadObserverIndexes: captureExit.pendingResponseReadObserverIndexes,
+    uiOrigin: captureExit.scope.uiOrigin,
+    project: captureExit.scope.project,
+    explorerId: captureExit.scope.explorerId,
+    browserExplorerRoot: captureExit.scope.browserExplorerRoot,
+    outputId: captureExit.scope.outputId,
+  };
   const observedDOMObservations = lifecycle.domObservations.map((observation, index) => ({
     observationIndex: index,
     capturedAt: Math.round(observation.capturedAtEpochMs - timeOrigin.epochMs),
@@ -1242,6 +1340,7 @@ export const validateTemporalFilterJourneyTrace = trace => {
     caseValue: buildCase(caseName, trace.actions),
     modelEvents,
     observedRequests,
+    observedCaptureExit,
     observedDOMObservations,
     observedBuilderReads,
     eventCount: modelEvents.length,
@@ -1272,6 +1371,8 @@ const invariantNames = Object.freeze([
   'InvAllOtherStepsAndColumnsPreserved',
   'InvReconcileEvidenceLinked',
   'InvObservedRequestChronology',
+  'InvObservedRequestIndexesUnique',
+  'InvCaptureExitPendingReads',
   'InvObservedBuilderReadChronology',
   'InvReconcilePossibleProducerRelations',
   'InvReconcileOwnerEvidence',
@@ -1307,6 +1408,7 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     `TraceCase == ${tlaValue(input.caseValue)}`,
     `TraceEvents == ${tlaValue(input.modelEvents)}`,
     `TraceObservedRequests == ${tlaValue(input.observedRequests)}`,
+    `TraceCaptureExit == ${tlaValue(input.observedCaptureExit)}`,
     `TraceObservedDOM == ${tlaValue(input.observedDOMObservations)}`,
     `TraceObservedBuilderReads == ${tlaValue(input.observedBuilderReads)}`,
     '====',
@@ -1319,6 +1421,7 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     'CONSTANT Case <- TraceCase',
     'CONSTANT ModelEvents <- TraceEvents',
     'CONSTANT ObservedRequests <- TraceObservedRequests',
+    'CONSTANT CaptureExit <- TraceCaptureExit',
     'CONSTANT ObservedDOM <- TraceObservedDOM',
     'CONSTANT ObservedBuilderReads <- TraceObservedBuilderReads',
     ...invariantNames.map(name => `INVARIANT ${name}`),

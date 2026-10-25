@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
+import { fixtureProjectExplorerCollectionPath } from './fixture-context.mjs';
+import { validateTemporalPendingReadScope } from './temporal-filter-pending-read.mjs';
 
 export const TEMPORAL_FILTER_CAPTURE_KIND = 'builder-temporal-native-lifecycle';
 
@@ -165,6 +167,24 @@ const assertCaseIdentity = capture => {
   assert(capture.generation, 'Trace must retain its fixture generation.');
   assert(typeof capture.bootstrapExplorerId === 'string' && capture.bootstrapExplorerId.length > 0,
     'Trace must retain the actual bootstrap Explorer identity for first-navigation reads.');
+  assert(typeof capture.explorerId === 'string' && capture.explorerId.length > 0,
+    'Trace must retain the actual created Explorer identity.');
+  assert(typeof capture.uiOrigin === 'string' && capture.uiOrigin.length > 0,
+    'Trace must retain the exact browser proxy origin.');
+  assert.equal(capture.browserExplorerRoot,
+    `${fixtureProjectExplorerCollectionPath(capture.project)}/${encodeURIComponent(capture.explorerId)}`,
+  'Trace must bind the exact double-encoded project and created Explorer route.');
+  assert.equal(capture.pendingReadScope?.project, capture.project);
+  assert.equal(capture.pendingReadScope?.explorerId, capture.explorerId);
+  assert.equal(capture.pendingReadScope?.uiOrigin, capture.uiOrigin);
+  assert.equal(capture.pendingReadScope?.browserExplorerRoot, capture.browserExplorerRoot);
+  assert.equal(capture.pendingReadScope?.outputId, capture.outputId);
+  const explorerCreate = capture.requestEvents?.find(request => request.method === 'POST' &&
+    request.path === fixtureProjectExplorerCollectionPath(capture.project) &&
+    typeof request.response?.explorerId === 'string');
+  assert(explorerCreate, 'Trace must retain the successful actual Explorer creation response.');
+  assert.equal(explorerCreate.response.explorerId, capture.explorerId,
+    'Trace Explorer identity must match its actual creation response.');
   assert.match(capture.sourceCommit ?? '', /^[a-f0-9]{40}$/, 'Trace must retain the exact source commit.');
   assert.match(capture.sourceFingerprint?.sha256 ?? '', /^[a-f0-9]{64}$/,
     'Trace must retain the watched source fingerprint.');
@@ -193,25 +213,42 @@ const assertCaptureShape = capture => {
     'Captured observer requests must retain their actual ledger order.');
   for (const request of capture.requestEvents) {
     assert(typeof request.method === 'string' && typeof request.path === 'string');
+    assert.equal(typeof request.origin, 'string', `Request ${request.browserRequestId} must retain its actual origin.`);
     assert(Number.isFinite(request.atMonotonicMs) && Number.isFinite(request.atEpochMs));
     assert(Number.isInteger(request.mountEpoch));
     assert(Number.isFinite(request.startedAt));
     assert(request.responseReceivedAt === null || Number.isFinite(request.responseReceivedAt));
     assert(request.completedAt === null || Number.isFinite(request.completedAt));
-    if (request.status === null) {
+    assert.equal(typeof request.networkComplete, 'boolean');
+    if (request.settlement === 'pending') {
+      validateTemporalPendingReadScope(request, capture.pendingReadScope, capture.builderReads);
+      assert.equal(request.responseReceivedAt, null);
+      assert.equal(request.completedAt, null);
+      assert.equal(request.responseMountEpoch, null);
+      assert.equal(request.failureMountEpoch, null);
+    } else if (request.status === null) {
+      assert.equal(request.settlement, 'request-failed');
       assert(request.failure?.canceled === true && request.readCancellationDiagnostic === true,
         `Request ${request.browserRequestId} without a response must retain an actual canceled-request diagnostic.`);
       assert(request.responseReceivedAt === null && request.responseMountEpoch === null);
       assert(Number.isInteger(request.failureMountEpoch));
+      assert.equal(request.networkComplete, true);
+      assert.equal(request.responseCaptureComplete, true);
       assert.equal(request.isMutation, false);
       assert(requestPathIs(request, '/reconcile') || requestPathIs(request, '/preview') ||
         requestPathIs(request, '/construction-proposals') || requestPathIs(request, '/construction-choice-proposals'),
       `Canceled ${request.method} ${request.path} has no temporal-filter read-only cancellation contract.`);
     } else {
+      assert.equal(request.settlement, 'response');
       assert(Number.isInteger(request.status) && request.status >= 100 && request.status <= 599,
         `Observed response ${request.browserRequestId} must retain its actual HTTP status code.`);
       assert(Number.isInteger(request.responseMountEpoch));
       assert.equal(request.failureMountEpoch, null);
+      assert.equal(request.networkComplete, true);
+      assert.equal(request.responseCaptureComplete, true,
+        `Observed response ${request.browserRequestId} cannot leave a response body read open.`);
+      assert.equal(request.responseCaptureError ?? null, null,
+        `Observed response ${request.browserRequestId} cannot hide a body capture failure.`);
     }
     if (request.requestId !== undefined) assert(typeof request.requestId === 'string' && request.requestId.length > 0);
   }
