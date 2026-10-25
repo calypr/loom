@@ -178,11 +178,10 @@ export const builderJourneyReportPaths = ({
   evidenceDirectory,
   artifactStem,
   repositoryRoot,
-  reservedPaths = [],
+  nativeReportPath,
+  retainedNativeReportPath,
 }) => {
   if (captureKind === 'builder-cda-native-lifecycle') {
-    assert(Array.isArray(reservedPaths) && reservedPaths.every(path => typeof path === 'string' && path.length > 0),
-      'Native journey reserved output paths must be an array of nonempty paths.');
     const traceDirectory = dirname(tracePath);
     const traceFileStem = basename(tracePath).replace(/\.json$/i, '');
     assert(traceFileStem.length > 0, 'Native journey trace path must have a file stem.');
@@ -190,7 +189,20 @@ export const builderJourneyReportPaths = ({
       replayReportPath: join(traceDirectory, `${traceFileStem}-tla.json`),
       selfTestReportPath: join(traceDirectory, `${traceFileStem}-self-test.json`),
     };
-    const outputs = [tracePath, paths.replayReportPath, paths.selfTestReportPath, ...reservedPaths];
+    let outerTlaReportPath = null;
+    const retainedPaths = [];
+    if (nativeReportPath !== undefined) {
+      assert(typeof nativeReportPath === 'string' && nativeReportPath.length > 0 && /\.json$/i.test(nativeReportPath),
+        'Native outer report path must be a nonempty JSON path.');
+      assert(typeof retainedNativeReportPath === 'string' && retainedNativeReportPath.length > 0,
+        'Native retained report path is required with the outer report path.');
+      outerTlaReportPath = nativeReportPath.replace(/\.json$/i, '.tla.json');
+      retainedPaths.push(nativeReportPath, outerTlaReportPath, retainedNativeReportPath);
+    } else {
+      assert(retainedNativeReportPath === undefined,
+        'Native retained report path requires the outer report path.');
+    }
+    const outputs = [tracePath, paths.replayReportPath, paths.selfTestReportPath, ...retainedPaths];
     const canonicalOutputs = outputs.map(path => {
       const absolute = resolve(path);
       return join(realpathSync(dirname(absolute)), basename(absolute));
@@ -200,7 +212,7 @@ export const builderJourneyReportPaths = ({
     const existing = outputs.filter(existsSync);
     assert.equal(existing.length, 0,
       `Native journey trace and proof outputs must be fresh; choose a fresh trace path (existing: ${existing.join(', ')}).`);
-    return paths;
+    return { ...paths, ...(outerTlaReportPath === null ? {} : { outerTlaReportPath }) };
   }
   if (captureKind === 'builder-group-legacy') {
     return {

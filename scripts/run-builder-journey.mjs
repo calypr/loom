@@ -954,10 +954,6 @@ const main = async () => {
         !isWithin(artifactRoot, tracePath) || !isWithin(artifactRoot, reportPath)) {
       throw new Error('native lifecycle trace and report paths must stay under repository .artifacts during the frozen browser bracket');
     }
-    if (!tracePath.toLowerCase().endsWith('.json') || !reportPath.toLowerCase().endsWith('.json')) {
-      throw new Error('native lifecycle --trace and --report paths must end in .json');
-    }
-    nativeTlaReportPath = reportPath.replace(/\.json$/i, '.tla.json');
     if (!insideRepository(retainedNativeReportPath) || !isWithin(artifactRoot, retainedNativeReportPath)) {
       throw new Error('native lifecycle retained report must use a fresh output under repository .artifacts');
     }
@@ -973,8 +969,10 @@ const main = async () => {
       evidenceDirectory: null,
       artifactStem: binding.name,
       repositoryRoot: ROOT,
-      reservedPaths: [reportPath, nativeTlaReportPath, retainedNativeReportPath],
+      nativeReportPath: reportPath,
+      retainedNativeReportPath,
     });
+    nativeTlaReportPath = nativeProofOutputPaths.outerTlaReportPath;
     const repositoryRealPath = realpathSync(ROOT);
     const artifactRootRealPath = realpathSync(resolve(ROOT, '.artifacts'));
     const reservedNativeOutputPaths = [

@@ -136,6 +136,8 @@ test('native replay outputs are unique trace siblings, reject existing files, an
   const firstRunPaths = builderJourneyReportPaths({
     captureKind: 'builder-cda-native-lifecycle',
     tracePath: firstTracePath,
+    nativeReportPath: join(directory, 'run-a-report.json'),
+    retainedNativeReportPath: join(directory, 'run-a-native-report.json'),
     evidenceDirectory,
     artifactStem,
     repositoryRoot,
@@ -143,6 +145,7 @@ test('native replay outputs are unique trace siblings, reject existing files, an
   assert.deepEqual(firstRunPaths, {
     replayReportPath: join(directory, 'run-a-trace-tla.json'),
     selfTestReportPath: join(directory, 'run-a-trace-self-test.json'),
+    outerTlaReportPath: join(directory, 'run-a-report.tla.json'),
   });
   const secondRunPaths = builderJourneyReportPaths({
     captureKind: 'builder-cda-native-lifecycle',
@@ -156,11 +159,21 @@ test('native replay outputs are unique trace siblings, reject existing files, an
   assert.throws(() => builderJourneyReportPaths({
     captureKind: 'builder-cda-native-lifecycle',
     tracePath: firstTracePath,
+    nativeReportPath: firstRunPaths.replayReportPath,
+    retainedNativeReportPath: join(directory, 'collision-native-report.json'),
     evidenceDirectory,
     artifactStem,
     repositoryRoot,
-    reservedPaths: [join(directory, 'run-a-trace-tla.json')],
   }), /output paths must be unique/);
+  assert.throws(() => builderJourneyReportPaths({
+    captureKind: 'builder-cda-native-lifecycle',
+    tracePath: join(directory, 'invalid-trace.json'),
+    nativeReportPath: join(directory, 'invalid-report.txt'),
+    retainedNativeReportPath: join(directory, 'invalid-native-report.json'),
+    evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+  }), /outer report path must be a nonempty JSON path/);
   writeFileSync(firstRunPaths.replayReportPath, '{}\n');
   assert.throws(() => builderJourneyReportPaths({
     captureKind: 'builder-cda-native-lifecycle',
