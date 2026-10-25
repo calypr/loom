@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "84faa33fad4ddbc7d53052083244f48c89aabc24cddcc3cf2afe87c4d07bc20d",
+      "sha256": "383150ebef25023e564cfe0f6c31f5a54cad15cd6d7720a129ae3bb3ceb52fb7",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "9d3696688b13ee0ab092e25b3cce05c99098220a7a1098f6382ce8adf2397d44",
+      "sha256": "7b155468de66b627f79f21bb0d8b9b103e0153e3f5a3d3f967c27d4ad0e914ad",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
