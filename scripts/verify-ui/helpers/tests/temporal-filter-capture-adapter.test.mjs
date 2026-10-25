@@ -94,6 +94,14 @@ test('adapter binds each reload to its actual reconcile request, CAS snapshot, a
     assert.equal(request.request.outputId, rawCapture.outputId);
     assert.equal(request.response.snapshotToken, reload.after.snapshotToken);
     assert(request.response.outputs.some(output => output.outputId === rawCapture.outputId));
+    const afterRead = rawCapture.builderReads.find(read => read.readId === reload.after.readId);
+    const domObservation = rawCapture.domObservations.find(observation =>
+      observation.capturedAtEpochMs === reload.ui.capturedAtEpochMs);
+    assert(afterRead && domObservation, 'Reload must bind its exact Builder and DOM observations.');
+    assert(request.responseReceivedAt < afterRead.requestStartedAtEpochMs,
+      'Reload reconcile response must arrive before the actual postreload Builder GET starts.');
+    assert(request.responseReceivedAt < domObservation.capturedAtEpochMs,
+      'Reload reconcile response must arrive before its DOM observation.');
     assert.equal(reload.ui.receiptId, request.response.receiptId);
     assert.notEqual(reload.ui.receiptId, precedingProposals[index].filter.receiptId,
       'Reload DOM must preserve its actual reconcile receipt, distinct from the prior proposal receipt.');
