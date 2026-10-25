@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
+  buildPolicyOneMutationControls,
   compilePolicyOneJourneyTrace,
   policyOneTlaReplayModelPath,
   validatePolicyOneJourneyTrace,
@@ -111,78 +112,64 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.match(result.output, /Model checking completed\. No error has been found\./);
 });
 
-test('TLC rejects a response whose captured owner differs from the submitted request', t => {
+test('production mutation controls preserve the input and reach each intended TLC invariant', t => {
   const trace = makeSyntheticPolicyOneJourneyTrace();
-  trace.actions.find(entry => entry.label === 'OneRejected').response.requestObjectId = 'wrong-owner';
-  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
-    'semantic owner mutations must reach TLC instead of being rejected by the shape validator');
-  const result = checkWithTLC(trace, 'PolicyOneReplayWrongOwner');
-  t.diagnostic(summary(result.output));
-  assert.equal(result.error, undefined, result.error?.message);
-  assert.notEqual(result.status, 0, result.output);
-  assert.match(result.output, /ObservedResponseOwnership/);
-});
+  const original = structuredClone(trace);
+  const controls = buildPolicyOneMutationControls(trace);
+  const expected = new Map([
+    ['wrong-owner', 'ObservedResponseOwnership'],
+    ['stale-cas', 'ObservedPolicyCAS'],
+    ['out-of-order-repair', 'ObservedChronology'],
+    ['stale-restoration', 'TraceProgress'],
+    ['wrong-row-value-output', 'TraceProgress'],
+    ['non-array-row-value-output', 'TraceProgress'],
+  ]);
+  const names = controls.map(control => control.name);
+  assert.equal(new Set(names).size, names.length, 'mutation control names must be unique');
+  assert.deepEqual([...names].sort(), [...expected.keys()].sort(), 'the full required mutation control set must be present');
+  assert.deepEqual(trace, original, 'building mutation controls must not mutate the captured trace');
+  const control = name => controls.find(entry => entry.name === name).trace;
+  const originalAction = label => original.actions.find(entry => entry.label === label);
+  const mutatedAction = (name, label) => control(name).actions.find(entry => entry.label === label);
+  assert.equal(mutatedAction('wrong-owner', 'OneRejected').response.requestObjectId,
+    originalAction('GroupApplied').response.requestObjectId,
+    'wrong-owner mutation must use another actual captured request owner');
+  assert.equal(mutatedAction('stale-cas', 'AllSubmitted').request.body.expectedDraftVersion,
+    originalAction('GroupPreviewSubmitted').request.body.expectedDraftVersion,
+    'stale-CAS mutation must reuse an actual older captured draft version');
+  assert.equal(mutatedAction('stale-cas', 'AllSubmitted').request.body.expectedDraftDigest,
+    originalAction('GroupPreviewSubmitted').request.body.expectedDraftDigest,
+    'stale-CAS mutation must reuse an actual older captured draft digest');
+  assert.equal(mutatedAction('stale-restoration', 'RemovalApplied').savedAfter.draftVersion,
+    originalAction('AllApplied').observation.saved.draftVersion,
+    'restoration mutation must use the actual captured ALL version');
+  assert.equal(mutatedAction('stale-restoration', 'RemovalApplied').savedAfter.draftDigest,
+    originalAction('AllApplied').observation.saved.draftDigest,
+    'restoration mutation must use the actual captured ALL digest');
+  const originalGroup = originalAction('RemovalApplied').savedBefore.group;
+  const originalRowValue = originalGroup.rowValues.find(value => value.policy === 'ALL');
+  const alternateOutput = originalGroup.outputs.find(output => output.id !== originalRowValue.outputColumnId);
+  const wrongOutputGroup = mutatedAction('wrong-row-value-output', 'RemovalApplied').savedBefore.group;
+  assert.equal(wrongOutputGroup.rowValues.find(value => value.policy === 'ALL').outputColumnId, alternateOutput.id,
+    'output-ID mutation must reuse another actual Group output ID');
+  const scalarOutputGroup = mutatedAction('non-array-row-value-output', 'RemovalApplied').savedBefore.group;
+  assert.equal(scalarOutputGroup.outputs.find(output => output.id === originalRowValue.outputColumnId).type,
+    alternateOutput.type, 'output-type mutation must reuse an actual scalar Group output type');
 
-test('TLC rejects an ALL proposal carrying a stale draft digest', t => {
-  const trace = makeSyntheticPolicyOneJourneyTrace();
-  trace.actions.find(entry => entry.label === 'AllSubmitted').request.body.expectedDraftDigest = 'stale-draft';
-  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
-    'semantic CAS mutations must reach TLC instead of being rejected by the shape validator');
-  const result = checkWithTLC(trace, 'PolicyOneReplayStaleCas');
-  t.diagnostic(summary(result.output));
-  assert.equal(result.error, undefined, result.error?.message);
-  assert.notEqual(result.status, 0, result.output);
-  assert.match(result.output, /ObservedPolicyCAS/);
-});
-
-test('TLC rejects an out-of-order repair response', t => {
-  const trace = makeSyntheticPolicyOneJourneyTrace();
-  const submitted = trace.actions.findIndex(entry => entry.label === 'AllSubmitted');
-  const ready = trace.actions.findIndex(entry => entry.label === 'AllReady');
-  [trace.actions[submitted], trace.actions[ready]] = [trace.actions[ready], trace.actions[submitted]];
-  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
-    'chronology mutations must reach TLC instead of being rejected by the shape validator');
-  const result = checkWithTLC(trace, 'PolicyOneReplayOutOfOrder');
-  t.diagnostic(summary(result.output));
-  assert.equal(result.error, undefined, result.error?.message);
-  assert.notEqual(result.status, 0, result.output);
-  assert.match(result.output, /ObservedChronology|TraceProgress/);
-});
-
-test('TLC rejects a post-removal saved snapshot that disagrees with the observed terminal workspace', t => {
-  const trace = makeSyntheticPolicyOneJourneyTrace();
-  trace.actions.find(entry => entry.label === 'RemovalApplied').savedAfter.draftDigest = 'wrong-restored-draft';
-  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
-    'semantic saved-state mutations must reach TLC instead of being rejected by the shape validator');
-  const result = checkWithTLC(trace, 'PolicyOneReplayWrongSavedAfter');
-  t.diagnostic(summary(result.output));
-  assert.equal(result.error, undefined, result.error?.message);
-  assert.notEqual(result.status, 0, result.output);
-  assert.match(result.output, /TraceProgress/);
-});
-
-test('TLC rejects a saved row value whose output differs from its declared Group output', t => {
-  const trace = makeSyntheticPolicyOneJourneyTrace();
-  const savedAllGroup = trace.actions.find(entry => entry.label === 'RemovalApplied').savedBefore.group;
-  savedAllGroup.rowValues[0].outputColumnId = 'row_value_unlinked';
-  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
-    'semantic Group output mutations must reach TLC instead of being rejected by the shape validator');
-  const result = checkWithTLC(trace, 'PolicyOneReplayWrongRowValueOutput');
-  t.diagnostic(summary(result.output));
-  assert.equal(result.error, undefined, result.error?.message);
-  assert.notEqual(result.status, 0, result.output);
-  assert.match(result.output, /TraceProgress/);
-});
-
-test('TLC rejects an ALL row-value output declaration that is not an array', t => {
-  const trace = makeSyntheticPolicyOneJourneyTrace();
-  const savedAllGroup = trace.actions.find(entry => entry.label === 'RemovalApplied').savedBefore.group;
-  savedAllGroup.outputs.find(output => output.id === savedAllGroup.rowValues[0].outputColumnId).type = 'string';
-  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
-    'semantic output type mutations must reach TLC instead of being rejected by the shape validator');
-  const result = checkWithTLC(trace, 'PolicyOneReplayScalarAllOutput');
-  t.diagnostic(summary(result.output));
-  assert.equal(result.error, undefined, result.error?.message);
-  assert.notEqual(result.status, 0, result.output);
-  assert.match(result.output, /TraceProgress/);
+  for (const control of controls) {
+    assert.equal(control.expectedFailure.stage, 'TLC');
+    assert.equal(control.expectedFailure.invariant, expected.get(control.name));
+    assert.notDeepEqual(control.trace, original, `${control.name} must change its own trace copy`);
+    assert.equal(validatePolicyOneJourneyTrace(control.trace), control.trace,
+      `${control.name} must retain a structurally valid canonical trace so its domain failure reaches TLC`);
+    const moduleName = `PolicyOneMutation${control.name.split('-')
+      .map(part => part[0].toUpperCase() + part.slice(1)).join('')}`;
+    const result = checkWithTLC(control.trace, moduleName);
+    t.diagnostic(`${control.name}: ${summary(result.output)}`);
+    assert.equal(result.error, undefined, result.error?.message);
+    assert.notEqual(result.status, 0, `${control.name} must be rejected by TLC`);
+    assert.match(result.output, new RegExp(control.expectedFailure.invariant),
+      `${control.name} must fail its intended TLC invariant`);
+  }
+  assert.deepEqual(trace, original, 'TLC replay checks must leave the captured trace unchanged');
 });

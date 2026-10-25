@@ -279,6 +279,88 @@ export function validatePolicyOneJourneyTrace(trace) {
   return validateTraceShape(trace);
 }
 
+export function buildPolicyOneMutationControls(trace) {
+  validateTraceShape(trace);
+  const controls = [];
+  const add = (name, invariant, mutate) => {
+    const mutatedTrace = structuredClone(trace);
+    mutate(mutatedTrace);
+    controls.push({
+      name,
+      trace: mutatedTrace,
+      expectedFailure: { stage: 'TLC', invariant },
+    });
+  };
+
+  const originalOneResponse = action(trace, 'OneRejected').response;
+  const otherRequestObjectId = action(trace, 'GroupApplied').response.requestObjectId;
+  requireString(originalOneResponse.requestObjectId, 'ONE response requestObjectId');
+  requireString(otherRequestObjectId, 'other response requestObjectId');
+  assert.notEqual(originalOneResponse.requestObjectId, otherRequestObjectId,
+    'mutation controls require distinct captured response owners');
+  add('wrong-owner', 'ObservedResponseOwnership', mutated => {
+    action(mutated, 'OneRejected').response.requestObjectId = otherRequestObjectId;
+  });
+
+  const actualAllRequest = action(trace, 'AllSubmitted').request.body;
+  const staleRequest = action(trace, 'GroupPreviewSubmitted').request.body;
+  assert.notEqual(actualAllRequest.expectedDraftVersion, staleRequest.expectedDraftVersion,
+    'mutation controls require a captured older draft version');
+  assert.notEqual(actualAllRequest.expectedDraftDigest, staleRequest.expectedDraftDigest,
+    'mutation controls require a captured older draft digest');
+  add('stale-cas', 'ObservedPolicyCAS', mutated => {
+    const body = action(mutated, 'AllSubmitted').request.body;
+    body.expectedDraftVersion = staleRequest.expectedDraftVersion;
+    body.expectedDraftDigest = staleRequest.expectedDraftDigest;
+  });
+
+  const allSubmittedIndex = actionIndex(trace, 'AllSubmitted');
+  const allReadyIndex = actionIndex(trace, 'AllReady');
+  add('out-of-order-repair', 'ObservedChronology', mutated => {
+    [mutated.actions[allSubmittedIndex], mutated.actions[allReadyIndex]] =
+      [mutated.actions[allReadyIndex], mutated.actions[allSubmittedIndex]];
+  });
+
+  const actualAllState = action(trace, 'AllApplied').observation.saved;
+  const originalRestoredState = action(trace, 'RemovalApplied').savedAfter;
+  assert.notEqual(originalRestoredState.draftVersion, actualAllState.draftVersion,
+    'mutation controls require a restored version distinct from the captured ALL version');
+  assert.notEqual(originalRestoredState.draftDigest, actualAllState.draftDigest,
+    'mutation controls require a restored digest distinct from the captured ALL digest');
+  add('stale-restoration', 'TraceProgress', mutated => {
+    const savedAfter = action(mutated, 'RemovalApplied').savedAfter;
+    savedAfter.draftVersion = actualAllState.draftVersion;
+    savedAfter.draftDigest = actualAllState.draftDigest;
+  });
+
+  const appliedAllGroup = action(trace, 'RemovalApplied').savedBefore.group;
+  const rowValue = appliedAllGroup.rowValues.find(value => value.policy === 'ALL');
+  assert(rowValue, 'mutation controls require the captured ALL Group row value');
+  const rowValueOutput = appliedAllGroup.outputs.find(output => output.id === rowValue.outputColumnId);
+  const distinctOutput = appliedAllGroup.outputs.find(output => output.id !== rowValue.outputColumnId);
+  assert(rowValueOutput, 'mutation controls require the declared ALL row-value output');
+  assert(distinctOutput, 'mutation controls require another captured Group output');
+  assert.notEqual(rowValueOutput.type, distinctOutput.type,
+    'mutation controls require the captured array and scalar output types to differ');
+  add('wrong-row-value-output', 'TraceProgress', mutated => {
+    const savedGroup = action(mutated, 'RemovalApplied').savedBefore.group;
+    const savedRowValue = savedGroup.rowValues.find(value => value.policy === 'ALL');
+    const otherOutput = savedGroup.outputs.find(output => output.id !== savedRowValue.outputColumnId);
+    savedRowValue.outputColumnId = otherOutput.id;
+  });
+  add('non-array-row-value-output', 'TraceProgress', mutated => {
+    const savedGroup = action(mutated, 'RemovalApplied').savedBefore.group;
+    const savedRowValue = savedGroup.rowValues.find(value => value.policy === 'ALL');
+    const savedOutput = savedGroup.outputs.find(output => output.id === savedRowValue.outputColumnId);
+    const otherOutput = savedGroup.outputs.find(output => output.id !== savedRowValue.outputColumnId);
+    savedOutput.type = otherOutput.type;
+  });
+
+  assert.equal(new Set(controls.map(control => control.name)).size, controls.length,
+    'Policy One mutation control names must be unique');
+  return controls;
+}
+
 function deriveModelConstants(trace) {
   const sourceWorkspace = trace.initialObservation.workspace;
   const patientIds = trace.initialPreview.patientIds ?? trace.initialObservation.rowIds;
