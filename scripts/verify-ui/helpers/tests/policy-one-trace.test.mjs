@@ -42,7 +42,7 @@ function makeObservation() {
   const afterApplyProjection = {
     documents: [{ id: 'document-1', sourceColumnIds: ['patient-id'], allColumnId: 'patient-id-values', group: { keys: [], aggregate: 'COUNT_ROWS', count: 2 } }],
   };
-  const group = { keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 };
+  const group = { present: true, keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 };
   const before = {
     workspace: beforeWorkspace,
     projection: beforeProjection,
@@ -55,7 +55,11 @@ function makeObservation() {
   const afterApply = {
     workspace: afterApplyWorkspace,
     projection: afterApplyProjection,
-    group: structuredClone(group),
+    group: {
+      ...structuredClone(group),
+      rowValuePolicy: 'ALL',
+      inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
+    },
     snapshotToken: 'snapshot-1',
     draftVersion: 4,
     draftDigest: 'draft-after',
@@ -93,7 +97,10 @@ function makeObservation() {
         policy: 'ALL', status: 200, previewStatus: 'READY', rowCount: 1,
         memberIdsField: 'patient_ids', countField: 'count', count: 2,
       },
-      apply: { policy: 'ALL', status: 200 },
+      apply: {
+        policy: 'ALL', status: 200,
+        inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
+      },
       editorIdentity: { editorId: 'editor-mount-1', documentTimeOrigin: 1730137200000 },
     },
     requests: {
@@ -293,6 +300,12 @@ const captureMutations = [
   ['wrong preview member IDs', input => { input.responses.all.preview.rows[0].patient_ids = ['dev-patient-001', 'dev-patient-003']; }, /match the independent fixture IDs/],
   ['wrong preview row count', input => { input.responses.all.preview.rowCount = 2; }, /rowCount must match the expected count/],
   ['wrong grouped count', input => { input.responses.all.preview.rows[0].count = 3; }, /expected grouped row count/],
+  ['wrong persisted Group policy after Apply', input => { input.saved.afterApply.group.rowValuePolicy = 'ONE'; }, /saved Group must persist the ALL row-value policy/],
+  ['wrong added Group input column binding', input => { input.saved.afterApply.group.inputColumnBinding.columnId = 'other-column'; }, /exact added input column binding/],
+  ['binding that already existed before Apply', input => {
+    input.saved.before.group.inputColumnBinding = structuredClone(input.expected.apply.inputColumnBinding);
+    input.saved.afterOne.group.inputColumnBinding = structuredClone(input.expected.apply.inputColumnBinding);
+  }, /must add a new Group input column binding/],
   ['wrong echoed successful commandId', input => { input.responses.all.commandId = 'other-command'; }, /must match its actual request/],
   ['Apply uses a different commandId', input => {
     input.requests.apply.commandId = 'other-command';
@@ -302,7 +315,7 @@ const captureMutations = [
   ['Apply response is owned by another request', input => { input.responses.apply.requestObject = {}; }, /exact captured request object/],
 ];
 
-test('a valid ONE rejection, same-editor ALL repair, and linked Apply produce a finite model trace', () => {
+test('a valid ONE rejection and same-choice ALL Apply persist the added input binding', () => {
   const input = makeObservation();
   Object.freeze(input.expected);
   const { journeyTrace: trace } = buildPolicyOneTrace(input);

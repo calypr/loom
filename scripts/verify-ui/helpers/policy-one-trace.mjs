@@ -126,6 +126,9 @@ function validateExpected(expected, fixtureIDs) {
   assert(Number.isInteger(expected.all.count), 'expected ALL count must be an integer');
   assert.equal(expected.apply.policy, expected.all.policy,
     'Apply must persist the expected ALL policy');
+  assert(Object.hasOwn(expected.apply, 'inputColumnBinding'),
+    'expected Apply contract must include the new input column binding');
+  finiteJSON(expected.apply.inputColumnBinding, 'expected Apply input column binding');
   assert.notEqual(expected.one.policy, expected.all.policy,
     'ONE and ALL must be distinct expected policies');
   assertUniqueIDs(fixtureIDs, 'independent fixture IDs');
@@ -281,8 +284,18 @@ function inspectSavedSnapshots(saved, expected) {
     'Apply must persist a newer Builder draft version');
   assert.notEqual(afterApply.draftDigest, before.draftDigest,
     'Apply must persist a changed Builder draft digest');
-  assert(isDeepStrictEqual(before.group, afterApply.group),
-    'Apply must preserve the saved Group record');
+  assert.equal(before.group.present, true, 'the source Group must be present before Apply');
+  assert.equal(afterApply.group.present, true, 'the saved Group must remain present after Apply');
+  for (const field of ['keys', 'aggregate', 'rowCount', 'count']) {
+    assert(isDeepStrictEqual(before.group[field], afterApply.group[field]),
+      `Apply must preserve the saved Group ${field}`);
+  }
+  assert.equal(afterApply.group.rowValuePolicy, expected.apply.policy,
+    'the saved Group must persist the ALL row-value policy');
+  assert(!isDeepStrictEqual(before.group.inputColumnBinding, expected.apply.inputColumnBinding),
+    'Apply must add a new Group input column binding');
+  assert(isDeepStrictEqual(afterApply.group.inputColumnBinding, expected.apply.inputColumnBinding),
+    'the saved Group must include the exact added input column binding');
   assert.equal(afterApply.policy, expected.apply.policy,
     'the saved Builder read after Apply must retain the expected policy');
   assert.equal(afterApply.choiceId, expected.choiceId,
