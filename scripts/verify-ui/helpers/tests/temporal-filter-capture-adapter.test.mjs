@@ -350,6 +350,9 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
   });
   assert.equal(proposal.request.captureId, 'schema-fixture-browser-request-first-create');
   assert.equal(proposal.request.requestId, 'schema-fixture-raw-request-first-create');
+  assert.equal(journeyTrace.actions.find(event => event.action === 'FilterApplied(create)').request.isMutation, true);
+  assert.equal(proposal.request.isMutation, false);
+  assert.equal(journeyTrace.actions.find(event => event.action === 'Reload').request, null);
 });
 
 test('adapter schema fixtures keep DATE_TIME request, response, and saved literals separate', () => {

@@ -82,6 +82,7 @@ const requestRecord = event => event === null ? null : ({
   method: event.method,
   path: event.path,
   status: event.status,
+  isMutation: event.isMutation,
   body: event.request,
   responseBody: event.response,
 });
