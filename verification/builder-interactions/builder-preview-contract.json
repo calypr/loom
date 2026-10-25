@@ -484,7 +484,7 @@
     },
     {
       "path": "ui/apps/demo/src/main.tsx",
-      "sha256": "676c59a260d5248a770ba8eba403b2c305efd64ebaee64238f278abbcf459703",
+      "sha256": "cfa1f90d9ab0acc10356d2414b247037025c36e61b2a29b9f51c6f74fe1a1089",
       "contract": "Demo application entry point hosting the native Builder UI."
     },
     {
