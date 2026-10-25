@@ -1,3 +1,57 @@
+const temporalFilterFormalProofAssertions = Object.freeze({
+  date: 'Captured DATE native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing',
+  'date-time': 'Captured DATE_TIME native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing',
+});
+
+const temporalFilterJourneyTraceBinding = (caseName, { valueKind, resourceType, fieldPath }) => ({
+  kind: 'native-lifecycle',
+  captureKind: 'builder-temporal-native-lifecycle',
+  captureAdapter: 'temporal-filter-journey-v1',
+  nativeCaseKey: `basic-temporal-filter/${caseName}`,
+  targetMode: 'environment',
+  captureSources: [
+    'scripts/verify-ui/helpers/temporal-filter-capture.mjs',
+    'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
+    'scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs',
+    'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+    'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
+    'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
+    'testdata/basic-temporal-filter/Patient.ndjson',
+    'testdata/basic-temporal-filter/Observation.ndjson',
+  ],
+  name: `basic-temporal-filter:${caseName}`,
+  model: 'TemporalFilterJourney',
+  contract: `verification/builder-interactions/builder-temporal-filter-${caseName === 'date' ? 'date' : 'date-time'}-contract.json`,
+  formalProofAssertion: temporalFilterFormalProofAssertions[caseName],
+  valueKind,
+  resourceType,
+  fieldPath,
+  requiredActions: [
+    'ExplorerCreated', 'SourceTableCreated', 'TemporalColumnApplied', 'FilterProposed(create)',
+    'FilterCancelled', 'Reload', 'FilterApplied(create)', 'FilterEditOpened',
+    'FilterProposed(edit)', 'FilterApplied(edit)', 'FilterProposed(remove)', 'FilterRemoved',
+  ],
+  requiredActionCounts: {
+    ExplorerCreated: 1,
+    SourceTableCreated: 1,
+    TemporalColumnApplied: 1,
+    'FilterProposed(create)': 2,
+    FilterCancelled: 1,
+    Reload: 4,
+    'FilterApplied(create)': 1,
+    FilterEditOpened: 1,
+    'FilterProposed(edit)': 1,
+    'FilterApplied(edit)': 1,
+    'FilterProposed(remove)': 1,
+    FilterRemoved: 1,
+  },
+  minimumActionCounts: {},
+  optionalActions: [],
+  requiredMutationControlNames: [
+    'proposal-owner-drift', 'proposal-cas-drift', 'semantic-action-order-drift',
+  ],
+});
+
 const registryRows = [
   Object.freeze({
     id: 'builder-controls',
@@ -2196,6 +2250,9 @@ const registryRows = [
       date: {
         playwrightTest: 'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
         playwrightGrep: 'date filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$',
+        journeyTrace: temporalFilterJourneyTraceBinding('date', {
+          valueKind: 'DATE', resourceType: 'Patient', fieldPath: 'birthDate',
+        }),
         focusedChecks: [
           {
             id: 'basic-temporal-filter-oracle',
@@ -2208,6 +2265,21 @@ const registryRows = [
               'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
               'testdata/basic-temporal-filter/Patient.ndjson',
               'testdata/basic-temporal-filter/Observation.ndjson',
+            ],
+          },
+          {
+            id: 'basic-temporal-filter-formal-binding',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
+              'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
+              'scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs',
+              'scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs',
+              'scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs',
+              'verification/builder-interactions/builder-temporal-filter-date-contract.json',
+              'verification/builder-interactions/builder-temporal-filter-date-time-contract.json',
             ],
           },
         ],
@@ -2221,11 +2293,15 @@ const registryRows = [
           'editing preserves the saved birthDate source and exposes typed date controls',
           'edited DATE condition and exact rows survive reload',
           'removing DATE filter restores exact source rows after reload',
+          temporalFilterFormalProofAssertions.date,
         ],
       },
       'date-time': {
         playwrightTest: 'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
         playwrightGrep: 'date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$',
+        journeyTrace: temporalFilterJourneyTraceBinding('date-time', {
+          valueKind: 'DATE_TIME', resourceType: 'Observation', fieldPath: 'effectiveDateTime',
+        }),
         focusedChecks: [
           {
             id: 'basic-temporal-filter-oracle',
@@ -2240,6 +2316,21 @@ const registryRows = [
               'testdata/basic-temporal-filter/Observation.ndjson',
             ],
           },
+          {
+            id: 'basic-temporal-filter-formal-binding',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
+              'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
+              'scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs',
+              'scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs',
+              'scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs',
+              'verification/builder-interactions/builder-temporal-filter-date-contract.json',
+              'verification/builder-interactions/builder-temporal-filter-date-time-contract.json',
+            ],
+          },
         ],
         requiredChecks: [
           'fresh Observation temporal fixture matches the exact literal row oracle',
@@ -2251,6 +2342,7 @@ const registryRows = [
           'editing preserves the saved effectiveDateTime source and exposes typed datetime-local controls',
           'edited DATE_TIME condition and exact rows survive reload',
           'removing DATE_TIME filter restores exact source rows after reload',
+          temporalFilterFormalProofAssertions['date-time'],
         ],
       },
     },
