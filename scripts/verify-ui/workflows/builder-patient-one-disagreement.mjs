@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openFreshPatientTable } from './builder-group-entry.mjs';
 import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
 import { observeAuthoringAttempt } from '../helpers/fast-fixtures.mjs';
 import { sanitizePayload } from '../helpers/playwright-browser.mjs';
 import { buildPolicyOneTrace } from '../helpers/policy-one-trace.mjs';
 
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 
@@ -1503,5 +1505,29 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'RemovalPreviewSubmitted', 'RemovalPreviewReady', 'RemovalApplySubmitted',
     'RemovalApplied', 'ReloadedSource',
   ], 'Policy One journey trace must retain the complete observed Group, repair, reload, and restoration lifecycle');
-  report.target.policyOneJourneyTrace = journeyTrace;
+  const { writeAndReplayBuilderJourneyTrace } = await import('../helpers/builder-journey-trace.mjs');
+  const formalProof = writeAndReplayBuilderJourneyTrace({
+    scenarioID: report.scenario,
+    caseName: context.args.caseName,
+    journeyTrace,
+    report,
+    fixture: {
+      project: context.target.fixtureProject,
+      generation: context.target.fixtureGeneration,
+      explorer,
+      outputId,
+      patientIDs: [...fixtureIDs],
+    },
+    repositoryRoot,
+  });
+  requireCheck(workflow, 'correctness',
+    'Captured Patient.id ONE/ALL browser journey replays through PolicyOneDisagreement TLC and passes all registered mutation controls',
+    formalProof.status === 'pass' && formalProof.replayStatus === 'pass' && formalProof.selfTestStatus === 'pass',
+    {
+      tracePath: formalProof.tracePath,
+      actionCount: journeyTrace.actions.length,
+      replayStatus: formalProof.replayStatus,
+      selfTestStatus: formalProof.selfTestStatus,
+      mutationControlCount: formalProof.mutationControls?.length ?? 0,
+    });
 };

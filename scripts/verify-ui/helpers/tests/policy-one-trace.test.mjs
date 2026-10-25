@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
+import {
+  buildPolicyOneMutationControls,
+  compilePolicyOneJourneyTrace,
+} from '../policy-one-tla-replay.mjs';
 import {
   patientOneSavedState,
   policyApplyTraceExpectation,
@@ -9,6 +14,9 @@ import {
   makePolicyOneTraceInput,
   makeSyntheticPolicyOneJourneyTrace,
 } from './fixtures/policy-one-journey.mjs';
+
+const policyOneContract = JSON.parse(readFileSync(new URL(
+  '../../../../verification/builder-interactions/builder-policy-one-contract.json', import.meta.url), 'utf8'));
 
 const eventNames = [
   'OneSubmitted',
@@ -189,6 +197,35 @@ test('the production saved-state projection supplies the trace adapter Apply con
   });
   assert.equal(journeyTrace.actions.find(action => action.label === 'AllApplied')
     .observation.saved.group.outputColumnBinding.columnId, rowValue.outputColumnId);
+});
+
+test('the registered Policy One contract matches captured actions, compiler events, and self-test controls', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const nativeJourney = policyOneContract.nativeJourney;
+  assert.equal(nativeJourney.captureAdapter, 'policy-one-disagreement-v1');
+  assert.equal(nativeJourney.nativeCaseKey, 'builder-authoring/patient-one-disagreement');
+  assert.equal(nativeJourney.traceName, trace.name);
+  assert.equal(nativeJourney.model, trace.model);
+  assert.deepEqual(trace.actions.map(({ label, event }) => ({ label, event })), nativeJourney.actions);
+  const compiled = compilePolicyOneJourneyTrace(trace);
+  assert.deepEqual(compiled.expectedLabels, nativeJourney.actions.map(action => action.label));
+  assert.deepEqual(compiled.expectedEvents, nativeJourney.actions.map(action => action.event));
+  const requiredActions = [...new Set(nativeJourney.actions.map(action => action.label))];
+  const requiredEvents = [...new Set(nativeJourney.actions.map(action => action.event))];
+  const actionCounts = Object.fromEntries(requiredActions.map(label => [label,
+    nativeJourney.actions.filter(action => action.label === label).length]));
+  assert.deepEqual(policyOneContract.models[nativeJourney.model].actions, requiredActions);
+  assert.deepEqual(policyOneContract.phase1.requiredModels, [nativeJourney.model]);
+  assert.deepEqual(policyOneContract.phase1.requiredActions, requiredActions);
+  assert.deepEqual(policyOneContract.phase1.requiredEvents, requiredEvents);
+  assert.deepEqual(policyOneContract.phase1.requiredActionsByTrace[nativeJourney.traceName], requiredActions);
+  assert.deepEqual(policyOneContract.phase1.requiredActionCountsByTrace[nativeJourney.traceName], actionCounts);
+  for (const label of requiredActions) {
+    assert.equal(policyOneContract.actionBindings[label]?.event,
+      nativeJourney.actions.find(action => action.label === label).event);
+  }
+  assert.deepEqual(buildPolicyOneMutationControls(trace).map(control => control.name).sort(),
+    [...nativeJourney.requiredMutationControlNames].sort());
 });
 
 for (const [name, mutate, message] of captureMutations) {
