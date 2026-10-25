@@ -6,6 +6,32 @@ import {
   policyWorkspaceProjection,
 } from '../../../workflows/builder-patient-one-disagreement.mjs';
 
+const addedInputColumnId = 'patient-id-values';
+const addedOutputColumnId = 'row_value_d953ae59403369dab2d0011c';
+
+const groupStep = (rowValues = []) => ({
+  id: 'group-step',
+  inputs: [{ kind: 'SOURCE_PROJECTION' }],
+  operation: {
+    kind: 'GROUP',
+    group: {
+      constructionId: 'group-step',
+      keys: [],
+      aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+    },
+  },
+  outputs: [
+    { id: 'row-count', name: 'count', label: 'Row count', type: 'integer' },
+    ...rowValues.map(value => ({
+      id: value.outputColumnId,
+      name: 'patient_id_values',
+      label: 'Patient ID values',
+      type: value.policy === 'ALL' ? 'array' : 'string',
+    })),
+  ],
+  ...(rowValues.length ? { rowValues: structuredClone(rowValues) } : {}),
+});
+
 export const makePolicyOneTraceInput = () => {
   const oneRequestObject = {};
   const allRequestObject = {};
@@ -15,9 +41,11 @@ export const makePolicyOneTraceInput = () => {
   const applyResponseObject = {};
   const beforeWorkspace = {
     documents: [{
-      id: 'document-1',
-      columns: [{ column: 'patient-id', binding: 'Patient.id' }],
-      construction: { group: { keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 } },
+      output: { id: 'output-1', title: 'Patient rows' },
+      rootResourceType: 'Patient',
+      columns: [{ columnId: 'patient-id', column: 'patient_id', label: 'Patient ID',
+        source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } }],
+      construction: { version: 1, steps: [groupStep()] },
     }],
   };
   const beforeProjection = {
@@ -25,18 +53,38 @@ export const makePolicyOneTraceInput = () => {
   };
   const afterApplyWorkspace = {
     documents: [{
-      id: 'document-1',
+      output: { id: 'output-1', title: 'Patient rows' },
+      rootResourceType: 'Patient',
       columns: [
-        { column: 'patient-id', binding: 'Patient.id' },
-        { column: 'patient-id-values', binding: 'Patient.id', rowValuePolicy: 'ALL' },
+        { columnId: 'patient-id', column: 'patient_id', label: 'Patient ID',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+        { columnId: addedInputColumnId, column: 'patient_id_values', label: 'Patient ID',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'ALL' } } },
       ],
-      construction: { group: { keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 } },
+      construction: {
+        version: 1,
+        steps: [groupStep([{
+          inputColumnId: addedInputColumnId,
+          outputColumnId: addedOutputColumnId,
+          policy: 'ALL',
+        }])],
+      },
     }],
   };
   const afterApplyProjection = {
-    documents: [{ id: 'document-1', sourceColumnIds: ['patient-id'], allColumnId: 'patient-id-values', group: { keys: [], aggregate: 'COUNT_ROWS', count: 2 } }],
+    documents: [{ id: 'document-1', sourceColumnIds: ['patient-id'], allColumnId: addedInputColumnId, group: { keys: [], aggregate: 'COUNT_ROWS', count: 2 } }],
   };
-  const group = { present: true, keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 };
+  const group = {
+    present: true,
+    keys: [],
+    aggregate: 'COUNT_ROWS',
+    rowCount: 1,
+    count: 2,
+    rowValuePolicy: 'NONE',
+    inputColumnId: 'NoColumn',
+    inputColumnBinding: null,
+    outputColumnBinding: { columnId: 'NoColumn', type: 'NoType' },
+  };
   const before = {
     workspace: beforeWorkspace,
     projection: beforeProjection,
@@ -52,7 +100,9 @@ export const makePolicyOneTraceInput = () => {
     group: {
       ...structuredClone(group),
       rowValuePolicy: 'ALL',
-      inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
+      inputColumnId: addedInputColumnId,
+      inputColumnBinding: { columnId: addedInputColumnId, field: 'Patient.id' },
+      outputColumnBinding: { columnId: addedOutputColumnId, type: 'array' },
     },
     snapshotToken: 'snapshot-1',
     draftVersion: 4,
@@ -93,7 +143,8 @@ export const makePolicyOneTraceInput = () => {
       },
       apply: {
         policy: 'ALL', status: 200,
-        inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
+        inputColumnBinding: { columnId: addedInputColumnId, field: 'Patient.id' },
+        outputColumnBinding: { columnId: addedOutputColumnId, type: 'array' },
       },
       editorIdentity: { editorId: 'editor-mount-1', documentTimeOrigin: 1730137200000 },
     },
@@ -298,7 +349,7 @@ const makeBuilderState = ({ draftVersion, draftDigest, hasGroup = false, rowValu
   const columns = [
     ...structuredClone(sourceColumns),
     ...(hasAddedPatientID ? [{
-      columnId: 'patient-id-values',
+      columnId: addedInputColumnId,
       column: 'patient_id_values',
       label: 'Patient ID',
       occurrenceId: 'base',
@@ -317,7 +368,15 @@ const makeBuilderState = ({ draftVersion, draftDigest, hasGroup = false, rowValu
         aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
       },
     },
-    outputs: [{ id: 'row-count', name: 'count', label: 'Row count', type: 'integer' }],
+    outputs: [
+      { id: 'row-count', name: 'count', label: 'Row count', type: 'integer' },
+      ...rowValues.map(value => ({
+        id: value.outputColumnId,
+        name: 'patient_id_values',
+        label: 'Patient ID values',
+        type: value.policy === 'ALL' ? 'array' : 'string',
+      })),
+    ],
     ...(rowValues.length ? { rowValues: structuredClone(rowValues) } : {}),
   }] : [];
   return {
@@ -354,7 +413,7 @@ const allBuilder = makeBuilderState({
   draftDigest: 'draft-after',
   hasGroup: true,
   hasAddedPatientID: true,
-  rowValues: [{ inputColumnId: 'patient-id-values', outputColumnId: 'patient-id-values', policy: 'ALL' }],
+  rowValues: [{ inputColumnId: addedInputColumnId, outputColumnId: addedOutputColumnId, policy: 'ALL' }],
 });
 const allState = patientOneSavedState(allBuilder, 'output-1');
 const restoredBuilder = makeBuilderState({
@@ -382,10 +441,10 @@ const groupWorkspace = policyWorkspaceProjection({
   savedState: groupState, renderedRows: groupedGrid, sourceState, fixtureIDs,
 });
 const allWorkspace = policyWorkspaceProjection({
-  savedState: allState, renderedRows: allGrid, sourceState, fixtureIDs, addedColumnId: 'patient-id-values',
+  savedState: allState, renderedRows: allGrid, sourceState, fixtureIDs, addedColumnId: addedInputColumnId,
 });
 const restoredWorkspace = policyWorkspaceProjection({
-  savedState: restoredState, renderedRows: sourceGrid, sourceState, fixtureIDs, addedColumnId: 'patient-id-values',
+  savedState: restoredState, renderedRows: sourceGrid, sourceState, fixtureIDs, addedColumnId: addedInputColumnId,
 });
 
 const capturedRequest = ({ requestId, captureId, commandId, body }) => ({
@@ -443,7 +502,7 @@ const twoSourceRowsPreview = ({ outputId = 'output-1', receiptId, rowCount = 2 }
 export const makeSyntheticPolicyOneJourneyTrace = () => {
   const input = makePolicyOneTraceInput();
   assert.deepEqual(allState.group.rowValues, [
-    { inputColumnId: 'patient-id-values', outputColumnId: 'patient-id-values', policy: 'ALL' },
+    { inputColumnId: addedInputColumnId, outputColumnId: addedOutputColumnId, policy: 'ALL' },
   ], 'the saved Builder DTO exposes grouped-row values at ConstructionStep.rowValues');
   assert.equal(allWorkspace.group.rowValuePolicy, 'ALL',
     'the production workspace projection must read the saved top-level rowValues');
@@ -457,7 +516,7 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
       sourceState,
       fixtureIDs,
       renderedRows: allGrid,
-      addedColumnId: 'patient-id-values',
+      addedColumnId: addedInputColumnId,
       choiceId: input.expected.choiceId,
     }),
   };

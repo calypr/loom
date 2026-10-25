@@ -112,6 +112,7 @@ export const patientOneSavedState = (builder, outputId) => {
       keys: groupStep.operation.group?.keys?.map(key => key.inputColumnId) ?? [],
       aggregate: groupStep.operation.group?.aggregates?.[0]?.operation ?? null,
       rowValues: groupStep.rowValues ?? [],
+      outputs: groupStep.outputs?.map(output => ({ id: output.id, type: output.type })) ?? [],
     } : null,
   });
 };
@@ -121,18 +122,37 @@ const policyGroupProjection = (savedState, { inputColumnId, renderedRows }) => {
   if (!group) return {
     present: false, keys: [], aggregate: 'NO_AGGREGATE', count: 0,
     rowValuePolicy: 'NONE', inputColumnId: 'NoColumn',
+    outputColumnBinding: { columnId: 'NoColumn', type: 'NoType' },
+    inputColumnBinding: null,
   };
-  const rowValue = group.rowValues.find(value => value.inputColumnId === inputColumnId)
-    ?? group.rowValues[0]
-    ?? null;
+  const rowValue = inputColumnId
+    ? group.rowValues.find(value => value.inputColumnId === inputColumnId) ?? null
+    : group.rowValues[0] ?? null;
+  if (inputColumnId) {
+    assert(rowValue, `saved Group omitted row-value input ${inputColumnId}`);
+  }
+  const inputColumn = rowValue
+    ? savedState.sourceColumns.find(column => column.id === rowValue.inputColumnId)
+    : null;
+  const outputColumn = rowValue
+    ? group.outputs.find(column => column.id === rowValue.outputColumnId)
+    : null;
+  if (rowValue) {
+    assert.notEqual(rowValue.inputColumnId, rowValue.outputColumnId,
+      'saved Group row values must keep their input and output column IDs distinct');
+    assert(inputColumn, 'saved Group row-value input must identify a saved source column');
+    assert(outputColumn, 'saved Group row-value output must be declared by the Group step');
+    if (rowValue.policy === 'ALL') {
+      assert.equal(outputColumn.type, 'array', 'saved ALL row-value outputs must be declared as arrays');
+    } else if (rowValue.policy === 'ONE') {
+      assert.notEqual(outputColumn.type, 'array', 'saved ONE row-value outputs must be scalar');
+    }
+  }
   const rows = renderedRows?.rows ?? renderedRows?.cells ?? [];
   const countIndex = findRenderedBuilderHeaderIndex(renderedRows?.headers ?? [], 'Row count');
   const countCell = countIndex < 0 ? null : rows[0]?.[countIndex];
   const count = countCell === null ? null : Number(countCell?.text ?? countCell);
   assert(Number.isInteger(count) && count > 0, 'saved Group projection must bind its observed row count');
-  const inputColumn = rowValue
-    ? savedState.sourceColumns.find(column => column.id === rowValue.inputColumnId)
-    : null;
   return {
     present: true,
     keys: group.keys,
@@ -141,6 +161,9 @@ const policyGroupProjection = (savedState, { inputColumnId, renderedRows }) => {
     count,
     rowValuePolicy: rowValue?.policy ?? 'NONE',
     inputColumnId: rowValue?.inputColumnId ?? 'NoColumn',
+    outputColumnBinding: outputColumn
+      ? { columnId: outputColumn.id, type: outputColumn.type }
+      : { columnId: 'NoColumn', type: 'NoType' },
     inputColumnBinding: inputColumn ? {
       columnId: inputColumn.id,
       field: `${savedState.rootResourceType}.${inputColumn.sourcePath}`,
@@ -887,6 +910,11 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const addedPatientIDColumnId = addedPatientIDColumns[0].columnId ?? addedPatientIDColumns[0].id;
   const appliedPatientIDValue = appliedGroup?.rowValues?.find(value => value.inputColumnId === addedPatientIDColumnId);
   assert.equal(appliedPatientIDValue?.policy, 'ALL', 'saved Group must retain ALL for the exact Patient.id input');
+  assert.notEqual(appliedPatientIDValue?.inputColumnId, appliedPatientIDValue?.outputColumnId,
+    'saved ALL row value must distinguish its raw Patient.id input from its grouped output');
+  const appliedPatientIDOutput = appliedGroup?.outputs?.find(output => output.id === appliedPatientIDValue?.outputColumnId);
+  assert(appliedPatientIDOutput, 'saved ALL row-value output must be declared by the Group step');
+  assert.equal(appliedPatientIDOutput.type, 'array', 'saved ALL row-value output must be declared as an array');
   await page.reload({ waitUntil: 'domcontentloaded' });
   const tableSelector = `[data-testid="construction-table-${outputId}"]`;
   await page.locator(tableSelector).waitFor({ state: 'visible' });
@@ -909,6 +937,11 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const reloadedPatientIDColumnId = reloadedPatientIDColumns[0].columnId ?? reloadedPatientIDColumns[0].id;
   const reloadedPatientIDValue = appliedGroup?.rowValues?.find(value => value.inputColumnId === reloadedPatientIDColumnId);
   assert.equal(reloadedPatientIDValue?.policy, 'ALL', 'reloaded saved Group must retain ALL for Patient.id');
+  assert.notEqual(reloadedPatientIDValue?.inputColumnId, reloadedPatientIDValue?.outputColumnId,
+    'reloaded ALL row value must retain distinct input and output IDs');
+  const reloadedPatientIDOutput = appliedGroup?.outputs?.find(output => output.id === reloadedPatientIDValue?.outputColumnId);
+  assert(reloadedPatientIDOutput, 'reloaded ALL row-value output must remain declared by the Group step');
+  assert.equal(reloadedPatientIDOutput.type, 'array', 'reloaded ALL row-value output must remain an array');
   const allReloadTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   assert.notEqual(allReloadTimeOrigin, selectedOneState.documentTimeOrigin,
     'ALL persistence must be verified from a fresh browser document after reload');
@@ -932,6 +965,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   requireCheck(workflow, 'persistence', 'ALL repair applies and persists exact Patient IDs after reload', true,
     { draftVersion: appliedBuilder.draftVersion, draftDigest: appliedBuilder.draftDigest,
       groupStepID: appliedGroup?.id, rowValuePolicy: reloadedPatientIDValue.policy,
+      inputColumnId: reloadedPatientIDValue.inputColumnId,
+      outputColumnId: reloadedPatientIDValue.outputColumnId,
+      outputType: reloadedPatientIDOutput.type,
       headers: rendered.headers, cells: rendered.cells, rawPatientIDs: sorted(renderedRawIDs[0]), expectedPatientIDs: fixtureIDs,
       fixtureOracleSha256: report.target.qaIsolation.fixtureOracle.sha256 });
   policyOneEvidence.push({

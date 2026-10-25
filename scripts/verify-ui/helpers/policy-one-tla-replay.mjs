@@ -111,13 +111,22 @@ function savedSnapshotProjection(snapshot) {
           keys: [],
           aggregate: 'NO_AGGREGATE',
           rowValues: [],
+          outputs: [],
         }
       : {
           present: true,
           stepId: snapshot.group.stepId ?? ABSENT,
           keys: snapshot.group.keys ?? [],
           aggregate: snapshot.group.aggregate ?? ABSENT,
-          rowValues: snapshot.group.rowValues ?? [],
+          rowValues: (snapshot.group.rowValues ?? []).map(rowValue => ({
+            inputColumnId: rowValue.inputColumnId ?? ABSENT,
+            outputColumnId: rowValue.outputColumnId ?? ABSENT,
+            policy: rowValue.policy ?? ABSENT,
+          })),
+          outputs: (snapshot.group.outputs ?? []).map(output => ({
+            id: output.id ?? ABSENT,
+            type: output.type ?? ABSENT,
+          })),
         },
   };
 }
@@ -290,9 +299,15 @@ function deriveModelConstants(trace) {
   const editor = action(trace, 'OneSubmitted').observation.editor;
   const allChoice = action(trace, 'AllReady').observation.choice;
   const addedBinding = allApplied.group?.inputColumnBinding;
+  const addedOutputBinding = allApplied.group?.outputColumnBinding;
   assert(isRecord(addedBinding), 'ALL applied Group must expose its added Patient.id input binding');
   requireString(addedBinding.columnId, 'added Patient.id column ID');
   requireString(addedBinding.field, 'added Patient.id field binding');
+  assert(isRecord(addedOutputBinding), 'ALL applied Group must expose its declared row-value output binding');
+  requireString(addedOutputBinding.columnId, 'added Patient.id row-value output column ID');
+  assert.equal(addedOutputBinding.type, 'array', 'ALL applied Group output must be declared as an array');
+  assert.notEqual(addedBinding.columnId, addedOutputBinding.columnId,
+    'ALL row-value input and output column IDs must be distinct');
   requireString(editor.editorId, 'actual editor identity');
   assert(Number.isFinite(editor.documentTimeOrigin), 'actual editor documentTimeOrigin must be finite');
   const preview = action(trace, 'AllReady').observation.preview;
@@ -328,6 +343,7 @@ function deriveModelConstants(trace) {
     SourceBindings: sourceWorkspace.sourceBindings,
     AddedPatientIdColumnId: addedBinding.columnId,
     AddedPatientIdBinding: `${addedBinding.columnId}|${addedBinding.field}`,
+    AddedPatientIdOutputColumnId: addedOutputBinding.columnId,
     AllReceiptId: preview.receiptId,
     RootDraftVersion: rootDraftVersion,
     GroupDraftVersion: groupDraftVersion,
@@ -457,6 +473,8 @@ function generateReplayModule(moduleName, observations) {
     '  /\\ observed.group.count = actual.group.count',
     '  /\\ observed.group.rowValuePolicy = actual.group.rowValuePolicy',
     '  /\\ observed.group.inputColumnId = actual.group.inputColumnId',
+    '  /\\ observed.group.outputColumnBinding.columnId = actual.group.outputColumnId',
+    '  /\\ observed.group.outputColumnBinding.type = actual.group.outputColumnType',
     '  /\\ IF ~observed.group.present',
     '       THEN /\\ SequenceSet(observed.renderedRows.patientIds) = actual.renderedRows.patientIds',
     '            /\\ observed.renderedRows.count = actual.renderedRows.count',
@@ -504,9 +522,14 @@ function generateReplayModule(moduleName, observations) {
     '       /\\ IF Len(observed.rowValues) = 0',
     '            THEN /\\ expected.rowValuePolicy = NoPolicy',
     '                 /\\ expected.inputColumnId = NoColumn',
+    '                 /\\ expected.outputColumnId = NoColumn',
     '            ELSE /\\ Len(observed.rowValues) = 1',
     '                 /\\ observed.rowValues[1].inputColumnId = expected.inputColumnId',
-    '                 /\\ observed.rowValues[1].policy = expected.rowValuePolicy)',
+    '                 /\\ observed.rowValues[1].outputColumnId = expected.outputColumnId',
+    '                 /\\ observed.rowValues[1].policy = expected.rowValuePolicy',
+    '                 /\\ \\E outputIndex \\in 1..Len(observed.outputs):',
+    '                      /\\ observed.outputs[outputIndex].id = expected.outputColumnId',
+    '                      /\\ observed.outputs[outputIndex].type = expected.outputColumnType)',
     '',
     'SnapshotMatchesModel(snapshot, stateModel) ==',
     '  /\\ snapshot.present',

@@ -35,6 +35,10 @@ const captureMutations = [
   ['wrong grouped count', input => { input.responses.all.preview.rows[0].count = 3; }, /expected grouped row count/],
   ['wrong persisted Group policy after Apply', input => { input.saved.afterApply.group.rowValuePolicy = 'ONE'; }, /saved Group must persist the ALL row-value policy/],
   ['wrong added Group input column binding', input => { input.saved.afterApply.group.inputColumnBinding.columnId = 'other-column'; }, /exact added input column binding/],
+  ['wrong added Group output column binding', input => { input.saved.afterApply.group.outputColumnBinding.columnId = 'other-output'; }, /exact declared ALL output binding/],
+  ['same Group row-value input and output ID', input => {
+    input.expected.apply.outputColumnBinding.columnId = input.expected.apply.inputColumnBinding.columnId;
+  }, /input and output column IDs must be distinct/],
   ['binding that already existed before Apply', input => {
     input.saved.before.group.inputColumnBinding = structuredClone(input.expected.apply.inputColumnBinding);
     input.saved.afterOne.group.inputColumnBinding = structuredClone(input.expected.apply.inputColumnBinding);
@@ -48,13 +52,22 @@ const captureMutations = [
   ['Apply response is owned by another request', input => { input.responses.apply.requestObject = {}; }, /exact captured request object/],
 ];
 
-test('a valid ONE rejection and same-choice ALL Apply persist the added input binding', () => {
+test('a valid ONE rejection and same-choice ALL Apply persist distinct input and output bindings', () => {
   const input = makePolicyOneTraceInput();
   Object.freeze(input.expected);
   const { journeyTrace: trace } = buildPolicyOneTrace(input);
   assert.equal(Object.hasOwn(input.requests.apply.body, 'outputId'), false,
     'the commands API carries outputId on its command, not on the body root');
   assert.equal(input.requests.apply.body.commands[0].outputId, input.expected.outputId);
+  assert.notEqual(input.expected.apply.inputColumnBinding.columnId,
+    input.expected.apply.outputColumnBinding.columnId);
+  const savedGroup = input.saved.afterApply.workspace.documents[0].construction.steps[0];
+  const rowValue = savedGroup.rowValues[0];
+  const rowValueOutput = savedGroup.outputs.find(output => output.id === rowValue.outputColumnId);
+  assert.equal(rowValue.inputColumnId, input.expected.apply.inputColumnBinding.columnId);
+  assert.equal(rowValue.outputColumnId, input.expected.apply.outputColumnBinding.columnId);
+  assert.notEqual(rowValue.inputColumnId, rowValue.outputColumnId);
+  assert.equal(rowValueOutput.type, 'array');
 
   assert.equal(trace.name, 'builder-authoring:patient-one-disagreement');
   assert.equal(trace.model, 'PolicyOneDisagreement');

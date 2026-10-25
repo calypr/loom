@@ -129,6 +129,12 @@ function validateExpected(expected, fixtureIDs) {
   assert(Object.hasOwn(expected.apply, 'inputColumnBinding'),
     'expected Apply contract must include the new input column binding');
   finiteJSON(expected.apply.inputColumnBinding, 'expected Apply input column binding');
+  record(expected.apply.outputColumnBinding, 'expected Apply output column binding');
+  nonEmptyString(expected.apply.outputColumnBinding.columnId, 'expected Apply output column ID');
+  assert.equal(expected.apply.outputColumnBinding.type, 'array',
+    'ALL Apply must declare an array output column');
+  assert.notEqual(expected.apply.inputColumnBinding.columnId, expected.apply.outputColumnBinding.columnId,
+    'ALL Apply input and output column IDs must be distinct');
   assert.notEqual(expected.one.policy, expected.all.policy,
     'ONE and ALL must be distinct expected policies');
   assertUniqueIDs(fixtureIDs, 'independent fixture IDs');
@@ -315,6 +321,12 @@ function inspectSavedSnapshots(saved, expected) {
     'Apply must add a new Group input column binding');
   assert(isDeepStrictEqual(afterApply.group.inputColumnBinding, expected.apply.inputColumnBinding),
     'the saved Group must include the exact added input column binding');
+  assert(!isDeepStrictEqual(before.group.outputColumnBinding, expected.apply.outputColumnBinding),
+    'Apply must add a new Group output column binding');
+  assert(isDeepStrictEqual(afterApply.group.outputColumnBinding, expected.apply.outputColumnBinding),
+    'the saved Group must include the exact declared ALL output binding');
+  assert.notEqual(afterApply.group.inputColumnBinding.columnId, afterApply.group.outputColumnBinding.columnId,
+    'the saved Group must retain distinct row-value input and output column IDs');
   assert.equal(afterApply.policy, expected.apply.policy,
     'the saved Builder read after Apply must retain the expected policy');
   assert.equal(afterApply.choiceId, expected.choiceId,

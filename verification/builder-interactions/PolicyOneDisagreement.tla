@@ -9,6 +9,7 @@ CONSTANTS
   SourceColumnIds,
   SourceBindings,
   AddedPatientIdColumnId,
+  AddedPatientIdOutputColumnId,
   AddedPatientIdBinding,
   AllReceiptId,
   RootDraftVersion,
@@ -62,6 +63,7 @@ DraftVersions == {RootDraftVersion, GroupDraftVersion,
                   AllDraftVersion, RestoredDraftVersion}
 StringIdentityValues ==
   {OutputId, EditorId, ChoiceId, AddedPatientIdColumnId,
+   AddedPatientIdOutputColumnId,
    AddedPatientIdBinding, AllReceiptId,
    RootDraftDigest, GroupDraftDigest, AllDraftDigest, RestoredDraftDigest,
    OneRequestId, OneCaptureId, OneCommandId,
@@ -80,7 +82,9 @@ NoGroup ==
    aggregate |-> NoAggregate,
    count |-> 0,
    rowValuePolicy |-> NoPolicy,
-   inputColumnId |-> NoColumn]
+   inputColumnId |-> NoColumn,
+   outputColumnId |-> NoColumn,
+   outputColumnType |-> "NoType"]
 
 EmptyKeyCountGroup ==
   [present |-> TRUE,
@@ -88,7 +92,9 @@ EmptyKeyCountGroup ==
    aggregate |-> "COUNT_ROWS",
    count |-> 2,
    rowValuePolicy |-> NoPolicy,
-   inputColumnId |-> NoColumn]
+   inputColumnId |-> NoColumn,
+   outputColumnId |-> NoColumn,
+   outputColumnType |-> "NoType"]
 
 EmptyKeyCountAllGroup ==
   [present |-> TRUE,
@@ -96,7 +102,9 @@ EmptyKeyCountAllGroup ==
    aggregate |-> "COUNT_ROWS",
    count |-> 2,
    rowValuePolicy |-> "ALL",
-   inputColumnId |-> AddedPatientIdColumnId]
+   inputColumnId |-> AddedPatientIdColumnId,
+   outputColumnId |-> AddedPatientIdOutputColumnId,
+   outputColumnType |-> "array"]
 
 MakeWorkspace(group, additionalBindings, renderedRows) ==
   [documentId |-> OutputId,
@@ -631,8 +639,15 @@ GroupRecordOK(groupValue) ==
        /\ groupValue.aggregate = "COUNT_ROWS"
        /\ groupValue.count = 2
        /\ groupValue.rowValuePolicy \in {NoPolicy, "ALL"}
+       /\ (groupValue.rowValuePolicy = NoPolicy =>
+             /\ groupValue.inputColumnId = NoColumn
+             /\ groupValue.outputColumnId = NoColumn
+             /\ groupValue.outputColumnType = "NoType")
        /\ (groupValue.rowValuePolicy = "ALL" =>
-             groupValue.inputColumnId = AddedPatientIdColumnId)
+             /\ groupValue.inputColumnId = AddedPatientIdColumnId
+             /\ groupValue.outputColumnId = AddedPatientIdOutputColumnId
+             /\ groupValue.inputColumnId # groupValue.outputColumnId
+             /\ groupValue.outputColumnType = "array")
   ELSE /\ groupValue = NoGroup
 
 WorkspaceOK(workspaceValue) ==
