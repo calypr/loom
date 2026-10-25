@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   assertNativeBuilderJourneyReplayReceipt,
+  assertNativeBuilderJourneyMutationControls,
   assertNativeBuilderJourneySelfTestReceipt,
   builderJourneyTraceReceiptIdentity,
   captureBuilderJourneyTraceProvenance,
@@ -16,6 +17,52 @@ import {
 } from '../builder-journey-trace.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+
+const nativeTraceReceiptFixture = () => {
+  const directory = mkdtempSync(join(tmpdir(), 'native-builder-journey-receipt-'));
+  const tracePath = join(directory, 'trace.json');
+  const traceDocument = {
+    traces: [{
+      name: 'cda-builder-group-related-source',
+      nativeRequests: [
+        { index: 0, browserRequestId: 'proposal-browser-0', requestId: 'wire-0', method: 'POST',
+          path: '/api/v1/projects/p1/explorers/e1/authoring/v2/construction-proposals',
+          startedAt: 100, isMutation: true },
+        { index: 1, browserRequestId: 'proposal-browser-1', requestId: 'wire-1', method: 'POST',
+          path: '/api/v1/projects/p1/explorers/e1/authoring/v2/construction-proposals',
+          startedAt: 200, isMutation: true },
+      ],
+      actions: [
+        { owner: { kind: 'proposal', browserRequestId: 'proposal-browser-0', mountEpoch: 0 } },
+        { relatedSourceLifecycle: { owner: {
+          kind: 'proposal', browserRequestId: 'proposal-browser-1', mountEpoch: 2,
+        } } },
+      ],
+    }],
+  };
+  const bytes = Buffer.from(`${JSON.stringify(traceDocument, null, 2)}\n`);
+  writeFileSync(tracePath, bytes);
+  const traceSha256 = createHash('sha256').update(readFileSync(tracePath)).digest('hex');
+  const contract = { journeyCase: {
+    requiredMutationControlNames: ['positive-observed-projection', 'reject-related-input'],
+    observedOwnerEpochControlPrefix: 'request-owner-mount-epoch-',
+  } };
+  const mutationControlNames = [
+    ...contract.journeyCase.requiredMutationControlNames,
+    'request-owner-mount-epoch-0',
+    'request-owner-mount-epoch-2',
+  ];
+  const mutationControls = mutationControlNames.map(name => ({ name, status: 'pass' }));
+  return {
+    directory,
+    tracePath,
+    traceDocument,
+    traceSha256,
+    contract,
+    mutationControls,
+    selfTestReportPath: join(directory, 'self-test.json'),
+  };
+};
 
 test('journey trace provenance binds reviewed source hashes and selected contract identity', () => {
   const manifestDirectory = mkdtempSync(join(tmpdir(), 'builder-journey-trace-'));
@@ -79,14 +126,17 @@ test('receipt identity keeps legacy and native lifecycle case identities distinc
 });
 
 test('native replay and mutation receipts preserve verifier coverage and require every mutation control to pass', () => {
+  const fixture = nativeTraceReceiptFixture();
+  try {
   const identity = {
     traceName: 'cda-builder-group-related-source',
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
     actionLabels: ['Preview', 'RelatedSourcePreview', 'Reload'],
+    tracePath: fixture.tracePath,
   };
   const replayReceipt = {
     ...identity,
-    tracePath: '/evidence/cda-trace.json',
+    traceSha256: fixture.traceSha256,
     replayReportPath: '/evidence/cda-tla.json',
     selfTestReportPath: null,
     status: 'pending-self-test',
@@ -98,33 +148,39 @@ test('native replay and mutation receipts preserve verifier coverage and require
     unmodeledEvents: { total: 3, unclassified: { total: 0 } },
   };
   assert.strictEqual(assertNativeBuilderJourneyReplayReceipt(replayReceipt, identity), replayReceipt);
-  const selfTestReportPath = '/evidence/cda-self-test.json';
+  const selfTestReportPath = fixture.selfTestReportPath;
   const selfTestReceipt = {
     traceName: identity.traceName,
     nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath,
+    tracePath: fixture.tracePath,
+    traceSha256: fixture.traceSha256,
     status: 'pass',
     selfTestStatus: 'pass',
     selfTestReportPath,
-    mutationControls: [{ name: 'reject-owner-mismatch', status: 'pass' },
-      { name: 'reject-snapshot-mismatch', status: 'pass' }],
+    mutationControls: fixture.mutationControls,
   };
   const selfTestIdentity = {
     traceName: identity.traceName,
     nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath,
+    tracePath: fixture.tracePath,
+    traceSha256: fixture.traceSha256,
     selfTestReportPath,
+    contract: fixture.contract,
+    traceDocument: fixture.traceDocument,
   };
   const validatedSelfTest = assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, selfTestIdentity);
   const finalReceipt = finalizeNativeBuilderJourneyReceipt(replayReceipt, validatedSelfTest, {
     ...identity,
-    tracePath: replayReceipt.tracePath,
+    traceSha256: fixture.traceSha256,
     selfTestReportPath,
+    contract: fixture.contract,
+    traceDocument: fixture.traceDocument,
   });
   assert.deepEqual(finalReceipt.requestCoverage, replayReceipt.requestCoverage);
   assert.deepEqual(finalReceipt.unmodeledEvents, replayReceipt.unmodeledEvents);
   assert.deepEqual(finalReceipt.mutationControls, selfTestReceipt.mutationControls);
   assert.equal(finalReceipt.status, 'pass');
+  assert.equal(finalReceipt.traceSha256, fixture.traceSha256);
   assert.equal(Object.hasOwn(finalReceipt, 'caseKey'), false);
   assert.equal(Object.hasOwn(selfTestReceipt, 'replayStatus'), false);
   assert.equal(Object.hasOwn(selfTestReceipt, 'replayReportPath'), false);
@@ -133,17 +189,27 @@ test('native replay and mutation receipts preserve verifier coverage and require
     ...selfTestReceipt,
     replayReportPath: replayReceipt.replayReportPath,
   }, selfTestIdentity), /must not echo verifier field replayReportPath/);
+  assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
+    ...selfTestReceipt,
+    traceSha256: '0'.repeat(64),
+  }, selfTestIdentity), /exact raw trace file bytes/);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
 });
 
 test('native BuilderJourney receipts reject replay drift and failed or missing mutation controls', () => {
+  const fixture = nativeTraceReceiptFixture();
+  try {
   const identity = {
     traceName: 'cda-builder-group-related-source',
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
     actionLabels: ['Preview'],
+    tracePath: fixture.tracePath,
   };
   const replayReceipt = {
     ...identity,
-    tracePath: '/evidence/cda-trace.json',
+    traceSha256: fixture.traceSha256,
     replayReportPath: '/evidence/cda-tla.json',
     selfTestReportPath: null,
     status: 'pending-self-test',
@@ -158,6 +224,18 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
     /must await the mutation self-test/);
   assert.throws(() => assertNativeBuilderJourneyReplayReceipt({
     ...replayReceipt,
+    traceSha256: '0'.repeat(64),
+  }, identity), /exact raw trace file bytes/);
+  const traceBytes = readFileSync(fixture.tracePath);
+  try {
+    writeFileSync(fixture.tracePath, Buffer.concat([traceBytes, Buffer.from('\n')]));
+    assert.throws(() => assertNativeBuilderJourneyReplayReceipt(replayReceipt, identity),
+      /exact raw trace file bytes/);
+  } finally {
+    writeFileSync(fixture.tracePath, traceBytes);
+  }
+  assert.throws(() => assertNativeBuilderJourneyReplayReceipt({
+    ...replayReceipt,
     requestCoverage: { ...replayReceipt.requestCoverage, unmapped: 1 },
   }, identity), /no unmapped requests/);
   assert.throws(() => assertNativeBuilderJourneyReplayReceipt({ ...replayReceipt, caseKey: identity.traceName }, identity),
@@ -165,35 +243,64 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
     traceName: identity.traceName,
     nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath,
+    tracePath: fixture.tracePath,
+    traceSha256: fixture.traceSha256,
     status: 'fail',
     selfTestStatus: 'fail',
-    selfTestReportPath: '/evidence/cda-self-test.json',
+    selfTestReportPath: fixture.selfTestReportPath,
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'fail' }],
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }), /status must be pass/);
+    tracePath: fixture.tracePath, traceSha256: fixture.traceSha256,
+    selfTestReportPath: fixture.selfTestReportPath,
+    contract: fixture.contract, traceDocument: fixture.traceDocument }), /status must be pass/);
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
     traceName: identity.traceName,
     nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath,
+    tracePath: fixture.tracePath,
+    traceSha256: fixture.traceSha256,
     status: 'pass',
     selfTestStatus: 'pass',
-    selfTestReportPath: '/evidence/cda-self-test.json',
+    selfTestReportPath: fixture.selfTestReportPath,
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'fail' }],
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }),
-  /must have a name and pass status/);
+    tracePath: fixture.tracePath, traceSha256: fixture.traceSha256,
+    selfTestReportPath: fixture.selfTestReportPath,
+    contract: fixture.contract, traceDocument: fixture.traceDocument }),
+  /exactly match the contract/);
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
     traceName: identity.traceName,
     nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath,
+    tracePath: fixture.tracePath,
+    traceSha256: fixture.traceSha256,
     status: 'pass',
     selfTestStatus: 'pass',
-    selfTestReportPath: '/evidence/cda-self-test.json',
+    selfTestReportPath: fixture.selfTestReportPath,
     mutationControls: [],
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
-    tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }),
-  /must include mutation control results/);
+    tracePath: fixture.tracePath, traceSha256: fixture.traceSha256,
+    selfTestReportPath: fixture.selfTestReportPath,
+    contract: fixture.contract, traceDocument: fixture.traceDocument }),
+  /must contain mutation control results/);
+  const controlOptions = { contract: fixture.contract, traceDocument: fixture.traceDocument };
+  assert.deepEqual(assertNativeBuilderJourneyMutationControls(fixture.mutationControls, controlOptions),
+    fixture.mutationControls);
+  const failedControl = fixture.mutationControls.map((control, index) =>
+    index === 0 ? { ...control, status: 'fail' } : control);
+  assert.throws(() => assertNativeBuilderJourneyMutationControls(failedControl, controlOptions),
+    /must pass/);
+  assert.throws(() => assertNativeBuilderJourneyMutationControls(fixture.mutationControls.slice(1), controlOptions),
+    /exactly match/);
+  assert.throws(() => assertNativeBuilderJourneyMutationControls([
+    ...fixture.mutationControls.slice(0, -1),
+    { name: 'request-owner-mount-epoch-99', status: 'pass' },
+  ], controlOptions), /exactly match/);
+  assert.throws(() => assertNativeBuilderJourneyMutationControls([
+    ...fixture.mutationControls,
+    fixture.mutationControls[0],
+  ], controlOptions), /must not repeat mutation-control names/);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
 });
 
 test('Builder read metadata stays bound to the exact response object across overlapping reads', () => {

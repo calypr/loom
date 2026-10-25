@@ -51,6 +51,86 @@ export const nativeRequestLedgerFrom = entries => entries.map(entry => ({
   isMutation: entry.isMutation,
 }));
 
+const nativeProposalOwnerEpochsFromTrace = trace => {
+  assert(Array.isArray(trace?.nativeRequests), 'Native journey trace must retain its complete nativeRequests ledger.');
+  assert(Array.isArray(trace?.actions), 'Native journey trace must retain its observed actions.');
+  assert(trace.nativeRequests.every(request => request && typeof request.method === 'string' &&
+    typeof request.path === 'string' && typeof request.browserRequestId === 'string' &&
+    Number.isSafeInteger(request.index) && (request.requestId === null || typeof request.requestId === 'string') &&
+    Number.isFinite(request.startedAt) && typeof request.isMutation === 'boolean'),
+  'Native request ledger entries must retain their actual index, IDs, method, path, start time, and mutation flag.');
+  const ledgerProposalRequestIds = trace.nativeRequests
+    .filter(request => request.method === 'POST' && request.path.endsWith('/construction-proposals'))
+    .map(request => request.browserRequestId);
+  assert(ledgerProposalRequestIds.length > 0,
+    'Native journey trace must retain at least one actual construction-proposal request.');
+  assert(ledgerProposalRequestIds.every(requestId => typeof requestId === 'string' && requestId.length > 0),
+    'Native proposal ledger entries must retain their actual browserRequestId.');
+  assert.equal(new Set(ledgerProposalRequestIds).size, ledgerProposalRequestIds.length,
+    'Native proposal ledger must not repeat browserRequestId values.');
+  const ownerEpochByRequestId = new Map();
+  const addProposalOwner = owner => {
+    if (owner?.kind !== 'proposal') return;
+    assert(typeof owner.browserRequestId === 'string' && owner.browserRequestId.length > 0,
+      'Every modeled proposal owner must retain its actual browserRequestId.');
+    assert(Number.isSafeInteger(owner.mountEpoch) && owner.mountEpoch >= 0,
+      `Proposal owner ${owner.browserRequestId} must retain its actual mountEpoch.`);
+    const priorEpoch = ownerEpochByRequestId.get(owner.browserRequestId);
+    assert(priorEpoch === undefined || priorEpoch === owner.mountEpoch,
+      `Proposal owner ${owner.browserRequestId} must not change mountEpoch across actions.`);
+    ownerEpochByRequestId.set(owner.browserRequestId, owner.mountEpoch);
+  };
+  for (const action of trace.actions) {
+    addProposalOwner(action.owner);
+    addProposalOwner(action.groupLifecycle?.owner);
+    addProposalOwner(action.groupLifecycle?.candidateOwner);
+    addProposalOwner(action.rowExpansionLifecycle?.owner);
+    addProposalOwner(action.relatedSourceLifecycle?.owner);
+  }
+  assert.deepEqual([...ownerEpochByRequestId.keys()].sort(), [...ledgerProposalRequestIds].sort(),
+    'Every native construction-proposal request must have exactly one retained proposal owner identity.');
+  return [...new Set(ownerEpochByRequestId.values())].sort((left, right) => left - right);
+};
+
+export const assertNativeBuilderJourneyMutationControls = (controls, { contract, traceDocument, where = 'Self-test output' }) => {
+  assert(contract?.journeyCase && typeof contract.journeyCase === 'object',
+    `${where} validation needs the registered journeyCase contract.`);
+  const { requiredMutationControlNames, observedOwnerEpochControlPrefix } = contract.journeyCase;
+  assert(Array.isArray(requiredMutationControlNames) && requiredMutationControlNames.length > 0 &&
+    requiredMutationControlNames.every(name => typeof name === 'string' && name.length > 0),
+  'CDA journey contract must declare requiredMutationControlNames.');
+  assert.equal(new Set(requiredMutationControlNames).size, requiredMutationControlNames.length,
+    'CDA journey contract must not repeat requiredMutationControlNames.');
+  assert(typeof observedOwnerEpochControlPrefix === 'string' && observedOwnerEpochControlPrefix.length > 0,
+    'CDA journey contract must declare observedOwnerEpochControlPrefix.');
+  assert(Array.isArray(traceDocument?.traces) && traceDocument.traces.length === 1,
+    `${where} validation needs the exact single-trace input document.`);
+  const trace = traceDocument.traces[0];
+  const observedEpochs = nativeProposalOwnerEpochsFromTrace(trace);
+  const expectedNames = [
+    ...requiredMutationControlNames,
+    ...observedEpochs.map(epoch => `${observedOwnerEpochControlPrefix}${epoch}`),
+  ];
+  assert.equal(new Set(expectedNames).size, expectedNames.length,
+    'CDA journey contract mutation controls must not overlap owner-epoch controls.');
+  assert(Array.isArray(controls) && controls.length > 0,
+    `${where} must contain mutation control results.`);
+  const actualNames = controls.map(control => control?.name);
+  assert(actualNames.every(name => typeof name === 'string' && name.length > 0),
+    `${where} mutation controls must retain their actual names.`);
+  assert.equal(new Set(actualNames).size, actualNames.length,
+    `${where} must not repeat mutation-control names.`);
+  assert.deepEqual([...actualNames].sort(), [...expectedNames].sort(),
+    `${where} mutation-control names must exactly match the contract and observed proposal-owner epochs.`);
+  for (const [index, control] of controls.entries()) {
+    assert(control && control.name === actualNames[index] &&
+      (control.status === 'pass' || control.status === 'fail'),
+    `${where} mutation control ${index} must retain its actual name and status.`);
+    assert.equal(control.status, 'pass', `${where} mutation control ${index} (${control.name}) must pass.`);
+  }
+  return controls;
+};
+
 export const builderJourneyTraceBindingFor = (scenarioID, caseName) => {
   const registeredCase = scenarioCaseFor(scenarioID, caseName);
   const binding = registeredCase.journeyTrace;
@@ -101,8 +181,25 @@ const assertNativeReceiptIdentity = (receipt, traceName, nativeCaseKey, stage) =
   assert(!Object.hasOwn(receipt, 'caseKey'), `${stage} must not include a legacy caseKey alias.`);
 };
 
-export const assertNativeBuilderJourneyReplayReceipt = (receipt, { traceName, nativeCaseKey, actionLabels }) => {
+const assertNativeReceiptTraceDigest = (receipt, tracePath, stage) => {
+  assert(typeof tracePath === 'string' && tracePath.length > 0,
+    `${stage} validation needs the actual trace file path.`);
+  assert.equal(receipt.tracePath, tracePath, `${stage} tracePath must match the captured trace file.`);
+  const actualTraceSha256 = createHash('sha256').update(readFileSync(tracePath)).digest('hex');
+  assert.match(receipt.traceSha256 ?? '', /^[0-9a-f]{64}$/, `${stage} must retain a SHA-256 traceSha256.`);
+  assert.equal(receipt.traceSha256, actualTraceSha256,
+    `${stage} traceSha256 must match the exact raw trace file bytes.`);
+  return actualTraceSha256;
+};
+
+export const assertNativeBuilderJourneyReplayReceipt = (receipt, {
+  traceName,
+  nativeCaseKey,
+  actionLabels,
+  tracePath,
+}) => {
   assertNativeReceiptIdentity(receipt, traceName, nativeCaseKey, 'Verifier output');
+  assertNativeReceiptTraceDigest(receipt, tracePath, 'Verifier output');
   assert.equal(receipt.status, 'pending-self-test', 'Verifier receipt must await the mutation self-test.');
   assert.equal(receipt.replayStatus, 'pass', 'Verifier receipt must record a passing replay.');
   assert.equal(receipt.selfTestStatus, 'not-run', 'Verifier receipt must record that the self-test has not run.');
@@ -141,23 +238,26 @@ export const assertNativeBuilderJourneySelfTestReceipt = (receipt, {
   traceName,
   nativeCaseKey,
   tracePath,
+  traceSha256,
   selfTestReportPath,
+  contract,
+  traceDocument,
 }) => {
   assertNativeReceiptIdentity(receipt, traceName, nativeCaseKey, 'Self-test output');
+  const actualTraceSha256 = assertNativeReceiptTraceDigest(receipt, tracePath, 'Self-test output');
+  assert.equal(actualTraceSha256, traceSha256, 'Verifier and self-test must bind the same exact trace bytes.');
   assert.equal(receipt.status, 'pass', 'Self-test receipt status must be pass.');
   assert.equal(receipt.selfTestStatus, 'pass', 'Self-test receipt status must be pass.');
-  assert.equal(receipt.tracePath, tracePath, 'Self-test receipt must retain the captured trace path.');
   assert.equal(receipt.selfTestReportPath, selfTestReportPath,
     'Self-test receipt must identify its actual output path.');
   for (const field of ['replayStatus', 'replayReportPath', 'requestCoverage']) {
     assert(!Object.hasOwn(receipt, field), `Self-test receipt must not echo verifier field ${field}.`);
   }
-  assert(Array.isArray(receipt.mutationControls) && receipt.mutationControls.length > 0,
-    'Self-test receipt must include mutation control results.');
-  for (const [index, control] of receipt.mutationControls.entries()) {
-    assert(control && typeof control.name === 'string' && control.name.length > 0 && control.status === 'pass',
-      `Self-test mutation control ${index} must have a name and pass status.`);
-  }
+  assertNativeBuilderJourneyMutationControls(receipt.mutationControls, {
+    contract,
+    traceDocument,
+    where: 'Self-test output',
+  });
   return receipt;
 };
 
@@ -166,6 +266,7 @@ export const finalizeNativeBuilderJourneyReceipt = (verifierReceipt, selfTestRec
   assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, identity);
   return {
     ...verifierReceipt,
+    traceSha256: verifierReceipt.traceSha256,
     mutationControls: selfTestReceipt.mutationControls,
     status: 'pass',
     replayStatus: 'pass',
@@ -225,6 +326,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
   assert.equal(journeyTrace.model, binding.model,
     `Captured Builder journey model must match the ${scenarioID}/${caseName} registry binding.`);
   const contractPath = binding.contract;
+  const isNativeLifecycle = binding.captureKind === 'builder-cda-native-lifecycle';
   const receiptIdentity = builderJourneyTraceReceiptIdentity(binding, journeyTrace.name, scenarioID, caseName);
   const actions = journeyTrace.actions ?? [];
   const labels = actions.map(action => action.label);
@@ -246,6 +348,9 @@ export const writeAndReplayBuilderJourneyTrace = ({
     ? resolve(repositoryRoot, process.env.LOOM_JOURNEY_TRACE)
     : join(report.evidenceDirectory, `${artifactStem}-trace.json`);
   const replayReportPath = join(report.evidenceDirectory, `${artifactStem}-tla.json`);
+  const selectedContract = isNativeLifecycle
+    ? JSON.parse(readFileSync(repositoryPath(repositoryRoot, contractPath), 'utf8'))
+    : null;
   const tracePayload = {
     schemaVersion: 1,
     ...captureBuilderJourneyTraceProvenance({ repositoryRoot, contractPath, reviewedSourceManifestPath }),
@@ -254,6 +359,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
   };
   mkdirSync(dirname(tracePath), { recursive: true });
   writeFileSync(tracePath, `${JSON.stringify(tracePayload, null, 2)}\n`);
+  const traceSha256 = createHash('sha256').update(readFileSync(tracePath)).digest('hex');
   const replayArgs = [
     repositoryPath(repositoryRoot, 'scripts/verify-builder-traces.mjs'),
     '--traces', tracePath,
@@ -269,7 +375,6 @@ export const writeAndReplayBuilderJourneyTrace = ({
     maxBuffer: 32 * 1024 * 1024,
   });
   if (replay.error) throw replay.error;
-  const isNativeLifecycle = binding.captureKind === 'builder-cda-native-lifecycle';
   const nativeCaseKey = `${scenarioID}/${caseName}`;
   report.target.builderJourneyTrace = {
     ...receiptIdentity,
@@ -277,7 +382,12 @@ export const writeAndReplayBuilderJourneyTrace = ({
     replayReportPath,
     actionLabels: labels,
     status: 'fail',
-    ...(isNativeLifecycle ? { replayStatus: 'fail', selfTestStatus: 'not-run', selfTestReportPath: null } : {}),
+    ...(isNativeLifecycle ? {
+      traceSha256,
+      replayStatus: 'fail',
+      selfTestStatus: 'not-run',
+      selfTestReportPath: null,
+    } : {}),
   };
   if (replay.status !== 0) {
     const output = `${replay.stdout ?? ''}${replay.stderr ?? ''}`.trim();
@@ -291,6 +401,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
       traceName: journeyTrace.name,
       nativeCaseKey,
       actionLabels: labels,
+      tracePath,
     });
     report.target.builderJourneyTrace = { ...verifierReceipt };
   } else {
@@ -326,7 +437,10 @@ export const writeAndReplayBuilderJourneyTrace = ({
         traceName: journeyTrace.name,
         nativeCaseKey,
         tracePath,
+        traceSha256,
         selfTestReportPath,
+        contract: selectedContract,
+        traceDocument: tracePayload,
       });
     } catch (error) {
       selfTestValidationError = error;
@@ -353,7 +467,10 @@ export const writeAndReplayBuilderJourneyTrace = ({
           nativeCaseKey,
           actionLabels: labels,
           tracePath,
+          traceSha256,
           selfTestReportPath,
+          contract: selectedContract,
+          traceDocument: tracePayload,
         })
       : {
           ...verifierReceipt,
