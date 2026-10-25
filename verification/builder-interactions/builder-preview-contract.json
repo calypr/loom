@@ -399,7 +399,7 @@
     },
     {
       "path": "scripts/run-native-verification-bracket.mjs",
-      "sha256": "89e1898df3974d54ad2a20ee458c9fa94fb00744216b082b2e8a77f2541ba638",
+      "sha256": "f182cd6a02733e15c7385f2f0d2afd88301ca912c0c93f81bb23ef75d3e7dc29",
       "contract": "Native UI lifecycle and source integrity bracket used by the registered journey runner."
     },
     {
