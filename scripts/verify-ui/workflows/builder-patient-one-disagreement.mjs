@@ -1178,6 +1178,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     },
   });
 
+  const reloadedAllGroupStepId = allReloadSavedState.group?.stepId;
+  assert.equal(reloadedAllGroupStepId, appliedGroup?.id,
+    'the removal target must use the exact Group step observed after ALL reload');
   const rowsHistory = page.getByTestId('construction-row-operation-history');
   if (!await rowsHistory.isVisible().catch(() => false)) {
     const settings = page.getByTestId('construction-rows-settings-trigger');
@@ -1299,16 +1302,27 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
         addedColumnId: addedPatientIDColumnId }),
     },
   });
+  const afterCancelGroupStepId = afterRemovalCancelState.group?.stepId;
+  assert.equal(afterCancelGroupStepId, reloadedAllGroupStepId,
+    'Cancel must preserve the exact reloaded ALL Group step identity');
+  assert.equal(afterCancelGroupStepId, appliedGroup?.id,
+    'Cancel must preserve the current saved ALL Group step, not a pre-ONE snapshot');
+  assert.equal(await page.getByRole('dialog', { name: 'Row definition settings', exact: true }).count(), 0,
+    'the saved-step Remove action must leave the row-settings dialog closed');
+  assert.equal(await page.getByTestId(`construction-history-step-${afterCancelGroupStepId}`).getAttribute('aria-pressed'), 'true',
+    'Cancel must leave the current Group selected in the visible Row operations history');
   requireCheck(workflow, 'persistence', 'Cancel preserves the applied ALL Group and exact draft', true,
-    { groupStepID: appliedGroup.id, draftVersion: afterRemovalCancel.draftVersion,
-      draftDigest: afterRemovalCancel.draftDigest });
+    { groupStepID: afterCancelGroupStepId, draftVersion: afterRemovalCancel.draftVersion,
+      draftDigest: afterRemovalCancel.draftDigest, rowSettingsDialogOpen: false,
+      selectedHistoryStepId: afterCancelGroupStepId });
 
   const removalRetryAttempt = observeAuthoringAttempt(page, {
     method: 'POST', path: 'construction-proposals',
     owner: { kind: 'policy-one-group-removal-preview', attempt: 'apply' }, timeout: 5000,
   });
-  await workflow.action('reopen Group removal after Cancel', page.getByTestId(`construction-row-remove-${appliedGroup.id}`),
-    () => page.getByTestId(`construction-row-remove-${appliedGroup.id}`).click(), {
+  const removalRetryControl = page.getByTestId(`construction-remove-step-${afterCancelGroupStepId}`);
+  await workflow.action('reopen Group removal after Cancel', removalRetryControl,
+    () => removalRetryControl.click(), {
       after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
         && Boolean(document.querySelector('[data-testid="construction-removal-summary"]')), undefined, { timeout: 5000 }),
     });
@@ -1332,8 +1346,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   assert(removalRetryExchange.response?.proposalId,
     'reopened Group removal response must expose its actual proposalId');
   assert.equal(removalRetryExchange.response?.proposalPreviewStatus, 'READY');
-  assert.deepEqual(removalRetryBody?.removeStepIds, [appliedGroup.id],
-    'reopened Group removal must target the same saved Group step');
+  assert.deepEqual(removalRetryBody?.removeStepIds, [afterCancelGroupStepId],
+    'reopened Group removal must target the exact post-Cancel saved Group step');
   const removalRetryPreview = await page.evaluate(readNativeGroupProposal);
   const retryRemovalResponsePreview = removalRetryExchange.payload?.preview;
   const retryRemovalIDColumn = retryRemovalResponsePreview?.columns?.find(column => column.label === sourceIdColumn.label);
@@ -1458,11 +1472,15 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       removedProposalId: removalRetryExchange.response.proposalId,
     },
   });
-  await returnPolicyOneRowSettingsToTable(workflow, {
-    readBuilder,
-    expectedSavedState: removedBuilder,
-    actionLabel: 'return to table after applying Group removal',
-  });
+  await page.getByRole('dialog', { name: 'Row definition settings', exact: true })
+    .waitFor({ state: 'hidden' });
+  const afterRemovalCloseFrame = await readBuilder();
+  assert.deepEqual(afterRemovalCloseFrame.workspace, removedBuilder.workspace,
+    'closing the already-dismissed row editor after removal must preserve the exact restored workspace');
+  assert.equal(afterRemovalCloseFrame.draftVersion, removedBuilder.draftVersion,
+    'closing the row editor after removal must preserve the restored draft version');
+  assert.equal(afterRemovalCloseFrame.draftDigest, removedBuilder.draftDigest,
+    'closing the row editor after removal must preserve the restored draft digest');
   await page.reload({ waitUntil: 'domcontentloaded' });
   const sourceReloadTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   assert.notEqual(sourceReloadTimeOrigin, allReloadTimeOrigin,
