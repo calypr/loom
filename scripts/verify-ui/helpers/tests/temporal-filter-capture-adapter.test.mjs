@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { chromium } from 'playwright';
+import { waitForBuilderRenderedGrid } from '../builder-rendered-grid.mjs';
 import { createTemporalFilterCapture } from '../temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
@@ -42,6 +44,61 @@ test('DATE Explorer creation matcher accepts the retained canonical browser rout
   assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin, explorerCollectionPath: storageAliasPath, title }), false);
   assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin: 'http://127.0.0.1:8180', explorerCollectionPath: browserPath, title }), false);
   assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin, explorerCollectionPath: browserPath, title: 'other Explorer' }), false);
+});
+
+test('native preview grid gate accepts CSS-uppercased Patient ID and rejects wrong tables or rows', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(async () => browser.close());
+  const page = await browser.newPage();
+  await page.setContent(`
+    <style>
+      .preview-header-row { text-transform: uppercase; }
+    </style>
+    <section data-testid="construction-preview" data-preview-status="ready" data-preview-output-id="patient-output">
+      <div data-testid="preview-table-scroll">
+        <div role="table" aria-rowcount="3">
+          <div role="row" class="preview-header-row"><div role="columnheader"><span>Patient ID</span></div></div>
+          <div role="row"><div role="cell">dev-patient-001</div></div>
+          <div role="row"><div role="cell">dev-patient-002</div></div>
+        </div>
+      </div>
+    </section>
+    <section data-testid="other-preview">
+      <div data-testid="preview-table-scroll">
+        <div role="table" aria-rowcount="3">
+          <div role="row" class="preview-header-row"><div role="columnheader"><span>Patient ID</span></div></div>
+          <div role="row"><div role="cell">foreign-patient-001</div></div>
+          <div role="row"><div role="cell">foreign-patient-002</div></div>
+        </div>
+      </div>
+    </section>
+  `);
+  const bodyText = await page.locator('body').innerText();
+  assert.equal(bodyText.includes('Patient ID'), false,
+    'CSS text-transform reproduces the retained uppercase body text that broke the broad substring check.');
+  assert.equal(bodyText.includes('PATIENT ID'), true);
+
+  const expectedRows = [
+    { 'Patient ID': 'dev-patient-001' },
+    { 'Patient ID': 'dev-patient-002' },
+  ];
+  const tableSelector = '[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]';
+  await waitForBuilderRenderedGrid(page, { tableSelector, expectedRows }, 500);
+  await assert.rejects(
+    () => waitForBuilderRenderedGrid(page, {
+      tableSelector: '[data-testid="other-preview"] [data-testid="preview-table-scroll"] [role="table"]',
+      expectedRows,
+    }, 100),
+    /Timeout/,
+    'A different Preview table with foreign Patient IDs must not satisfy the DATE source oracle.',
+  );
+  await page.locator('[data-testid="construction-preview"] [role="cell"]').first()
+    .evaluate(cell => { cell.textContent = 'dev-patient-999'; });
+  await assert.rejects(
+    () => waitForBuilderRenderedGrid(page, { tableSelector, expectedRows }, 100),
+    /Timeout/,
+    'A wrong Patient ID must not satisfy the exact DATE source oracle.',
+  );
 });
 
 test('capture retains and drains a construction-capabilities request that settles after first navigation', async () => {

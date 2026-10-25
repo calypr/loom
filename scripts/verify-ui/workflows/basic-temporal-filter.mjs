@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserURL } from './builder-url.mjs';
+import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { createTemporalFilterCapture } from '../helpers/temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../helpers/temporal-filter-trace-adapter.mjs';
@@ -215,17 +216,21 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     editable: true,
     after: async () => assert.equal(await tableName.inputValue(), `${contract.resourceType} temporal rows`),
   });
-  const waitSavedRows = async (expectedIDs, expectedOutputId) => {
+  const waitSavedRows = async (expectedIDs, expectedOutputId, timeout = ACTION_TIMEOUT_MS) => {
     assert(expectedOutputId, 'The native Preview must identify its exact saved output before row comparison.');
-    await page.waitForFunction(({ outputId, count }) => {
-      const preview = document.querySelector('[data-testid="construction-preview"]');
-      const table = document.querySelector('[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]');
-      return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === outputId &&
-        table && Number(table.getAttribute('aria-rowcount')) === count + 1;
-    }, { outputId: expectedOutputId, count: expectedIDs.length }, { timeout: ACTION_TIMEOUT_MS });
-    const snapshot = await snapshotTable(page.locator(previewSelector));
     const idLabel = contract.resourceType === 'Patient' ? 'patient id' : 'observation id';
-    const idIndex = snapshot.headers.findIndex(value => header(value) === idLabel);
+    await Promise.all([
+      page.waitForFunction(({ outputId }) => {
+        const preview = document.querySelector('[data-testid="construction-preview"]');
+        return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === outputId;
+      }, { outputId: expectedOutputId }, { timeout }),
+      waitForBuilderRenderedGrid(page, {
+        tableSelector: previewSelector,
+        expectedRows: expectedIDs.map(id => ({ [idLabel]: id })),
+      }, timeout),
+    ]);
+    const snapshot = await snapshotTable(page.locator(previewSelector));
+    const idIndex = findRenderedBuilderHeaderIndex(snapshot.headers, idLabel);
     assert.notEqual(idIndex, -1, `Rendered source Preview must show the ${contract.resourceType} ID column: ${JSON.stringify(snapshot.headers)}`);
     const ids = snapshot.rows.map(row => row[idIndex]).sort();
     assert.deepEqual(ids, [...expectedIDs].sort(), 'Rendered Preview must preserve the exact literal source record IDs.');
@@ -237,16 +242,14 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   const builderBeforeRootReadIndex = capture.builderReads.length - 1;
   const rootCommandFromIndex = networkObserver.requests.length;
   await act(`choose native ${contract.resourceType} rows`, chooseRoot, () => chooseRoot.click(), {
-    after: async () => {
-      await page.waitForFunction(({ count, type }) => {
-      const table = document.querySelector('[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]');
-      return table && Number(table.getAttribute('aria-rowcount')) === count + 1 &&
-        document.querySelector('[data-testid="construction-action-add-columns"]') &&
-        document.querySelector('[data-testid="construction-preview"]')?.dataset.previewStatus === 'ready' &&
-        document.body.innerText.includes(`${type} ID`);
-      }, { count: expectedAllIDs.length, type: contract.resourceType }, { timeout: ACTION_TIMEOUT_MS });
+    after: async ({ remainingTimeout }) => {
+      await page.waitForFunction(() => {
+        const preview = document.querySelector('[data-testid="construction-preview"]');
+        return Boolean(document.querySelector('[data-testid="construction-action-add-columns"]') &&
+          preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId);
+      }, null, { timeout: remainingTimeout() });
       previewOutputId = await page.getByTestId('construction-preview').getAttribute('data-preview-output-id');
-      await waitSavedRows(expectedAllIDs, previewOutputId);
+      await waitSavedRows(expectedAllIDs, previewOutputId, remainingTimeout());
     },
   });
   const builderAfterRoot = await readBuilder();

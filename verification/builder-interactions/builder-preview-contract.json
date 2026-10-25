@@ -619,7 +619,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs",
-      "sha256": "3e707cbef87ac6a2fc2e1553ab27c8352fb7fffdec1ecce81a2876de67b6b997",
+      "sha256": "ba33869062c3c1a7111359decd54347aeeab1ac3ccfd10bec67acc94b7466f9e",
       "contract": "Focused tests for Temporal browser capture ownership and chronology."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "2c7d7ae6cafd8ee19501808c5b7715520b35a554649a035e965b3e516ce3e235",
+      "sha256": "ef6139d69f3d9fabf6d1d1cbd3e8ceaeb27bdf3e6943573a3b289dac47bbcdf0",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
