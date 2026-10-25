@@ -145,6 +145,84 @@ export function groupEditRenderCheckpointSummary(cases) {
   };
 }
 
+export const constructionHistoryDOMProjection = (root = document) =>
+  [...root.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
+    const testId = button.getAttribute('data-testid');
+    return {
+      testId,
+      stepId: testId?.replace(/^construction-history-step-/, '') ?? null,
+      title: button.querySelector(':scope > span')?.textContent.replace(/\s+/g, ' ').trim() ?? '',
+      historyText: button.getAttribute('title') ?? '',
+      selected: button.getAttribute('aria-pressed') === 'true',
+      adjustmentGroup: (() => {
+        const details = button.closest('details[data-testid^="construction-history-adjustment-group-"]');
+        if (!details) return null;
+        const summary = details.querySelector(':scope > summary');
+        return {
+          testId: details.getAttribute('data-testid'),
+          title: summary?.textContent.replace(/\s+/g, ' ').trim() ?? '',
+          open: details.open,
+        };
+      })(),
+    };
+  });
+
+export const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, savedRelatedSource }) => {
+  const row = historySteps.find(step => step.title === 'Related Observation' &&
+    step.historyText.includes('Observation.status'));
+  if (!row) return null;
+  const sourceMatch = row.historyText.match(/\bfrom ([^\s]+)\.([^\s]+)(?:\s+via\s+|\s+as\s+)/);
+  const labelMatch = row.historyText.match(/\bas (.+)\.$/);
+  const rowIndex = historySteps.indexOf(row);
+  const inputStepId = historySteps[rowIndex - 1]?.stepId ?? null;
+  assert(sourceMatch && labelMatch && inputStepId && savedRelatedSource,
+    'Mounted RELATED_SOURCE history DOM must expose its source, output label, and preceding Group input identity.');
+  assert(row.adjustmentGroup?.title.includes('Column adjustments'),
+    'Mounted RELATED_SOURCE history DOM must retain its Column adjustments disclosure identity.');
+  assert(savedRelatedSource.route.every(hop => row.historyText.includes(hop.fromResourceType) &&
+    row.historyText.includes(hop.toResourceType)),
+  'Mounted RELATED_SOURCE history DOM must display every endpoint in the saved route.');
+  const normalizeLabel = label => label.replace(/\s+/g, ' ').trim().toLowerCase();
+  const semanticLabel = renderedRows.semanticHeaders.find(header => header === labelMatch[1]);
+  const displayedHeader = renderedRows.headers.find(header => normalizeLabel(header) === normalizeLabel(labelMatch[1]));
+  assert(semanticLabel, 'The related output label must match actual table-header DOM textContent.');
+  assert(displayedHeader, 'The mounted RELATED_SOURCE output label must appear in the rendered table header.');
+  return {
+    stepId: row.stepId,
+    inputStepId,
+    source: { resourceType: sourceMatch[1], path: sourceMatch[2] },
+    outputColumnId: savedRelatedSource.outputColumnId,
+    route: structuredClone(savedRelatedSource.route),
+    visibleColumn: {
+      id: savedRelatedSource.outputColumnId,
+      label: semanticLabel,
+      visible: true,
+      evidence: 'label-from-visible-table-header-dom-textContent; rendered-innerText-confirmed; id-joined-from-raw-builder-projection',
+    },
+    historyText: row.historyText,
+    historyDisclosure: row.adjustmentGroup,
+  };
+};
+
+export const assertMountedRelatedSourceMatchesSaved = (mounted, savedRelatedSource) => {
+  if (mounted) {
+    assert(savedRelatedSource, 'Mounted RELATED_SOURCE history must have a saved related-source step.');
+    assert.equal(savedRelatedSource.output?.id, savedRelatedSource.outputColumnId,
+      'The saved RELATED_SOURCE output identity must agree with its actual construction output.');
+    assert.equal(mounted.stepId, savedRelatedSource.stepId);
+    assert.equal(mounted.inputStepId, savedRelatedSource.inputStepId);
+    assert.deepEqual(mounted.source, savedRelatedSource.source);
+    assert.equal(mounted.outputColumnId, savedRelatedSource.outputColumnId);
+    assert.deepEqual(mounted.route, savedRelatedSource.route);
+    assert.equal(mounted.visibleColumn.id, savedRelatedSource.outputColumnId);
+    assert.equal(mounted.visibleColumn.label, savedRelatedSource.output?.label,
+      'Mounted RELATED_SOURCE visibleColumn.label must match the actual saved output label.');
+  } else {
+    assert.equal(savedRelatedSource, null,
+      'No mounted RELATED_SOURCE history row must agree with no saved RELATED_SOURCE step.');
+  }
+};
+
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
 assert(project, 'CDA fixture must provide the isolated project');
@@ -382,25 +460,18 @@ const awaitProposalRequestEvidence = async browserRequestId => {
 const readRenderedSourceTable = async () => browserEval(page, () => {
   const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
   const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
-  const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])]
+  const headerCells = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])];
+  const headers = headerCells
     .map(cell => cell.innerText.replace(/\s+/g, ' ').trim());
+  const semanticHeaders = headerCells
+    .map(cell => cell.textContent.replace(/\s+/g, ' ').trim());
   const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
     text: cell.innerText.replace(/\s+/g, ' ').trim(),
     title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
   })));
-  return { headers, rawRows };
+  return { headers, semanticHeaders, rawRows };
 });
-const readConstructionHistoryDOM = async () => browserEval(page, () =>
-  [...document.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
-    const testId = button.getAttribute('data-testid');
-    return {
-      testId,
-      stepId: testId?.replace(/^construction-history-step-/, '') ?? null,
-      title: button.querySelector(':scope > span')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
-      historyText: button.getAttribute('title') ?? '',
-      selected: button.getAttribute('aria-pressed') === 'true',
-    };
-  }));
+const readConstructionHistoryDOM = async () => browserEval(page, constructionHistoryDOMProjection);
 const mountedGroupFromHistoryDOM = historySteps => {
   const row = historySteps.find(step => step.title === 'Group rows' || step.title.startsWith('Group by '));
   if (!row) return null;
@@ -414,34 +485,6 @@ const mountedGroupFromHistoryDOM = historySteps => {
     keys,
     aggregate,
     evidence: 'construction-history-dom',
-    historyText: row.historyText,
-  };
-};
-const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, state }) => {
-  const row = historySteps.find(step => step.title === 'Related Observation' &&
-    step.historyText.includes('Observation.status'));
-  if (!row) return null;
-  const sourceMatch = row.historyText.match(/\bfrom ([^\s]+)\.([^\s]+)(?:\s+via\s+|\s+as\s+)/);
-  const labelMatch = row.historyText.match(/\bas (.+)\.$/);
-  const rowIndex = historySteps.indexOf(row);
-  const inputStepId = historySteps[rowIndex - 1]?.stepId ?? null;
-  const related = relatedSourceProjection(state);
-  assert(sourceMatch && labelMatch && inputStepId && related,
-    'Mounted RELATED_SOURCE history DOM must expose its source, output label, and preceding Group input identity.');
-  const visibleLabel = renderedRows.headers.find(header => header === labelMatch[1]);
-  assert(visibleLabel, 'The mounted RELATED_SOURCE output label must appear in the rendered table header.');
-  return {
-    stepId: row.stepId,
-    inputStepId,
-    source: { resourceType: sourceMatch[1], path: sourceMatch[2] },
-    outputColumnId: related.outputColumnId,
-    route: structuredClone(related.route),
-    visibleColumn: {
-      id: related.outputColumnId,
-      label: visibleLabel,
-      visible: true,
-      evidence: 'label-from-construction-history-and-table-header-dom; id-joined-from-raw-builder-projection',
-    },
     historyText: row.historyText,
   };
 };
@@ -998,7 +1041,11 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
   const renderedRows = await readRenderedSourceTable();
   const historySteps = await readConstructionHistoryDOM();
   const mountedGroup = mountedGroupFromHistoryDOM(historySteps);
-  const mountedRelatedSource = mountedRelatedSourceFromDOM({ historySteps, renderedRows, state: builder });
+  const mountedRelatedSource = mountedRelatedSourceFromDOM({
+    historySteps,
+    renderedRows,
+    savedRelatedSource: relatedSourceProjection(builder),
+  });
   const savedAfter = savedBuilderProjection(builder);
   assert.equal(mountedGroup?.stepId ?? null, savedAfter.group?.stepId ?? null,
     'The mounted Group history identity must match the independently read saved Group step.');
@@ -1009,19 +1056,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
     assert.equal(mountedGroup.aggregate, savedAfter.group.aggregate,
       'The mounted Group history aggregate must match the independently read saved aggregate.');
   }
-  if (mountedRelatedSource) {
-    assert(savedAfter.relatedSource, 'Mounted RELATED_SOURCE history must have a saved related-source step.');
-    assert.equal(mountedRelatedSource.stepId, savedAfter.relatedSource.stepId);
-    assert.equal(mountedRelatedSource.inputStepId, savedAfter.relatedSource.inputStepId);
-    assert.deepEqual(mountedRelatedSource.source, savedAfter.relatedSource.source);
-    assert.equal(mountedRelatedSource.outputColumnId, savedAfter.relatedSource.outputColumnId);
-    assert.deepEqual(mountedRelatedSource.route, savedAfter.relatedSource.route);
-    assert.equal(mountedRelatedSource.visibleColumn.id, savedAfter.relatedSource.outputColumnId);
-    assert.equal(mountedRelatedSource.visibleColumn.label, savedAfter.relatedSource.output?.label);
-  } else {
-    assert.equal(savedAfter.relatedSource, null,
-      'No mounted RELATED_SOURCE history row must agree with no saved RELATED_SOURCE step.');
-  }
+  assertMountedRelatedSourceMatchesSaved(mountedRelatedSource, savedAfter.relatedSource);
   if (!journeyTraceStarted) {
     journeyTraceStarted = true;
     journeyTrace.initialObservation = observation;

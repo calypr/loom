@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+const requireUiPackage = createRequire(fileURLToPath(new URL('../../../../ui/packages/loom-ui/package.json', import.meta.url)));
+const { JSDOM } = requireUiPackage('jsdom');
 import {
+  assertMountedRelatedSourceMatchesSaved,
+  constructionHistoryDOMProjection,
   groupEditRenderBudgetMs,
   groupEditRenderCheckpointNames,
   groupEditRenderCheckpointSummary,
   isProtectedExplorerRequestPath,
+  mountedRelatedSourceFromDOM,
   recordGroupEditActionToRender,
   savedColumnLabelsForIds,
 } from '../../workflows/verify-cda-group-edit-before-related-column-browser.mjs';
@@ -89,4 +96,73 @@ test('saved Group label resolution rejects missing and conflicting column identi
       outputs: [{ id: 'root-source-id', label: 'Conflicting label' }],
     }] },
   }, ['root-source-id']), /conflicting labels/);
+});
+
+test('mounted RELATED_SOURCE capture reads its step under a closed Column adjustments disclosure', () => {
+  const dom = new JSDOM(`
+    <section aria-label="Row operations">
+      <ol>
+        <li><button data-testid="construction-history-step-group-step-1" title="Counts rows"><span>Group rows</span></button></li>
+        <li>
+          <details data-testid="construction-history-adjustment-group-related-step-1">
+            <summary><span aria-hidden="true">▸</span>Column adjustments (1)</summary>
+            <ol><li><button data-testid="construction-history-step-related-step-1" title="Add all matching values from Observation.status via Specimen -[subject]-&gt; Patient -[subject]- Observation as Observation status."><span>Related Observation</span></button></li></ol>
+          </details>
+        </li>
+      </ol>
+    </section>
+    <div data-testid="preview-table-scroll"><div role="table">
+      <div role="row"><div role="columnheader" style="text-transform: uppercase">Patient FHIR resource ID</div><div role="columnheader" style="text-transform: uppercase">Observation status</div></div>
+    </div></div>
+  `);
+  const { document } = dom.window;
+  const disclosure = document.querySelector('details[data-testid="construction-history-adjustment-group-related-step-1"]');
+  assert.equal(disclosure.open, false, 'The retained reload renders the related step inside a closed disclosure.');
+  const historySteps = constructionHistoryDOMProjection(document);
+  const headerCells = [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')];
+  const renderedRows = {
+    // The retained Chromium innerText is CSS transformed; textContent remains the semantic label.
+    headers: ['PATIENT FHIR RESOURCE ID', 'OBSERVATION STATUS'],
+    semanticHeaders: headerCells.map(cell => cell.textContent.replace(/\s+/g, ' ').trim()),
+  };
+  const savedRelatedSource = {
+    stepId: 'related-step-1',
+    inputStepId: 'group-step-1',
+    source: { resourceType: 'Observation', path: 'status' },
+    route: [
+      { fromResourceType: 'Specimen', toResourceType: 'Patient', edgeId: 'edge-1' },
+      { fromResourceType: 'Patient', toResourceType: 'Observation', edgeId: 'edge-2' },
+    ],
+    outputColumnId: 'related-output-1',
+    output: { id: 'related-output-1', label: 'Observation status' },
+  };
+  const mounted = mountedRelatedSourceFromDOM({ historySteps, renderedRows, savedRelatedSource });
+
+  assert.equal(historySteps[1]?.title, 'Related Observation');
+  assert.equal(historySteps[1]?.adjustmentGroup?.open, false);
+  assert.equal(mounted.stepId, savedRelatedSource.stepId);
+  assert.equal(mounted.inputStepId, savedRelatedSource.inputStepId);
+  assert.equal(mounted.historyDisclosure?.title, '▸Column adjustments (1)');
+  assert.equal(mounted.historyDisclosure?.open, false);
+  assert.deepEqual(mounted.visibleColumn, {
+    id: 'related-output-1',
+    label: 'Observation status',
+    visible: true,
+    evidence: 'label-from-visible-table-header-dom-textContent; rendered-innerText-confirmed; id-joined-from-raw-builder-projection',
+  });
+  assertMountedRelatedSourceMatchesSaved(mounted, savedRelatedSource);
+  assert.throws(() => assertMountedRelatedSourceMatchesSaved(mounted, {
+    ...savedRelatedSource,
+    outputColumnId: 'wrong-output-id',
+  }), /actual construction output/);
+  assert.throws(() => assertMountedRelatedSourceMatchesSaved(mounted, {
+    ...savedRelatedSource,
+    output: { ...savedRelatedSource.output, label: 'Wrong label' },
+  }), /visibleColumn\.label/);
+  assert.throws(() => mountedRelatedSourceFromDOM({
+    historySteps,
+    renderedRows: { ...renderedRows, semanticHeaders: ['Patient FHIR resource ID', 'Observation value'] },
+    savedRelatedSource,
+  }), /actual table-header DOM textContent/);
+  dom.window.close();
 });
