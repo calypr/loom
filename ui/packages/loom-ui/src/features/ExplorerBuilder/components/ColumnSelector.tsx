@@ -22,6 +22,7 @@ import {
 import {
   ColumnSourceInspector,
 } from './ColumnSourceInspector';
+import { normalizedColumnLabel } from './columnLabel';
 import { useVirtualViewport, virtualRange } from './virtualization';
 import type { PreviewTablePresentationChange } from './PreviewTable';
 

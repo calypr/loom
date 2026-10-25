@@ -128,7 +128,7 @@ const availabilityMessage = (
     return 'Loom found concepts, but some declared resource collections could not be verified. Semantic search results may be incomplete.';
   }
   if (response.sourceAvailability === 'unknown') {
-    return 'Loom cannot verify whether this inventory covers every retained source resource.';
+    return 'Source coverage is unknown, so this concept list may be incomplete. If a concept is missing, check the Other fields tab.';
   }
   return undefined;
 };

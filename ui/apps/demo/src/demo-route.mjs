@@ -1,5 +1,26 @@
 /** @typedef {{ readonly outputId: string; readonly column: string; readonly label: string }} RepairFocus */
+/** @typedef {{ readonly searchParams: URLSearchParams; readonly configuredProject: string; readonly configuredExplorer?: string }} DemoInitialRouteInput */
+/** @typedef {{ readonly project: string; readonly explorerId: string }} DemoInitialRoute */
 /** @typedef {{ readonly kind: 'mode'; readonly project: string; readonly organization?: string; readonly explorerId: string; readonly mode: 'builder' | 'viewer' } | { readonly kind: 'explorer'; readonly project: string; readonly organization?: string; readonly explorerId: string } | { readonly kind: 'repair'; readonly project: string; readonly organization?: string; readonly explorerId: string; readonly focus: RepairFocus }} DemoNavigation */
+
+/**
+ * Resolve an initial project and Explorer without carrying a build-time Explorer
+ * identity into a different project selected by the URL.
+ * @param {DemoInitialRouteInput} input
+ * @returns {DemoInitialRoute}
+ */
+export function initialDemoRoute({ searchParams, configuredProject, configuredExplorer }) {
+  const projectOverride = searchParams.get('project');
+  const project = projectOverride ?? configuredProject;
+  const requestedExplorer = searchParams.get('explorer');
+  const projectChanged = projectOverride !== null && projectOverride !== configuredProject;
+  // `default` is the Builder's existing policy: use a real default Explorer
+  // when present, otherwise select the first Explorer in the new project's list.
+  const explorerId = requestedExplorer ?? (projectChanged
+    ? 'default'
+    : configuredExplorer ?? 'default');
+  return { project, explorerId };
+}
 
 /**
  * Update demo-shell navigation while retaining unrelated query parameters.

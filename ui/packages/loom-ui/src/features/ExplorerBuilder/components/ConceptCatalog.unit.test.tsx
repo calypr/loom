@@ -478,6 +478,58 @@ describe('ConceptCatalog', () => {
     expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/schema-fields'))).toBe(false);
   });
 
+  it('explains unknown source coverage while keeping a complete inventory selectable', async () => {
+    const concept = item('coverage-unknown', 'Coverage example', 1);
+    const response: SemanticInventoryBrowseResponse = {
+      ...page([concept]),
+      sourceAvailability: 'unknown',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    renderCatalog(fetch);
+
+    expect(await screen.findByRole('button', { name: 'Select Coverage example' })).toBeEnabled();
+    expect(screen.getByText(
+      'Source coverage is unknown, so this concept list may be incomplete. If a concept is missing, check the Other fields tab.',
+    )).toBeInTheDocument();
+  });
+
+  it('keeps the unproven source-coverage warning', async () => {
+    const concept = item('coverage-status', 'Coverage status example', 1);
+    const response: SemanticInventoryBrowseResponse = {
+      ...page([concept]),
+      sourceAvailability: 'unproven',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    renderCatalog(fetch);
+
+    expect(await screen.findByText(
+      'Loom found concepts, but some declared resource collections could not be verified. Semantic search results may be incomplete.',
+    )).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Coverage status example' })).toBeEnabled();
+  });
+
+  it('keeps semantic results unavailable while the inventory is running', async () => {
+    const concept = item('inventory-running', 'Running inventory example', 1);
+    const response: SemanticInventoryBrowseResponse = {
+      ...page([concept]),
+      state: 'running',
+      sourceAvailability: 'unknown',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }),
+    );
+    renderCatalog(fetch);
+
+    expect(await screen.findByText(
+      'The concept inventory is running. Semantic results cannot be added until it is complete.',
+    )).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Running inventory example' })).toBeDisabled();
+  });
+
   it('keeps failed submissions in the choice dialog and clears the duplicate aside', async () => {
     const slowConcept = item('ajcc-m', 'AJCC pathological M category', 1);
     const multiFormChoice = {

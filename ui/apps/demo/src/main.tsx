@@ -3,12 +3,17 @@ import { createRoot } from 'react-dom/client';
 import '@mantine/core/styles.css';
 import '@calypr/loom-ui/styles.css';
 import './styles.css';
-import { updateDemoNavigationURL, viewerProjectID } from './demo-route.mjs';
+import { initialDemoRoute, updateDemoNavigationURL, viewerProjectID } from './demo-route.mjs';
 
 const params = new URLSearchParams(window.location.search);
-const project = params.get('project') ?? import.meta.env.VITE_LOOM_PROJECT ?? 'NCPI_ACCEPTANCE';
+const initialRoute = initialDemoRoute({
+  searchParams: params,
+  configuredProject: import.meta.env.VITE_LOOM_PROJECT ?? 'NCPI_ACCEPTANCE',
+  configuredExplorer: import.meta.env.VITE_LOOM_EXPLORER,
+});
+const project = initialRoute.project;
 const organization = params.get('organization')?.trim() || undefined;
-const explorerId = params.get('explorer') ?? import.meta.env.VITE_LOOM_EXPLORER ?? 'default';
+const explorerId = initialRoute.explorerId;
 const selectionRevisionId = params.get('selection') ?? undefined;
 const mode = params.get('mode') ?? import.meta.env.VITE_LOOM_MODE ?? 'builder';
 const initialFeatureFocus = params.get('focusOutput') && params.get('focusColumn')

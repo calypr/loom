@@ -20,6 +20,12 @@ export type DemoNavigation =
       readonly focus: { readonly outputId: string; readonly column: string; readonly label: string };
     };
 
+export function initialDemoRoute(input: {
+  readonly searchParams: URLSearchParams;
+  readonly configuredProject: string;
+  readonly configuredExplorer?: string;
+}): { readonly project: string; readonly explorerId: string };
+
 export function updateDemoNavigationURL(currentURL: URL, navigation: DemoNavigation): URL;
 
 export function viewerProjectID(organization: string | undefined, project: string): string;
