@@ -108109,10 +108109,10 @@
       "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
       "roleHint": "test",
       "present": true,
-      "sha256": "c249569707772992ab3095d7c0bd7bfa275f9410df57e0dca2966f755fc8190a",
+      "sha256": "87f6a887b0b8fd3c96376f321528d8508b7f030add5a4ec9db3289197013e29f",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "c249569707772992ab3095d7c0bd7bfa275f9410df57e0dca2966f755fc8190a",
+      "currentSha256": "87f6a887b0b8fd3c96376f321528d8508b7f030add5a4ec9db3289197013e29f",
       "purpose": "Tests protected Explorer scope, Group edit render budgets, output-only Group keyLabels, browserEval callback behavior, and exact related route-title provenance.",
       "role": "test",
       "testLayer": "node-test",
@@ -108136,111 +108136,116 @@
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 33,
+            "line": 72,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 35,
+            "line": 74,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 41,
+            "line": 80,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 43,
+            "line": 82,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 50,
+            "line": 120,
             "kind": "test case declares the contract under review"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 51,
-            "kind": "test assertions exercise the stated contract"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 76,
-            "kind": "tests Group key labels resolved from source columns and expansion step outputs"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 91,
-            "kind": "tests missing and conflicting saved Group key identities fail closed"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 113,
-            "kind": "tests RELATED_SOURCE DOM projection within a closed Column adjustments disclosure"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 210,
-            "kind": "rejects mismatched saved output IDs and labels against DOM/header evidence"
-          },
-          {
-            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 167,
-            "kind": "exercises the actual browserEval page.evaluate callback and default empty arguments"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
             "line": 111,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 147,
+            "kind": "tests Group key labels resolved from source columns and expansion step outputs"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 162,
+            "kind": "tests missing and conflicting saved Group key identities fail closed"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 184,
+            "kind": "tests RELATED_SOURCE DOM projection within a closed Column adjustments disclosure"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 281,
+            "kind": "rejects mismatched saved output IDs and labels against DOM/header evidence"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 238,
+            "kind": "exercises the actual browserEval page.evaluate callback and default empty arguments"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 182,
             "kind": "tests the production relationship formatter against the retained saved route"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 131,
+            "line": 202,
             "kind": "exercises browserEval with its actual default empty argument array"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 170,
+            "line": 241,
             "kind": "asserts the closed disclosure, exact displayed route label, and provenance fields"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 23,
+            "line": 62,
             "kind": "derives fixture route display text from the production relationship formatter"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 167,
+            "line": 238,
             "kind": "exercises DOM projection through the actual browserEval argument boundary"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 198,
+            "line": 269,
             "kind": "asserts the separately observed route title and saved route provenance"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 23,
+            "line": 62,
             "kind": "derives expected route display text from the production relationship formatter"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 167,
+            "line": 238,
             "kind": "exercises browser DOM projection through the actual browserEval argument boundary"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 198,
+            "line": 269,
             "kind": "asserts the displayed route title and saved route provenance remain separate"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+            "line": 89,
+            "kind": "replays the 28 retained native checkpoint names and exact timing guard"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "dee7115eeb5749c8fdd5841bf868f1aa1c11e726"
+        "reviewedCommit": "814e399bdc78aaf998daf6cb4993ddd93ba0fad7"
       },
       "sourceRevision": {
-        "commit": "dee7115eeb5749c8fdd5841bf868f1aa1c11e726",
-        "sha256": "c249569707772992ab3095d7c0bd7bfa275f9410df57e0dca2966f755fc8190a"
+        "commit": "814e399bdc78aaf998daf6cb4993ddd93ba0fad7",
+        "sha256": "87f6a887b0b8fd3c96376f321528d8508b7f030add5a4ec9db3289197013e29f"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -108262,32 +108267,32 @@
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 33,
+            "line": 72,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 35,
+            "line": 74,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 41,
+            "line": 80,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 43,
+            "line": 82,
             "kind": "test assertions exercise the stated contract"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 50,
+            "line": 120,
             "kind": "test case declares the contract under review"
           },
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 51,
+            "line": 111,
             "kind": "test assertions exercise the stated contract"
           }
         ],
@@ -108295,45 +108300,45 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L33:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L72:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
           "semanticClaimId": "helper.protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            33,
-            35,
-            36,
-            37,
-            38
+            72,
+            74,
+            75,
+            76,
+            77
           ],
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L41:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L80:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
           "semanticClaimId": "helper.group-edit-action-to-render-recording-enforces-the-five-second-budget",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            41,
-            43,
-            45,
-            47
+            80,
+            82,
+            84,
+            86
           ],
           "independence": "derived"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L50:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L120:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
           "semanticClaimId": "helper.group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            50,
-            51,
-            55,
-            56,
-            61,
-            62,
-            63,
-            67,
-            72,
-            73
+            120,
+            111,
+            125,
+            126,
+            131,
+            132,
+            133,
+            137,
+            143,
+            144
           ],
           "independence": "derived"
         }
@@ -108407,7 +108412,7 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
-            "line": 33,
+            "line": 72,
             "kind": "test body and assertion call"
           }
         ],
@@ -403251,10 +403256,10 @@
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
       "roleHint": "browser-workflow",
       "present": true,
-      "sha256": "22f2cc93ee8384faaea6719591b6e36379e1e41c8a44153ee1bd19841486ecbc",
+      "sha256": "d2d49a141fe1c91fc938094a960e85ed11c232f46f73ca28e02f2832a3a04f21",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "22f2cc93ee8384faaea6719591b6e36379e1e41c8a44153ee1bd19841486ecbc",
+      "currentSha256": "d2d49a141fe1c91fc938094a960e85ed11c232f46f73ca28e02f2832a3a04f21",
       "purpose": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow; captures actual collapsed history and semantic headers while keeping DOM Group keyLabels separate from saved raw key IDs.",
       "role": "browser-workflow",
       "testLayer": "browser-workflow",
@@ -403443,11 +403448,11 @@
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "dee7115eeb5749c8fdd5841bf868f1aa1c11e726"
+        "reviewedCommit": "814e399bdc78aaf998daf6cb4993ddd93ba0fad7"
       },
       "sourceRevision": {
-        "commit": "dee7115eeb5749c8fdd5841bf868f1aa1c11e726",
-        "sha256": "22f2cc93ee8384faaea6719591b6e36379e1e41c8a44153ee1bd19841486ecbc"
+        "commit": "814e399bdc78aaf998daf6cb4993ddd93ba0fad7",
+        "sha256": "d2d49a141fe1c91fc938094a960e85ed11c232f46f73ca28e02f2832a3a04f21"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -578075,13 +578080,13 @@
         {
           "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L41:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L80:test-assertion-helper-group-edit-action-to-render-recording-enforces-the-five-second-budget",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            41,
-            43,
-            45,
-            47
+            80,
+            82,
+            84,
+            86
           ]
         }
       ]
@@ -578157,19 +578162,19 @@
         {
           "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L50:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L120:test-assertion-helper-group-edit-performance-summary-rejects-missing-wrong-duplicate-and-over-budget-checkpoints",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            50,
-            51,
-            55,
-            56,
-            61,
-            62,
-            63,
-            67,
-            72,
-            73
+            120,
+            111,
+            125,
+            126,
+            131,
+            132,
+            133,
+            137,
+            143,
+            144
           ]
         }
       ]
@@ -588038,14 +588043,14 @@
         {
           "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L33:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs:L72:test-assertion-helper-protected-explorer-request-guard-matches-its-exact-project-path-and-descendants-only",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            33,
-            35,
-            36,
-            37,
-            38
+            72,
+            74,
+            75,
+            76,
+            77
           ]
         }
       ]
