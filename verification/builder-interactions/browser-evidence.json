@@ -69,6 +69,7 @@
       }
     }
   ],
+  "formalJourneys": [],
   "retainedJourneys": [
     {
       "id": "edit-remove-reload:authored-three:0b383cda0ac70f735180de4b669e4d9e2a551b35",
@@ -79,7 +80,7 @@
       "traceName": "builder-authoring:group-entry",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 101 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/builder-cda-group-related-contract.json; removed: none)",
       "recordedAt": "2026-10-23T00:23:20.950Z",
       "sourceIdentity": {
         "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
@@ -132,7 +133,7 @@
       "traceName": "journey/edit-remove-reload-basic-budget",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 101 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/builder-cda-group-related-contract.json; removed: none)",
       "recordedAt": null,
       "sourceIdentity": {
         "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
@@ -176,7 +177,7 @@
       "traceName": "builder-authoring:group-entry-raw-basic",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 101 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/builder-cda-group-related-contract.json; removed: none)",
       "recordedAt": "2026-10-23T00:52:04.753Z",
       "sourceIdentity": {
         "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
@@ -282,7 +283,7 @@
       "traceName": "builder-authoring:group-entry-raw-basic",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 101 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/builder-cda-group-related-contract.json; removed: none)",
       "recordedAt": "2026-10-23T00:24:27.787Z",
       "sourceIdentity": {
         "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
