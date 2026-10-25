@@ -288,6 +288,39 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.match(result.output, /Model checking completed\. No error has been found\./);
 });
 
+test('TLC binds completed frame source options reads to the formal owner and saved output snapshot', t => {
+  const trace = makeSyntheticPolicyOneJourneyTrace({ frameSourceOptions: true });
+  const row = trace.transportLedger.find(entry => entry.path === 'frame-source-options');
+  assert(row);
+  assert.equal(row.classification, 'read-only');
+  assert.equal(row.mutatesDraft, false);
+  assert.equal(row.requestBody.snapshotToken, trace.formalEntry.initialSavedState.snapshotToken);
+  assert.equal(row.response.frameSourceOptionsOutputId, row.requestBody.outputId);
+  assert.equal(row.response.frameSourceOptionsSourceCount, 0);
+  const compiled = compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicyOneFrameSourceOptionsPositive' });
+  assert.match(compiled.modelText, /FrameSourceOptionsTransportValid\(entry\)/);
+
+  const result = checkWithTLC(trace, 'PolicyOneFrameSourceOptionsPositive');
+  t.diagnostic(summary(result.output));
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, summary(result.output));
+  assert.match(result.output, /Model checking completed\. No error has been found\./);
+
+  const foreignOwner = structuredClone(trace);
+  const foreignOwnerRow = foreignOwner.transportLedger.find(entry => entry.path === 'frame-source-options');
+  foreignOwnerRow.ownerScope = `${foreignOwnerRow.ownerScope}/other-explorer`;
+  foreignOwnerRow.resourcePath = `${foreignOwnerRow.ownerScope}/authoring/v2/${foreignOwnerRow.path}`;
+  assert.throws(() => compilePolicyOneJourneyTrace(foreignOwner), /exact formal Explorer owner scope/);
+
+  const changedOutput = structuredClone(trace);
+  changedOutput.transportLedger.find(entry => entry.path === 'frame-source-options').requestBody.outputId = 'other-output';
+  assert.throws(() => compilePolicyOneJourneyTrace(changedOutput), /must target the initial saved output/);
+
+  const changedMutation = structuredClone(trace);
+  changedMutation.transportLedger.find(entry => entry.path === 'frame-source-options').mutatesDraft = true;
+  assert.throws(() => compilePolicyOneJourneyTrace(changedMutation), /cannot be classified as a draft mutation/);
+});
+
 test('TLC accepts actual support responses that settle opposite request order', t => {
   const trace = makeSyntheticPolicyOneJourneyTrace({ reversedSupportCompletionOrder: true });
   const inventory = trace.transportLedger.find(entry => entry.path === 'semantic-inventory');

@@ -100,6 +100,12 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
         candidateWorkspaceDigest: body?.candidateWorkspaceDigest ?? null,
         intentDigest: body?.intentDigest ?? null,
         previewRowsPresent: Array.isArray(preview?.rows),
+        frameSourceOptionsOutputId: body?.outputId ?? null,
+        frameSourceOptionsSnapshotToken: body?.snapshotToken ?? null,
+        frameSourceOptionsComplete: typeof body?.complete === 'boolean' ? body.complete : null,
+        frameSourceOptionsTruncated: typeof body?.truncated === 'boolean' ? body.truncated : null,
+        frameSourceOptionsSourceCount: Array.isArray(body?.sources) ? body.sources.length : null,
+        frameSourceOptionsNextCursor: body?.nextCursor ?? null,
       };
       if (entry.record.settlement === 'pending') entry.record.responseBody = entry.responseBodyFacts;
       if (entry.record.settlement === 'response') {

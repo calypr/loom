@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
+import {
+  buildPolicyOneTrace,
+  decodePolicyOneTraceDiagnosticInput,
+  encodePolicyOneTraceDiagnosticInput,
+  POLICY_TRACE_ABSENT,
+} from '../policy-one-trace.mjs';
 import { createPlaywrightNetworkObserver } from '../playwright-network-observer.mjs';
 import {
   buildPolicyOneMutationControls,
@@ -350,6 +355,37 @@ test('the production saved-state projection supplies the trace adapter Apply con
     .observation.saved.group.outputColumnBinding.columnId, rowValue.outputColumnId);
 });
 
+test('the complete diagnostic projection input round-trips opaque browser handles for offline projection', () => {
+  const input = makePolicyOneTraceInput();
+  const nativeShapeTrace = buildPolicyOneTrace(input).journeyTrace;
+  const diagnosticBytes = Buffer.from(JSON.stringify(encodePolicyOneTraceDiagnosticInput(input)));
+  const decodedDiagnostic = JSON.parse(diagnosticBytes.toString('utf8'));
+  const diagnosticBeforeDecode = structuredClone(decodedDiagnostic);
+  const restored = decodePolicyOneTraceDiagnosticInput(decodedDiagnostic);
+  const restoredAgain = decodePolicyOneTraceDiagnosticInput(decodedDiagnostic);
+  assert.deepEqual(decodedDiagnostic, diagnosticBeforeDecode,
+    'offline decoding must leave the retained JSON diagnostic input unchanged');
+
+  assert.equal(restored.requests.one.requestObject, restored.responses.one.requestObject,
+    'the diagnostic reference table must restore the exact request alias shared by its response');
+  assert.notEqual(restored.requests.one.requestObject, restored.responses.one.responseObject,
+    'the diagnostic reference table must keep request and response handles distinct');
+  assert.notEqual(restored.responses.one.responseObject, restored.responses.all.responseObject,
+    'the diagnostic reference table must keep separate captured responses distinct');
+  assert.deepEqual(buildPolicyOneTrace(restored).journeyTrace, nativeShapeTrace,
+    'the JSON diagnostic input must reproduce the same canonical projection offline');
+  assert.deepEqual(buildPolicyOneTrace(restoredAgain).journeyTrace, nativeShapeTrace,
+    'the same retained JSON diagnostic input must support repeated offline projection');
+
+  const missingReference = JSON.parse(diagnosticBytes.toString('utf8'));
+  delete missingReference.opaqueBrowserObjectReferences.responses.one;
+  assert.throws(() => decodePolicyOneTraceDiagnosticInput(missingReference), /map every and only captured response/);
+
+  const unknownReference = JSON.parse(diagnosticBytes.toString('utf8'));
+  unknownReference.opaqueBrowserObjectReferences.responses.one.requestCaptureId = 'unknown-capture';
+  assert.throws(() => decodePolicyOneTraceDiagnosticInput(unknownReference), /must bind its request capture/);
+});
+
 test('workspace projections separate fixture counts from observed rows and require a Group count cell', () => {
   const input = makePolicyOneTraceInput();
   const fixtureIDs = [...input.context.initialObservation.rowIds];
@@ -539,6 +575,64 @@ test('the Policy observer retains an in-flight setup request across formal entry
   assert.equal(capture.captures[2].responseReadError,
     'Error: response body was canceled after response headers');
   assert.equal(capture.captures[2].failure, 'net::ERR_ABORTED');
+});
+
+test('the Policy observer retains the bounded JSON facts from a completed frame source options response', async () => {
+  class ObserverPage extends EventEmitter {
+    async evaluate() { return {}; }
+  }
+
+  const page = new ObserverPage();
+  const observer = createPolicyOneTransportObserver(page);
+  await observer.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+  });
+  const request = {
+    url: () => 'http://loom.test/api/explorers/e/authoring/v2/frame-source-options',
+    method: () => 'POST',
+    headers: () => ({}),
+    postDataJSON: () => ({
+      snapshotToken: 'snapshot-1', outputId: 'output-1', resourceType: 'Patient', limit: 50,
+    }),
+  };
+  page.emit('request', request);
+  page.emit('response', {
+    request: () => request,
+    status: () => 200,
+    headers: () => ({}),
+    json: async () => ({
+      snapshotToken: 'snapshot-1', outputId: 'output-1', complete: true, truncated: false,
+      sources: [],
+    }),
+  });
+  page.emit('requestfinished', request);
+
+  const capture = await observer.finish();
+  assert.deepEqual(capture.captures[0].requestBody, {
+    snapshotToken: 'snapshot-1', outputId: 'output-1', resourceType: 'Patient', limit: 50,
+  });
+  assert.deepEqual(capture.captures[0].response, {
+    status: 200,
+    requestId: null,
+    commandId: null,
+    receiptId: null,
+    receiptIds: [],
+    outputIds: ['output-1'],
+    snapshotToken: 'snapshot-1',
+    draftVersion: null,
+    draftDigest: null,
+    candidateWorkspaceDigest: null,
+    intentDigest: null,
+    previewRowsPresent: false,
+    frameSourceOptionsOutputId: 'output-1',
+    frameSourceOptionsSnapshotToken: 'snapshot-1',
+    frameSourceOptionsComplete: true,
+    frameSourceOptionsTruncated: false,
+    frameSourceOptionsSourceCount: 0,
+    frameSourceOptionsNextCursor: null,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(capture.captures)), capture.captures,
+    'captured request facts must remain JSON-safe and retain their physical observer row');
 });
 
 test('the Policy observer snapshots no-header support requests as pending and detaches at formal exit', async () => {
@@ -814,6 +908,64 @@ test('the transport ledger accounts for explicitly supported read-only routes an
     path: 'unregistered-endpoint',
   }));
   assert.throws(() => buildPolicyOneTrace(unknownGet), /unsupported authoring transport GET unregistered-endpoint/);
+});
+
+test('the adapter binds completed frame source options reads to the formal Explorer and saved snapshot', () => {
+  const appendFrameSourceOptions = (input, requestBody = {
+    snapshotToken: 'snapshot-1', outputId: 'output-1', resourceType: 'Patient', limit: 50,
+  }, response = {
+    snapshotToken: 'snapshot-1', outputIds: ['output-1'],
+    frameSourceOptionsOutputId: 'output-1', frameSourceOptionsSnapshotToken: 'snapshot-1',
+    frameSourceOptionsComplete: true, frameSourceOptionsTruncated: false,
+    frameSourceOptionsSourceCount: 0, frameSourceOptionsNextCursor: null,
+  }) => {
+    input.context.transportCaptures.push(extraTransport({
+      transportIndex: 4,
+      requestEventIndex: 7,
+      settlementEventIndex: 8,
+      method: 'POST',
+      path: 'frame-source-options',
+      ownerScope: input.context.transportCaptures[0].ownerScope,
+      requestBody,
+      response,
+    }));
+    return input;
+  };
+
+  const input = appendFrameSourceOptions(makePolicyOneTraceInput());
+  const trace = buildPolicyOneTrace(input).journeyTrace;
+  const row = trace.transportLedger.at(-1);
+  assert.equal(row.classification, 'read-only');
+  assert.equal(row.readOnlyReason, 'Frame source options read');
+  assert.equal(row.mutatesDraft, false);
+  assert.equal(row.setupMutation, false);
+  assert.equal(row.requestBody.outputId, 'output-1');
+  assert.equal(row.requestBody.snapshotToken, 'snapshot-1');
+  assert.equal(row.response.frameSourceOptionsOutputId, 'output-1');
+  assert.equal(row.response.frameSourceOptionsSourceCount, 0);
+
+  const foreignOwner = appendFrameSourceOptions(makePolicyOneTraceInput());
+  const foreignRow = foreignOwner.context.transportCaptures.at(-1);
+  foreignRow.ownerScope = `${foreignRow.ownerScope}/foreign`;
+  foreignRow.resourcePath = `${foreignRow.ownerScope}/authoring/v2/${foreignRow.path}`;
+  assert.throws(() => buildPolicyOneTrace(foreignOwner), /exact formal Explorer owner scope/);
+
+  const staleSnapshot = appendFrameSourceOptions(makePolicyOneTraceInput(), {
+    snapshotToken: 'stale-snapshot', outputId: 'output-1', resourceType: 'Patient', limit: 50,
+  });
+  assert.throws(() => buildPolicyOneTrace(staleSnapshot), /must use the formal entry snapshot/);
+
+  const wrongOutputEcho = appendFrameSourceOptions(makePolicyOneTraceInput(), undefined, {
+    snapshotToken: 'snapshot-1', outputIds: ['other-output'],
+    frameSourceOptionsOutputId: 'other-output', frameSourceOptionsSnapshotToken: 'snapshot-1',
+    frameSourceOptionsComplete: true, frameSourceOptionsTruncated: false,
+    frameSourceOptionsSourceCount: 0, frameSourceOptionsNextCursor: null,
+  });
+  assert.throws(() => buildPolicyOneTrace(wrongOutputEcho), /response must echo its output/);
+
+  const treatedAsMutation = makeSyntheticPolicyOneJourneyTrace({ frameSourceOptions: true });
+  treatedAsMutation.transportLedger.at(-1).mutatesDraft = true;
+  assert.throws(() => validatePolicyOneJourneyTrace(treatedAsMutation), /cannot be classified as a draft mutation/);
 });
 
 test('the adapter retains only exact-scope pending support reads at an observed formal exit', () => {

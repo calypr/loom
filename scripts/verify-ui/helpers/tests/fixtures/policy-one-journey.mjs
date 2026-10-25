@@ -84,6 +84,12 @@ const testTransportCapture = (transportIndex, request, response, eventOrder = {}
       draftDigest: response.body?.draftDigest ?? null,
       candidateWorkspaceDigest: response.body?.candidateWorkspaceDigest ?? null,
       intentDigest: response.body?.intentDigest ?? null,
+      frameSourceOptionsOutputId: response.body?.outputId ?? null,
+      frameSourceOptionsSnapshotToken: response.body?.snapshotToken ?? null,
+      frameSourceOptionsComplete: typeof response.body?.complete === 'boolean' ? response.body.complete : null,
+      frameSourceOptionsTruncated: typeof response.body?.truncated === 'boolean' ? response.body.truncated : null,
+      frameSourceOptionsSourceCount: Array.isArray(response.body?.sources) ? response.body.sources.length : null,
+      frameSourceOptionsNextCursor: response.body?.nextCursor ?? null,
     },
   };
 };
@@ -585,6 +591,7 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   setupReceiptCase = 'none',
   pendingSupportReads = false,
   reversedSupportCompletionOrder = false,
+  frameSourceOptions = false,
 } = {}) => {
   assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh',
     'owner-change-before-response'].includes(sourceReceiptCase),
@@ -1164,6 +1171,41 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
           stageId: 'source_projection',
         }),
     );
+  }
+  if (frameSourceOptions) {
+    const transportIndex = Math.max(0, ...input.context.transportCaptures.map(capture => capture.transportIndex)) + 1;
+    const eventIndex = Math.max(0, ...input.context.transportCaptures.flatMap(capture => [
+      capture.requestEventIndex,
+      ...(capture.settlement === 'pending' ? [] : [capture.settlementEventIndex]),
+    ])) + 1;
+    const request = {
+      method: 'POST',
+      path: 'frame-source-options',
+      requestId: 'header-frame-source-options',
+      captureId: 'capture-frame-source-options',
+      transportIndex,
+      body: {
+        snapshotToken: input.context.formalEntry.initialSavedState.snapshotToken,
+        outputId: input.context.initialObservation.outputId,
+        resourceType: input.context.initialObservation.workspace.rootResourceType,
+        limit: 50,
+      },
+    };
+    const response = {
+      status: 200,
+      requestId: request.requestId,
+      body: {
+        snapshotToken: request.body.snapshotToken,
+        outputId: request.body.outputId,
+        complete: true,
+        truncated: false,
+        sources: [],
+      },
+    };
+    input.context.transportCaptures.push(testTransportCapture(transportIndex, request, response, {
+      requestEventIndex: eventIndex,
+      settlementEventIndex: eventIndex + 1,
+    }));
   }
   const pendingTransportIndices = input.context.transportCaptures
     .filter(capture => capture.settlement === 'pending')
