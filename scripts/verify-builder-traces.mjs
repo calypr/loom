@@ -2026,6 +2026,7 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled, {
   maxMountEpoch = 2,
   allowBrowserRequestId = false,
   allowedAggregates = ['COUNT_ROWS'],
+  cdaJourneyCase = false,
 } = {}) {
   const stepIds = new Map();
   const rawGroupKeys = new Map();
@@ -2161,8 +2162,21 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled, {
       const problem = addGroup(saved.group, actionWhere);
       if (problem) return { message: problem, actionIndex };
     }
-    const mountedProblem = addGroup(lifecycle.mountedGroup, actionWhere);
-    if (mountedProblem) return { message: mountedProblem, actionIndex };
+    if (cdaJourneyCase) {
+      if (action.label === 'Reload' && !Object.hasOwn(lifecycle, 'mountedGroup')) {
+        return { message: actionWhere + '.groupLifecycle.mountedGroup must explicitly preserve the actual mounted Group or null', actionIndex };
+      }
+      if (Object.hasOwn(lifecycle, 'mountedGroup')) {
+        const mounted = cdaMountedGroupProjection(lifecycle.mountedGroup, lifecycle.savedAfter,
+          actionWhere + '.groupLifecycle.mountedGroup');
+        if (mounted.problem) return { message: mounted.problem, actionIndex };
+        const mountedProblem = addGroup(mounted.projection, actionWhere);
+        if (mountedProblem) return { message: mountedProblem, actionIndex };
+      }
+    } else {
+      const mountedProblem = addGroup(lifecycle.mountedGroup, actionWhere);
+      if (mountedProblem) return { message: mountedProblem, actionIndex };
+    }
     if (lifecycle.clickedRowTarget?.stepId) {
       const targetProblem = addStepId(lifecycle.clickedRowTarget.stepId, actionWhere);
       if (targetProblem) return { message: targetProblem, actionIndex };
@@ -3527,6 +3541,7 @@ function traceShapeProblem(trace, index, contract, events) {
         maxMountEpoch: journeyCase?.maxMountEpoch ?? 2,
         allowBrowserRequestId: hasCdaRelatedCase,
         allowedAggregates: hasCdaRelatedCase ? ['COUNT_ROWS', 'COUNT_DISTINCT'] : ['COUNT_ROWS'],
+        cdaJourneyCase: hasCdaRelatedCase,
       },
     );
     if (groupLifecycleConsistencyProblem) return groupLifecycleConsistencyProblem;
@@ -4073,29 +4088,39 @@ function cdaGroupProjectionForTla(group, tokens) {
   return groupRecordForTla(group, tokens.stepTokens, tokens.keyTokens);
 }
 
-function cdaMountedGroupProjectionForTla(mountedGroup, saved, where) {
-  if (!isPlainObject(saved)) fail(where + ' must retain the actual postreload saved Builder snapshot');
+function cdaMountedGroupProjection(mountedGroup, saved, where) {
+  if (!isPlainObject(saved)) return { problem: where + ' must retain the actual postreload saved Builder snapshot' };
   if (saved.group === null) {
-    if (mountedGroup !== null) fail(where + ' must be null when the saved Builder snapshot has no Group');
-    return null;
+    if (mountedGroup !== null) return { problem: where + ' must be null when the saved Builder snapshot has no Group' };
+    return { projection: null };
   }
   const selected = savedBuilderDocument(saved, where);
-  if (selected.problem) fail(selected.problem);
+  if (selected.problem) return selected;
   const labelProblem = mountedGroupKeyLabelsProblem(
     mountedGroup, saved.group, selected.document, where,
   );
-  if (labelProblem) fail(labelProblem);
+  if (labelProblem) return { problem: labelProblem };
   if (mountedGroup.stepId !== saved.group.stepId || mountedGroup.aggregate !== saved.group.aggregate) {
-    fail(where + ' observed Group step and aggregate must match the saved Group projection');
+    return { problem: where + ' observed Group step and aggregate must match the saved Group projection' };
   }
-  const keys = mountedGroup.keyLabels.map((label, index) => {
+  const keys = [];
+  for (let index = 0; index < mountedGroup.keyLabels.length; index += 1) {
+    const label = mountedGroup.keyLabels[index];
     const rawKeyId = saved.group.keys[index];
     const resolved = builderColumnLabelForId(selected.document, rawKeyId, where + '.keyLabels[' + index + ']');
-    if (resolved.problem) fail(resolved.problem);
-    if (label !== resolved.label) fail(where + '.keyLabels must join to the saved Group key at the same position');
-    return rawKeyId;
-  });
-  return { stepId: mountedGroup.stepId, keys, aggregate: mountedGroup.aggregate };
+    if (resolved.problem) return resolved;
+    if (label !== resolved.label) {
+      return { problem: where + '.keyLabels must join to the saved Group key at the same position' };
+    }
+    keys.push(rawKeyId);
+  }
+  return { projection: { stepId: mountedGroup.stepId, keys, aggregate: mountedGroup.aggregate } };
+}
+
+function cdaMountedGroupProjectionForTla(mountedGroup, saved, where) {
+  const result = cdaMountedGroupProjection(mountedGroup, saved, where);
+  if (result.problem) fail(result.problem);
+  return result.projection;
 }
 
 function cdaRelatedSourceRecordForTla(related, tokens) {
@@ -5203,6 +5228,7 @@ export {
   cdaRequestCoverageReceipt,
   collectCdaTokens,
   groupLifecycleShapeProblem,
+  journeyGroupLifecycleConsistencyProblem,
   mountedGroupKeyLabelsProblem,
   mountedRelatedSourceProblem,
   relatedSourceSnapshotProblem,

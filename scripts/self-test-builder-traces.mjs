@@ -14,6 +14,7 @@ import {
   cdaRequestCoverageReceipt,
   collectCdaTokens,
   groupLifecycleShapeProblem,
+  journeyGroupLifecycleConsistencyProblem,
   mountedGroupKeyLabelsProblem,
   mountedRelatedSourceProblem,
   relatedSourceSnapshotProblem,
@@ -270,6 +271,15 @@ const cdaMountedGroupOutputLabelTest = () => {
   const savedGroupTla = cdaGroupProjectionForTla(savedSnapshot.group, compilerTokens);
   const mountedAndSavedTlaTokensMatch = compiledReload.includes('observedMountedGroup |-> ' + savedGroupTla) &&
     compiledReload.includes(', group |-> ' + savedGroupTla + ', relatedSource |->');
+  const consistencyOptions = {
+    maxMountEpoch: 5,
+    allowBrowserRequestId: true,
+    allowedAggregates: ['COUNT_ROWS', 'COUNT_DISTINCT'],
+    cdaJourneyCase: true,
+  };
+  const fullConsistencyPasses = journeyGroupLifecycleConsistencyProblem(
+    compilerTrace, 'fixture', true, consistencyOptions,
+  ) === null;
   const cdaReloadMissingMountedLabelRejected = cdaGroupLifecycleSnapshotProblem({
     ...reloadAction,
     groupLifecycle: {
@@ -297,6 +307,18 @@ const cdaMountedGroupOutputLabelTest = () => {
       return /keyLabels/.test(error.message);
     }
   })();
+  const consistencyWrongLabelRejected = (() => {
+    const changed = structuredClone(compilerTrace);
+    changed.actions[0].groupLifecycle.mountedGroup.keyLabels = ['Wrong label'];
+    const result = journeyGroupLifecycleConsistencyProblem(changed, 'fixture', true, consistencyOptions);
+    return /keyLabels/.test(result?.message ?? '');
+  })();
+  const consistencyMissingLabelRejected = (() => {
+    const changed = structuredClone(compilerTrace);
+    delete changed.actions[0].groupLifecycle.mountedGroup.keyLabels;
+    const result = journeyGroupLifecycleConsistencyProblem(changed, 'fixture', true, consistencyOptions);
+    return /keyLabels/.test(result?.message ?? '');
+  })();
   const missingMountedLabelRejected = mountedGroupKeyLabelsProblem(
     { ...mountedGroup, keyLabels: [] }, savedGroup, document, 'fixture',
   ) !== null;
@@ -320,8 +342,9 @@ const cdaMountedGroupOutputLabelTest = () => {
     construction: { steps: [] },
   }, outputId, 'fixture').problem);
   return repeatedStepOutputsAccepted && cdaReloadShapeAccepted && cdaReloadKeyLabelMappingAccepted &&
-    cdaReloadSnapshotAccepted && mountedAndSavedTlaTokensMatch &&
+    cdaReloadSnapshotAccepted && mountedAndSavedTlaTokensMatch && fullConsistencyPasses &&
     cdaReloadMissingMountedLabelRejected && compilerWrongLabelRejected && compilerMissingLabelRejected &&
+    consistencyWrongLabelRejected && consistencyMissingLabelRejected &&
     missingMountedLabelRejected && wrongMountedLabelRejected && missingLabelRejected &&
     missingOutputLabelRejected && conflictingLabelsRejected && duplicateSourceIdsRejected;
 };
