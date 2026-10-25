@@ -263,6 +263,78 @@ test('capture classifies response headers followed by requestfailed as an uncred
   assert.equal(observed.response, null);
 });
 
+test('capture checkpoints response headers while the body is still pending without response settlement', async () => {
+  const page = new EventEmitter();
+  const mainFrame = {};
+  page.mainFrame = () => mainFrame;
+  const request = {};
+  const baseEpoch = Date.now() - 100;
+  const entry = {
+    index: 0,
+    browserRequestId: 'semantic-inventory-header-body-pending',
+    requestId: 'semantic-inventory-request-id',
+    method: 'POST',
+    origin: 'http://127.0.0.1:30000',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/semantic-inventory',
+    status: 200,
+    request: { snapshotToken: 'snapshot-6', rowRoot: 'Patient', limit: 50, outputId: 'temporal-output' },
+    response: null,
+    startedAt: baseEpoch,
+    responseReceivedAt: baseEpoch + 2,
+    completedAt: null,
+    responseMountEpoch: 2,
+    failureMountEpoch: null,
+    isMutation: false,
+    failure: null,
+    readCancellationDiagnostic: false,
+    responseCapture: 'pending',
+    responseCaptureComplete: false,
+    responseBodyCaptured: false,
+    networkComplete: true,
+    atMonotonicMs: 10,
+    atEpochMs: baseEpoch,
+    mountEpoch: 2,
+  };
+  const networkObserver = {
+    requests: [],
+    byRequest: new Map(),
+    requestBody: observed => observed.request,
+    responseBody: observed => observed.response,
+    waitForResponse: async predicate => {
+      assert(predicate(entry));
+      return entry;
+    },
+  };
+  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 2 });
+  networkObserver.requests.push(entry);
+  networkObserver.byRequest.set(request, entry);
+  page.emit('request', request);
+  page.emit('response', { request: () => request });
+  const checkpoint = capture.checkpoint({ resourceType: 'Patient' });
+  const checkpointRequest = checkpoint.requestEvents[0];
+  assert.equal(checkpointRequest.status, 200);
+  assert.equal(checkpointRequest.settlement, 'response-body-pending');
+  assert.equal(checkpointRequest.responseBodyCaptured, false);
+  assert.equal(checkpointRequest.response, null);
+
+  entry.response = { choices: [] };
+  entry.completedAt = baseEpoch + 4;
+  entry.responseCapture = 'captured';
+  entry.responseCaptureComplete = true;
+  entry.responseBodyCaptured = true;
+  const scope = {
+    uiOrigin: entry.origin,
+    project: 'loom_dev_verify_temporal',
+    explorerId: 'explorer-temporal',
+    browserExplorerRoot: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal',
+    outputId: 'temporal-output',
+  };
+  const result = await capture.finish({ resourceType: 'Patient', pendingReadScope: scope,
+    checkpointId: checkpoint.checkpointId });
+  assert.equal(result.requestEvents[0].settlement, 'response');
+  assert.deepEqual(result.requestEvents[0].response, { choices: [] });
+});
+
 test('capture windows retain late reconcile IDs and their response-mount DOM evidence', async () => {
   const page = new EventEmitter();
   const mainFrame = {};

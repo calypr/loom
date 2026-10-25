@@ -21,10 +21,13 @@ export const classifyCapturedTransport = ({
   responseCaptureComplete,
 }) => {
   const terminal = classifyTransportTerminal({ responseHeadersObserved, requestFailed });
+  const settlement = terminal.settlement === 'response'
+    ? networkComplete && responseCaptureComplete ? 'response' : 'response-body-pending'
+    : terminal.settlement;
   return {
     ...terminal,
-    settlement: terminal.settlement === 'response'
-      ? networkComplete && responseCaptureComplete ? 'response' : 'response-body-pending'
-      : terminal.settlement,
+    settlement,
+    responseStatusCredit: settlement === 'response',
+    responseOwnerCredit: settlement === 'response',
   };
 };
