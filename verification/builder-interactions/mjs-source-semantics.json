@@ -400676,7 +400676,7 @@
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "313c592fcd9b9422b08e9e87b87acfd1cf45a166491ebf81f46ede94cce4e51b",
+      "sha256": "5efa64bc55281368d411101b70e3a9de2671633f538ea7fe47757c149e0da8bf",
       "role": "tool-or-module",
       "lifecycle": "active",
       "purpose": "Trace mutation controls for request ownership, Group persistence/reload IDs, output-only Group label joins, route-title provenance, exact action counts, and generic non-Group routes.",
@@ -400691,127 +400691,127 @@
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 695,
+            "line": 1260,
             "kind": "mutation-must-change-trace-corpus"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 717,
+            "line": 1282,
             "kind": "validator-must-reject-mutation"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 732,
+            "line": 1297,
             "kind": "checks-structured-TLC-failure-evidence"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 752,
+            "line": 1317,
             "kind": "checks-no-initial-state-failure-report"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 1844,
+            "line": 2409,
             "kind": "selects-both-Group-trace-names"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 1849,
+            "line": 2414,
             "kind": "selects-present-Group-trace"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 1861,
+            "line": 2426,
             "kind": "mutates-owner-at-EditGroupAgain"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 1870,
+            "line": 2435,
             "kind": "requires-EditGroupAgain-after-mutation"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 1949,
+            "line": 2514,
             "kind": "mutates-late-aborted-preview-owner"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 2443,
+            "line": 3007,
             "kind": "fails-if-any-mutation-guard-fails"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 1974,
+            "line": 2539,
             "kind": "mutates Group Cancel, reload, candidate, and capture-owner evidence"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 2109,
+            "line": 2674,
             "kind": "requires all Group lifecycle controls to pass"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 101,
+            "line": 116,
             "kind": "self-tests construction-output projection and missing/duplicate identity rejection"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 230,
+            "line": 245,
             "kind": "self-tests Group labels resolved by saved construction output IDs with missing/conflict negatives"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 376,
+            "line": 391,
             "kind": "self-tests exact related route-display text with independent full-route evidence"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 655,
+            "line": 1194,
             "kind": "runs the CDA Group output-label controls"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 660,
+            "line": 1199,
             "kind": "runs the CDA route-label provenance controls"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 230,
+            "line": 245,
             "kind": "self-tests Group keyLabels resolve from raw IDs in construction outputs and reject missing/conflicting labels"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 376,
+            "line": 391,
             "kind": "self-tests exact route-title labels with a distinct full saved-route source"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 655,
+            "line": 1194,
             "kind": "runs the CDA mounted Group key-label controls"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 660,
+            "line": 1199,
             "kind": "runs the CDA mounted related route-title controls"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 305,
+            "line": 320,
             "kind": "self-tests the complete CDA mounted Group consistency path before token generation"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 315,
+            "line": 330,
             "kind": "rejects wrong or missing keyLabels before TLA token generation"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 376,
+            "line": 391,
             "kind": "self-tests exact route-title text separately from full saved-route identity"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "dee7115eeb5749c8fdd5841bf868f1aa1c11e726"
+        "reviewedCommit": "66fbbf2d2413e22285f7af5f5c2cb9ebc67434c0"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -400831,135 +400831,135 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L695:test-assertion-formal-trace-self-test-mutation-must-change-corpus",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1260:test-assertion-formal-trace-self-test-mutation-must-change-corpus",
           "semanticClaimId": "formal.trace-self-test.mutation-must-change-corpus",
           "sourceLines": [
-            695,
-            696,
-            697,
-            698
+            1260,
+            1261,
+            1262,
+            1263
           ],
           "independence": "independent",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L717:test-assertion-formal-trace-self-test-rejects-mutated-contract-evidence",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1282:test-assertion-formal-trace-self-test-rejects-mutated-contract-evidence",
           "semanticClaimId": "formal.trace-self-test.rejects-mutated-contract-evidence",
           "sourceLines": [
-            717,
-            718,
-            719,
-            720,
-            760,
-            761,
-            762,
-            767,
-            768
+            1282,
+            1283,
+            1284,
+            1285,
+            1325,
+            1326,
+            1327,
+            1332,
+            1333
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L730:test-assertion-formal-trace-self-test-rejects-mutated-contract-evidence",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1295:test-assertion-formal-trace-self-test-rejects-mutated-contract-evidence",
           "semanticClaimId": "formal.trace-self-test.rejects-mutated-contract-evidence",
           "sourceLines": [
-            730,
-            731,
-            732,
-            733,
-            734,
-            735,
-            736,
-            737,
-            738,
-            740
+            1295,
+            1296,
+            1297,
+            1298,
+            1299,
+            1300,
+            1301,
+            1302,
+            1303,
+            1305
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L751:test-assertion-formal-trace-self-test-no-initial-state-mutation-reports-empty-state-space",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1316:test-assertion-formal-trace-self-test-no-initial-state-mutation-reports-empty-state-space",
           "semanticClaimId": "formal.trace-self-test.no-initial-state-mutation-reports-empty-state-space",
           "sourceLines": [
-            751,
-            752,
-            753,
-            754,
-            755,
-            756
+            1316,
+            1317,
+            1318,
+            1319,
+            1320,
+            1321
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1844:repeat-group-edit-owner-rejected-for-either-trace",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L2409:repeat-group-edit-owner-rejected-for-either-trace",
           "semanticClaimId": "formal.trace-self-test.requires-canonical-repeat-group-edit-owner",
           "sourceLines": [
-            1844,
-            1845,
-            1846,
-            1847,
-            1849,
-            1858,
-            1859,
-            1861,
-            1863,
-            1866,
-            2051
+            2409,
+            2410,
+            2411,
+            2412,
+            2414,
+            2423,
+            2424,
+            2426,
+            2428,
+            2431,
+            2616
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1867:repeat-group-edit-action-required-for-either-trace",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L2432:repeat-group-edit-action-required-for-either-trace",
           "semanticClaimId": "formal.trace-self-test.requires-repeat-group-edit-action",
           "sourceLines": [
-            1867,
-            1870,
-            1871,
-            1872,
-            1873,
-            2051
+            2432,
+            2435,
+            2436,
+            2437,
+            2438,
+            2616
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1878:late-aborted-preview-owner-rejected",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L2443:late-aborted-preview-owner-rejected",
           "semanticClaimId": "formal.trace-self-test.rejects-current-owner-for-late-aborted-preview",
           "sourceLines": [
-            1878,
-            1899,
-            1949,
-            1950,
-            1951,
-            1954,
-            1955,
-            1957,
-            1960,
-            1961,
-            1962,
-            1963,
-            2051
+            2443,
+            2464,
+            2514,
+            2515,
+            2516,
+            2519,
+            2520,
+            2522,
+            2525,
+            2526,
+            2527,
+            2528,
+            2616
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
         },
         {
-          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L1974:group-lifecycle-mutants-require-tla-transition-rejection",
+          "sourceAssertionId": "source:scripts/self-test-builder-traces.mjs:L2539:group-lifecycle-mutants-require-tla-transition-rejection",
           "semanticClaimId": "formal.group-lifecycle.damaged-observations-reject-at-transition",
           "sourceLines": [
-            1974,
-            1978,
-            2017,
-            2032,
-            2041,
-            2058,
-            2071,
-            2084,
-            2099,
-            2109,
-            2443
+            2539,
+            2543,
+            2582,
+            2597,
+            2606,
+            2623,
+            2636,
+            2649,
+            2664,
+            2674,
+            3007
           ],
           "independence": "shared",
           "evidenceKind": "test-assertion"
@@ -400972,12 +400972,12 @@
         "evidence": [
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 2017,
+            "line": 2582,
             "kind": "runs Group lifecycle mutations against the captured trace"
           },
           {
             "path": "scripts/self-test-builder-traces.mjs",
-            "line": 2109,
+            "line": 2674,
             "kind": "gates on all Group lifecycle mutation outcomes"
           },
           {
@@ -402916,14 +402916,14 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "c1cd4542d9a52da8fb3dee85412ea9365a800339fd5585457a256bce18017f6d",
+      "sha256": "1c148032e09bcdcd530c1ccc16a65cd5de01087124e1deb6b107fce51a525627",
       "role": "tool-or-module",
       "lifecycle": "active",
       "purpose": "Validates trace provenance, observations, event/action bindings, owner relationships, and full-Spec TLA transitions; CDA reloads resolve mounted Group keyLabels through saved construction outputs before emitting raw-ID TLA state, and separate route display from saved-route provenance.",
       "testLayer": "command-line",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "dee7115eeb5749c8fdd5841bf868f1aa1c11e726",
+        "reviewedCommit": "66fbbf2d2413e22285f7af5f5c2cb9ebc67434c0",
         "evidence": [
           {
             "path": "scripts/verify-builder-traces.mjs",
@@ -402932,42 +402932,42 @@
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2304,
+            "line": 2744,
             "kind": "validates optional per-trace required-action contract shape"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 3177,
+            "line": 3682,
             "kind": "validates trace shape, model identity, and action records"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 3583,
+            "line": 4079,
             "kind": "requires a preview settlement to match its request owner and identity"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2506,
+            "line": 2946,
             "kind": "requires apply ownership for EditGroupAgain"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4468,
+            "line": 4976,
             "kind": "binds EditGroupAgain to the current proposal preview owner"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4970,
+            "line": 5478,
             "kind": "computes missing required actions for named traces"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 5014,
+            "line": 5522,
             "kind": "turns missing required-action coverage into validator failures"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4799,
+            "line": 5307,
             "kind": "copies selected model source into generated TLC trace-check module"
           },
           {
@@ -402982,72 +402982,72 @@
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4324,
+            "line": 4832,
             "kind": "maps Group observations into BuilderJourney TLA transitions"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4981,
+            "line": 5489,
             "kind": "checks exact action counts only for present named traces"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 587,
+            "line": 672,
             "kind": "resolves the RELATED_SOURCE output uniquely from saved construction outputs"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 595,
+            "line": 680,
             "kind": "requires the raw columns array while allowing constructed outputs to be absent"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 492,
+            "line": 577,
             "kind": "resolves exact saved column labels across source columns and construction outputs"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 525,
+            "line": 610,
             "kind": "binds mounted Group labels to actual saved key IDs"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 1093,
+            "line": 1370,
             "kind": "validates displayed route label separately from full saved route provenance"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 525,
+            "line": 610,
             "kind": "checks mounted Group DOM keyLabels against saved raw IDs resolved through source and construction outputs"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4093,
+            "line": 4590,
             "kind": "joins validated displayed Group labels to saved raw IDs for TLA projection"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 1089,
+            "line": 1366,
             "kind": "validates displayed relationship labels separately from the full saved route"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 525,
+            "line": 610,
             "kind": "validates actual mounted Group keyLabels against saved raw IDs resolved from source and construction outputs"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 2027,
+            "line": 2459,
             "kind": "applies full Group lifecycle consistency checks with a CDA-specific validated projection"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4122,
+            "line": 4619,
             "kind": "joins validated displayed labels to saved raw key IDs before TLA projection"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 1089,
+            "line": 1366,
             "kind": "validates title route label separately from saved full route provenance"
           }
         ],
@@ -403092,68 +403092,68 @@
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L3177:runtime-guard-trace-validator-checks-model-actions-events-and-transition-observations",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L3682:runtime-guard-trace-validator-checks-model-actions-events-and-transition-observations",
           "semanticClaimId": "trace-validator.checks-model-actions-events-and-transition-observations",
           "sourceLines": [
-            3177,
-            3180,
-            3181,
-            3188,
-            3193,
-            3208,
-            3279,
-            3283,
-            3286,
-            3290,
-            3296,
-            3297,
-            3583,
-            3586
+            3682,
+            3685,
+            3686,
+            3693,
+            3698,
+            3713,
+            3775,
+            3779,
+            3782,
+            3786,
+            3792,
+            3793,
+            4079,
+            4082
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L2304:runtime-guard-trace-validator-validates-per-trace-required-action-contract-shape",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L2744:runtime-guard-trace-validator-validates-per-trace-required-action-contract-shape",
           "semanticClaimId": "trace-validator.validates-per-trace-required-action-contract-shape",
           "sourceLines": [
-            2304,
-            2305,
-            2308,
-            2309,
-            2310
+            2744,
+            2745,
+            2748,
+            2749,
+            2750
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L4970:runtime-guard-trace-validator-checks-per-trace-required-action-coverage",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L5478:runtime-guard-trace-validator-checks-per-trace-required-action-coverage",
           "semanticClaimId": "trace-validator.checks-per-trace-required-action-coverage",
           "sourceLines": [
-            4970,
-            4971,
-            4974,
-            4975,
-            4976,
-            4977,
-            4978,
-            5014,
-            5019,
-            5020
+            5478,
+            5479,
+            5482,
+            5483,
+            5484,
+            5485,
+            5486,
+            5522,
+            5527,
+            5528
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L2506:runtime-guard-trace-validator-requires-repeat-group-edit-to-use-apply-owner",
+          "sourceAssertionId": "source:scripts/verify-builder-traces.mjs:L2946:runtime-guard-trace-validator-requires-repeat-group-edit-to-use-apply-owner",
           "semanticClaimId": "trace-validator.requires-repeat-group-edit-to-use-apply-owner",
           "sourceLines": [
-            2503,
-            2506,
-            2525,
-            2527,
-            4467,
-            4468
+            2943,
+            2946,
+            2965,
+            2967,
+            4975,
+            4976
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
@@ -403166,22 +403166,22 @@
         "evidence": [
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4799,
+            "line": 5307,
             "kind": "loads the TLA model selected by trace.model"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4610,
+            "line": 5118,
             "kind": "constructs the trace next-state relation from the model actions"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 4810,
+            "line": 5318,
             "kind": "runs TLC on the generated trace module"
           },
           {
             "path": "scripts/verify-builder-traces.mjs",
-            "line": 3279,
+            "line": 3775,
             "kind": "maps recorded labels to action contract vocabulary"
           }
         ],
