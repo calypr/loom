@@ -20,9 +20,9 @@
     "staleSources": 0,
     "triageErrors": 0,
     "strictPass": true,
-    "actionObligations": 177,
+    "actionObligations": 194,
     "probedActions": 59,
-    "unprobedActions": 118
+    "unprobedActions": 135
   },
   "allowlist": [],
   "probes": [
@@ -957,6 +957,90 @@
       "covered": false
     },
     {
+      "id": "BuilderJourney.CdaCreateByIDCountRowsIntent",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaCurrentSnapshot",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaEditByIDCountDistinctIntent",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaEditByIDCountRowsIntent",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaLatePreviewCompleteIgnored",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaLatePreviewErrorIgnored",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaPreviewComplete",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaPreviewError",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaPreviewOwner",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaPreviewRequestCancelled",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaRequestOwnerTokens",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.CdaSnapshot5",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
       "id": "BuilderJourney.ChoicePreview",
       "model": "BuilderJourney",
       "routeBinding": "unbound",
@@ -992,6 +1076,20 @@
       "covered": false
     },
     {
+      "id": "BuilderJourney.EditGroupAgainApply",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.EditGroupApply",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
       "id": "BuilderJourney.Group",
       "model": "BuilderJourney",
       "routeBinding": "unbound",
@@ -1000,6 +1098,13 @@
     },
     {
       "id": "BuilderJourney.GroupAgain",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.GroupApply",
       "model": "BuilderJourney",
       "routeBinding": "unbound",
       "probes": [],
@@ -1028,6 +1133,13 @@
     },
     {
       "id": "BuilderJourney.LatePreviewErrorIgnored",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.MaxReshapes",
       "model": "BuilderJourney",
       "routeBinding": "unbound",
       "probes": [],
@@ -1083,7 +1195,14 @@
       "covered": false
     },
     {
-      "id": "BuilderJourney.Stutter",
+      "id": "BuilderJourney.RemoveGroupApply",
+      "model": "BuilderJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "BuilderJourney.vars",
       "model": "BuilderJourney",
       "routeBinding": "unbound",
       "probes": [],
@@ -2304,17 +2423,33 @@
   "unprobedActions": [
     "BuilderJourney.AddColumn",
     "BuilderJourney.CancelFilter",
+    "BuilderJourney.CdaCreateByIDCountRowsIntent",
+    "BuilderJourney.CdaCurrentSnapshot",
+    "BuilderJourney.CdaEditByIDCountDistinctIntent",
+    "BuilderJourney.CdaEditByIDCountRowsIntent",
+    "BuilderJourney.CdaLatePreviewCompleteIgnored",
+    "BuilderJourney.CdaLatePreviewErrorIgnored",
+    "BuilderJourney.CdaPreviewComplete",
+    "BuilderJourney.CdaPreviewError",
+    "BuilderJourney.CdaPreviewOwner",
+    "BuilderJourney.CdaPreviewRequestCancelled",
+    "BuilderJourney.CdaRequestOwnerTokens",
+    "BuilderJourney.CdaSnapshot5",
     "BuilderJourney.ChoicePreview",
     "BuilderJourney.ChoicePreviewComplete",
     "BuilderJourney.ChoicePreviewError",
     "BuilderJourney.EditGroup",
     "BuilderJourney.EditGroupAgain",
+    "BuilderJourney.EditGroupAgainApply",
+    "BuilderJourney.EditGroupApply",
     "BuilderJourney.Group",
     "BuilderJourney.GroupAgain",
+    "BuilderJourney.GroupApply",
     "BuilderJourney.GroupEditCancel",
     "BuilderJourney.GroupRemovalCancel",
     "BuilderJourney.LatePreviewCompleteIgnored",
     "BuilderJourney.LatePreviewErrorIgnored",
+    "BuilderJourney.MaxReshapes",
     "BuilderJourney.Pivot",
     "BuilderJourney.Preview",
     "BuilderJourney.PreviewComplete",
@@ -2322,7 +2457,8 @@
     "BuilderJourney.PreviewRequestCancelled",
     "BuilderJourney.Reload",
     "BuilderJourney.RemoveGroup",
-    "BuilderJourney.Stutter",
+    "BuilderJourney.RemoveGroupApply",
+    "BuilderJourney.vars",
     "BuilderOperations.AuthorStep",
     "BuilderOperations.ResetWorkspace",
     "BuilderOperations.RouteSavedStep",

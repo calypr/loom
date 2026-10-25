@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "7234f2edbc1dc83d07b434be7822222014edaebcfe9fbf199c15ea4ab06bd3c5",
+      "sha256": "7edce68978535900312971d890876a97a0066d9459ffc3fb011dfff81cd3ef1b",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -39,12 +39,12 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "7d257d681df4256f2eda8fcd2f9df1f45b0076a6535834ad2d779e096cca9dd7",
+      "sha256": "f3b972422c0f8b439aa33d3981c44eb0b0c2bea32575be7339c824b1f30bace3",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "5c8857dc5193c68b4b70e5ddc306f86bd20b76e6c7b1434d39e0f0f342c71804",
+      "sha256": "4c9d3f2ce39f8213b1ab1393b04bb29ffc1163588ad9cc6b4b36d18750d78e15",
       "contract": "Trace mutation controls for request ownership, Group persistence and reload keys/step, stale candidates and capture owners, exact action counts, and generic non-Group routes."
     },
     {
@@ -199,7 +199,7 @@
     },
     {
       "path": "verification/builder-interactions/BuilderJourney.tla",
-      "sha256": "9e14717194c49a325bfbd7b8d83ff032c999f68cec935736af90c53b77c81ab4",
+      "sha256": "7497c339f514d8073b398200445cbf151fc2d10a3f6fca7cb345c7b7cae1fe54",
       "contract": "BuilderJourney source/proposal model with persisted, candidate, and mounted Group state, mount/capture ownership, ordered keys, apply, Cancel, Reload, and safety invariants."
     },
     {
@@ -384,13 +384,108 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43",
+      "sha256": "398004f5aaa8951b03b0a7369d79b58bd584e1fd0d0bfcd6822775f69a459ad9",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "ee743f08de43080e192cfcf39f81e91e40fb7bf606ab12cf851be5dd2e3926b0",
+      "sha256": "d118d5ec9f43612e785212952e0ad99ed8ddb769c4265e91039cc70244218f79",
       "contract": "Registered authored-three and raw-Basic native Group lifecycles with actual Builder reads, captured request owners, mounted reload controls, post-action observations, TLA replay, and trace-bound mutation controls."
+    },
+    {
+      "path": "scripts/generate-builder-browser-evidence.mjs",
+      "sha256": "722d4a3143a6e8e27cf97accbb6c7dc878d08e0ba967ebcebb0eafd998b839d6",
+      "contract": "Builder browser evidence output, including retained native formal journey receipts."
+    },
+    {
+      "path": "scripts/run-native-verification-bracket.mjs",
+      "sha256": "89e1898df3974d54ad2a20ee458c9fa94fb00744216b082b2e8a77f2541ba638",
+      "contract": "Native UI lifecycle and source integrity bracket used by the registered journey runner."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
+      "sha256": "f1bc13353b202cbdb3dccc2d8208acccee9fea82da95b389081432ac6bbf1d2f",
+      "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
+      "sha256": "174c6f9466085b0d14055b1292e228c1af5ca7545abd98786b53d0d7363a7527",
+      "contract": "Focused tests for native Builder trace capture and request-owner evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
+      "sha256": "74912c41ad53fbacc5d190b180bd97cf4eef5d7a23074f6ced62f6e34fd3da42",
+      "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/source-fingerprint.mjs",
+      "sha256": "c08c3785f5d558ed23a57fbf77ddf56672f27badb2d86a495a34692f56bad402",
+      "contract": "Watched source fingerprint used to freeze native browser verification."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-playwright-requests.mjs",
+      "sha256": "756556ade50e95bcccd376601fe92eebdd4befa36a535f78ac6d87cc20b69c77",
+      "contract": "Owned native CDA request observer and route-scoped request view."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-network-observer.mjs",
+      "sha256": "3ae48be9356e2486690dd163040e367cc6a10c311fd64f8f020eae14403753ef",
+      "contract": "Native Playwright request/response observer used by CDA capture."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-playwright.mjs",
+      "sha256": "735e363b89743e9dcfcf21b59439d5b1940018771d85447d5af375f78f5f6f03",
+      "contract": "CDA browser helpers used by the native Group workflow."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-fixtures.mjs",
+      "sha256": "cf59e0762aa2233e245e41937910ae59444b8194d9801cbcb03cfa29fe07d740",
+      "contract": "Owned CDA fixture selection used by the native Group workflow."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-row-oracle.mjs",
+      "sha256": "b1c274c52b79ccd9d19cf0fe1b1036f7e37dfa00452a6d917a18ca5ab0711304",
+      "contract": "Independent bounded raw CDA row and related-source oracle."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/created-explorer-scope.mjs",
+      "sha256": "6a919caa026576b130826cb30163b0733b1fb7a7c52f7d4f1a181519dab273fc",
+      "contract": "Project-scoped Explorer identity and route ownership checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-choice-stage-context.mjs",
+      "sha256": "e7c0f89145c1bd519bbd70dafb9c00a36bbef8709fbb4e43c0f716fe5fabdbdc",
+      "contract": "Related-choice stage and saved-draft context checks."
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
+      "sha256": "74b75a3d719b30752fc743653bd4c12f3ccde10d9bba9565ab3452ae12ec139e",
+      "contract": "Registered standalone reshape browser spec that dispatches the native CDA Group case."
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
+      "sha256": "7f5038b468e58fa598e420e631355e25a173cfbc9b6aff8c76f45b17a78a0dcc",
+      "contract": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow."
+    },
+    {
+      "path": "verification/builder-interactions/builder-cda-group-related-contract.json",
+      "sha256": "39b5f3216b012ca2792ce390881df813d2a79de86c7efd52f27c659143c29055",
+      "contract": "Static action, request ledger, support route, and mutation control contract for the CDA journey."
+    },
+    {
+      "path": "verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg",
+      "sha256": "cabfb950b1f3ded86d270bd8358ea1517898592d82174c7c5a7e3a7eda94d093",
+      "contract": "Bounded safety configuration for Group and RELATED_SOURCE journey invariants."
+    },
+    {
+      "path": "verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg",
+      "sha256": "06ddc2df04c77a6b6d808830b97b6638281c562e45bbb8ddd58cd3c37f6baac4",
+      "contract": "Completion witness configuration for the full Group and RELATED_SOURCE restoration lifecycle."
+    },
+    {
+      "path": "ui/apps/demo/src/main.tsx",
+      "sha256": "676c59a260d5248a770ba8eba403b2c305efd64ebaee64238f278abbcf459703",
+      "contract": "Demo application entry point hosting the native Builder UI."
     }
   ]
 }

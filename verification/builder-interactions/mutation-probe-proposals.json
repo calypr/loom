@@ -6,14 +6,14 @@
     "ledger": "verification/builder-interactions/route-contract.json"
   },
   "summary": {
-    "actions": 118,
+    "actions": 135,
     "high": 44,
     "medium": 24,
-    "low": 50,
+    "low": 67,
     "withCandidateTests": 68,
-    "withoutCandidateTests": 50,
-    "guardCandidates": 12,
-    "withGuardCandidates": 6
+    "withoutCandidateTests": 67,
+    "guardCandidates": 17,
+    "withGuardCandidates": 9
   },
   "proposals": [
     {
@@ -2111,6 +2111,237 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "BuilderJourney.CdaCreateByIDCountRowsIntent",
+      "model": "BuilderJourney",
+      "action": "CdaCreateByIDCountRowsIntent",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdacreatebyidcountrowsintent",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaCurrentSnapshot",
+      "model": "BuilderJourney",
+      "action": "CdaCurrentSnapshot",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 1684,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "||",
+          "dropped": "!table",
+          "find": "      if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {",
+          "replace": "      if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 1739,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "||",
+          "dropped": "!table",
+          "find": "    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {",
+          "replace": "    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {"
+        },
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 1891,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "||",
+          "dropped": "!current.draftDigest",
+          "find": "    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {",
+          "replace": "    if (!current.catalog.snapshotToken || !current.draftVersion) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdacurrentsnapshot",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaEditByIDCountDistinctIntent",
+      "model": "BuilderJourney",
+      "action": "CdaEditByIDCountDistinctIntent",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdaeditbyidcountdistinctintent",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaEditByIDCountRowsIntent",
+      "model": "BuilderJourney",
+      "action": "CdaEditByIDCountRowsIntent",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdaeditbyidcountrowsintent",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaLatePreviewCompleteIgnored",
+      "model": "BuilderJourney",
+      "action": "CdaLatePreviewCompleteIgnored",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdalatepreviewcompleteignored",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaLatePreviewErrorIgnored",
+      "model": "BuilderJourney",
+      "action": "CdaLatePreviewErrorIgnored",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdalatepreviewerrorignored",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaPreviewComplete",
+      "model": "BuilderJourney",
+      "action": "CdaPreviewComplete",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdapreviewcomplete",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaPreviewError",
+      "model": "BuilderJourney",
+      "action": "CdaPreviewError",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdapreviewerror",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaPreviewOwner",
+      "model": "BuilderJourney",
+      "action": "CdaPreviewOwner",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdapreviewowner",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaPreviewRequestCancelled",
+      "model": "BuilderJourney",
+      "action": "CdaPreviewRequestCancelled",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+          "line": 2918,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "&&",
+          "dropped": "execution.previewGeneration === previewGeneration.current",
+          "find": "        if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {",
+          "replace": "        if (execution.previewRequest) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdapreviewrequestcancelled",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaRequestOwnerTokens",
+      "model": "BuilderJourney",
+      "action": "CdaRequestOwnerTokens",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [
+        {
+          "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+          "line": 356,
+          "score": 2,
+          "specific": false,
+          "occurrences": 1,
+          "confidence": "low",
+          "operator": "&&",
+          "dropped": "proposalOwnerRef.current?.requestKey === requestKey",
+          "find": "    if (candidateIntent.current && proposalOwnerRef.current?.requestKey === requestKey) {",
+          "replace": "    if (candidateIntent.current) {"
+        }
+      ],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdarequestownertokens",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.CdaSnapshot5",
+      "model": "BuilderJourney",
+      "action": "CdaSnapshot5",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-cdasnapshot5",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "BuilderJourney.ChoicePreview",
       "model": "BuilderJourney",
       "action": "ChoicePreview",
@@ -2194,6 +2425,34 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "BuilderJourney.EditGroupAgainApply",
+      "model": "BuilderJourney",
+      "action": "EditGroupAgainApply",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-editgroupagainapply",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.EditGroupApply",
+      "model": "BuilderJourney",
+      "action": "EditGroupApply",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-editgroupapply",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "BuilderJourney.Group",
       "model": "BuilderJourney",
       "action": "Group",
@@ -2259,6 +2518,20 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "BuilderJourney.GroupApply",
+      "model": "BuilderJourney",
+      "action": "GroupApply",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-groupapply",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "BuilderJourney.GroupEditCancel",
       "model": "BuilderJourney",
       "action": "GroupEditCancel",
@@ -2312,6 +2585,20 @@
       "guardCandidates": [],
       "priority": "low",
       "proposedProbeId": "model-builderjourney-latepreviewerrorignored",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.MaxReshapes",
+      "model": "BuilderJourney",
+      "action": "MaxReshapes",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-maxreshapes",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
@@ -2499,9 +2786,9 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
-      "modelAction": "BuilderJourney.Stutter",
+      "modelAction": "BuilderJourney.RemoveGroupApply",
       "model": "BuilderJourney",
-      "action": "Stutter",
+      "action": "RemoveGroupApply",
       "status": "missing",
       "routeBinding": "unbound",
       "routeCount": 0,
@@ -2509,7 +2796,21 @@
       "candidateSourceFiles": [],
       "guardCandidates": [],
       "priority": "low",
-      "proposedProbeId": "model-builderjourney-stutter",
+      "proposedProbeId": "model-builderjourney-removegroupapply",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
+      "modelAction": "BuilderJourney.vars",
+      "model": "BuilderJourney",
+      "action": "vars",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-builderjourney-vars",
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {

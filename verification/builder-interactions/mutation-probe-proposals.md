@@ -6,14 +6,14 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 
 | Measure | Count |
 | --- | ---: |
-| actions | 118 |
+| actions | 135 |
 | high | 44 |
 | medium | 24 |
-| low | 50 |
+| low | 67 |
 | withCandidateTests | 68 |
-| withoutCandidateTests | 50 |
-| guardCandidates | 12 |
-| withGuardCandidates | 6 |
+| withoutCandidateTests | 67 |
+| guardCandidates | 17 |
+| withGuardCandidates | 9 |
 
 ## Review queue
 
@@ -65,26 +65,31 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | high | `WorkspaceLifecycle.StartPreview` | 6 | `TestBuilderFullUIReaderKeepsKeyedSetupFailureLocal` internal/explorer/lifecycle/builder_full_ui_replay_test.go | ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx |
 | low | `BuilderJourney.AddColumn` | 0 | none | none |
 | low | `BuilderJourney.CancelFilter` | 0 | none | none |
+| low | `BuilderJourney.CdaCreateByIDCountRowsIntent` | 0 | none | none |
+| low | `BuilderJourney.CdaCurrentSnapshot` | 0 | none | none |
+| low | `BuilderJourney.CdaEditByIDCountDistinctIntent` | 0 | none | none |
+| low | `BuilderJourney.CdaEditByIDCountRowsIntent` | 0 | none | none |
+| low | `BuilderJourney.CdaLatePreviewCompleteIgnored` | 0 | none | none |
+| low | `BuilderJourney.CdaLatePreviewErrorIgnored` | 0 | none | none |
+| low | `BuilderJourney.CdaPreviewComplete` | 0 | none | none |
+| low | `BuilderJourney.CdaPreviewError` | 0 | none | none |
+| low | `BuilderJourney.CdaPreviewOwner` | 0 | none | none |
+| low | `BuilderJourney.CdaPreviewRequestCancelled` | 0 | none | none |
+| low | `BuilderJourney.CdaRequestOwnerTokens` | 0 | none | none |
+| low | `BuilderJourney.CdaSnapshot5` | 0 | none | none |
 | low | `BuilderJourney.ChoicePreview` | 0 | none | none |
 | low | `BuilderJourney.ChoicePreviewComplete` | 0 | none | none |
-| low | `BuilderJourney.ChoicePreviewError` | 0 | none | none |
-| low | `BuilderJourney.EditGroup` | 0 | none | none |
-| low | `BuilderJourney.EditGroupAgain` | 0 | none | none |
-| low | `BuilderJourney.Group` | 0 | none | none |
-| low | `BuilderJourney.GroupAgain` | 0 | none | none |
-| low | `BuilderJourney.GroupEditCancel` | 0 | none | none |
-| low | `BuilderJourney.GroupRemovalCancel` | 0 | none | none |
-| low | `BuilderJourney.LatePreviewCompleteIgnored` | 0 | none | none |
-| low | `BuilderJourney.LatePreviewErrorIgnored` | 0 | none | none |
-| low | `BuilderJourney.Pivot` | 0 | none | none |
-| low | `BuilderJourney.Preview` | 0 | none | none |
-| low | `BuilderJourney.PreviewError` | 0 | none | none |
-| ... | 58 more in the JSON report | | | |
+| ... | 75 more in the JSON report | | | |
 
 ## Guard candidates
 
 | Model action | File | Line | Mutation |
 | --- | --- | ---: | --- |
+| `BuilderJourney.CdaCurrentSnapshot` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1684 | `if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {` -> `if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {` |
+| `BuilderJourney.CdaCurrentSnapshot` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1739 | `if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {` -> `if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {` |
+| `BuilderJourney.CdaCurrentSnapshot` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1891 | `if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {` -> `if (!current.catalog.snapshotToken || !current.draftVersion) {` |
+| `BuilderJourney.CdaPreviewRequestCancelled` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 2918 | `if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {` -> `if (execution.previewRequest) {` |
+| `BuilderJourney.CdaRequestOwnerTokens` | `ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts` | 356 | `if (candidateIntent.current && proposalOwnerRef.current?.requestKey === requestKey) {` -> `if (candidateIntent.current) {` |
 | `BuilderJourney.ChoicePreviewComplete` | `ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx` | 1564 | `if (!resolved.complete && !nextCursor && choicesForCurrentTable(finalGroup).length === 0) {` -> `if (!resolved.complete && !nextCursor) {` |
 | `BuilderJourney.Group` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts` | 342 | `if (choiceKind === 'EXPLICIT_GROUP' && screen.queryByLabelText('Unmatched record policy')) {` -> `if (choiceKind === 'EXPLICIT_GROUP') {` |
 | `BuilderJourney.Group` | `ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts` | 373 | `if (!memberId || !label || !Array.isArray(groupIndexes) || groupIndexes.some((value) => typeof value !== 'number')) {` -> `if (!memberId || !label || !Array.isArray(groupIndexes)) {` |

@@ -5,11 +5,11 @@ Status: generated from the TLA models and existing test metadata.
 ## Script quality inventory
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
-678 are currently tracked; 2 baseline files have retained tombstones.
+681 are currently tracked; 2 baseline files have retained tombstones.
 13186 semantic claims are defined once; 9257 source occurrences are direct test assertions, out of 19003 total labeled occurrences.
 9746 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
-680 catalog records have source-review evidence; 680 MJS records remain runtime-unverified.
-69 files are classified as independent tool/module purposes; 293 MJS files and 5324 semantic claims have no canonical journey mapping.
+683 catalog records have source-review evidence; 683 MJS records remain runtime-unverified.
+69 files are classified as independent tool/module purposes; 296 MJS files and 5324 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
@@ -17,8 +17,8 @@ Status: generated from the TLA models and existing test metadata.
 | browser-spec | 96 |
 | browser-workflow | 146 |
 | config | 5 |
-| helper-or-oracle | 144 |
-| test | 220 |
+| helper-or-oracle | 145 |
+| test | 222 |
 | tool-or-module | 69 |
 
 ### Journey assembly by canonical case
@@ -173,7 +173,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files | 69 |
 | Tool/module files with a canonical case mapping | 7 |
 | Tool/module files without a canonical case mapping | 62 |
-| All MJS files without a canonical case mapping | 293 |
+| All MJS files without a canonical case mapping | 296 |
 | Semantic claims without a canonical case mapping | 5324 |
 
 ### Explicit formal links
@@ -183,13 +183,13 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/loom-dev.mjs`: candidate; gap: No trace correspondence is established for these browser assertions, and the formal model does not cover source-data values, rendered rows, publication, Viewer filters, or downloaded artifacts.
 - `scripts/propose-builder-route-actions.mjs`: candidate; gap: Generated actions are explicitly proposals requiring handler review; no action is treated as accepted or proved.
 - `scripts/run-builder-bug-discovery.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
-- `scripts/run-builder-journey.mjs`: direct-trace → BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter]; gap: The runner delegates finite trace checking to verify-builder-traces.mjs; it does not execute the standalone BuilderJourney .cfg safety-invariant suite. Model actions do not cover browser reload, persistence, or concrete row-value assertions.
+- `scripts/run-builder-journey.mjs`: direct-trace → BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError]; BuilderJourney; gap: Legacy audit journeys retain their existing trace contract; the native Cda action binding is sourced from the registered journey contract. This runner declaration does not claim a fresh browser result.
 - `scripts/run-builder-mutation-probe.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
-- `scripts/self-test-builder-traces.mjs`: trace-support → BuilderJourney [EditGroup, EditGroupAgain, RemoveGroup, GroupEditCancel, GroupRemovalCancel, Reload, LatePreviewErrorIgnored]; gap: The Group-specific controls require a real captured trace and only run when one is supplied; no fresh native trace or passing Group mutation result is asserted by this source catalogue.
+- `scripts/self-test-builder-traces.mjs`: trace-support → BuilderJourney [EditGroup, EditGroupAgain, RemoveGroup, GroupEditCancel, GroupRemovalCancel, Reload, LatePreviewErrorIgnored]; BuilderJourney; gap: Native Cda mutation controls require the exact captured request ledger and trace; static source mapping does not claim those controls have passed on a browser run.
 - `scripts/verify-builder-formal.mjs`: direct-trace → BuilderOperations; BuilderPreview; WorkspaceLifecycle; RowDefinitionLifecycle; DraftRestore; RootChange; ColumnPresentation; Population; Interpretation; SupportingSurfaces; LifecycleEntry; ReconcileLifecycle; BuilderJourney; gap: TLC only covers finite states and bounds encoded by the checked-in .cfg files; the source itself states that this is not an unbounded refinement proof of the React or Go application.
 - `scripts/verify-builder-interactions.mjs`: direct-trace → ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; gap: The model is finite and explicitly stops at beginApply; source model comments exclude persistence/finishApply callback behavior and define the bounded proposal-attempt space.
 - `scripts/verify-builder-operation-history.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
-- `scripts/verify-builder-traces.mjs`: direct-trace → BuilderPreview [StartProposal, ReplaceProposal, ProposalComplete, ProposalError, LateProposalComplete, CancelProposal, RetryProposal, StartPreview, PreviewComplete, LatePreviewComplete, BeginApply, ApplyAck, ChangeDraft, AcceptCurrentDraft, SetPivotPair, ScheduleDiscovery, DiscoveryComplete, ChangePivotKey, UnmountEditor, AdoptDiscovery]; ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; ReconcileLifecycle [RequestReconcile, RetryReconcile, ReconcileSuccess, LateReconcileIgnored, ReconcileStale, ReconcileConflict, ReconcileInvalid, ReconcileFailure, WorkspaceChangeStartsReconcile, DraftChange, AuthoredChange, ChangeExplorer, SetTablesRooted, SetSnapshotPresent, ClearReceipt]; BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, Stutter, GroupEditCancel, GroupRemovalCancel, Reload]; gap: This is a bounded trace replay, not an exploration of arbitrary browser state. Group row values and UI controls remain native assertions; a native trace is required for the Group controls.
+- `scripts/verify-builder-traces.mjs`: direct-trace → BuilderPreview [StartProposal, ReplaceProposal, ProposalComplete, ProposalError, LateProposalComplete, CancelProposal, RetryProposal, StartPreview, PreviewComplete, LatePreviewComplete, BeginApply, ApplyAck, ChangeDraft, AcceptCurrentDraft, SetPivotPair, ScheduleDiscovery, DiscoveryComplete, ChangePivotKey, UnmountEditor, AdoptDiscovery]; ConstructionLifecycle [ChangeDraftIdentity, StartProposal, RetryProposal, CancelProposal, ProposalComplete, ProposalError, LateProposalSettlementIgnored, PreviewComplete, StartPreview, PreviewError, LatePreviewSettlementIgnored, BeginApply]; ReconcileLifecycle [RequestReconcile, RetryReconcile, ReconcileSuccess, LateReconcileIgnored, ReconcileStale, ReconcileConflict, ReconcileInvalid, ReconcileFailure, WorkspaceChangeStartsReconcile, DraftChange, AuthoredChange, ChangeExplorer, SetTablesRooted, SetSnapshotPresent, ClearReceipt]; BuilderJourney [Group, GroupAgain, AddColumn, CancelFilter, EditGroup, EditGroupAgain, RemoveGroup, Pivot, Preview, PreviewComplete, PreviewError, PreviewRequestCancelled, LatePreviewCompleteIgnored, LatePreviewErrorIgnored, ChoicePreview, ChoicePreviewComplete, ChoicePreviewError, GroupEditCancel, GroupRemovalCancel, Reload]; BuilderJourney; gap: This validator checks captured native Cda traces through the registered CdaNext profile and retains separate legacy model bindings; a current application run is required for a passing native receipt.
 - `scripts/verify-cda-pivot-oracle.mjs`: candidate; gap: The diagnostic relies on an operator-supplied report and hardcoded local CDA runtime identity; it does not run or prove a complete native lifecycle.
 - `scripts/verify-construction-removals.mjs`: candidate; gap: The tool does not perform or prove an applied removal lifecycle; no runtime outcome is claimed.
 - `scripts/verify-population-row.mjs`: candidate; gap: The retained selection-evidence fixture and command invocation are not statically located, so its intended end-to-end runner remains unresolved.
@@ -201,6 +201,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/basic-published-membership-oracle.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/verify-ui/helpers/basic-root-replacement-contract.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
 - `scripts/verify-ui/helpers/builder-combine-helpers.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/builder-journey-trace.mjs`: trace-support → BuilderJourney; gap: The adapter establishes trace provenance and request coverage; a current browser lifecycle plus TLC receipt is still required.
 - `scripts/verify-ui/helpers/cda-current-draft-membership-oracle.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/verify-ui/helpers/cda-starting-collection-replacement-oracle.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
 - `scripts/verify-ui/helpers/coded-pivot-fixture.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
@@ -227,6 +228,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/builder-combine-nullable.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/builder-combine.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
 - `scripts/verify-ui/helpers/tests/builder-controls-table-preview-readiness.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs`: trace-support → BuilderJourney; gap: These tests do not perform a browser lifecycle or claim a passing model replay.
 - `scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/cda-compound-coded-group-oracle.test.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
@@ -245,6 +247,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/group-related-multiset.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/verify-ui/helpers/tests/missing-component-group-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/native-browser-api-scope.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs`: trace-support → BuilderJourney; gap: These tests validate evidence gates and do not themselves run the captured UI trace through TLC.
 - `scripts/verify-ui/helpers/tests/native-verification-batch.test.mjs`: candidate; gap: There is no current Builder TLA model for test-runner orchestration, scheduler concurrency, cancellation, or cleanup; this remains separate from Builder journey coverage.
 - `scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/nested-authored-expand-oracle.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
@@ -255,10 +258,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-process.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/related-quantity-pivot-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/root-rebase-preservation.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
-- `scripts/verify-ui/helpers/tests/scope-001-repeated-pivot-oracle.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
-- `scripts/verify-ui/helpers/tests/scope-001-restricted-auth-workflow.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
-- `scripts/verify-ui/helpers/tests/verify-cda-builder-patient-related.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
-- 196 additional formal applicability rows are in the JSON report.
+- 199 additional formal applicability rows are in the JSON report.
 
 These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.
 
@@ -267,7 +267,7 @@ These are source associations, not passing runs. Model actions, invariants, sche
 | Disposition | Files |
 | --- | ---: |
 | integrate | 2 |
-| keep | 677 |
+| keep | 680 |
 | merge-candidate | 1 |
 
 | MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |
@@ -285,15 +285,15 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 | Measure | Count |
 | --- | ---: |
 | models | 14 |
-| actions | 177 |
+| actions | 194 |
 | invariants | 96 |
-| obligations | 273 |
+| obligations | 290 |
 | covered | 10 |
 | partial | 96 |
-| missing | 167 |
+| missing | 184 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 78 |
+| missingUnbound | 95 |
 | tests | 908 |
 | testsWithObligations | 11 |
 | testsWithoutObligations | 897 |
@@ -307,17 +307,33 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 
 - `BuilderJourney.AddColumn` (0 route(s))
 - `BuilderJourney.CancelFilter` (0 route(s))
+- `BuilderJourney.CdaCreateByIDCountRowsIntent` (0 route(s))
+- `BuilderJourney.CdaCurrentSnapshot` (0 route(s))
+- `BuilderJourney.CdaEditByIDCountDistinctIntent` (0 route(s))
+- `BuilderJourney.CdaEditByIDCountRowsIntent` (0 route(s))
+- `BuilderJourney.CdaLatePreviewCompleteIgnored` (0 route(s))
+- `BuilderJourney.CdaLatePreviewErrorIgnored` (0 route(s))
+- `BuilderJourney.CdaPreviewComplete` (0 route(s))
+- `BuilderJourney.CdaPreviewError` (0 route(s))
+- `BuilderJourney.CdaPreviewOwner` (0 route(s))
+- `BuilderJourney.CdaPreviewRequestCancelled` (0 route(s))
+- `BuilderJourney.CdaRequestOwnerTokens` (0 route(s))
+- `BuilderJourney.CdaSnapshot5` (0 route(s))
 - `BuilderJourney.ChoicePreview` (0 route(s))
 - `BuilderJourney.ChoicePreviewComplete` (0 route(s))
 - `BuilderJourney.ChoicePreviewError` (0 route(s))
 - `BuilderJourney.EditGroup` (0 route(s))
 - `BuilderJourney.EditGroupAgain` (0 route(s))
+- `BuilderJourney.EditGroupAgainApply` (0 route(s))
+- `BuilderJourney.EditGroupApply` (0 route(s))
 - `BuilderJourney.Group` (0 route(s))
 - `BuilderJourney.GroupAgain` (0 route(s))
+- `BuilderJourney.GroupApply` (0 route(s))
 - `BuilderJourney.GroupEditCancel` (0 route(s))
 - `BuilderJourney.GroupRemovalCancel` (0 route(s))
 - `BuilderJourney.LatePreviewCompleteIgnored` (0 route(s))
 - `BuilderJourney.LatePreviewErrorIgnored` (0 route(s))
+- `BuilderJourney.MaxReshapes` (0 route(s))
 - `BuilderJourney.Pivot` (0 route(s))
 - `BuilderJourney.Preview` (0 route(s))
 - `BuilderJourney.PreviewComplete` (6 route(s))
@@ -325,7 +341,8 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 - `BuilderJourney.PreviewRequestCancelled` (0 route(s))
 - `BuilderJourney.Reload` (0 route(s))
 - `BuilderJourney.RemoveGroup` (0 route(s))
-- `BuilderJourney.Stutter` (0 route(s))
+- `BuilderJourney.RemoveGroupApply` (0 route(s))
+- `BuilderJourney.vars` (0 route(s))
 - `BuilderOperations.AuthorStep` (16 route(s))
 - `BuilderOperations.ResetWorkspace` (0 route(s))
 - `BuilderOperations.RouteSavedStep` (1 route(s))
@@ -368,24 +385,7 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 - `ConstructionLifecycle.RetryProposal` (2 route(s))
 - `ConstructionLifecycle.StartPreview` (6 route(s))
 - `ConstructionLifecycle.StartProposal` (6 route(s))
-- `DraftRestore.CancelRestore` (0 route(s))
-- `DraftRestore.RestoreComplete` (0 route(s))
-- `DraftRestore.SaveDraft` (0 route(s))
-- `DraftRestore.StaleDraft` (0 route(s))
-- `DraftRestore.StartRestore` (0 route(s))
-- `Interpretation.ApplyCandidate` (1 route(s))
-- `Interpretation.BeginCreate` (1 route(s))
-- `Interpretation.CancelCreate` (1 route(s))
-- `Interpretation.CreateBlocked` (1 route(s))
-- `Interpretation.CreateFailed` (1 route(s))
-- `Interpretation.CreateRevision` (1 route(s))
-- `Interpretation.ReviewCandidate` (1 route(s))
-- `Interpretation.ReviewReady` (1 route(s))
-- `Interpretation.ReviewStale` (1 route(s))
-- `LifecycleEntry.AuthoredChange` (0 route(s))
-- `LifecycleEntry.CommandStale` (0 route(s))
-- `LifecycleEntry.CommandSuccess` (0 route(s))
-- 87 more in the JSON report.
+- 104 more in the JSON report.
 
 ## Obligations with exact tests
 

@@ -18,9 +18,9 @@ Status: generated from the mutation probes, retained evidence, source hashes, an
 | staleSources | 0 |
 | triageErrors | 0 |
 | strictPass | yes |
-| actionObligations | 177 |
+| actionObligations | 194 |
 | probedActions | 59 |
-| unprobedActions | 118 |
+| unprobedActions | 135 |
 
 ## Probes
 
@@ -93,9 +93,9 @@ Every retained probe has a current source hash.
 
 | Measure | Count |
 | --- | ---: |
-| actionObligations | 177 |
+| actionObligations | 194 |
 | probedActions | 59 |
-| unprobedActions | 118 |
+| unprobedActions | 135 |
 
 Covered actions:
 
@@ -163,17 +163,33 @@ Actions without a mutation probe:
 
 - `BuilderJourney.AddColumn`
 - `BuilderJourney.CancelFilter`
+- `BuilderJourney.CdaCreateByIDCountRowsIntent`
+- `BuilderJourney.CdaCurrentSnapshot`
+- `BuilderJourney.CdaEditByIDCountDistinctIntent`
+- `BuilderJourney.CdaEditByIDCountRowsIntent`
+- `BuilderJourney.CdaLatePreviewCompleteIgnored`
+- `BuilderJourney.CdaLatePreviewErrorIgnored`
+- `BuilderJourney.CdaPreviewComplete`
+- `BuilderJourney.CdaPreviewError`
+- `BuilderJourney.CdaPreviewOwner`
+- `BuilderJourney.CdaPreviewRequestCancelled`
+- `BuilderJourney.CdaRequestOwnerTokens`
+- `BuilderJourney.CdaSnapshot5`
 - `BuilderJourney.ChoicePreview`
 - `BuilderJourney.ChoicePreviewComplete`
 - `BuilderJourney.ChoicePreviewError`
 - `BuilderJourney.EditGroup`
 - `BuilderJourney.EditGroupAgain`
+- `BuilderJourney.EditGroupAgainApply`
+- `BuilderJourney.EditGroupApply`
 - `BuilderJourney.Group`
 - `BuilderJourney.GroupAgain`
+- `BuilderJourney.GroupApply`
 - `BuilderJourney.GroupEditCancel`
 - `BuilderJourney.GroupRemovalCancel`
 - `BuilderJourney.LatePreviewCompleteIgnored`
 - `BuilderJourney.LatePreviewErrorIgnored`
+- `BuilderJourney.MaxReshapes`
 - `BuilderJourney.Pivot`
 - `BuilderJourney.Preview`
 - `BuilderJourney.PreviewComplete`
@@ -181,27 +197,11 @@ Actions without a mutation probe:
 - `BuilderJourney.PreviewRequestCancelled`
 - `BuilderJourney.Reload`
 - `BuilderJourney.RemoveGroup`
-- `BuilderJourney.Stutter`
+- `BuilderJourney.RemoveGroupApply`
+- `BuilderJourney.vars`
 - `BuilderOperations.AuthorStep`
 - `BuilderOperations.ResetWorkspace`
-- `BuilderOperations.RouteSavedStep`
-- `BuilderOperations.UndoLastStep`
-- `BuilderPreview.AdoptDiscovery`
-- `BuilderPreview.BeginApply`
-- `BuilderPreview.ChangeDraft`
-- `BuilderPreview.ChangePivotKey`
-- `BuilderPreview.LatePreviewComplete`
-- `BuilderPreview.ReplaceProposal`
-- `BuilderPreview.RetryProposal`
-- `BuilderPreview.ScheduleDiscovery`
-- `BuilderPreview.StartPreview`
-- `BuilderPreview.StartProposal`
-- `BuilderPreview.UnmountEditor`
-- `ConstructionLifecycle.BeginApply`
-- `ConstructionLifecycle.LatePreviewSettlementIgnored`
-- `ConstructionLifecycle.PreviewComplete`
-- `ConstructionLifecycle.PreviewError`
-- 78 more in the JSON report.
+- 95 more in the JSON report.
 
 ## Bounds
 
