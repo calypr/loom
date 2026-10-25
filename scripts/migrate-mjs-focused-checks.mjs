@@ -406,7 +406,9 @@ async function loadInputs(root) {
       const match = matchingFamilyImports(row, source, family, obligationRows);
       if (!match.direct) continue;
       if (match.matched) matches.push(family);
-      else classificationByPath.get(row.path).classification = 'needs-review';
+      else if (classificationByPath.get(row.path).classification !== 'already-wired') {
+        classificationByPath.get(row.path).classification = 'needs-review';
+      }
     }
     if (matches.length > 1) fail(`ambiguous test match ${row.path} matches ${matches.map((family) => family.id).join(', ')}`);
     if (matches.length === 1) {

@@ -169,6 +169,52 @@ test('plan previews exact nonempty attachment and case-bound claim edits with ha
   }
 });
 
+test('a configured test importing the shared helper but missing a family anchor stays already-wired', () => {
+  const state = fixture();
+  try {
+    const configuredPath = 'scripts/verify-ui/helpers/tests/preconfigured-helper.test.mjs';
+    const configuredSource = "import { anchorA } from '../helpers/oracle.mjs';\nanchorA();\n";
+    write(state.root, configuredPath, configuredSource);
+    const registryPath = path.join(state.root, state.registryPath);
+    let registryText = readFileSync(registryPath, 'utf8');
+    registryText = registryText.replace(
+      "export const registry = [{ id: 'scenario-a'",
+      `export const registry = [{ id: 'existing-scenario', cases: { 'existing-case': { playwrightTest: '${state.specPath}', requiredChecks: ['existing helper check'], focusedChecks: [{ id: 'existing-helper-check', cwd: '.', command: ['node-test', '${configuredPath}'], sourceFiles: ['${state.oraclePath}'] }] } } }, { id: 'scenario-a'`,
+    );
+    write(state.root, state.registryPath, registryText);
+    const catalogPath = path.join(state.root, 'verification/builder-interactions/mjs-source-semantics.json');
+    const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
+    catalog.files.push({
+      path: configuredPath, sha256: hash(configuredSource), role: 'test', testLayer: 'node-test', lifecycle: 'active', purpose: configuredPath,
+      assertions: [], executionDiscovery: { status: 'static-path-found', evidence: [{ path: configuredPath, line: 1, kind: 'configured Node test' }], unresolvedFacts: [] },
+    });
+    catalog.files.find((row) => row.path === state.registryPath).sha256 = hash(registryText);
+    write(state.root, 'verification/builder-interactions/mjs-source-semantics.json', `${JSON.stringify(catalog, null, 2)}\n`);
+    const obligationsPath = path.join(state.root, 'verification/builder-interactions/test-obligations.json');
+    const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
+    obligations.mjsCatalogSummary.currentFiles += 1;
+    obligations.mjsCatalogSummary.currentAdded += 1;
+    obligations.scripts.find((row) => row.path === state.registryPath).currentSha256 = hash(registryText);
+    obligations.scripts.find((row) => row.path === state.oraclePath).connections.push({
+      kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: configuredPath,
+      targetPath: state.oraclePath, specifier: '../helpers/oracle.mjs', line: 1, column: 9,
+    });
+    obligations.scripts.push({
+      path: configuredPath, present: true, currentSha256: hash(configuredSource), semanticClaimIds: [],
+      connections: [{ kind: 'configured-command', testFile: true, caseId: 'existing-scenario:existing-case', checkId: 'existing-helper-check' }],
+      journeyMappings: [],
+    });
+    write(state.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
+
+    const proposed = plan(state.root);
+    assert.equal(proposed.classifications.find((row) => row.path === configuredPath).classification, 'already-wired');
+    assert.deepEqual(proposed.attachments[0].focusedChecks[0].command, ['node-test', state.sourcePath]);
+    assert.equal(proposed.attachments[0].focusedChecks[0].command.includes(configuredPath), false);
+  } finally {
+    cleanup(state.root);
+  }
+});
+
 test('apply rejects a source hash that changed after plan and writes nothing', () => {
   const state = fixture();
   try {
