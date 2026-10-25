@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sourceFingerprint } from './verify-ui/helpers/source-fingerprint.mjs';
+import { assertNativeBuilderJourneyMutationControls } from './verify-ui/helpers/builder-journey-trace.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const DEFAULT_OUTPUT = 'verification/builder-interactions/browser-evidence.json';
@@ -362,12 +363,16 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   const trace = asArray(traceDocument.traces)[0];
   const replayReceipt = tla.builderJourneyTrace;
   const selfTestMutationControls = asArray(selfTest.mutationControls);
+  const traceSha256 = sha256(traceArtifact.bytes);
   const contract = readJson(root, binding.contract, 'registered formal journey contract');
   const proofScope = currentProofScope(root);
   requireValue(proofScope.status === 'current' && proofScope.declaredMismatches.length === 0,
     'current formal journey source manifest is not current: ' + proofScope.reason);
   requireValue(traceDocument.sourceProfile === 'journey' && trace?.name === binding.name && trace?.model === binding.model,
     'formal journey trace identity differs from its registered case binding');
+  requireValue(evidence.traceSha256 === traceSha256 && tla.traceSha256 === traceSha256 &&
+    replayReceipt?.traceSha256 === traceSha256 && selfTest.traceSha256 === traceSha256,
+  'formal journey replay and mutation receipts do not bind the exact retained trace bytes');
   requireValue(traceDocument.sourceFingerprint === proofScope.sha256 && tla.sourceFingerprint === proofScope.sha256,
     'formal journey trace/TLA fingerprint differs from the current Builder proof source scope');
   requireValue(traceDocument.contractSourceCommit === contract.sourceCommit &&
@@ -413,6 +418,18 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   requireValue(selfTestMutationControls.length > 0 && selfTestMutationControls.every((control) =>
     typeof control.name === 'string' && control.name.length > 0 && control.status === 'pass'),
   'formal journey mutation receipt is missing passing negative controls');
+  let mutationInventoryError = null;
+  try {
+    assertNativeBuilderJourneyMutationControls(selfTestMutationControls, {
+      contract,
+      traceDocument,
+      where: 'Retained formal journey mutation receipt',
+    });
+  } catch (error) {
+    mutationInventoryError = String(error?.message ?? error);
+  }
+  requireValue(mutationInventoryError === null,
+    'formal journey mutation controls differ from the contract inventory: ' + String(mutationInventoryError));
   requireValue(sameJson(evidence.mutationControls, selfTestMutationControls),
     'native report mutation receipt differs from the authoritative self-test controls');
   const observedActions = asArray(trace?.actions).map((action) => action.label);

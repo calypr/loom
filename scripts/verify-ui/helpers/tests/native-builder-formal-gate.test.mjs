@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -16,9 +16,11 @@ const canonicalJson = (value) => Array.isArray(value)
 const copy = (value) => structuredClone(value);
 
 const makeBracketFixture = (root) => {
+  const contract = JSON.parse(readFileSync(new URL('../../../../verification/builder-interactions/builder-cda-group-related-contract.json', import.meta.url), 'utf8'));
   const selection = {
     scenarioID: 'standalone-reshape-group-edit-before-related-column',
     caseName: 'group-edit-before-related-column',
+    contract: 'verification/builder-interactions/builder-cda-group-related-contract.json',
     expectedIdentity: { project: 'loom_dev_cda_fhir' },
     requiredChecks: ['native lifecycle assertion'],
     traceKind: 'native-lifecycle',
@@ -27,13 +29,32 @@ const makeBracketFixture = (root) => {
     model: 'BuilderJourney',
   };
   const fingerprint = { sha256: 'a'.repeat(64), files: 3 };
-  const controls = [{ name: 'wrong-related-binding', status: 'pass' }];
+  const owner = { kind: 'proposal', browserRequestId: 'native-request-1', mountEpoch: 0 };
+  const nativeTrace = {
+    traces: [{
+      actions: [{ label: 'Preview', groupLifecycle: { owner } }],
+      nativeRequests: [{
+        index: 0, browserRequestId: owner.browserRequestId, requestId: 'request-1', method: 'POST',
+        path: '/authoring/v2/construction-proposals', startedAt: 1, isMutation: true,
+      }],
+    }],
+  };
+  const nativeTraceBytes = Buffer.from(JSON.stringify(nativeTrace));
+  const tracePath = join(root, 'native-trace.json');
+  writeFileSync(tracePath, nativeTraceBytes);
+  const traceSha256 = sha256(nativeTraceBytes);
+  const controls = [
+    ...contract.journeyCase.requiredMutationControlNames,
+    contract.journeyCase.observedOwnerEpochControlPrefix + owner.mountEpoch,
+  ].map(name => ({ name, status: 'pass' }));
   const traceProof = {
     status: 'pass',
     replayStatus: 'pass',
     selfTestStatus: 'pass',
     traceName: selection.traceName,
     nativeCaseKey: selection.nativeCaseKey,
+    tracePath,
+    traceSha256,
     requestCoverage: { observed: 2, modeled: 2, unmapped: 0, duplicates: 0 },
     requiredActionCountsByTrace: { mismatches: {} },
     requiredActionMinimumsByTrace: { mismatches: {} },
@@ -89,7 +110,7 @@ const makeBracketFixture = (root) => {
   const summaryPath = join(root, 'summary.json');
   summary.evidence.summary = summaryPath;
   writeFileSync(summaryPath, JSON.stringify(summary));
-  return { selection, fingerprint, controls, domainReport, domainReportPath, summary };
+  return { selection, fingerprint, controls, domainReport, domainReportPath, summary, tracePath, traceSha256 };
 };
 
 const makeTlaFixture = (root) => {
@@ -106,9 +127,12 @@ const makeTlaFixture = (root) => {
     traces: [{ name: selection.traceName, model: selection.model, actions: [{ label: 'Reload' }] }],
   };
   const tracePath = join(root, 'trace.json');
-  writeFileSync(tracePath, JSON.stringify(trace));
+  const traceBytes = Buffer.from(JSON.stringify(trace));
+  writeFileSync(tracePath, traceBytes);
+  const traceSha256 = sha256(traceBytes);
   const tla = {
     sourceProfile: 'journey', sourceCommit, sourceFingerprint, contractSourceCommit,
+    traceSha256,
     traceCount: 1, uniqueTraceCount: 1, validatedCount: 1, invalidCount: 0,
     coverage: {
       requiredModels: { missing: [] }, requiredActions: { missing: [] },
@@ -118,12 +142,13 @@ const makeTlaFixture = (root) => {
     traces: [{ name: selection.traceName, model: selection.model, status: 'pass', actionCount: 1 }],
     builderJourneyTrace: {
       traceName: selection.traceName, nativeCaseKey: selection.nativeCaseKey,
+      traceSha256,
       replayStatus: 'pass', status: 'pending-self-test', requestCoverage: { observed: 2, modeled: 2, unmapped: 0, duplicates: 0 },
       requiredActionCountsByTrace: { mismatches: {} }, requiredActionMinimumsByTrace: { mismatches: {} },
       unmodeledEvents: { unclassified: { total: 0 } },
     },
   };
-  return { selection, sourceCommit, sourceFingerprint, contractSourceCommit, tracePath, tla };
+  return { selection, sourceCommit, sourceFingerprint, contractSourceCommit, tracePath, traceBytes, traceSha256, tla };
 };
 
 test('native Builder proof gates accept a complete retained receipt and reject lifecycle, source, or mutation drift', (t) => {
@@ -166,6 +191,11 @@ test('native Builder proof gates accept a complete retained receipt and reject l
 
   const tla = makeTlaFixture(root);
   assert.equal(validateNativeTlaReceipt(tla).status, 'passed');
+  const changedTrace = JSON.parse(readFileSync(tla.tracePath, 'utf8'));
+  changedTrace.traces[0].actions[0].label = 'Preview';
+  writeFileSync(tla.tracePath, JSON.stringify(changedTrace));
+  assert.equal(validateNativeTlaReceipt(tla).status, 'failed');
+  writeFileSync(tla.tracePath, tla.traceBytes);
   const wrongTlaFingerprint = copy(tla);
   wrongTlaFingerprint.tla.sourceFingerprint = 'f'.repeat(64);
   assert.equal(validateNativeTlaReceipt(wrongTlaFingerprint).status, 'failed');
@@ -176,7 +206,6 @@ const makeEvidenceFixture = (root) => {
   const nativeCaseKey = 'scenario/case';
   const model = 'BuilderJourney';
   const sourceCommit = '1'.repeat(40);
-  const contractSourceCommit = '2'.repeat(40);
   const sourcePath = 'proof-source.txt';
   const sourceBytes = Buffer.from('retained proof source');
   writeFileSync(join(root, sourcePath), sourceBytes);
@@ -186,9 +215,15 @@ const makeEvidenceFixture = (root) => {
     sources: [{ path: sourcePath, sha256: sourceHash }],
   }));
   const contractPath = 'verification/builder-interactions/cda-contract.json';
-  writeFileSync(join(root, contractPath), JSON.stringify({ sourceCommit: contractSourceCommit }));
+  const contract = JSON.parse(readFileSync(new URL('../../../../verification/builder-interactions/builder-cda-group-related-contract.json', import.meta.url), 'utf8'));
+  const contractSourceCommit = contract.sourceCommit;
+  writeFileSync(join(root, contractPath), JSON.stringify(contract));
   const sourceFingerprint = sha256(canonicalJson([{ path: sourcePath, sha256: sourceHash }]));
-  const controls = [{ name: 'wrong-related-binding', status: 'pass' }];
+  const observedEpoch = 1;
+  const controls = [
+    ...contract.journeyCase.requiredMutationControlNames,
+    contract.journeyCase.observedOwnerEpochControlPrefix + observedEpoch,
+  ].map(name => ({ name, status: 'pass' }));
   const requestCoverage = { observed: 2, modeled: 2, unmapped: 0, duplicates: 0 };
   const counts = { mismatches: {} };
   const minimums = { mismatches: {} };
@@ -196,37 +231,49 @@ const makeEvidenceFixture = (root) => {
   const tracePath = join(root, 'trace.json');
   const replayReportPath = join(root, 'tla.json');
   const selfTestReportPath = join(root, 'self-test.json');
+  const owner = { kind: 'proposal', browserRequestId: 'native-request-1', mountEpoch: observedEpoch };
   const evidence = {
     status: 'pass', traceName, nativeCaseKey, replayStatus: 'pass', selfTestStatus: 'pass',
     tracePath, replayReportPath, selfTestReportPath,
     requestCoverage, requiredActionCountsByTrace: counts, requiredActionMinimumsByTrace: minimums,
-    unmodeledEvents: unmodeled, mutationControls: controls, actionLabels: ['Reload'],
+    unmodeledEvents: unmodeled, mutationControls: controls, actionLabels: ['Preview', 'Reload'],
   };
   const trace = {
     sourceProfile: 'journey', sourceCommit, sourceFingerprint, contractSourceCommit,
-    traces: [{ name: traceName, model, status: 'pass', actions: [{ label: 'Reload' }] }],
+    traces: [{ name: traceName, model, status: 'pass', actions: [
+      { label: 'Preview', groupLifecycle: { owner } },
+      { label: 'Reload' },
+    ], nativeRequests: [{
+      index: 0, browserRequestId: owner.browserRequestId, requestId: 'request-1', method: 'POST',
+      path: '/authoring/v2/construction-proposals', startedAt: 1, isMutation: true,
+    }] }],
   };
+  const traceBytes = Buffer.from(JSON.stringify(trace));
+  const traceSha256 = sha256(traceBytes);
+  evidence.traceSha256 = traceSha256;
   const replay = {
     sourceProfile: 'journey', sourceCommit, sourceFingerprint, contractSourceCommit,
+    traceSha256,
     traceCount: 1, uniqueTraceCount: 1, validatedCount: 1, invalidCount: 0,
     coverage: {
       requiredModels: { missing: [] }, requiredActions: { missing: [] },
       requiredActionsByTrace: { missing: {} }, requiredEvents: { missing: [] },
     },
     unmodeledEvents: unmodeled,
-    traces: [{ name: traceName, model, status: 'pass', actionCount: 1 }],
+    traces: [{ name: traceName, model, status: 'pass', actionCount: 2 }],
     builderJourneyTrace: {
       traceName, nativeCaseKey, replayStatus: 'pass', status: 'pending-self-test',
+      traceSha256,
       tracePath: evidence.tracePath, replayReportPath: evidence.replayReportPath,
-      actionLabels: ['Reload'], requestCoverage, requiredActionCountsByTrace: counts,
+      actionLabels: ['Preview', 'Reload'], requestCoverage, requiredActionCountsByTrace: counts,
       requiredActionMinimumsByTrace: minimums, unmodeledEvents: unmodeled,
     },
   };
   const selfTest = {
     status: 'pass', traceName, nativeCaseKey, tracePath: evidence.tracePath,
-    selfTestReportPath: evidence.selfTestReportPath, mutationControls: controls,
+    traceSha256, selfTestReportPath: evidence.selfTestReportPath, mutationControls: controls,
   };
-  writeFileSync(evidence.tracePath, JSON.stringify(trace));
+  writeFileSync(evidence.tracePath, traceBytes);
   writeFileSync(evidence.replayReportPath, JSON.stringify(replay));
   writeFileSync(evidence.selfTestReportPath, JSON.stringify(selfTest));
   const reportPath = 'native-report.json';
@@ -235,12 +282,12 @@ const makeEvidenceFixture = (root) => {
   const registeredCase = {
     journeyTrace: {
       kind: 'native-lifecycle', name: traceName, model, contract: contractPath,
-      requiredActions: ['Reload'], requiredActionCounts: { Reload: 1 },
-      minimumActionCounts: {}, optionalActions: [],
+      requiredActions: ['Preview', 'Reload'], requiredActionCounts: { Reload: 1 },
+      minimumActionCounts: { Preview: 1 }, optionalActions: [],
     },
   };
   const sourceStatus = { status: 'current' };
-  return { root, evidence, report, reportPath, registeredCase, sourceStatus, selfTest, replay };
+  return { root, evidence, report, reportPath, registeredCase, sourceStatus, selfTest, replay, traceBytes };
 };
 
 test('current browser evidence requires the retained replay receipt and passing mutation controls', (t) => {
@@ -259,8 +306,25 @@ test('current browser evidence requires the retained replay receipt and passing 
   writeFileSync(fixture.evidence.selfTestReportPath, JSON.stringify(failedControl));
   assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /mutation receipt is missing passing negative controls/);
 
+  const substitutedControl = copy(fixture.selfTest);
+  substitutedControl.mutationControls[0].name = 'invented-control';
+  writeFileSync(fixture.evidence.selfTestReportPath, JSON.stringify(substitutedControl));
+  assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /mutation controls differ from the contract inventory/);
+
+  const duplicateControl = copy(fixture.selfTest);
+  duplicateControl.mutationControls[1].name = duplicateControl.mutationControls[0].name;
+  writeFileSync(fixture.evidence.selfTestReportPath, JSON.stringify(duplicateControl));
+  assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /mutation controls differ from the contract inventory/);
+
   const missingReplayCoverage = copy(fixture.replay);
   missingReplayCoverage.builderJourneyTrace.requestCoverage.unmapped = 1;
   writeFileSync(fixture.evidence.replayReportPath, JSON.stringify(missingReplayCoverage));
   assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /incomplete or duplicated native request coverage/);
+
+  writeFileSync(fixture.evidence.replayReportPath, JSON.stringify(fixture.replay));
+  writeFileSync(fixture.evidence.selfTestReportPath, JSON.stringify(fixture.selfTest));
+  const tamperedTrace = JSON.parse(fixture.traceBytes.toString('utf8'));
+  tamperedTrace.traces[0].actions[0].label = 'PreviewError';
+  writeFileSync(fixture.evidence.tracePath, JSON.stringify(tamperedTrace));
+  assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /do not bind the exact retained trace bytes/);
 });

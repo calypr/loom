@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDevSession, createFreshVerificationFixture } from './loom-dev.mjs';
+import { assertNativeBuilderJourneyMutationControls } from './verify-ui/helpers/builder-journey-trace.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 
@@ -209,9 +210,22 @@ const registeredNativeJourney = (nativeCaseId) => {
   const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
   if (contract.sourceProfile !== 'journey') throw new Error('registered native journey contract must declare sourceProfile "journey"');
   const model = contract.models?.[binding.model];
-  if (!model || !Array.isArray(model.actions) || !model.actions.length) {
+  if (!model || !Array.isArray(model.actions) || !model.actions.length ||
+      typeof model.module !== 'string' || !model.module.trim() ||
+      typeof model.safetyConfig !== 'string' || !model.safetyConfig.trim()) {
     throw new Error('registered journeyTrace model is absent from its contract: ' + binding.model);
   }
+  const modelDirectory = 'verification/builder-interactions';
+  const modelDirectoryPath = resolve(ROOT, modelDirectory);
+  const modelSourcePaths = [model.module, model.safetyConfig].map((path) => {
+    if (isAbsolute(path)) throw new Error('registered journeyTrace model paths must be relative to ' + modelDirectory);
+    const pathFromRepository = path.startsWith(modelDirectory + '/') ? path : join(modelDirectory, path);
+    const absolute = resolve(ROOT, pathFromRepository);
+    if (!insideRepository(absolute) || !isWithin(modelDirectoryPath, absolute)) {
+      throw new Error('registered journeyTrace model path escapes ' + modelDirectory + ': ' + path);
+    }
+    return relative(ROOT, absolute).split(sep).join('/');
+  });
   const missingModelActions = [...binding.requiredActions, ...binding.optionalActions]
     .filter((action) => !model.actions.includes(action));
   if (missingModelActions.length > 0) {
@@ -258,8 +272,7 @@ const registeredNativeJourney = (nativeCaseId) => {
   const workflowSource = 'scripts/verify-ui/workflows/' + String(scenario.script ?? '');
   const requiredPins = [
     binding.contract,
-    model.module,
-    model.safetyConfig,
+    ...modelSourcePaths,
     workflowSource,
     ...binding.captureSources,
     'scripts/run-builder-journey.mjs',
@@ -581,11 +594,22 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
         const traceProof = domainReport.target?.builderJourneyTrace;
         const requestCoverage = traceProof?.requestCoverage;
         const mutationControls = traceProof?.mutationControls;
+        const tracePath = typeof traceProof?.tracePath === 'string' ? resolve(ROOT, traceProof.tracePath) : null;
+        let actualTraceSha256 = null;
+        let traceDocument = null;
+        if (tracePath && existsSync(tracePath)) {
+          const traceBytes = readFileSync(tracePath);
+          actualTraceSha256 = createHash('sha256').update(traceBytes).digest('hex');
+          try { traceDocument = JSON.parse(traceBytes.toString('utf8')); }
+          catch (error) { issues.push('native formal trace is not valid JSON: ' + String(error?.message ?? error)); }
+        }
         requireValue(traceProof?.status === 'pass' && traceProof?.replayStatus === 'pass' &&
           traceProof?.selfTestStatus === 'pass' &&
           traceProof?.traceName === selection.traceName &&
           traceProof?.nativeCaseKey === `${selection.scenarioID}/${selection.caseName}`,
         'native domain report did not include a passing source-bound trace replay and mutation self-test');
+        requireValue(actualTraceSha256 !== null && traceProof.traceSha256 === actualTraceSha256,
+          'native formal receipt traceSha256 does not bind the exact retained trace bytes');
         requireValue(Number.isInteger(requestCoverage?.observed) &&
           requestCoverage.modeled === requestCoverage.observed &&
           requestCoverage.unmapped === 0 && requestCoverage.duplicates === 0 &&
@@ -597,6 +621,16 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
           mutationControls.every((control) => typeof control.name === 'string' &&
             control.name.length > 0 && control.status === 'pass'),
         'native formal receipt is missing passing mutation controls');
+        try {
+          const nativeContract = JSON.parse(readFileSync(resolve(ROOT, selection.contract), 'utf8'));
+          assertNativeBuilderJourneyMutationControls(mutationControls, {
+            contract: nativeContract,
+            traceDocument,
+            where: 'Native bracket mutation receipt',
+          });
+        } catch (error) {
+          issues.push('native formal receipt mutation controls do not match the contract inventory: ' + String(error?.message ?? error));
+        }
       }
     } catch (error) {
       issues.push('native domain report could not be validated: ' + String(error?.message ?? error));
@@ -668,8 +702,16 @@ const validateNativeTlaReceipt = ({ tracePath, tla, sourceCommit, sourceFingerpr
   const issues = [];
   const requireValue = (condition, message) => { if (!condition) issues.push(message); };
   let traceDocument = null;
-  try { traceDocument = JSON.parse(readFileSync(resolve(ROOT, tracePath), 'utf8')); }
+  let actualTraceSha256 = null;
+  try {
+    const traceBytes = readFileSync(resolve(ROOT, tracePath));
+    actualTraceSha256 = createHash('sha256').update(traceBytes).digest('hex');
+    traceDocument = JSON.parse(traceBytes.toString('utf8'));
+  }
   catch (error) { issues.push('native trace could not be read: ' + String(error?.message ?? error)); }
+  requireValue(actualTraceSha256 !== null && tla?.traceSha256 === actualTraceSha256 &&
+    tla?.builderJourneyTrace?.traceSha256 === actualTraceSha256,
+  'native replay receipt traceSha256 does not bind the exact retained trace bytes');
   requireValue(traceDocument?.sourceCommit === sourceCommit && tla?.sourceCommit === sourceCommit,
     'native trace/TLA source commit differs from the tested commit');
   requireValue(traceDocument?.sourceFingerprint === sourceFingerprint && tla?.sourceFingerprint === sourceFingerprint,
@@ -715,6 +757,7 @@ const validateNativeTlaReceipt = ({ tracePath, tla, sourceCommit, sourceFingerpr
     actionCount: trace?.actions?.length ?? null,
     sourceCommit: tla?.sourceCommit ?? null,
     sourceFingerprint: tla?.sourceFingerprint ?? null,
+    traceSha256: actualTraceSha256,
     contractSourceCommit: tla?.contractSourceCommit ?? null,
     tracePath,
   };
