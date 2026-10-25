@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
+import { READ_ONLY_POST_PATH_SUFFIXES } from './playwright-network-observer.mjs';
 
 const REQUIRED_LABELS = Object.freeze([
   'ExplorerCreated',
@@ -35,6 +36,7 @@ const PROPOSAL_SUFFIXES = Object.freeze([
   '/construction-proposals',
   '/construction-choice-proposals',
 ]);
+const SAFE_READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 const NO = 'No';
 const MISSING_REQUEST = Object.freeze({
@@ -128,7 +130,8 @@ const safeArray = value => Array.isArray(value) ? value : [];
 const without = (value, excluded) => Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => !excluded.has(key)));
 const fieldId = value => value?.columnId ?? value?.id ?? NO;
 const stepId = value => value?.id ?? value?.stepId ?? NO;
-const filterOperation = step => step?.operation?.kind === 'FILTER' ? step.operation.filter : null;
+const isProposalRequest = request => request.method === 'POST' &&
+  PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix));
 
 const projectFilterValue = value => {
   assert(value && typeof value === 'object' && typeof value.kind === 'string',
@@ -171,8 +174,10 @@ const projectColumns = value => safeArray(value).map(column => ({
   evidence: opaqueJSON(without(column, new Set(['id', 'columnId']))),
 }));
 
-const projectSnapshot = snapshot => {
-  if (snapshot === null || snapshot === undefined) return MISSING_SNAPSHOT;
+const projectSnapshot = (snapshot, initialMountEpoch) => {
+  if (snapshot === null || snapshot === undefined) {
+    return { ...MISSING_SNAPSHOT, mountEpoch: initialMountEpoch };
+  }
   assert(Array.isArray(snapshot.workspaceDocuments), 'Builder snapshots must retain complete workspace documents.');
   assert.equal(snapshot.workspaceDigest, sha256(snapshot.workspaceDocuments),
     `${snapshot.readId} must carry the SHA-256 of its complete workspace documents.`);
@@ -263,8 +268,8 @@ const projectRequest = request => {
   };
 };
 
-const projectUI = (ui, timeOrigin) => {
-  if (ui === null || ui === undefined) return MISSING_UI;
+const projectUI = (ui, timeOrigin, initialMountEpoch) => {
+  if (ui === null || ui === undefined) return { ...MISSING_UI, mountEpoch: initialMountEpoch };
   return {
     capturedAtMonotonicMs: Math.round((ui.capturedAtMonotonicMs - timeOrigin.monotonicMs) * 1_000),
     capturedAtMonotonicMsExact: String(ui.capturedAtMonotonicMs),
@@ -300,7 +305,7 @@ const projectFilterEvidence = filter => {
   };
 };
 
-const projectModelEvent = (event, rawStep, timeOrigin) => ({
+const projectModelEvent = (event, rawStep, timeOrigin, initialMountEpoch) => ({
   action: event.action,
   atMonotonicMs: Math.round((event.atMonotonicMs - timeOrigin.monotonicMs) * 1_000),
   atMonotonicMsExact: String(event.atMonotonicMs),
@@ -308,9 +313,9 @@ const projectModelEvent = (event, rawStep, timeOrigin) => ({
   atEpochMsExact: String(event.atEpochMs),
   mountEpoch: event.mountEpoch,
   request: projectRequest(event.request),
-  before: projectSnapshot(event.before),
-  after: projectSnapshot(event.after),
-  ui: projectUI(event.ui, timeOrigin),
+  before: projectSnapshot(event.before, initialMountEpoch),
+  after: projectSnapshot(event.after, initialMountEpoch),
+  ui: projectUI(event.ui, timeOrigin, initialMountEpoch),
   filter: projectFilterEvidence(event.filter),
   proposalCaptureIds: safeArray(rawStep.proposalCaptureIds),
 });
@@ -352,6 +357,86 @@ const buildCase = (caseName, actions) => {
 const countBy = values => values.reduce((counts, value) => counts.set(value, (counts.get(value) ?? 0) + 1), new Map());
 const expectedCounts = countBy(REQUIRED_LABELS);
 const sortedCounts = counts => [...counts.entries()].sort(([left], [right]) => left.localeCompare(right));
+
+const snapshotAt = (capture, index) => {
+  if (index === null || index === undefined) return null;
+  assert(Number.isInteger(index) && index >= 0 && index < capture.builderReads.length,
+    `Raw Builder read index ${String(index)} must resolve inside the captured read ledger.`);
+  const read = capture.builderReads[index];
+  assert(Array.isArray(read.workspaceDocuments), `Raw Builder read ${read.readId} must retain complete documents.`);
+  const exactOutput = capture.outputId
+    ? read.workspaceDocuments.find(document => document.output?.id === capture.outputId)
+    : undefined;
+  const document = exactOutput ?? read.workspaceDocuments.find(item => item.rootResourceType === capture.resourceType) ?? null;
+  const columns = document?.columns ?? [];
+  const temporalColumn = columns.find(column => column.source?.kind === 'field' &&
+    column.source.field?.path === capture.fieldPath) ?? null;
+  return {
+    readId: read.readId,
+    requestId: read.requestId ?? null,
+    status: read.status,
+    mountEpoch: read.mountEpoch,
+    catalogGeneration: read.catalogGeneration ?? null,
+    draftVersion: read.draftVersion ?? null,
+    draftDigest: read.draftDigest ?? null,
+    workspaceDocuments: read.workspaceDocuments,
+    workspaceDigest: sha256(read.workspaceDocuments),
+    outputId: document?.output?.id ?? null,
+    columnId: temporalColumn?.columnId ?? temporalColumn?.id ?? null,
+    columns,
+    steps: document?.construction?.steps ?? [],
+  };
+};
+
+const domAt = (capture, index) => {
+  if (index === null || index === undefined) return null;
+  assert(Number.isInteger(index) && index >= 0 && index < capture.domObservations.length,
+    `Raw DOM observation index ${String(index)} must resolve inside the captured DOM ledger.`);
+  const observation = capture.domObservations[index];
+  return {
+    capturedAtMonotonicMs: observation.capturedAtMonotonicMs,
+    capturedAtEpochMs: observation.capturedAtEpochMs,
+    mountEpoch: observation.mountEpoch,
+    proposalStatus: observation.proposalStatus ?? null,
+    proposalId: observation.proposalId ?? null,
+    receiptId: observation.receiptId ?? null,
+    outputId: observation.outputId ?? null,
+    columnId: observation.columnId ?? null,
+    inputType: observation.inputType ?? null,
+    inputValue: observation.inputValue ?? null,
+    operator: observation.operator ?? null,
+    rowIds: observation.rowIds ?? [],
+  };
+};
+
+const explorerIdFrom = capture => {
+  const created = capture.requestEvents.find(event => event.method === 'POST' &&
+    event.path.endsWith('/explorers') && typeof event.response?.explorerId === 'string');
+  return created?.response.explorerId ?? null;
+};
+
+const supportedPureRead = (capture, request) => {
+  const path = request.path;
+  if (request.method === 'POST') {
+    return READ_ONLY_POST_PATH_SUFFIXES.some(suffix => path.endsWith(suffix));
+  }
+  if (!SAFE_READ_METHODS.has(request.method)) return false;
+  const projectRoot = `/api/v1/projects/${encodeURIComponent(capture.project)}`;
+  const explorersRoot = `${projectRoot}/explorers`;
+  if (path === explorersRoot) return true;
+  const explorerId = explorerIdFrom(capture);
+  if (explorerId) {
+    if (path === `${explorersRoot}/${encodeURIComponent(explorerId)}`) return true;
+    const authoringRoot = `${explorersRoot}/${encodeURIComponent(explorerId)}/authoring/v2`;
+    if (path === `${authoringRoot}/builder`) return true;
+    if (READ_ONLY_TEMPORAL_ENDPOINTS.some(suffix => path === `${authoringRoot}${suffix}`)) return true;
+  }
+  return /^\/api\/v1\/datasets\/[^/]+\/generations\/[^/]+$/u.test(path);
+};
+
+const READ_ONLY_TEMPORAL_ENDPOINTS = Object.freeze(READ_ONLY_POST_PATH_SUFFIXES
+  .filter(suffix => suffix.startsWith('/authoring/v2/'))
+  .map(suffix => suffix.slice('/authoring/v2'.length)));
 
 export const validateTemporalFilterJourneyTrace = trace => {
   assert(trace && typeof trace === 'object', 'Temporal-filter compiler requires a canonical journey trace.');
@@ -401,7 +486,17 @@ export const validateTemporalFilterJourneyTrace = trace => {
     assert(typeof request.method === 'string' && typeof request.path === 'string');
     assert(Number.isFinite(request.startedAt) && Number.isFinite(request.completedAt),
       `Observer request ${request.browserRequestId} must have one settled response.`);
-    assert(Number.isFinite(request.status), `Observer request ${request.browserRequestId} must retain its response status.`);
+    if (request.status === null) {
+      assert(!request.isMutation && request.readCancellationDiagnostic === true &&
+        request.failure?.canceled === true && isProposalRequest(request),
+      `Observer request ${request.browserRequestId} may omit status only for a captured read-only proposal cancellation.`);
+    } else {
+      assert(Number.isFinite(request.status), `Observer request ${request.browserRequestId} must retain its response status.`);
+    }
+    if (!request.isMutation && !isProposalRequest(request)) {
+      assert(supportedPureRead(lifecycle, request),
+        `Unclassified read-only ${request.method} ${request.path} has no temporal-filter path allowlist entry.`);
+    }
     assert(Number.isFinite(request.atMonotonicMs) && Number.isFinite(request.atEpochMs));
     assert(Number.isInteger(request.mountEpoch));
   }
@@ -423,17 +518,36 @@ export const validateTemporalFilterJourneyTrace = trace => {
     assert(rawStep.requestCaptureId === null || rawStep.requestCaptureId === undefined ||
       typeof rawStep.requestCaptureId === 'string', `${event.action} request link must preserve its actual ID.`);
     const requestCaptureId = rawStep.requestCaptureId ?? null;
+    assert.deepEqual(event.before, snapshotAt(lifecycle, rawStep.beforeReadIndex),
+      `${event.action} before snapshot must resolve from its actual raw Builder read index.`);
+    assert.deepEqual(event.after, snapshotAt(lifecycle, rawStep.afterReadIndex),
+      `${event.action} after snapshot must resolve from its actual raw Builder read index.`);
+    assert.deepEqual(event.ui, domAt(lifecycle, rawStep.domObservationIndex),
+      `${event.action} DOM observation must resolve from its actual raw DOM index.`);
     if (requestCaptureId === null) {
       assert.equal(event.request, null, `${event.action} without a captured request must remain request-free.`);
+      if (rawStep.domObservationIndex !== null && rawStep.domObservationIndex !== undefined) {
+        const observation = lifecycle.domObservations[rawStep.domObservationIndex];
+        assert.equal(event.atMonotonicMs, observation.capturedAtMonotonicMs,
+          `${event.action} timestamp must come from its actual DOM observation.`);
+        assert.equal(event.atEpochMs, observation.capturedAtEpochMs,
+          `${event.action} epoch time must come from its actual DOM observation.`);
+        assert.equal(event.mountEpoch, observation.mountEpoch,
+          `${event.action} mount epoch must come from its actual DOM observation.`);
+      }
     } else {
       const raw = rawRequestById.get(requestCaptureId);
       assert(raw, `${event.action} must reference one raw observed request.`);
       assert.equal(event.request?.captureId, requestCaptureId);
       assert.equal(event.request?.isMutation, raw.isMutation,
         `${event.action} must preserve the observer's mutation classification.`);
+      assert.equal(event.request?.requestId ?? null, raw.requestId ?? null,
+        `${event.action} must preserve its actual raw request ID or its actual absence.`);
       assert.equal(event.request?.method, raw.method);
       assert.equal(event.request?.path, raw.path);
       assert.equal(event.request?.status, raw.status);
+      assert(Number.isFinite(raw.status) && raw.status >= 200 && raw.status < 300,
+        `${event.action} semantic request must have one successful response.`);
       assert.equal(event.atMonotonicMs, raw.atMonotonicMs);
       assert.equal(event.atEpochMs, raw.atEpochMs);
       assert.equal(event.mountEpoch, raw.mountEpoch);
@@ -445,13 +559,15 @@ export const validateTemporalFilterJourneyTrace = trace => {
         `${event.action} request must have a settled matching response.`);
       actionRequestIds.push(requestCaptureId);
     }
+    assert.equal(event.request?.isMutation ?? false, MUTATION_ACTIONS.has(event.action),
+      `${event.action} must have the mutation class defined by its semantic transition.`);
     const linkedProposals = safeArray(rawStep.proposalCaptureIds);
     proposalLinks.push(...linkedProposals);
     for (const proposalId of linkedProposals) {
       const request = rawRequestById.get(proposalId);
       assert(request, `${event.action} proposal link must identify a captured observer request.`);
       assert.equal(request.method, 'POST');
-      assert(PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix)),
+      assert(isProposalRequest(request),
         `${event.action} proposal link must be a construction proposal request.`);
     }
     if (requestCaptureId !== null && event.action.startsWith('FilterProposed(')) {
@@ -466,8 +582,7 @@ export const validateTemporalFilterJourneyTrace = trace => {
     .map(event => event.request.captureId).sort();
   assert.deepEqual(consumedMutations, expectedMutations,
     'Every observed mutation must be bound to exactly one semantic action.');
-  const expectedProposals = rawRequests.filter(request => request.method === 'POST' &&
-    PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix)))
+  const expectedProposals = rawRequests.filter(isProposalRequest)
     .map(request => request.browserRequestId).sort();
   assert.deepEqual([...proposalLinks].sort(), expectedProposals,
     'Every observer construction proposal must be linked to exactly one semantic step.');
@@ -486,7 +601,9 @@ export const validateTemporalFilterJourneyTrace = trace => {
     epochMs: Math.min(...trace.actions.map(event => event.atEpochMs)),
   };
   const rawStepByActionIndex = lifecycle.steps;
-  const modelEvents = trace.actions.map((event, index) => projectModelEvent(event, rawStepByActionIndex[index], timeOrigin));
+  const initialMountEpoch = trace.actions[0].mountEpoch;
+  const modelEvents = trace.actions.map((event, index) => projectModelEvent(
+    event, rawStepByActionIndex[index], timeOrigin, initialMountEpoch));
   const observedRequests = rawRequests.map(request => ({
     captureId: request.browserRequestId,
     requestId: noIfAbsent(request.requestId),
@@ -494,16 +611,19 @@ export const validateTemporalFilterJourneyTrace = trace => {
     method: request.method,
     path: request.path,
     status: noIfAbsent(request.status),
+    outputId: noIfAbsent(request.response?.outputId),
+    receiptId: noIfAbsent(request.response?.preview?.receiptId),
+    candidateColumnIds: safeArray(request.response?.candidateColumnIds),
     requestEvidence: opaqueJSON(request.request),
     responseEvidence: opaqueJSON(request.response),
   }));
-  const pureReadCaptureIds = rawRequests.filter(request => !request.isMutation &&
-    !PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix)))
+  const pureReadCaptureIds = rawRequests.filter(request => !request.isMutation && !isProposalRequest(request))
     .map(request => request.browserRequestId);
 
   return {
     caseName,
     profile,
+    initialMountEpoch,
     caseValue: buildCase(caseName, trace.actions),
     modelEvents,
     observedRequests,
@@ -552,6 +672,7 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
   const moduleText = [
     `---------------- MODULE ${moduleName} ----------------`,
     'EXTENDS TemporalFilterJourney',
+    `TraceInitialMountEpoch == ${tlaValue(input.initialMountEpoch)}`,
     `TraceCase == ${tlaValue(input.caseValue)}`,
     `TraceEvents == ${tlaValue(input.modelEvents)}`,
     `TraceObservedRequests == ${tlaValue(input.observedRequests)}`,
@@ -561,6 +682,7 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
   const configText = [
     'SPECIFICATION Spec',
     `CONSTANT Profile = ${tlaValue(input.profile)}`,
+    'CONSTANT InitialMountEpoch <- TraceInitialMountEpoch',
     'CONSTANT Case <- TraceCase',
     'CONSTANT ModelEvents <- TraceEvents',
     'CONSTANT ObservedRequests <- TraceObservedRequests',
@@ -574,6 +696,7 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     configText,
     caseName: input.caseName,
     profile: input.profile,
+    initialMountEpoch: input.initialMountEpoch,
     eventCount: input.eventCount,
     observedRequestCount: input.observedRequestCount,
     mutationCount: input.mutationCount,
