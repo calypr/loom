@@ -253,6 +253,9 @@ export const builderJourneyReportPaths = ({
         'Native retained report path requires the outer report path.');
     }
     const outputs = [tracePath, paths.replayReportPath, paths.selfTestReportPath, ...retainedPaths];
+    for (const output of outputs) {
+      mkdirSync(dirname(resolve(output)), { recursive: true });
+    }
     const canonicalOutputs = outputs.map(path => {
       const absolute = resolve(path);
       return join(realpathSync(dirname(absolute)), basename(absolute));

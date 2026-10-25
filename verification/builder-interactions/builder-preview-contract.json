@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "a1268af01d584f10362035070c62220721a11c145d2f90352cf15ebbf952728f",
+      "sha256": "a4367fb1758a74e733794b532537d0cd21ef9e886c368d4b5667b08a15f97dd5",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -404,12 +404,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "4e146093c5fa238bdfb964da21e846d0f4ad9358f3f4a185bd7c0d403db83031",
+      "sha256": "db4065e1609f2be229708321147954aaf34bb43fb1dea773af71598c2a54bac1",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
-      "sha256": "8e36748f3ee1d1a7a896a2af4a3351fdd16da97e36e1dab7e3d1825f933f4e93",
+      "sha256": "44011f6ff9f72098248e52e25fab8af283a494097a298af57356b03a97ee6cce",
       "contract": "Focused tests for native Builder trace capture and request-owner evidence."
     },
     {

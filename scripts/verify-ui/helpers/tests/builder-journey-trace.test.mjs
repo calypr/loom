@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -199,6 +199,28 @@ test('native replay outputs are unique trace siblings, reject existing files, an
     replayReportPath: join(evidenceDirectory, `${artifactStem}-tla.json`),
     selfTestReportPath: resolve(repositoryRoot, evidenceDirectory, `${artifactStem}-self-test.json`),
   });
+});
+
+test('native replay output planning creates a missing trace parent before canonical path validation', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'builder-journey-missing-output-parent-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const traceDirectory = join(directory, 'nested', 'run');
+  const tracePath = join(traceDirectory, 'fresh-trace.json');
+
+  assert.equal(existsSync(traceDirectory), false);
+  const paths = builderJourneyReportPaths({
+    captureKind: 'builder-cda-native-lifecycle',
+    tracePath,
+  });
+
+  assert.equal(existsSync(traceDirectory), true);
+  assert.deepEqual(paths, {
+    replayReportPath: join(traceDirectory, 'fresh-trace-tla.json'),
+    selfTestReportPath: join(traceDirectory, 'fresh-trace-self-test.json'),
+  });
+  assert.equal(existsSync(tracePath), false);
+  assert.equal(existsSync(paths.replayReportPath), false);
+  assert.equal(existsSync(paths.selfTestReportPath), false);
 });
 
 test('native replay and mutation receipts preserve verifier coverage and require every mutation control to pass', () => {

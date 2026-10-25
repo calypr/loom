@@ -2294,9 +2294,11 @@ const registryRows = [
               'scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs',
               'scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs',
               'scripts/verify-ui/helpers/tests/transport-terminal.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+              'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-ui/helpers/builder-rendered-grid.mjs',
               'scripts/verify-ui/helpers/fixture-context.mjs',
               'scripts/verify-ui/helpers/temporal-filter-capture.mjs',
@@ -2421,9 +2423,11 @@ const registryRows = [
               'node-test',
               'scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs',
               'scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+              'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-ui/helpers/builder-rendered-grid.mjs',
               'scripts/verify-ui/helpers/fixture-context.mjs',
               'scripts/verify-ui/helpers/temporal-filter-capture.mjs',
