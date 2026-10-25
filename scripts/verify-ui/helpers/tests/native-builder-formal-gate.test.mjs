@@ -11,6 +11,7 @@ import {
 } from '../../../generate-builder-browser-evidence.mjs';
 import {
   bracketSummaryFromOutput,
+  inspectNativeLifecycleJourney,
   nativeEnvironmentTargetProblems,
   resolveNativeEvidenceParent,
   retainNativeDomainReportArtifact,
@@ -18,9 +19,23 @@ import {
   validateNativeJourneyTraceBinding,
   validateNativeTlaReceipt,
 } from '../../../run-builder-journey.mjs';
-import { nativeBuilderJourneyReceiptFromReport, resolveNativeBuilderJourneyArtifactPath } from '../builder-journey-trace.mjs';
+import {
+  builderJourneyTraceBindingFor,
+  finalizeNativeBuilderJourneyReceipt,
+  nativeBuilderJourneyReceiptFromReport,
+  resolveNativeBuilderJourneyArtifactPath,
+} from '../builder-journey-trace.mjs';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
 import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from '../../../verify-builder-traces.mjs';
+import { planFocusedCheckGroups } from '../focused-check-groups.mjs';
+import {
+  builderFormalAdapterForBinding,
+  builderFormalAdapterForContract,
+  registeredBuilderFormalAdapterIds,
+} from '../builder-formal-adapters.mjs';
+import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
+import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journey.mjs';
+import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
 const makeRepositoryArtifactDirectory = (prefix) => {
@@ -182,10 +197,15 @@ const makeBracketFixture = (root) => {
     'Preview', 'PreviewComplete', 'EditGroupAgain', 'Reload', 'RelatedSourcePreview', 'RelatedSourceCancel',
     'RelatedSourcePreview', 'RelatedSourceApply', 'Reload',
   ];
-  const actions = actionLabels.map((label, index) => ({
-    label,
-    ...(index < owners.length ? { groupLifecycle: { owner: owners[index] } } : {}),
-  }));
+  const actions = actionLabels.map((label, index) => {
+    const event = contract.actionBindings[label]?.event;
+    assert(event, `Synthetic CDA fixture action ${label} must resolve through the checked-in trace contract.`);
+    return {
+      label,
+      event,
+      ...(index < owners.length ? { groupLifecycle: { owner: owners[index] } } : {}),
+    };
+  });
   const nativeRequests = [
     ...owners.map((owner, index) => ({
       index,
@@ -227,8 +247,15 @@ const makeBracketFixture = (root) => {
     sourceCommit: 'b'.repeat(40),
     sourceFingerprint: fingerprint.sha256,
     contractSourceCommit: contract.sourceCommit,
-    fixture: {},
-    traces: [{ name: selection.traceName, model: selection.model, actions, nativeRequests }],
+    fixture: { kind: 'synthetic-unit-fixture', producer: 'makeBracketFixture' },
+    traces: [{
+      name: selection.traceName,
+      model: selection.model,
+      initialObservation: { kind: 'synthetic-unit-fixture', status: 'observed' },
+      actions,
+      unmodeledEvents: [],
+      nativeRequests,
+    }],
   };
   const nativeTraceBytes = Buffer.from(JSON.stringify(nativeTrace));
   const tracePath = join(root, 'native-trace.json');
@@ -371,9 +398,205 @@ const makeBracketFixture = (root) => {
   };
   return {
     selection, fingerprint, controls: mutationControls, domainReport, domainReportPath, summary, summaryPath,
-    tracePath, traceSha256, replayReportPath, selfTestReportPath, targetPath, actionLabels, outputEnvelope,
+    tracePath, traceSha256, replayReportPath, selfTestReportPath, targetPath, actionLabels, outputEnvelope, nativeTrace,
   };
 };
+
+const nativeFormalConformanceFixtureProducers = Object.freeze({
+  'builder-native-journey-v1': ({ t }) => {
+    const root = makeRepositoryArtifactDirectory('native-registry-conformance-cda-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const bracket = makeBracketFixture(root);
+    return {
+      synthetic: true,
+      producer: 'checked-in makeBracketFixture',
+      trace: bracket.nativeTrace.traces[0],
+      report: bracket.domainReport,
+      selection: bracket.selection,
+    };
+  },
+  'policy-one-disagreement-v1': () => ({
+    synthetic: true,
+    producer: 'checked-in makeSyntheticPolicyOneJourneyTrace',
+    trace: makeSyntheticPolicyOneJourneyTrace(),
+  }),
+  'temporal-filter-journey-v1': ({ adapter }) => {
+    const capture = makeTemporalFilterJourneyCaptureFixture(adapter.caseName);
+    return {
+      synthetic: true,
+      producer: 'checked-in makeTemporalFilterJourneyCaptureFixture + adaptTemporalFilterJourney',
+      trace: adaptTemporalFilterJourney(capture),
+    };
+  },
+});
+
+const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, scenarioID, caseName }) => {
+  assert.equal(typeof adapter.validateTrace, 'function',
+    `${binding.captureAdapter} must expose its production trace validator.`);
+  assert.equal(typeof adapter.compileTrace, 'function',
+    `${binding.captureAdapter} must expose its production trace compiler.`);
+  assert.equal(typeof adapter.requestCoverage, 'function',
+    `${binding.captureAdapter} must expose its production request-coverage consumer.`);
+  assert.equal(typeof adapter.buildMutationControls, 'function',
+    `${binding.captureAdapter} must expose its production mutation-control planner.`);
+
+  const validated = adapter.validateTrace(trace);
+  assert(validated && typeof validated === 'object', `${binding.captureAdapter} must return a validated trace projection.`);
+  if (adapter.family === 'temporal-filter-native-lifecycle') {
+    assert.equal(validated.caseName, caseName);
+  } else {
+    assert.strictEqual(validated, trace);
+  }
+  const moduleName = `RegistryConformance${caseName.replaceAll(/[^A-Za-z0-9]/gu, '')}`;
+  const compiled = adapter.compileTrace(trace, { moduleName });
+  assert.equal(compiled.modelName, binding.model);
+  assert.equal(compiled.moduleName, moduleName);
+  assert.match(compiled.modelText, /EXTENDS/u);
+
+  const requestCoverage = adapter.requestCoverage(trace);
+  assert.equal(nativeJourneyRequestCoverageProblem(requestCoverage, adapter.requestCoverageFields), null,
+    `${binding.captureAdapter} synthetic fixture must account for every request exactly once.`);
+  const controls = adapter.buildMutationControls(trace).map(control => ({ name: control.name, status: 'pass' }));
+  assert.deepEqual(controls.map(control => control.name), contract.nativeJourney.requiredMutationControlNames);
+  const actionLabels = trace.actions.map(action => action.label);
+  const tracePath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.trace.json`);
+  const traceDocument = { schemaVersion: 1, fixture: { kind: 'synthetic-unit-fixture' }, traces: [trace] };
+  writeFileSync(tracePath, JSON.stringify(traceDocument));
+  const traceSha256 = sha256(readFileSync(tracePath));
+  const selfTestReportPath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.self-test.json`);
+  const unmodeledEvents = { total: (trace.unmodeledEvents ?? []).length, unclassified: { total: 0 } };
+  const actionMismatchReceipt = { mismatches: {} };
+  const verifierReceipt = {
+    traceName: binding.name,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    tracePath,
+    traceSha256,
+    actionLabels,
+    status: 'pending-self-test',
+    replayStatus: 'pass',
+    selfTestStatus: 'not-run',
+    selfTestReportPath: null,
+    requestCoverage,
+    requestCoverageBasis: contract.nativeJourney.coverageBasis,
+    requiredActionCountsByTrace: actionMismatchReceipt,
+    requiredActionMinimumsByTrace: actionMismatchReceipt,
+    unmodeledEvents,
+  };
+  const selfTestReceipt = {
+    traceName: binding.name,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    tracePath,
+    traceSha256,
+    selfTestReportPath,
+    status: 'pass',
+    mutationControls: controls,
+  };
+  return finalizeNativeBuilderJourneyReceipt(verifierReceipt, selfTestReceipt, {
+    traceName: binding.name,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    actionLabels,
+    tracePath,
+    traceSha256,
+    selfTestReportPath,
+    contract,
+    traceDocument,
+    requestCoverageFields: adapter.requestCoverageFields,
+  });
+};
+
+test('synthetic conformance covers every registered native lifecycle from focused plan through production trace consumers', (t) => {
+  const registrations = registry.flatMap(scenario => Object.entries(scenario.cases ?? {})
+    .map(([caseName, registeredCase]) => ({ scenario, caseName, registeredCase }))
+    .filter(({ registeredCase }) => registeredCase.journeyTrace?.kind === 'native-lifecycle'));
+  assert(registrations.length > 0, 'Registry must contain native lifecycle journeys to conform.');
+  const knownAdapterIDs = new Set(registeredBuilderFormalAdapterIds);
+  const exercisedAdapterIDs = new Set();
+  const root = makeRepositoryArtifactDirectory('native-registry-conformance-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (const { scenario, caseName, registeredCase } of registrations) {
+    const where = `${scenario.id}/${caseName}`;
+    const binding = builderJourneyTraceBindingFor(scenario.id, caseName);
+    const adapter = builderFormalAdapterForBinding(binding);
+    assert(knownAdapterIDs.has(binding.captureAdapter), `${where} resolves an unknown adapter ID.`);
+    assert.equal(adapter.captureAdapter, binding.captureAdapter, `${where} adapter identity differs from its registry binding.`);
+    assert.equal(adapter.traceName, binding.name, `${where} trace name differs from its static adapter.`);
+    assert.equal(adapter.model, binding.model, `${where} model differs from its static adapter.`);
+    exercisedAdapterIDs.add(adapter.captureAdapter);
+
+    const contractPath = resolve(REPOSITORY_ROOT, binding.contract);
+    const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+    if (contract.nativeJourney) {
+      assert.strictEqual(builderFormalAdapterForContract(contract), adapter,
+        `${where} contract and registry binding must resolve to the same static adapter.`);
+      assert.equal(contract.nativeJourney.captureAdapter, binding.captureAdapter);
+      assert.equal(contract.nativeJourney.traceName, binding.name);
+      assert.equal(contract.nativeJourney.model, binding.model);
+    } else {
+      assert.equal(builderFormalAdapterForContract(contract), null);
+      assert.equal(contract.journeyCase?.traceName, binding.name,
+        `${where} legacy CDA contract must bind the exact trace name.`);
+      assert.equal(contract.journeyCase?.model, binding.model,
+        `${where} legacy CDA contract must bind the exact model name.`);
+      assert.equal(adapter.captureAdapter, 'builder-native-journey-v1',
+        `${where} lacks a nativeJourney contract without being the supported CDA profile.`);
+    }
+
+    assert(Array.isArray(registeredCase.focusedChecks) && registeredCase.focusedChecks.length > 0,
+      `${where} needs registered focused inputs for conformance planning.`);
+    const focusedPlans = planFocusedCheckGroups(registeredCase.focusedChecks, REPOSITORY_ROOT);
+    assert(focusedPlans.length > 0, `${where} focused inputs did not produce a plan.`);
+    assert(focusedPlans.every(plan => plan.args.length > 1 && plan.cwd.startsWith(REPOSITORY_ROOT)),
+      `${where} focused plan must resolve executable, in-repository inputs.`);
+
+    const fixtureProducer = nativeFormalConformanceFixtureProducers[binding.captureAdapter];
+    assert.equal(typeof fixtureProducer, 'function',
+      `${where} supported registration has no checked-in synthetic conformance fixture producer for ${binding.captureAdapter}.`);
+    const produced = fixtureProducer({ t, scenario, caseName, registeredCase, binding, adapter, contract });
+    assert.equal(produced.synthetic, true, `${where} fixture results must remain explicitly synthetic.`);
+    assert.match(produced.producer, /^checked-in /u, `${where} must identify its checked-in fixture producer.`);
+    const trace = produced.trace;
+    assert.equal(trace.name, binding.name, `${where} fixture trace does not match the registered name.`);
+    assert.equal(trace.model, binding.model, `${where} fixture trace does not match the registered model.`);
+
+    if (adapter.validateTrace) {
+      const validated = adapter.validateTrace(trace);
+      assert(validated && typeof validated === 'object',
+        `${where} production adapter rejected its checked-in synthetic trace.`);
+      assert.equal(typeof adapter.compileTrace, 'function');
+    }
+    const inspected = inspectNativeLifecycleJourney(trace, binding);
+    assert.equal(inspected.result, 'captured');
+    assert.equal(inspected.name, binding.name);
+    assert.equal(inspected.model, binding.model);
+    assert.deepEqual(inspected.actions, trace.actions.map(action => action.label));
+
+    let report;
+    if (produced.report) {
+      report = produced.report;
+    } else {
+      const receipt = syntheticAdapterReceiptFor({
+        root, trace, binding, adapter, contract, scenarioID: scenario.id, caseName,
+      });
+      report = {
+        assertions: [{ name: binding.formalProofAssertion, status: 'passed', evidence: receipt }],
+      };
+    }
+    const extractedReceipt = nativeBuilderJourneyReceiptFromReport(report, {
+      binding,
+      scenarioID: scenario.id,
+      caseName,
+      requiredChecks: registeredCase.requiredChecks,
+    });
+    assert.equal(extractedReceipt.traceName, binding.name);
+    assert.equal(extractedReceipt.nativeCaseKey, `${scenario.id}/${caseName}`);
+  }
+
+  for (const adapterID of exercisedAdapterIDs) {
+    assert.equal(typeof nativeFormalConformanceFixtureProducers[adapterID], 'function',
+      `Registered adapter ${adapterID} has no synthetic fixture producer.`);
+  }
+});
 
 const makeTlaFixture = (root) => {
   const selection = {
