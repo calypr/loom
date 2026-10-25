@@ -37,7 +37,7 @@ The generated attachment adds `group-pivot-join-raw-oracle` to `cda-workspace-co
 
 The source pin manifest now contains 78 entries, including the registry and generated attachment; all hashes matched and its inventory source commit remained unchanged.
 
-The migration self-test passes 9/9, including stale-hash rejection, ambiguity rejection, registry-consumption rollback, orphaned-group rejection, and no-op idempotence. A disposable copy with one intentionally failing focused test returns `failureCategory: focused-check`, exit 1, and `nativeStatus: not-run`; its summary and log are under `evidence/focused-failure-probe/`.
+The exact command `node --test scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs` passes 9/9, including stale-hash rejection, ambiguity rejection, registry-consumption rollback, orphaned-group rejection, and no-op idempotence. Its TAP output is `evidence/migration-tool-selftest.stdout`. A disposable copy with one intentionally failing focused test returns `failureCategory: focused-check`, exit 1, and `nativeStatus: not-run`; its summary and log are under `evidence/focused-failure-probe/`.
 
 After the applied patch and catalogue-anchor correction, a fresh plan was a no-op with token `bb0a25ded72289dcea6a27f95610bee659fa8c2492ae10cc36b76fd01289972d`. Applying that token printed `NO-OP`; byte comparisons remained equal for the attachment (`096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624`) and semantic catalogue (`a5f3a04969817d98366aa1728ddc9bc3fea9ab1f9fdf8a8c3d980bd4961e6675`). The output is `evidence/noop-apply.stdout`.
 

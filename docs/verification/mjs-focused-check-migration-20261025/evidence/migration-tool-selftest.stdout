@@ -1,0 +1,64 @@
+TAP version 13
+# Subtest: plan previews exact nonempty attachment and case-bound claim edits with hash preconditions
+ok 1 - plan previews exact nonempty attachment and case-bound claim edits with hash preconditions
+  ---
+  duration_ms: 88.279791
+  type: 'test'
+  ...
+# Subtest: a configured test importing the shared helper but missing a family anchor stays already-wired
+ok 2 - a configured test importing the shared helper but missing a family anchor stays already-wired
+  ---
+  duration_ms: 83.203625
+  type: 'test'
+  ...
+# Subtest: apply rejects a source hash that changed after plan and writes nothing
+ok 3 - apply rejects a source hash that changed after plan and writes nothing
+  ---
+  duration_ms: 128.028959
+  type: 'test'
+  ...
+# Subtest: apply restores attachment and catalogue bytes when the fresh registry ignores the JSON
+ok 4 - apply restores attachment and catalogue bytes when the fresh registry ignores the JSON
+  ---
+  duration_ms: 203.633834
+  type: 'test'
+  ...
+# Subtest: apply and check are idempotent and do not duplicate semantic mappings
+ok 5 - apply and check are idempotent and do not duplicate semantic mappings
+  ---
+  duration_ms: 435.356833
+  type: 'test'
+  ...
+# Subtest: plan rejects a previously generated focused check that no current family covers
+ok 6 - plan rejects a previously generated focused check that no current family covers
+  ---
+  duration_ms: 252.012625
+  type: 'test'
+  ...
+# Subtest: --check rejects a generated attachment that the registry loader ignores
+ok 7 - --check rejects a generated attachment that the registry loader ignores
+  ---
+  duration_ms: 258.032667
+  type: 'test'
+  ...
+# Subtest: new matching test is discovered from obligation import edges without changing family rules
+ok 8 - new matching test is discovered from obligation import edges without changing family rules
+  ---
+  duration_ms: 108.646625
+  type: 'test'
+  ...
+# Subtest: ambiguous family destination and ambiguous test-family matches fail closed
+ok 9 - ambiguous family destination and ambiguous test-family matches fail closed
+  ---
+  duration_ms: 191.471084
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1812.742916
