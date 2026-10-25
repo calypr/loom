@@ -204,9 +204,6 @@ export const policyWorkspaceProjection = ({ savedState, renderedRows, sourceStat
     .map(column => `${column.id}|${sourceState.rootResourceType}.${column.sourcePath}`);
   const group = policyGroupProjection(savedState, { inputColumnId: addedColumnId, renderedRows });
   const rowCount = rows.length;
-  const countIndex = findRenderedBuilderHeaderIndex(renderedRows.headers, 'Row count');
-  const groupedCount = countIndex < 0 ? null : Number(rows[0]?.[countIndex]?.text ?? rows[0]?.[countIndex]);
-  const count = groupedCount ?? (group.present ? fixtureIDs.length : null);
   return {
     documentId: savedState.outputId,
     rootResourceType: 'Patient',
@@ -216,10 +213,10 @@ export const policyWorkspaceProjection = ({ savedState, renderedRows, sourceStat
     additionalBindings: addedBindings,
     group,
     renderedRows: group.rowValuePolicy === 'ALL'
-      ? [{ patientIds: sorted(renderedPatientIDs), count }]
+      ? [{ patientIds: sorted(renderedPatientIDs), count: group.count }]
       : group.present
-        ? [{ count }]
-        : { patientIds: sorted(renderedPatientIDs), count: fixtureIDs.length },
+        ? [{ count: group.count }]
+        : { patientIds: sorted(renderedPatientIDs), count: rowCount },
   };
 };
 
@@ -977,6 +974,21 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'ALL Apply payload must match the exact saved workspace read');
   const allAppliedSavedState = patientOneSavedState(allAppliedBuilder, outputId);
   const allAppliedGrid = await page.evaluate(readPatientOneRenderedGrid);
+  const appliedPatientIDIndex = findRenderedBuilderHeaderIndex(allAppliedGrid.headers, sourceIdColumn.label);
+  const appliedRowCountIndex = findRenderedBuilderHeaderIndex(allAppliedGrid.headers, 'Row count');
+  assert.equal(allAppliedGrid.cells.length, 1,
+    'post-Apply Builder grid must show exactly one empty-key Group row');
+  assert(appliedPatientIDIndex >= 0, 'post-Apply Builder grid must render the Patient.id column');
+  assert(appliedRowCountIndex >= 0, 'post-Apply Builder grid must render the Row count column');
+  const appliedPatientIDCell = allAppliedGrid.cells[0]?.[appliedPatientIDIndex];
+  assert.equal(typeof appliedPatientIDCell?.raw, 'string',
+    'post-Apply Patient.id cell must expose its raw JSON array');
+  const appliedRawPatientIDs = JSON.parse(appliedPatientIDCell.raw);
+  const appliedRenderedRowCount = Number(allAppliedGrid.cells[0][appliedRowCountIndex]?.text);
+  assert.deepEqual(sorted(appliedRawPatientIDs), fixtureIDs,
+    'post-Apply Builder row must display the exact raw Patient IDs');
+  assert.equal(appliedRenderedRowCount, fixtureIDs.length,
+    'post-Apply Builder row count must match the fixture source-row count');
   let appliedBuilder = allAppliedBuilder;
   let appliedDocument = appliedBuilder.workspace?.documents?.find(document => document.output?.id === outputId);
   let appliedGroup = appliedDocument?.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
@@ -1024,20 +1036,20 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const allReloadSavedState = patientOneSavedState(appliedBuilder, outputId);
   assert.deepEqual(allReloadSavedState, allAppliedSavedState,
     'reload must preserve the exact saved ALL workspace and draft identity');
-  const rendered = await page.evaluate(({ tableSelector }) => {
-    const table = document.querySelector(tableSelector);
-    const rows = [...(table?.querySelectorAll('[role="row"]') ?? [])];
-    const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') ?? [])].map(cell => cell.innerText.trim());
-    const cells = rows.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
-      text: cell.innerText.trim(), raw: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title'),
-    })));
-    return { headers, cells };
-  }, { tableSelector: renderedTableSelector });
+  const rendered = await page.evaluate(readPatientOneRenderedGrid);
   const renderedIDIndex = findRenderedBuilderHeaderIndex(rendered.headers, sourceIdColumn.label);
-  const renderedRawIDs = renderedIDIndex < 0 ? [] : rendered.cells.map(row => JSON.parse(row[renderedIDIndex].raw));
+  const renderedRowCountIndex = findRenderedBuilderHeaderIndex(rendered.headers, 'Row count');
+  assert(renderedIDIndex >= 0, 'reloaded Builder grid must render the Patient.id column');
+  assert(renderedRowCountIndex >= 0, 'reloaded Builder grid must render the Row count column');
+  assert.equal(typeof rendered.cells[0]?.[renderedIDIndex]?.raw, 'string',
+    'reloaded Patient.id cell must expose its raw JSON array');
+  const renderedRawIDs = rendered.cells.map(row => JSON.parse(row[renderedIDIndex].raw));
+  const reloadedRenderedRowCount = Number(rendered.cells[0]?.[renderedRowCountIndex]?.text);
   assert.equal(rendered.cells.length, 1, 'reloaded ALL repair must still show exactly one empty-key group row');
   assert.deepEqual(sorted(renderedRawIDs[0] ?? []), fixtureIDs,
     'reloaded Builder row must display the exact raw Patient IDs after ALL repair');
+  assert.equal(reloadedRenderedRowCount, fixtureIDs.length,
+    'reloaded Builder row count must match the fixture source-row count');
   requireCheck(workflow, 'persistence', 'ALL repair applies and persists exact Patient IDs after reload', true,
     { draftVersion: appliedBuilder.draftVersion, draftDigest: appliedBuilder.draftDigest,
       groupStepID: appliedGroup?.id, rowValuePolicy: reloadedPatientIDValue.policy,
@@ -1045,6 +1057,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       outputColumnId: reloadedPatientIDValue.outputColumnId,
       outputType: reloadedPatientIDOutput.type,
       headers: rendered.headers, cells: rendered.cells, rawPatientIDs: sorted(renderedRawIDs[0]), expectedPatientIDs: fixtureIDs,
+      postApply: { headers: allAppliedGrid.headers, cells: allAppliedGrid.cells,
+        rawPatientIDs: sorted(appliedRawPatientIDs), rowCount: appliedRenderedRowCount },
+      postReloadRowCount: reloadedRenderedRowCount,
       fixtureOracleSha256: report.target.qaIsolation.fixtureOracle.sha256 });
   policyOneEvidence.push({
     label: 'ReloadedAll',

@@ -9,6 +9,7 @@ import {
 import {
   patientOneSavedState,
   policyApplyTraceExpectation,
+  policyWorkspaceProjection,
 } from '../../workflows/builder-patient-one-disagreement.mjs';
 import {
   makePolicyOneTraceInput,
@@ -197,6 +198,61 @@ test('the production saved-state projection supplies the trace adapter Apply con
   });
   assert.equal(journeyTrace.actions.find(action => action.label === 'AllApplied')
     .observation.saved.group.outputColumnBinding.columnId, rowValue.outputColumnId);
+});
+
+test('workspace projections separate fixture counts from observed rows and require a Group count cell', () => {
+  const input = makePolicyOneTraceInput();
+  const fixtureIDs = [...input.context.initialObservation.rowIds];
+  const before = input.saved.before;
+  const groupedState = patientOneSavedState({
+    workspace: before.workspace,
+    draftVersion: before.draftVersion,
+    draftDigest: before.draftDigest,
+    catalog: { snapshotToken: before.snapshotToken },
+  }, 'output-1');
+  const sourceState = { ...groupedState, group: null };
+  const sourceRows = [
+    [{ text: fixtureIDs[0] }],
+    [{ text: fixtureIDs[0] }],
+    [{ text: fixtureIDs[1] }],
+  ];
+  const sourceProjection = policyWorkspaceProjection({
+    savedState: sourceState,
+    renderedRows: { headers: ['Patient ID'], cells: sourceRows },
+    sourceState,
+    fixtureIDs,
+  });
+  assert.equal(sourceProjection.sourceRows.count, 2, 'fixture membership remains an independent oracle');
+  assert.equal(sourceProjection.renderedRows.count, 3, 'rendered count must use the three observed rows, including the duplicate');
+
+  const afterApply = input.saved.afterApply;
+  const allState = patientOneSavedState({
+    workspace: afterApply.workspace,
+    draftVersion: afterApply.draftVersion,
+    draftDigest: afterApply.draftDigest,
+    catalog: { snapshotToken: afterApply.snapshotToken },
+  }, 'output-1');
+  const groupedRows = {
+    headers: ['Patient ID', 'Row count'],
+    cells: [[{ text: JSON.stringify(fixtureIDs), raw: JSON.stringify(fixtureIDs) },
+      { text: String(fixtureIDs.length) }]],
+  };
+  const groupedProjection = policyWorkspaceProjection({
+    savedState: allState,
+    renderedRows: groupedRows,
+    sourceState,
+    fixtureIDs,
+  });
+  assert.equal(groupedProjection.sourceRows.count, 2);
+  assert.equal(groupedProjection.group.count, fixtureIDs.length,
+    'the Group count comes from the observed Row count cell');
+  assert.equal(groupedProjection.renderedRows[0].count, fixtureIDs.length);
+  assert.throws(() => policyWorkspaceProjection({
+    savedState: allState,
+    renderedRows: { headers: ['Patient ID'], cells: [[{ text: JSON.stringify(fixtureIDs) }]] },
+    sourceState,
+    fixtureIDs,
+  }), /saved Group projection must bind its observed row count/);
 });
 
 test('the registered Policy One contract matches captured actions, compiler events, and self-test controls', () => {
