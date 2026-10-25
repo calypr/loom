@@ -998,7 +998,7 @@ const registryRows = [
           "Patient.id ONE returns the exact multiple-values 422 for both raw IDs",
           "rejected Patient.id ONE leaves the saved Group and exact draft unchanged",
           "failed Patient.id ONE retains its selected field for same-editor ALL repair",
-          "same-editor ALL repair preview matches both literal raw Patient IDs",
+          "same-editor ALL repair response contains both literal raw Patient IDs",
           "ALL repair applies and persists exact Patient IDs after reload",
           "Captured Patient.id ONE/ALL browser journey replays through PolicyOneDisagreement TLC and passes all registered mutation controls",
         ],
