@@ -48,19 +48,24 @@ test('native request coverage accounts for setup mutations without action credit
     supportedReadOnly: 2,
     setupMutations: 1,
   };
-  assert.equal(nativeJourneyRequestCoverageProblem(valid), null);
+  const policyFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'];
+  assert.equal(nativeJourneyRequestCoverageProblem(valid, policyFields), null);
   assert.match(nativeJourneyRequestCoverageProblem({
     ...valid,
     setupMutations: undefined,
-  }), /setup counts/u);
+  }, policyFields), /registered row class/u);
   assert.match(nativeJourneyRequestCoverageProblem({
     ...valid,
     setupMutations: 2,
-  }), /exactly once/u);
+  }, policyFields), /exactly once/u);
   assert.match(nativeJourneyRequestCoverageProblem({
     ...valid,
     setupMutations: -1,
-  }), /non-negative/u);
+  }, policyFields), /registered row class/u);
+  assert.equal(nativeJourneyRequestCoverageProblem({
+    observed: 4, modeled: 4, unmapped: 0, duplicates: 0,
+    modeledActions: 1, reconcileReads: 1, supportedReadOnly: 2,
+  }), null, 'other registered adapters keep their existing three-class coverage receipt');
 });
 const retainedBasicTargetFixture = {
   kind: 'isolated',

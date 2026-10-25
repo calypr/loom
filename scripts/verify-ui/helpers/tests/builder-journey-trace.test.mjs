@@ -209,6 +209,7 @@ test('native replay and mutation receipts preserve verifier coverage and require
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
     actionLabels: ['Preview', 'RelatedSourcePreview', 'Reload'],
     tracePath: fixture.tracePath,
+    requestCoverageFields: ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'],
   };
   const replayReceipt = {
     ...identity,
@@ -231,7 +232,18 @@ test('native replay and mutation receipts preserve verifier coverage and require
   assert.throws(() => assertNativeBuilderJourneyReplayReceipt({
     ...replayReceipt,
     requestCoverage: { ...replayReceipt.requestCoverage, setupMutations: undefined },
-  }, identity), /setup-mutation counts/u);
+  }, identity), /setupMutations/u);
+  const temporalReceipt = {
+    ...replayReceipt,
+    requestCoverage: {
+      observed: 10, modeled: 10, unmapped: 0, duplicates: 0,
+      modeledActions: 4, reconcileReads: 3, supportedReadOnly: 3,
+    },
+  };
+  const temporalIdentity = { ...identity };
+  delete temporalIdentity.requestCoverageFields;
+  assert.strictEqual(assertNativeBuilderJourneyReplayReceipt(temporalReceipt, temporalIdentity), temporalReceipt,
+    'Three-class native coverage remains valid for adapters without setup mutations.');
   const selfTestReportPath = fixture.selfTestReportPath;
   const selfTestReceipt = {
     traceName: identity.traceName,

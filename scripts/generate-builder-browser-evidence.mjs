@@ -25,11 +25,13 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const fail = (message) => { throw new Error(message); };
 const requireValue = (condition, message) => { if (!condition) fail(message); };
 
-export const nativeJourneyRequestCoverageProblem = coverage => {
-  const detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'];
+export const nativeJourneyRequestCoverageProblem = (coverage,
+  detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly']) => {
   if (!coverage || typeof coverage !== 'object' || Array.isArray(coverage) ||
+      !Array.isArray(detailFields) || detailFields.length === 0 ||
+      detailFields.some(field => typeof field !== 'string' || field.length === 0) ||
       detailFields.some(field => !Number.isInteger(coverage[field]) || coverage[field] < 0)) {
-    return 'native request coverage must retain non-negative action, reconcile, read-only, and setup counts';
+    return 'native request coverage must retain non-negative counts for every registered row class';
   }
   if (detailFields.reduce((sum, field) => sum + coverage[field], 0) !== coverage.observed) {
     return 'native request coverage classes must account for each observed transport row exactly once';
@@ -437,7 +439,7 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
     requireValue(replayReceipt?.requestCoverageBasis === contract.nativeJourney.coverageBasis &&
       typeof replayReceipt?.requestCoverageBasis === 'string' && replayReceipt.requestCoverageBasis.trim().length > 0,
     'TLA request coverage basis differs from the registered nativeJourney contract');
-    const coverageProblem = nativeJourneyRequestCoverageProblem(requestCoverage);
+    const coverageProblem = nativeJourneyRequestCoverageProblem(requestCoverage, adapter.requestCoverageFields);
     requireValue(coverageProblem === null,
       coverageProblem ?? 'Native request coverage is invalid');
   }

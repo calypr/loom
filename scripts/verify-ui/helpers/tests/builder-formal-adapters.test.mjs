@@ -100,6 +100,19 @@ test('Policy coverage counts setup mutations separately and leaves malformed set
   assert.equal(malformedCoverage.setupMutations, 0);
   assert.equal(malformedCoverage.unmapped, 1);
   assert.equal(malformedCoverage.modeled, malformedCoverage.observed - 1);
+
+  const setupAsAction = structuredClone(trace);
+  setupAsAction.transportLedger.push({
+    ...setupRow,
+    transportIndex: Math.max(...trace.transportLedger.map(row => row.transportIndex)) + 1,
+    classification: 'modeled',
+    setupMutation: false,
+  });
+  const setupAsActionCoverage = adapter.requestCoverage(setupAsAction);
+  assert.equal(setupAsActionCoverage.modeledActions, baseline.modeledActions);
+  assert.equal(setupAsActionCoverage.setupMutations, 0);
+  assert.equal(setupAsActionCoverage.unmapped, 1,
+    'A SETUP row cannot be counted as a formal modeled action.');
 });
 
 test('native journey shape preserves exact action/event pairs while leaving chronology to TLC', () => {

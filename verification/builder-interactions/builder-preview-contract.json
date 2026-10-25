@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "c43b8b93437dbdb491867406ae558a256b1ea41976bded5fbf447e658c419e1e",
+      "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {
@@ -404,17 +404,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "25d8849e877554845a6191a6f1d62b79a5f9a5402e96f34cf89021f19dedafd8",
+      "sha256": "24438ad00a269232fe3edfd5fc752309b779270e7157061c61a1541c3d5e7575",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
-      "sha256": "cdf78c13045d66a6fe82966a3da3d840a0ff83c9aac591795557bb539c46d595",
+      "sha256": "8e36748f3ee1d1a7a896a2af4a3351fdd16da97e36e1dab7e3d1825f933f4e93",
       "contract": "Focused tests for native Builder trace capture and request-owner evidence."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "d02dab4bacb6e30f812a3d0f37cc3d73c9554edc8b02cfe3223a065173e8e8eb",
+      "sha256": "48bb0476c1799ca26309d44736106cdcfa9c41293d92afbc90ce17751bc998e7",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -509,7 +509,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-formal-adapters.mjs",
-      "sha256": "2df452398d95357225f5c90a05625e56ad1797f8e519c81830886763a0403d6e",
+      "sha256": "e9c46e9dd439580dee66500113af15184d9139de2a43119c146112a64faa418d",
       "contract": "Static registered adapters for the native Builder formal journey verifier."
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "e14a0ed9776a0eb946e91cc70955f972d46a7cff21457d168bd2249045631d5b",
+      "sha256": "0e76437404fba33b5e9f20d2b8a38b17968e59459eb120c95aeecc29a7649449",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
