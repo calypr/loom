@@ -136,6 +136,7 @@
     "nativeCaseKey": "builder-authoring/patient-one-disagreement",
     "traceName": "builder-authoring:patient-one-disagreement",
     "model": "PolicyOneDisagreement",
+    "coverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant; modeled semantic requests, reconcile owner/CAS requests, and explicitly supported read-only routes remain separate row classes.",
     "exactActionCounts": true,
     "requiredMutationControlNames": [
       "wrong-owner",
