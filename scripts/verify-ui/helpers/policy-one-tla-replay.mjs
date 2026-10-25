@@ -855,31 +855,16 @@ export function buildPolicyOneMutationControls(trace) {
       [mutated.actions[allReadyIndex], mutated.actions[allSubmittedIndex]];
   });
 
-  const actualAllState = action(trace, 'AllApplied').observation.saved;
+  const actualAllSnapshot = action(trace, 'ReloadedAll').savedAfter;
+  requireVersion(actualAllSnapshot?.draftVersion, 'captured ALL reload version');
+  requireString(actualAllSnapshot?.draftDigest, 'captured ALL reload digest');
   const originalRestoredState = action(trace, 'RemovalApplied').savedAfter;
-  assert.notEqual(originalRestoredState.draftVersion, actualAllState.draftVersion,
+  assert.notEqual(originalRestoredState.draftVersion, actualAllSnapshot.draftVersion,
     'mutation controls require a restored version distinct from the captured ALL version');
-  assert.notEqual(originalRestoredState.draftDigest, actualAllState.draftDigest,
+  assert.notEqual(originalRestoredState.draftDigest, actualAllSnapshot.draftDigest,
     'mutation controls require a restored digest distinct from the captured ALL digest');
   add('stale-restoration', 'TraceProgress', mutated => {
-    const removalApplied = action(mutated, 'RemovalApplied');
-    const savedAfter = removalApplied.savedAfter;
-    savedAfter.draftVersion = actualAllState.draftVersion;
-    savedAfter.draftDigest = actualAllState.draftDigest;
-    removalApplied.response.body.draftVersion = actualAllState.draftVersion;
-    removalApplied.response.body.draftDigest = actualAllState.draftDigest;
-    removalApplied.observation.draftVersion = actualAllState.draftVersion;
-    removalApplied.observation.draftDigest = actualAllState.draftDigest;
-    const removalRequest = action(mutated, 'RemovalApplySubmitted').request;
-    const removalTransport = mutated.transportLedger.find(entry =>
-      entry.transportIndex === removalRequest.transportIndex);
-    assert(removalTransport, 'stale-restoration mutation must retain its matching raw command row');
-    removalTransport.savedCASAfter = {
-      draftVersion: actualAllState.draftVersion,
-      draftDigest: actualAllState.draftDigest,
-    };
-    removalTransport.response.draftVersion = actualAllState.draftVersion;
-    removalTransport.response.draftDigest = actualAllState.draftDigest;
+    action(mutated, 'ReloadedSource').savedAfter = structuredClone(actualAllSnapshot);
   });
 
   add('request-body-ledger-drift', 'ObservedTransportLedgerInvariant', mutated => {

@@ -735,12 +735,14 @@ test('production mutation controls preserve the input and reach each intended TL
   assert.equal(mutatedAction('stale-cas', 'AllSubmitted').request.body.expectedDraftDigest,
     originalAction('GroupPreviewSubmitted').request.body.expectedDraftDigest,
     'stale-CAS mutation must reuse an actual older captured draft digest');
-  assert.equal(mutatedAction('stale-restoration', 'RemovalApplied').savedAfter.draftVersion,
-    originalAction('AllApplied').observation.saved.draftVersion,
-    'restoration mutation must use the actual captured ALL version');
-  assert.equal(mutatedAction('stale-restoration', 'RemovalApplied').savedAfter.draftDigest,
-    originalAction('AllApplied').observation.saved.draftDigest,
-    'restoration mutation must use the actual captured ALL digest');
+  assert.deepEqual(mutatedAction('stale-restoration', 'ReloadedSource').savedAfter,
+    originalAction('ReloadedAll').savedAfter,
+    'stale-restoration mutation must reuse the actual captured ALL reload snapshot');
+  assert.deepEqual(mutatedAction('stale-restoration', 'RemovalApplied').response,
+    originalAction('RemovalApplied').response,
+    'stale-restoration mutation must preserve the successful removal response');
+  assert.deepEqual(control('stale-restoration').transportLedger, original.transportLedger,
+    'stale-restoration mutation must preserve every actual transport and reconciliation fact');
   assert.equal(mutatedAction('request-body-ledger-drift', 'GroupPreviewSubmitted').request.body.observationProbe,
     true, 'body-drift control must alter only the actual modeled request copy');
   assert.equal(control('request-body-ledger-drift').transportLedger[0].requestBody.observationProbe,
