@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journey.mjs';
 import {
   finalizeNativeBuilderJourneyReceipt,
+  nativeBuilderJourneyReceiptFromReport,
   writeAndReplayBuilderJourneyTrace,
 } from '../builder-journey-trace.mjs';
 import {
@@ -246,6 +247,56 @@ test('native journey shape preserves exact action/event pairs while leaving chro
     /label\/event pair exactly/);
 });
 
+test('shared writer rejects missing, partial, duplicate, and pre-populated proof inputs before replay', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'policy-one-proof-preflight-'));
+  const registeredCase = scenarioCaseFor('builder-authoring', 'patient-one-disagreement');
+  const assertionName = registeredCase.journeyTrace.formalProofAssertion;
+  const journeyTrace = makeSyntheticPolicyOneJourneyTrace();
+  const baseReport = {
+    scenario: 'builder-authoring',
+    case: 'patient-one-disagreement',
+    evidenceDirectory: directory,
+    target: { builderJourneyTrace: null },
+    dimensions: { correctness: { status: 'untested', evidence: [] } },
+    assertions: [],
+    requiredChecks: [assertionName],
+  };
+  const rejectWithoutMutation = (label, report, expression) => {
+    const before = structuredClone(report);
+    assert.throws(() => writeAndReplayBuilderJourneyTrace({
+      scenarioID: report.scenario,
+      caseName: report.case,
+      journeyTrace,
+      report,
+      fixture: { unitOnly: true },
+      repositoryRoot: resolve(new URL('../../../../', import.meta.url).pathname),
+    }), expression, label);
+    assert.deepEqual(report, before, `${label} must be rejected without partially recording proof state`);
+  };
+
+  try {
+    rejectWithoutMutation('missing required proof check', {
+      ...structuredClone(baseReport), requiredChecks: [],
+    }, /exactly one required check/);
+    rejectWithoutMutation('partial registered proof assertion', {
+      ...structuredClone(baseReport),
+      assertions: [{ dimension: 'correctness', name: assertionName, status: 'passed', evidence: { status: 'pass' } }],
+    }, /already contains the registered formal proof assertion/);
+    rejectWithoutMutation('duplicate registered proof assertion', {
+      ...structuredClone(baseReport),
+      assertions: [1, 2].map(() => ({
+        dimension: 'correctness', name: assertionName, status: 'passed', evidence: { status: 'pass' },
+      })),
+    }, /already contains duplicate registered formal proof assertions/);
+    rejectWithoutMutation('partial target proof receipt', {
+      ...structuredClone(baseReport),
+      target: { builderJourneyTrace: { traceName: journeyTrace.name, status: 'pass' } },
+    }, /must not pre-populate a partial formal proof receipt/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('shared journey writer replays Policy pending support reads, the full lifecycle, and every registered control', { timeout: 120000 }, t => {
   const directory = mkdtempSync(join(tmpdir(), 'policy-one-shared-writer-unit-'));
   const tracePath = join(directory, 'synthetic-policy-one.trace.json');
@@ -259,6 +310,9 @@ test('shared journey writer replays Policy pending support reads, the full lifec
   });
   process.env.LOOM_JOURNEY_TRACE = tracePath;
   const journeyTrace = makeSyntheticPolicyOneJourneyTrace({ pendingSupportReads: true });
+  const registeredCase = scenarioCaseFor('builder-authoring', 'patient-one-disagreement');
+  const formalProofAssertion = registeredCase.journeyTrace.formalProofAssertion;
+  const repositoryRoot = resolve(new URL('../../../../', import.meta.url).pathname);
   const pendingSupportRows = journeyTrace.transportLedger.filter(row => row.settlement === 'pending');
   assert.equal(journeyTrace.actions.length, 20);
   assert.equal(pendingSupportRows.length, 2);
@@ -270,7 +324,10 @@ test('shared journey writer replays Policy pending support reads, the full lifec
     scenario: 'builder-authoring',
     case: 'patient-one-disagreement',
     evidenceDirectory: directory,
-    target: {},
+    target: { builderJourneyTrace: null },
+    dimensions: { correctness: { status: 'untested', evidence: [] } },
+    assertions: [],
+    requiredChecks: [formalProofAssertion],
   };
   const receipt = writeAndReplayBuilderJourneyTrace({
     scenarioID: report.scenario,
@@ -285,7 +342,7 @@ test('shared journey writer replays Policy pending support reads, the full lifec
       outputId: 'synthetic-output',
       patientIDs: ['dev-patient-001', 'dev-patient-002'],
     },
-    repositoryRoot: resolve(new URL('../../../../', import.meta.url).pathname),
+    repositoryRoot,
   });
   assert.equal(receipt.status, 'pass');
   assert.equal(receipt.replayStatus, 'pass');
@@ -307,6 +364,20 @@ test('shared journey writer replays Policy pending support reads, the full lifec
   assert.equal(receipt.requestCoverageBasis, policyContract.nativeJourney.coverageBasis);
   assert.equal(receipt.requestCoverage.supportedReadOnly,
     journeyTrace.transportLedger.filter(row => row.classification === 'read-only').length);
+  const proofAssertions = report.assertions.filter(assertion => assertion.name === formalProofAssertion);
+  assert.equal(proofAssertions.length, 1);
+  assert.equal(proofAssertions[0].dimension, 'correctness');
+  assert.equal(proofAssertions[0].status, 'passed');
+  assert.strictEqual(proofAssertions[0].evidence, receipt);
+  assert.strictEqual(report.target.builderJourneyTrace, receipt,
+    'The target receipt and registered formal proof assertion must share one completed receipt object.');
+  assert.deepEqual(nativeBuilderJourneyReceiptFromReport(report, {
+    binding: registeredCase.journeyTrace,
+    scenarioID: report.scenario,
+    caseName: report.case,
+    requiredChecks: report.requiredChecks,
+  }), receipt);
+  assert.equal(report.dimensions.correctness.evidence.filter(entry => entry.name === formalProofAssertion).length, 1);
 
   const replayReport = JSON.parse(readFileSync(receipt.replayReportPath, 'utf8'));
   const replayedTrace = replayReport.traces.find(entry => entry.name === journeyTrace.name);
