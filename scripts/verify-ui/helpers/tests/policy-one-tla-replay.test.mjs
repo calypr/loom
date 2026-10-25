@@ -232,6 +232,30 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.match(result.output, /Model checking completed\. No error has been found\./);
 });
 
+test('TLC keeps initial and captured receipt producers distinct through the policy adapter', t => {
+  const initialOnly = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'initial-only' });
+  const initialOnlyPreview = initialOnly.transportLedger.at(-1);
+  assert.equal(initialOnlyPreview.hasInitialReceiptProducer, true);
+  assert.deepEqual(initialOnlyPreview.receiptProducerTransportIndices, []);
+  const initialOnlyResult = checkWithTLC(initialOnly, 'PolicyOneInitialReceiptOnly');
+  t.diagnostic(summary(initialOnlyResult.output));
+  assert.equal(initialOnlyResult.error, undefined, initialOnlyResult.error?.message);
+  assert.equal(initialOnlyResult.status, 0, summary(initialOnlyResult.output));
+  assert.match(initialOnlyResult.output, /Model checking completed\. No error has been found\./);
+
+  const initialAndCaptured = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'initial-and-captured' });
+  const initialAndCapturedPreview = initialAndCaptured.transportLedger.at(-1);
+  const capturedReconcile = initialAndCaptured.transportLedger.find(entry => entry.classification === 'reconcile');
+  assert.equal(initialAndCapturedPreview.hasInitialReceiptProducer, true);
+  assert(capturedReconcile, 'adapter output must retain the captured reconcile producer');
+  assert.deepEqual(initialAndCapturedPreview.receiptProducerTransportIndices, [capturedReconcile.transportIndex]);
+  const initialAndCapturedResult = checkWithTLC(initialAndCaptured, 'PolicyOneInitialAndCapturedReceipt');
+  t.diagnostic(summary(initialAndCapturedResult.output));
+  assert.equal(initialAndCapturedResult.error, undefined, initialAndCapturedResult.error?.message);
+  assert.equal(initialAndCapturedResult.status, 0, summary(initialAndCapturedResult.output));
+  assert.match(initialAndCapturedResult.output, /Model checking completed\. No error has been found\./);
+});
+
 test('TLC validates scoped reconcile ownership, receipt sets, and read-only routes in a unit trace', t => {
   const trace = makeSyntheticReconcileLedgerTrace();
   const compiled = compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicyOneReconcileLedgerUnit' });

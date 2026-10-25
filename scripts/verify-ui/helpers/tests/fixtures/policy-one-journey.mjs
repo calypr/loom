@@ -70,6 +70,9 @@ const testTransportCapture = (transportIndex, request, response, eventOrder = {}
         response.preview?.outputId,
         response.body?.outputId,
         response.body?.preview?.outputId,
+        ...(Array.isArray(response.body?.outputs)
+          ? response.body.outputs.map(output => output?.outputId)
+          : []),
       ].filter(value => typeof value === 'string'))],
       snapshotToken: response.proposalSnapshotToken ?? response.body?.snapshotToken ?? null,
       candidateWorkspaceDigest: response.body?.candidateWorkspaceDigest ?? null,
@@ -554,7 +557,9 @@ const twoSourceRowsPreview = ({ outputId = 'output-1', receiptId, rowCount = 2 }
   diagnostics: [],
 });
 
-export const makeSyntheticPolicyOneJourneyTrace = () => {
+export const makeSyntheticPolicyOneJourneyTrace = ({ sourceReceiptCase = 'none' } = {}) => {
+  assert(['none', 'initial-only', 'initial-and-captured'].includes(sourceReceiptCase),
+    `unsupported synthetic source receipt case ${sourceReceiptCase}`);
   const input = makePolicyOneTraceInput();
   input.requests.one.transportIndex = 3;
   input.requests.all.transportIndex = 4;
@@ -769,5 +774,61 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     testTransportCapture(7, removalTwoRequest, removalTwoResponse),
     testTransportCapture(8, removalApplyRequest, removalApplyResponse),
   ];
+  if (sourceReceiptCase !== 'none') {
+    let nextTransportIndex = Math.max(...input.context.transportCaptures.map(capture => capture.transportIndex)) + 1;
+    let nextEventIndex = Math.max(...input.context.transportCaptures.flatMap(capture => [
+      capture.requestEventIndex,
+      capture.settlementEventIndex,
+    ])) + 1;
+    let previewTransportIndex = nextTransportIndex;
+    if (sourceReceiptCase === 'initial-and-captured') {
+      const reconcileRequest = {
+        method: 'POST',
+        path: 'reconcile',
+        requestId: 'builder-50-1',
+        captureId: 'capture-source-reconcile',
+        transportIndex: nextTransportIndex,
+        body: { snapshotToken: 'snapshot-1', draftVersion: rootDraft.version, draftDigest: rootDraft.digest },
+      };
+      const reconcileResponse = {
+        status: 200,
+        requestId: 'builder-50-1',
+        body: {
+          receiptId: 'receipt-source',
+          snapshotToken: 'snapshot-1',
+          intentDigest: 'intent-source-receipt',
+          outputs: [{ outputId: 'output-1' }],
+        },
+      };
+      input.context.transportCaptures.push(testTransportCapture(
+        nextTransportIndex,
+        reconcileRequest,
+        reconcileResponse,
+        { requestEventIndex: nextEventIndex, settlementEventIndex: nextEventIndex + 1 },
+      ));
+      nextTransportIndex += 1;
+      nextEventIndex += 2;
+      previewTransportIndex = nextTransportIndex;
+    }
+    const sourcePreviewRequest = {
+      method: 'POST',
+      path: 'preview',
+      requestId: 'header-source-receipt-preview',
+      captureId: 'capture-source-receipt-preview',
+      transportIndex: previewTransportIndex,
+      body: { receiptId: 'receipt-source', outputId: 'output-1' },
+    };
+    const sourcePreviewResponse = {
+      status: 200,
+      requestId: sourcePreviewRequest.requestId,
+      preview: { receiptId: 'receipt-source', outputId: 'output-1' },
+    };
+    input.context.transportCaptures.push(testTransportCapture(
+      previewTransportIndex,
+      sourcePreviewRequest,
+      sourcePreviewResponse,
+      { requestEventIndex: nextEventIndex, settlementEventIndex: nextEventIndex + 1 },
+    ));
+  }
   return buildPolicyOneTrace(input).journeyTrace;
 };
