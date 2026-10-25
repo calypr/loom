@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { classifyTransportTerminal } from './transport-terminal.mjs';
 
 const AUTHORING_PREFIX = '/authoring/v2/';
 
@@ -137,10 +138,15 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
       `authoring transport ${entry.record.transportIndex} must settle exactly once`);
     assert(entry.record.responseHeaders,
       `authoring transport ${entry.record.transportIndex} must observe response headers before requestfinished`);
-    entry.record.settlement = 'response';
+    const terminal = classifyTransportTerminal({
+      responseHeadersObserved: entry.record.responseHeaders !== null,
+      requestFailed: false,
+    });
+    assert.equal(terminal.settlement, 'response');
+    entry.record.settlement = terminal.settlement;
     entry.record.settlementEventIndex = ++transportEventIndex;
-    entry.record.responseOwnerIndex = entry.record.transportIndex;
-    entry.record.status = entry.record.responseHeaders.status;
+    entry.record.responseOwnerIndex = terminal.responseOwnerCredit ? entry.record.transportIndex : null;
+    entry.record.status = terminal.responseStatusCredit ? entry.record.responseHeaders.status : null;
     entry.record.response = entry.responseBodyFacts ?? {
       status: entry.record.responseHeaders.status,
       requestId: entry.record.responseHeaders.requestId,
@@ -157,12 +163,16 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
     assert(entry, 'authoring transport settlement must retain its exact observed request object');
     assert.equal(entry.record.settlement, 'pending',
       `authoring transport ${entry.record.transportIndex} must settle exactly once`);
-    entry.record.settlement = 'request-failed';
+    const terminal = classifyTransportTerminal({
+      responseHeadersObserved: entry.record.responseHeaders !== null,
+      requestFailed: true,
+    });
+    entry.record.settlement = terminal.settlement;
     entry.record.settlementEventIndex = ++transportEventIndex;
     entry.record.failure = request.failure()?.errorText ?? 'request failed without error detail';
-    entry.record.responseObservedBeforeFailure = entry.record.responseHeaders !== null;
-    entry.record.status = null;
-    entry.record.responseOwnerIndex = null;
+    entry.record.responseObservedBeforeFailure = terminal.responseObservedBeforeFailure;
+    entry.record.status = terminal.responseStatusCredit ? entry.record.responseHeaders?.status ?? null : null;
+    entry.record.responseOwnerIndex = terminal.responseOwnerCredit ? entry.record.transportIndex : null;
     entry.record.response = null;
     if (entry.responseBodyFacts) entry.record.responseBody = entry.responseBodyFacts;
     pendingRequests.delete(request);

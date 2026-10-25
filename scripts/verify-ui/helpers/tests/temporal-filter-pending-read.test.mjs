@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { validateTemporalPendingReadScope } from '../temporal-filter-pending-read.mjs';
+import {
+  validateTemporalPendingReadScope,
+  validateTemporalResponseBodyFailureScope,
+} from '../temporal-filter-pending-read.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import { compileTemporalFilterJourneyTrace } from '../temporal-filter-tla-adapter.mjs';
-import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
+import {
+  makeTemporalFilterJourneyCaptureFixture,
+  makeTemporalResponseBodyAbortFixture,
+} from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 
 const retained = JSON.parse(readFileSync(new URL(
   './fixtures/basic-temporal-filter-run4-pending-capability.json', import.meta.url,
@@ -69,6 +75,36 @@ test('pending temporal reads reject mismatched saved CAS and output', () => {
   const wrongOutput = structuredClone(pending);
   wrongOutput.request.outputId = 'other-output';
   assert.throws(() => validateTemporalPendingReadScope(wrongOutput, scope, builderReads), /bound to the actual output/u);
+});
+
+test('response-header body aborts stay scoped to an owned read and retain no body facts', () => {
+  const capture = makeTemporalResponseBodyAbortFixture('date');
+  const request = capture.requestEvents.at(-1);
+  const facts = validateTemporalResponseBodyFailureScope(request, capture.pendingReadScope, capture.builderReads);
+  assert.equal(facts.outputId, capture.outputId);
+  assert.equal(facts.snapshotToken, capture.builderReads.at(-1).snapshotToken);
+  assert.equal(request.status, 200);
+  assert.equal(request.response, null);
+
+  const wrongProject = structuredClone(request);
+  wrongProject.path = wrongProject.path.replace('loom_dev_verify_temporal', 'loom_dev_verify_foreign');
+  assert.throws(() => validateTemporalResponseBodyFailureScope(wrongProject, capture.pendingReadScope,
+    capture.builderReads), /supported read route under the owned Explorer/u);
+
+  const failedMutation = structuredClone(request);
+  failedMutation.isMutation = true;
+  assert.throws(() => validateTemporalResponseBodyFailureScope(failedMutation, capture.pendingReadScope,
+    capture.builderReads), /cannot be observer-classified as a mutation/u);
+
+  const failedErrorResponse = structuredClone(request);
+  failedErrorResponse.status = 503;
+  assert.throws(() => validateTemporalResponseBodyFailureScope(failedErrorResponse, capture.pendingReadScope,
+    capture.builderReads), /successful HTTP response header/u);
+
+  const missingBodyError = structuredClone(request);
+  delete missingBodyError.responseCaptureError;
+  assert.throws(() => validateTemporalResponseBodyFailureScope(missingBodyError, capture.pendingReadScope,
+    capture.builderReads), /actual body-capture error/u);
 });
 
 test('an unregistered read POST and an unconsumed mutation cannot disappear from a Temporal trace', () => {

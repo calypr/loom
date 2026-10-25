@@ -5,6 +5,7 @@ import {
   TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
   validateTemporalPendingReadScope,
 } from './temporal-filter-pending-read.mjs';
+import { classifyCapturedTransport } from './transport-terminal.mjs';
 
 const clone = value => value === undefined ? null : structuredClone(value);
 const jsonSafe = (value, label = 'capture checkpoint', ancestors = new Set()) => {
@@ -63,9 +64,14 @@ export const createTemporalFilterCapture = ({
   const requestEvent = entry => {
     const stamp = requestStamps.get(entry);
     assert(stamp, `Observed request ${entry.browserRequestId} is missing its request-event timestamp.`);
-    const settlement = entry.status !== undefined && entry.status !== null
-      ? entry.networkComplete && entry.responseCaptureComplete ? 'response' : 'response-body-pending'
-      : entry.failure ? 'request-failed' : 'pending';
+    const responseHeadersObserved = entry.status !== undefined && entry.status !== null &&
+      Number.isFinite(entry.responseReceivedAt);
+    const terminal = classifyCapturedTransport({
+      responseHeadersObserved,
+      requestFailed: Boolean(entry.failure),
+      networkComplete: Boolean(entry.networkComplete),
+      responseCaptureComplete: Boolean(entry.responseCaptureComplete),
+    });
     return {
       index: entry.index,
       browserRequestId: entry.browserRequestId,
@@ -81,6 +87,7 @@ export const createTemporalFilterCapture = ({
       completedAt: entry.completedAt ?? null,
       responseMountEpoch: responseMountEpochs.get(entry) ?? null,
       failureMountEpoch: failureMountEpochs.get(entry) ?? null,
+      responseObservedBeforeFailure: terminal.responseObservedBeforeFailure,
       isMutation: Boolean(entry.isMutation),
       failure: clone(entry.failure),
       readCancellationDiagnostic: Boolean(entry.readCancellationDiagnostic),
@@ -89,7 +96,7 @@ export const createTemporalFilterCapture = ({
       responseBodyCaptured: Boolean(entry.responseBodyCaptured),
       ...(entry.responseCaptureError ? { responseCaptureError: entry.responseCaptureError } : {}),
       networkComplete: Boolean(entry.networkComplete),
-      settlement,
+      settlement: terminal.settlement,
       atMonotonicMs: stamp.atMonotonicMs,
       atEpochMs: stamp.atEpochMs,
       mountEpoch: stamp.mountEpoch,

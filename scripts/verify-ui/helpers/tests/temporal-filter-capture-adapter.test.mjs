@@ -191,6 +191,78 @@ test('capture retains and drains a construction-capabilities request that settle
   assert.equal(raw.requestEvents[0].status, 200);
 });
 
+test('capture classifies response headers followed by requestfailed as an uncredited request failure', async () => {
+  const page = new EventEmitter();
+  const mainFrame = {};
+  page.mainFrame = () => mainFrame;
+  const request = {};
+  const baseEpoch = Date.now() - 100;
+  const entry = {
+    index: 0,
+    browserRequestId: 'semantic-inventory-header-then-abort',
+    requestId: 'semantic-inventory-request-id',
+    method: 'POST',
+    origin: 'http://127.0.0.1:30000',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/semantic-inventory',
+    status: 200,
+    request: { snapshotToken: 'snapshot-6', rowRoot: 'Patient', limit: 50, outputId: 'temporal-output' },
+    response: null,
+    startedAt: baseEpoch,
+    responseReceivedAt: baseEpoch + 2,
+    completedAt: baseEpoch + 4,
+    responseMountEpoch: 2,
+    failureMountEpoch: null,
+    isMutation: false,
+    failure: { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true },
+    readCancellationDiagnostic: true,
+    responseCapture: 'failed',
+    responseCaptureComplete: true,
+    responseBodyCaptured: false,
+    responseCaptureError: 'response.body: response body was canceled after response headers',
+    networkComplete: true,
+    settlement: 'response',
+    atMonotonicMs: 10,
+    atEpochMs: baseEpoch,
+    mountEpoch: 2,
+  };
+  const networkObserver = {
+    requests: [],
+    byRequest: new Map(),
+    requestBody: observed => observed.request,
+    responseBody: observed => observed.response,
+    waitForResponse: async predicate => {
+      assert(predicate(entry));
+      return entry;
+    },
+  };
+  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 2 });
+  networkObserver.requests.push(entry);
+  networkObserver.byRequest.set(request, entry);
+  const scope = {
+    uiOrigin: entry.origin,
+    project: 'loom_dev_verify_temporal',
+    explorerId: 'explorer-temporal',
+    browserExplorerRoot: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal',
+    outputId: 'temporal-output',
+  };
+  page.emit('request', request);
+  page.emit('response', { request: () => request });
+  page.emit('requestfailed', request);
+  const checkpoint = capture.checkpoint({ resourceType: 'Patient', pendingReadScope: scope });
+  const result = await capture.finish({ resourceType: 'Patient', pendingReadScope: scope,
+    checkpointId: checkpoint.checkpointId });
+  const observed = result.requestEvents[0];
+  assert.equal(observed.status, 200);
+  assert.equal(observed.settlement, 'request-failed');
+  assert.equal(observed.responseObservedBeforeFailure, true);
+  assert.equal(observed.responseMountEpoch, 2);
+  assert.equal(observed.failureMountEpoch, 2);
+  assert.equal(observed.responseBodyCaptured, false);
+  assert.equal(observed.responseCapture, 'failed');
+  assert.equal(observed.responseCaptureError, entry.responseCaptureError);
+  assert.equal(observed.response, null);
+});
+
 test('capture windows retain late reconcile IDs and their response-mount DOM evidence', async () => {
   const page = new EventEmitter();
   const mainFrame = {};

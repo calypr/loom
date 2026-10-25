@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
-import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
+import {
+  makeTemporalFilterJourneyCaptureFixture,
+  makeTemporalResponseBodyAbortFixture,
+} from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 import {
   compileTemporalFilterJourneyTrace,
   createTemporalFilterMutationControls,
@@ -624,6 +627,55 @@ test('compiler and TLA reject a Builder route whose raw project path disagrees w
   });
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, /InvExplorerCreatedReadOwned is equal to FALSE/u, result.output);
+});
+
+test('response headers followed by requestfailed retain raw facts without response credit', { timeout: 30_000 }, () => {
+  const capture = makeTemporalResponseBodyAbortFixture('date');
+  const rawRequest = capture.requestEvents.at(-1);
+  const trace = adaptTemporalFilterJourney(capture);
+  const projection = validateTemporalFilterJourneyTrace(trace).observedRequests.find(request =>
+    request.captureId === rawRequest.browserRequestId);
+  assert.equal(rawRequest.status, 200);
+  assert.equal(rawRequest.settlement, 'response', 'The retained raw fixture preserves its original derived label.');
+  assert.equal(rawRequest.response, null);
+  assert.equal(rawRequest.failureMountEpoch, 5);
+  assert.equal(projection.capturedSettlement, 'response');
+  assert.equal(projection.settlement, 'request-failed');
+  assert.equal(projection.status, 0, 'A failed terminal cannot claim successful response status.');
+  assert.equal(projection.responseHeadersStatus, 200, 'The observed response header remains explicit.');
+  assert.equal(projection.responseObservedBeforeFailure, true);
+  assert.equal(projection.responseBodyCaptured, false);
+  assert.equal(projection.responseCapture, 'failed');
+  assert.notEqual(projection.responseCaptureError, 'No');
+  assert.equal(projection.responseReceiptId, 'No');
+  assert.equal(projection.responseOutputId, 'No');
+
+  const flippedLabelCapture = structuredClone(capture);
+  flippedLabelCapture.requestEvents.at(-1).settlement = 'request-failed';
+  const flippedTrace = adaptTemporalFilterJourney(flippedLabelCapture);
+  const flippedProjection = validateTemporalFilterJourneyTrace(flippedTrace).observedRequests.find(request =>
+    request.captureId === rawRequest.browserRequestId);
+  assert.equal(flippedProjection.settlement, projection.settlement,
+    'Changing only the captured summary label cannot alter the terminal derived from response and failure events.');
+  assert.equal(flippedProjection.status, projection.status);
+  assert.equal(flippedProjection.responseHeadersStatus, projection.responseHeadersStatus);
+
+  const positive = runTlc(trace, 'ResponseBodyAbortRead');
+  assert.equal(positive.status, 0, positive.output);
+  assert.match(positive.output, /Model checking completed\. No error has been found\./u, positive.output);
+
+  const creditedFailure = runTlc(trace, 'CreditedResponseBodyAbortRead', {
+    mutateTrace(moduleText) {
+      const recordStart = moduleText.indexOf(`captureId |-> ${JSON.stringify(rawRequest.browserRequestId)}`);
+      assert(recordStart >= 0, 'Generated model must retain the failed read identity.');
+      const uncreditedStatus = 'status |-> 0';
+      const statusStart = moduleText.indexOf(uncreditedStatus, recordStart);
+      assert(statusStart >= recordStart, 'Generated model must retain no-credit status for the failed read.');
+      return moduleText.slice(0, statusStart) + 'status |-> 200' + moduleText.slice(statusStart + uncreditedStatus.length);
+    },
+  });
+  assert.notEqual(creditedFailure.status, 0, creditedFailure.output);
+  assert.match(creditedFailure.output, /InvObservedRequestChronology is equal to FALSE/u, creditedFailure.output);
 });
 
 test('same-owner reconcile responses with equal receipts remain ambiguous possible producers', { timeout: 30_000 }, () => {

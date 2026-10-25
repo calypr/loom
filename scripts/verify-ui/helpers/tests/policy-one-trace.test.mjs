@@ -586,6 +586,8 @@ test('the Policy observer retains an in-flight setup request across formal entry
   assert.equal(inventoryRecord.responseHeaders.status, 200);
   assert.equal(inventoryRecord.status, null,
     'a response-header observation followed by a failed terminal remains a request failure');
+  assert.equal(inventoryRecord.responseOwnerIndex, null,
+    'a failed terminal after response headers cannot create a response owner');
   let failedReadIdleSettled = false;
   const failedReadIdle = observer.waitUntilIdle().then(() => { failedReadIdleSettled = true; });
   await new Promise(resolve => setImmediate(resolve));

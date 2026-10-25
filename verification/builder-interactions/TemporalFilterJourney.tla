@@ -58,7 +58,11 @@ NoObservedRequest ==
   [observerIndex |-> 0, captureId |-> No, isMutation |-> FALSE, method |-> No,
    origin |-> No, path |-> No, requestId |-> No, settlement |-> No,
    networkComplete |-> FALSE, responseHeadersObserved |-> FALSE,
-   responseBodyPending |-> FALSE, status |-> 0,
+   responseHeadersStatus |-> No, responseObservedBeforeFailure |-> FALSE,
+   capturedSettlement |-> No, responseBodyPending |-> FALSE, status |-> 0,
+   responseCapture |-> No, responseCaptureComplete |-> FALSE,
+   responseBodyCaptured |-> FALSE, responseCaptureError |-> No,
+   failureErrorText |-> No, readCancellationDiagnostic |-> FALSE,
    startedAt |-> 0, startedAtExact |-> "0",
    responseReceivedAt |-> No, responseReceivedAtExact |-> No,
    completedAt |-> 0, completedAtExact |-> "0",
@@ -96,7 +100,8 @@ NoSnapshot ==
    catalogGeneration |-> No, snapshotToken |-> No,
    draftVersion |-> 0, draftDigest |-> No,
    workspaceDocuments |-> <<>>, workspaceDigest |-> No,
-   outputId |-> No, columnId |-> No, columns |-> <<>>, steps |-> <<>>]
+   outputId |-> No, columnId |-> No, choiceCandidateColumnId |-> No,
+   columns |-> <<>>, steps |-> <<>>]
 NoUI == [capturedAtMonotonicMs |-> 0, capturedAtEpochMs |-> 0,
          mountEpoch |-> InitialMountEpoch, proposalStatus |-> No, proposalId |-> No,
          receiptId |-> No, outputId |-> No, columnId |-> No,
@@ -194,6 +199,7 @@ AbstractSnapshot(readId, rawId, mount, docs, version, draftDigest, workspaceDige
    workspaceDigest |-> workspaceDigest,
    outputId |-> outputId,
    columnId |-> columnId,
+   choiceCandidateColumnId |-> columnId,
    columns |-> columns,
    steps |-> steps]
 SnapshotAt(snapshot, readId, rawId, mount) ==
@@ -337,6 +343,11 @@ AbstractObservedRequest(observerIndex, captureId, isMutation, method, path, stat
    requestId |-> No, method |-> method, origin |-> "http://127.0.0.1:30000",
    path |-> path, settlement |-> "response", networkComplete |-> TRUE,
    responseHeadersObserved |-> TRUE, responseBodyPending |-> FALSE, status |-> status,
+   responseHeadersStatus |-> status, responseObservedBeforeFailure |-> FALSE,
+   capturedSettlement |-> "response", responseCapture |-> "captured",
+   responseCaptureComplete |-> TRUE, responseBodyCaptured |-> TRUE,
+   responseCaptureError |-> No, failureErrorText |-> No,
+   readCancellationDiagnostic |-> FALSE,
    startedAt |-> 0, startedAtExact |-> "0",
    responseReceivedAt |-> 1, responseReceivedAtExact |-> "1",
    completedAt |-> 2, completedAtExact |-> "2",
@@ -395,7 +406,12 @@ AbstractReconcileRequest(observerIndex, captureId, snapshotToken, draftVersion, 
   [observerIndex |-> observerIndex, captureId |-> captureId, requestId |-> No,
    isMutation |-> FALSE, method |-> "POST", origin |-> "http://127.0.0.1:30000",
    settlement |-> "response", networkComplete |-> TRUE,
-   responseHeadersObserved |-> TRUE, responseBodyPending |-> FALSE,
+   responseHeadersObserved |-> TRUE, responseHeadersStatus |-> 200,
+   responseObservedBeforeFailure |-> FALSE, capturedSettlement |-> "response",
+   responseBodyPending |-> FALSE, responseCapture |-> "captured",
+   responseCaptureComplete |-> TRUE, responseBodyCaptured |-> TRUE,
+   responseCaptureError |-> No, failureErrorText |-> No,
+   readCancellationDiagnostic |-> FALSE,
    path |-> "/authoring/v2/reconcile", status |-> 200,
    startedAt |-> ordinal * 1000 - 3, startedAtExact |-> ToString(ordinal * 1000 - 3),
    responseReceivedAt |-> ordinal * 1000 - 2, responseReceivedAtExact |-> ToString(ordinal * 1000 - 2),
@@ -744,6 +760,11 @@ SnapshotReadAt(snapshot, mount) ==
 RequestCASMatches(request, snapshot) ==
   /\ request.body.expectedDraftVersion = snapshot.draftVersion
   /\ request.body.expectedDraftDigest = snapshot.draftDigest
+InitialSourceTableCASMatches(request, snapshot) ==
+  /\ request.body.expectedDraftVersion = snapshot.draftVersion
+  /\ IF snapshot.draftVersion = 0 /\ snapshot.draftDigest = ""
+       THEN request.body.expectedDraftDigest = No
+       ELSE request.body.expectedDraftDigest = snapshot.draftDigest
 
 LinkedChoiceRequests(event) ==
   {request \in SequenceSet(ObservedRequests):
@@ -755,12 +776,13 @@ ChoiceRequest(event) ==
   IN IF Cardinality(choices) = 1
        THEN CHOOSE request \in choices: TRUE
        ELSE NoObservedRequest
-ChoiceProposalMatches(event, columnId, outputId) ==
+ChoiceProposalMatches(event, candidateColumnId, outputId) ==
   LET choice == ChoiceRequest(event)
   IN IF choice.captureId = No
        THEN FALSE
        ELSE /\ choice.status = 200
-            /\ choice.candidateColumnIds = <<columnId>>
+            /\ candidateColumnId # No
+            /\ choice.candidateColumnIds = <<candidateColumnId>>
             /\ choice.receiptId # No
             /\ choice.outputId = outputId
 
@@ -911,7 +933,7 @@ SourceTableCreated(event) ==
   /\ event.request.method = "POST"
   /\ event.request.status = 200
   /\ event.request.body.commands[1].type = "CREATE_TABLE"
-  /\ RequestCASMatches(event.request, event.before)
+  /\ InitialSourceTableCASMatches(event.request, event.before)
   /\ event.after.draftVersion > event.before.draftVersion
   /\ event.after.draftDigest # event.before.draftDigest
   /\ event.after.workspaceDigest # event.before.workspaceDigest
@@ -942,8 +964,9 @@ TemporalColumnApplied(event) ==
   /\ UniqueColumn(event.after.columns, event.after.columnId)
   /\ event.before.steps = event.after.steps
   /\ event.after.columnId # No
+  /\ event.after.choiceCandidateColumnId # No
   /\ event.request.body.commands[1].outputId = event.after.outputId
-  /\ ChoiceProposalMatches(event, event.after.columnId, event.after.outputId)
+  /\ ChoiceProposalMatches(event, event.after.choiceCandidateColumnId, event.after.outputId)
   /\ event.after.draftVersion > event.before.draftVersion
   /\ event.after.draftDigest # event.before.draftDigest
   /\ event.after.workspaceDigest # event.before.workspaceDigest
@@ -1346,7 +1369,7 @@ SavedStateOK(saved) ==
 
 TypeOK ==
   /\ journey.cursor \in 0..Len(ModelEvents)
-  /\ journey.mountEpoch \in InitialMountEpoch..InitialMountEpoch + 4
+  /\ journey.mountEpoch \in InitialMountEpoch..InitialMountEpoch + 5
   /\ journey.savedKind \in {"empty", "source", "created", "edited", "removed"}
   /\ Len(journey.history) = journey.cursor
   /\ SavedStateOK(journey.persisted)
@@ -1485,7 +1508,14 @@ InvObservedRequestChronology ==
               /\ request.isMutation = FALSE
               /\ request.networkComplete = FALSE
               /\ request.responseHeadersObserved = FALSE
+              /\ request.responseHeadersStatus = No
+              /\ request.responseObservedBeforeFailure = FALSE
               /\ request.responseBodyPending = FALSE
+              /\ request.responseCaptureComplete = TRUE
+              /\ request.responseBodyCaptured = FALSE
+              /\ request.responseCaptureError = No
+              /\ request.failureErrorText = No
+              /\ request.readCancellationDiagnostic = FALSE
               /\ request.method = "POST"
               /\ request.origin = CaptureExit.uiOrigin
               /\ request.requestOutputId = CaptureExit.outputId
@@ -1498,29 +1528,76 @@ InvObservedRequestChronology ==
               /\ request.completedAt \in Int
               /\ request.completedAtExact # No
               /\ request.failureCanceled = TRUE
-              /\ request.responseReceivedAt = No
-              /\ request.responseMountEpoch = No
               /\ request.failureMountEpoch \in Nat
               /\ request.isMutation = FALSE
               /\ request.networkComplete = TRUE
-              /\ request.responseHeadersObserved = FALSE
               /\ request.responseBodyPending = FALSE
-              /\ (EndsWith(request.path, "/reconcile")
-                  \/ EndsWith(request.path, "/preview")
-                  \/ EndsWith(request.path, "/construction-proposals")
-                  \/ EndsWith(request.path, "/construction-choice-proposals"))
+              /\ request.responseCaptureComplete = TRUE
+              /\ request.responseBodyCaptured = FALSE
+              /\ request.readCancellationDiagnostic = TRUE
+              /\ request.responseObservedBeforeFailure = request.responseHeadersObserved
+              /\ IF request.responseObservedBeforeFailure
+                   THEN /\ request.responseHeadersObserved = TRUE
+                        /\ request.responseHeadersStatus \in 200..299
+                        /\ request.responseReceivedAt \in Int
+                        /\ request.responseMountEpoch \in Nat
+                        /\ request.startedAt <= request.responseReceivedAt
+                        /\ request.responseReceivedAt <= request.completedAt
+                        /\ request.responseCapture = "failed"
+                        /\ request.responseCaptureError # No
+                        /\ request.failureErrorText = "net::ERR_ABORTED"
+                        /\ request.readCancellationDiagnostic = TRUE
+                        /\ request.origin = CaptureExit.uiOrigin
+                        /\ request.method = "POST"
+                        /\ request.requestOutputId = CaptureExit.outputId
+                        /\ request.requestSnapshotToken # No
+                        /\ request.outputId = No
+                        /\ request.receiptId = No
+                        /\ request.responseReceiptId = No
+                        /\ request.responseOutputId = No
+                        /\ request.responseSnapshotToken = No
+                        /\ request.responseDraftVersion = No
+                        /\ request.responseDraftDigest = No
+                        /\ request.responseOutputIds = No
+                        /\ (request.path = CaptureExit.browserExplorerRoot
+                              \o "/authoring/v2/construction-capabilities"
+                            \/ request.path = CaptureExit.browserExplorerRoot
+                              \o "/authoring/v2/semantic-inventory")
+                        /\ \E read \in SequenceSet(ObservedBuilderReads):
+                             /\ read.snapshotToken = request.requestSnapshotToken
+                             /\ request.requestOutputId \in SequenceSet(read.outputIds)
+                        /\ \A event \in SequenceSet(ModelEvents):
+                             /\ event.request.captureId # request.captureId
+                             /\ request.captureId \notin SequenceSet(event.proposalCaptureIds)
+                             /\ request.captureId \notin SequenceSet(event.reconcileCaptureIds)
+                   ELSE /\ request.responseHeadersObserved = FALSE
+                        /\ request.responseHeadersStatus = No
+                        /\ request.responseReceivedAt = No
+                        /\ request.responseMountEpoch = No
+                        /\ request.responseCaptureError = No
+                        /\ request.failureErrorText # No
+                        /\ (EndsWith(request.path, "/reconcile")
+                            \/ EndsWith(request.path, "/preview")
+                            \/ EndsWith(request.path, "/construction-proposals")
+                            \/ EndsWith(request.path, "/construction-choice-proposals"))
          ELSE /\ request.settlement = "response"
               /\ request.status \in 100..599
+              /\ request.responseHeadersStatus = request.status
               /\ request.responseReceivedAt \in Int
               /\ request.completedAt \in Int
               /\ request.startedAt <= request.responseReceivedAt
               /\ request.responseReceivedAt <= request.completedAt
               /\ request.requestMountEpoch \in Nat
               /\ request.responseMountEpoch \in Nat
+              /\ request.responseObservedBeforeFailure = FALSE
               /\ request.failureMountEpoch = No
+              /\ request.failureErrorText = No
+              /\ request.readCancellationDiagnostic = FALSE
               /\ request.networkComplete = TRUE
               /\ request.responseHeadersObserved = TRUE
               /\ request.responseBodyPending = FALSE
+              /\ request.responseCaptureComplete = TRUE
+              /\ request.responseCaptureError = No
               /\ request.completedAtExact # No
 
 PendingObservedRequests ==
@@ -1885,7 +1962,7 @@ InvChoiceProposalBindsNewColumn ==
   \A i \in 1..journey.cursor:
     LET event == journey.history[i]
     IN IF event.action = "TemporalColumnApplied"
-       THEN ChoiceProposalMatches(event, event.after.columnId, event.after.outputId)
+       THEN ChoiceProposalMatches(event, event.after.choiceCandidateColumnId, event.after.outputId)
        ELSE TRUE
 InvReloadReconcileBindsFreshSnapshot ==
   \A i \in 1..journey.cursor:

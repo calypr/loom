@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
 import { fixtureProjectExplorerCollectionPath } from './fixture-context.mjs';
-import { validateTemporalPendingReadScope } from './temporal-filter-pending-read.mjs';
+import {
+  validateTemporalPendingReadScope,
+  validateTemporalResponseBodyFailureScope,
+} from './temporal-filter-pending-read.mjs';
+import { classifyCapturedTransport } from './transport-terminal.mjs';
 
 export const TEMPORAL_FILTER_CAPTURE_KIND = 'builder-temporal-native-lifecycle';
 
@@ -45,6 +49,13 @@ const commandTypes = body => commandList(body).map(command => command.type);
 const safeArray = value => Array.isArray(value) ? value : [];
 const hasCommand = (body, type) => commandTypes(body).includes(type);
 const requestPathIs = (event, suffix) => event.method === 'POST' && event.path.endsWith(suffix);
+const classifyCapturedRequest = request => classifyCapturedTransport({
+    responseHeadersObserved: request.status !== null && request.status !== undefined &&
+      Number.isFinite(request.responseReceivedAt),
+    requestFailed: Boolean(request.failure),
+    networkComplete: request.networkComplete,
+    responseCaptureComplete: request.responseCaptureComplete,
+  });
 const isNativeProposalRequest = request => requestPathIs(request, '/construction-proposals');
 const assertJSONEqual = (actual, expected, message) => assert.deepEqual(actual, expected, message);
 
@@ -74,6 +85,7 @@ const readAt = (capture, index) => {
     workspaceDigest: workspaceDigest(read.workspaceDocuments),
     outputId: resourceDocument?.output?.id ?? null,
     columnId: temporalColumn?.columnId ?? temporalColumn?.id ?? null,
+    choiceCandidateColumnId: temporalColumn?.column ?? temporalColumn?.columnId ?? temporalColumn?.id ?? null,
     columns,
     steps: constructionSteps(resourceDocument),
   };
@@ -225,30 +237,37 @@ const assertCaptureShape = capture => {
     assert(request.responseReceivedAt === null || Number.isFinite(request.responseReceivedAt));
     assert(request.completedAt === null || Number.isFinite(request.completedAt));
     assert.equal(typeof request.networkComplete, 'boolean');
-    if (request.settlement === 'pending') {
+    const terminal = classifyCapturedRequest(request);
+    if (terminal.settlement === 'pending') {
       validateTemporalPendingReadScope(request, capture.pendingReadScope, capture.builderReads);
       assert.equal(request.responseReceivedAt, null);
       assert.equal(request.completedAt, null);
       assert.equal(request.responseMountEpoch, null);
       assert.equal(request.failureMountEpoch, null);
-    } else if (request.status === null) {
-      assert.equal(request.settlement, 'request-failed');
+    } else if (terminal.settlement === 'request-failed') {
       assert(request.failure?.canceled === true && request.readCancellationDiagnostic === true,
-        `Request ${request.browserRequestId} without a response must retain an actual canceled-request diagnostic.`);
-      assert(request.responseReceivedAt === null && request.responseMountEpoch === null);
+        `Request ${request.browserRequestId} failure must retain its actual canceled-request diagnostic.`);
       assert(Number.isInteger(request.failureMountEpoch));
       assert.equal(request.networkComplete, true);
       assert.equal(request.responseCaptureComplete, true);
       assert.equal(request.isMutation, false);
-      assert(requestPathIs(request, '/reconcile') || requestPathIs(request, '/preview') ||
-        requestPathIs(request, '/construction-proposals') || requestPathIs(request, '/construction-choice-proposals'),
-      `Canceled ${request.method} ${request.path} has no temporal-filter read-only cancellation contract.`);
+      if (terminal.responseObservedBeforeFailure) {
+        validateTemporalResponseBodyFailureScope(request, capture.pendingReadScope, capture.builderReads);
+      } else {
+        assert.equal(request.status, null);
+        assert.equal(request.responseReceivedAt, null);
+        assert.equal(request.responseMountEpoch, null);
+        assert(requestPathIs(request, '/reconcile') || requestPathIs(request, '/preview') ||
+          requestPathIs(request, '/construction-proposals') || requestPathIs(request, '/construction-choice-proposals'),
+        `Canceled ${request.method} ${request.path} has no temporal-filter read-only cancellation contract.`);
+      }
     } else {
-      assert.equal(request.settlement, 'response');
+      assert.equal(terminal.settlement, 'response');
       assert(Number.isInteger(request.status) && request.status >= 100 && request.status <= 599,
         `Observed response ${request.browserRequestId} must retain its actual HTTP status code.`);
       assert(Number.isInteger(request.responseMountEpoch));
       assert.equal(request.failureMountEpoch, null);
+      assert.equal(request.failure ?? null, null);
       assert.equal(request.networkComplete, true);
       assert.equal(request.responseCaptureComplete, true,
         `Observed response ${request.browserRequestId} cannot leave a response body read open.`);
@@ -342,6 +361,8 @@ const assertRequestBindings = (capture, events) => {
     assert(event?.request, `${label} must bind its actual mutating request.`);
     const raw = requestById.get(event.request.captureId);
     assert(raw?.isMutation, `${label} must bind an observer-classified mutation.`);
+    assert(classifyCapturedRequest(raw).responseStatusCredit,
+      `${label} mutation cannot claim status or owner credit after requestfailed.`);
     assert(raw.status >= 200 && raw.status < 300, `${label} mutation must have a successful captured response.`);
     assert(matches(event), `${label} request body must carry its expected native operation.`);
     consumedMutations.push(raw.browserRequestId);
@@ -351,6 +372,8 @@ const assertRequestBindings = (capture, events) => {
         'SourceTableCreated must retain the separate default root-ID provisioning request.');
       const setup = rawRequestFor(capture, relatedMutationCaptureIds[0]);
       assert(setup?.isMutation, 'Default root-ID provisioning must resolve to its actual observer-classified write.');
+      assert(classifyCapturedRequest(setup).responseStatusCredit,
+        'Default root-ID provisioning cannot claim status or owner credit after requestfailed.');
       assert.equal(setup.method, 'POST');
       assert.equal(setup.path, raw.path);
       assert(Number.isInteger(setup.status) && setup.status >= 200 && setup.status < 300,
@@ -395,6 +418,21 @@ const assertRequestBindings = (capture, events) => {
       'The post-settlement Builder GET must start after the ADD_COLUMN response arrives.');
       assert.equal(setup.index > raw.index, true,
         'The ADD_COLUMN write must retain a distinct later observer index.');
+    } else if (label === 'TemporalColumnApplied') {
+      const choiceCaptureIds = capture.steps.find(step => step.label === label).proposalCaptureIds;
+      assert.equal(choiceCaptureIds.length, 1,
+        'TemporalColumnApplied must retain its actual construction-choice proposal.');
+      const choice = requestById.get(choiceCaptureIds[0]);
+      assert(choice && requestPathIs(choice, '/construction-choice-proposals'),
+        'TemporalColumnApplied choice evidence must resolve to its exact observed proposal request.');
+      const temporalColumn = event.after.columns.find(column =>
+        column.source?.kind === 'field' && column.source.field?.path === capture.fieldPath);
+      const candidateColumnId = temporalColumn?.column ?? temporalColumn?.columnId ?? temporalColumn?.id;
+      assert(typeof candidateColumnId === 'string' && candidateColumnId.length > 0,
+        'Saved temporal column must retain its actual choice candidate identity.');
+      assert.deepEqual(choice.response?.candidateColumnIds, [candidateColumnId],
+        'Choice response candidate ID must bind to the raw saved column alias while its columnId stays stable for filters.');
+      assert.equal(choice.response?.outputId, event.after.outputId);
     } else {
       assert.deepEqual(relatedMutationCaptureIds, [],
         `${label} must not claim an unrelated physical mutation request.`);
@@ -402,6 +440,8 @@ const assertRequestBindings = (capture, events) => {
     for (const captureId of relatedMutationCaptureIds) {
       const related = rawRequestFor(capture, captureId);
       assert(related?.isMutation, `${label} related request ${captureId} must be an actual mutation.`);
+      assert(classifyCapturedRequest(related).responseStatusCredit,
+        `${label} related mutation ${captureId} cannot claim credit after requestfailed.`);
       assert(Number.isInteger(related.status) && related.status >= 200 && related.status < 300,
         `${label} related mutation ${captureId} must retain its successful response.`);
       consumedMutations.push(captureId);
@@ -464,6 +504,8 @@ const assertReconcileBindings = (capture, events) => {
 const assertProposalMatches = (capture, contract, event, intent) => {
   const raw = rawRequestFor(capture, event.request.captureId);
   assert(raw && requestPathIs(raw, '/construction-proposals'));
+  assert(classifyCapturedRequest(raw).responseStatusCredit,
+    `${event.action} proposal cannot claim response credit after requestfailed.`);
   assert.equal(raw.status, 200, `${event.action} proposal must be a successful captured response.`);
   assert.equal(raw.request?.outputId, capture.outputId);
   assert.equal(raw.response?.outputId, capture.outputId);

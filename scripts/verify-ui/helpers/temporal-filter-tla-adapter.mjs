@@ -11,7 +11,9 @@ import {
 import {
   TEMPORAL_CAPTURE_DRAIN_TIMEOUT_MS,
   validateTemporalPendingReadScope,
+  validateTemporalResponseBodyFailureScope,
 } from './temporal-filter-pending-read.mjs';
+import { classifyCapturedTransport } from './transport-terminal.mjs';
 
 const REQUIRED_LABELS = Object.freeze([
   'ExplorerCreated',
@@ -72,6 +74,7 @@ const MISSING_SNAPSHOT = Object.freeze({
   workspaceDigest: NO,
   outputId: NO,
   columnId: NO,
+  choiceCandidateColumnId: NO,
   columns: [],
   steps: [],
 });
@@ -209,6 +212,7 @@ const projectSnapshot = (snapshot, initialMountEpoch) => {
     workspaceDigest: noIfAbsent(snapshot.workspaceDigest),
     outputId: noIfAbsent(snapshot.outputId),
     columnId: noIfAbsent(snapshot.columnId),
+    choiceCandidateColumnId: noIfAbsent(snapshot.choiceCandidateColumnId),
     columns: projectColumns(snapshot.columns),
     steps: projectSteps(snapshot.steps),
   };
@@ -420,6 +424,7 @@ const snapshotAt = (capture, index) => {
     workspaceDigest: sha256(read.workspaceDocuments),
     outputId: document?.output?.id ?? null,
     columnId: temporalColumn?.columnId ?? temporalColumn?.id ?? null,
+    choiceCandidateColumnId: temporalColumn?.column ?? temporalColumn?.columnId ?? temporalColumn?.id ?? null,
     columns,
     steps: document?.construction?.steps ?? [],
   };
@@ -859,8 +864,20 @@ export const validateTemporalFilterJourneyTrace = trace => {
     'Capture exit must retain the final actual observer index.');
   assert.deepEqual(captureExit.scope, lifecycle.pendingReadScope,
     'Capture exit must bind the exact project, Explorer, origin, and output scope.');
-  const pendingRequests = lifecycle.requestEvents.filter(request => request.settlement === 'pending');
-  const pendingResponseReads = lifecycle.requestEvents.filter(request => request.settlement === 'response-body-pending');
+  const pendingRequests = lifecycle.requestEvents.filter(request => classifyCapturedTransport({
+    responseHeadersObserved: request.status !== null && request.status !== undefined &&
+      Number.isFinite(request.responseReceivedAt),
+    requestFailed: Boolean(request.failure),
+    networkComplete: request.networkComplete,
+    responseCaptureComplete: request.responseCaptureComplete,
+  }).settlement === 'pending');
+  const pendingResponseReads = lifecycle.requestEvents.filter(request => classifyCapturedTransport({
+    responseHeadersObserved: request.status !== null && request.status !== undefined &&
+      Number.isFinite(request.responseReceivedAt),
+    requestFailed: Boolean(request.failure),
+    networkComplete: request.networkComplete,
+    responseCaptureComplete: request.responseCaptureComplete,
+  }).settlement === 'response-body-pending');
   assert.deepEqual(captureExit.pendingObserverIndexes, pendingRequests.map(request => request.index),
     'Capture exit must enumerate the exact unresolved physical request indexes.');
   assert.deepEqual(captureExit.pendingBrowserRequestIds, pendingRequests.map(request => request.browserRequestId),
@@ -928,28 +945,40 @@ export const validateTemporalFilterJourneyTrace = trace => {
     assert(Number.isFinite(request.startedAt));
     assert(request.completedAt === null || Number.isFinite(request.completedAt));
     assert(typeof request.networkComplete === 'boolean');
-    if (request.settlement === 'pending') {
+    const terminal = classifyCapturedTransport({
+      responseHeadersObserved: request.status !== null && request.status !== undefined &&
+        Number.isFinite(request.responseReceivedAt),
+      requestFailed: Boolean(request.failure),
+      networkComplete: request.networkComplete,
+      responseCaptureComplete: request.responseCaptureComplete,
+    });
+    if (terminal.settlement === 'pending') {
       validateTemporalPendingReadScope(request, lifecycle.pendingReadScope, lifecycle.builderReads);
       assert.equal(request.completedAt, null);
       assert.equal(request.status, null);
       assert.equal(request.networkComplete, false);
       assert.equal(request.responseCaptureComplete, true);
       assert.equal(request.responseBodyCaptured, false);
-    } else if (request.status === null) {
-      assert.equal(request.settlement, 'request-failed');
+    } else if (terminal.settlement === 'request-failed') {
       assert(!request.isMutation && request.readCancellationDiagnostic === true &&
-        request.failure?.canceled === true &&
-        request.networkComplete === true && request.responseCaptureComplete === true &&
-        (isProposalRequest(request) || isReconcileRequest(request) || isPreviewRequest(request)),
-      `Observer request ${request.browserRequestId} may omit status only for a captured temporal preview or proposal cancellation.`);
-      assert(request.responseReceivedAt === null || request.responseReceivedAt === undefined,
-        `Canceled request ${request.browserRequestId} must not invent a response-arrival time.`);
-      assert(request.responseMountEpoch === null || request.responseMountEpoch === undefined,
-        `Canceled request ${request.browserRequestId} must not invent a response mount epoch.`);
+        request.failure?.canceled === true && request.networkComplete === true &&
+        request.responseCaptureComplete === true,
+      `Observer request ${request.browserRequestId} must retain a terminal read-only cancellation.`);
       assert(Number.isInteger(request.failureMountEpoch),
         `Canceled request ${request.browserRequestId} must retain its actual failure mount epoch.`);
+      if (terminal.responseObservedBeforeFailure) {
+        validateTemporalResponseBodyFailureScope(request, lifecycle.pendingReadScope, lifecycle.builderReads);
+      } else {
+        assert.equal(request.status, null);
+        assert(request.responseReceivedAt === null || request.responseReceivedAt === undefined,
+          `Canceled request ${request.browserRequestId} cannot invent response headers.`);
+        assert(request.responseMountEpoch === null || request.responseMountEpoch === undefined,
+          `Canceled request ${request.browserRequestId} cannot invent a response mount epoch.`);
+        assert(isProposalRequest(request) || isReconcileRequest(request) || isPreviewRequest(request),
+          `Canceled ${request.method} ${request.path} has no temporal-filter read-only cancellation contract.`);
+      }
     } else {
-      assert.equal(request.settlement, 'response');
+      assert.equal(terminal.settlement, 'response');
       assert(Number.isInteger(request.status) && request.status >= 100 && request.status <= 599,
         `Observer request ${request.browserRequestId} must retain its actual HTTP status code.`);
       assert(Number.isFinite(request.responseReceivedAt),
@@ -963,6 +992,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
       assert.equal(request.networkComplete, true);
       assert.equal(request.responseCaptureComplete, true,
         `Observer request ${request.browserRequestId} cannot leave a response-body read open.`);
+      assert.equal(request.failure ?? null, null,
+        `Observed response ${request.browserRequestId} cannot retain a later requestfailed terminal.`);
       assert.equal(request.responseCaptureError ?? null, null,
         `Observer request ${request.browserRequestId} cannot hide a response-body capture failure.`);
       assert(request.failureMountEpoch === null || request.failureMountEpoch === undefined,
@@ -1265,7 +1296,17 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const initialMountEpoch = trace.actions[0].mountEpoch;
   const modelEvents = trace.actions.map((event, index) => projectModelEvent(
     event, rawStepByActionIndex[index], lifecycle, timeOrigin, initialMountEpoch));
-  const observedRequests = rawRequests.map(request => ({
+  const observedRequests = rawRequests.map(request => {
+    const terminal = classifyCapturedTransport({
+      responseHeadersObserved: request.status !== null && request.status !== undefined &&
+        Number.isFinite(request.responseReceivedAt),
+      requestFailed: Boolean(request.failure),
+      networkComplete: request.networkComplete,
+      responseCaptureComplete: request.responseCaptureComplete,
+    });
+    const responseHeadersObserved = request.status !== null && request.status !== undefined &&
+      Number.isFinite(request.responseReceivedAt);
+    return {
     observerIndex: request.index,
     captureId: request.browserRequestId,
     requestId: noIfAbsent(request.requestId),
@@ -1275,11 +1316,20 @@ export const validateTemporalFilterJourneyTrace = trace => {
     method: request.method,
     origin: request.origin,
     path: request.path,
-    settlement: request.settlement,
+    settlement: terminal.settlement,
+    capturedSettlement: noIfAbsent(request.settlement),
     networkComplete: request.networkComplete,
-    responseHeadersObserved: request.status !== null && Number.isFinite(request.responseReceivedAt),
-    responseBodyPending: request.settlement === 'response-body-pending',
-    status: noIfAbsent(request.status) === NO ? 0 : request.status,
+    responseHeadersObserved,
+    responseHeadersStatus: responseHeadersObserved ? request.status : NO,
+    responseObservedBeforeFailure: terminal.responseObservedBeforeFailure,
+    responseBodyPending: terminal.settlement === 'response-body-pending',
+    responseCapture: noIfAbsent(request.responseCapture),
+    responseCaptureComplete: Boolean(request.responseCaptureComplete),
+    responseBodyCaptured: Boolean(request.responseBodyCaptured),
+    responseCaptureError: request.responseCaptureError ? opaqueJSON(request.responseCaptureError) : NO,
+    failureErrorText: noIfAbsent(request.failure?.errorText),
+    readCancellationDiagnostic: Boolean(request.readCancellationDiagnostic),
+    status: terminal.responseStatusCredit && request.status !== null ? request.status : 0,
     startedAt: Math.round(request.startedAt - timeOrigin.epochMs),
     startedAtExact: String(request.startedAt),
     responseReceivedAt: Number.isFinite(request.responseReceivedAt)
@@ -1334,7 +1384,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
     reconcileRetryFollowupCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.retryFollowupCaptureIds ?? [],
     requestEvidence: opaqueJSON(request.request),
     responseEvidence: opaqueJSON(request.response),
-  }));
+  };
+  });
   const observedCaptureExit = {
     checkpointId: captureExit.checkpointId,
     drainStartedAt: captureExit.drainStartedAtEpochMs - timeOrigin.epochMs,

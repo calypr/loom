@@ -507,3 +507,62 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
     finalDOMObservationIndex: null,
   };
 };
+
+export const makeTemporalResponseBodyAbortFixture = (caseName = 'date') => {
+  const capture = makeTemporalFilterJourneyCaptureFixture(caseName);
+  const lastRead = capture.builderReads.at(-1);
+  const latestRequestTime = Math.max(...capture.requestEvents.map(request => request.atMonotonicMs));
+  const startedAtMonotonicMs = latestRequestTime + 10;
+  const responseAtMonotonicMs = startedAtMonotonicMs + 5;
+  const completedAtMonotonicMs = startedAtMonotonicMs + 8;
+  const epochOffset = capture.requestEvents[0].atEpochMs - capture.requestEvents[0].atMonotonicMs;
+  const request = {
+    index: capture.requestEvents.at(-1).index + 1,
+    browserRequestId: 'fixture-semantic-inventory-header-then-abort',
+    requestId: 'fixture-semantic-inventory-request-id',
+    method: 'POST',
+    origin: capture.uiOrigin,
+    path: `${capture.browserExplorerRoot}/authoring/v2/semantic-inventory`,
+    status: 200,
+    request: {
+      snapshotToken: lastRead.snapshotToken,
+      rowRoot: capture.resourceType,
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      limit: 50,
+      outputId: capture.outputId,
+    },
+    response: null,
+    startedAt: epochOffset + startedAtMonotonicMs,
+    responseReceivedAt: epochOffset + responseAtMonotonicMs,
+    completedAt: epochOffset + completedAtMonotonicMs,
+    responseMountEpoch: 5,
+    failureMountEpoch: 5,
+    responseObservedBeforeFailure: true,
+    isMutation: false,
+    failure: { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true },
+    readCancellationDiagnostic: true,
+    responseCapture: 'failed',
+    responseCaptureComplete: true,
+    responseBodyCaptured: false,
+    responseCaptureError: 'response.body: Protocol error (Network.getResponseBody): No data found for resource with given identifier. Response body is not available for a response that was navigated away from. Read response.body() before triggering any navigation.',
+    networkComplete: true,
+    settlement: 'response',
+    atMonotonicMs: startedAtMonotonicMs,
+    atEpochMs: epochOffset + startedAtMonotonicMs,
+    mountEpoch: 5,
+  };
+  capture.requestEvents.push(request);
+  const drainStartedAtMonotonicMs = completedAtMonotonicMs + 10;
+  capture.captureExit.requestCount = capture.requestEvents.length;
+  capture.captureExit.afterObserverIndex = request.index;
+  capture.captureExit.pendingObserverIndexes = [];
+  capture.captureExit.pendingBrowserRequestIds = [];
+  capture.captureExit.pendingResponseReadObserverIndexes = [];
+  capture.captureExit.deadlineReached = false;
+  capture.captureExit.drainStartedAtMonotonicMs = drainStartedAtMonotonicMs;
+  capture.captureExit.drainStartedAtEpochMs = epochOffset + drainStartedAtMonotonicMs;
+  capture.captureExit.observedAtMonotonicMs = drainStartedAtMonotonicMs + 1;
+  capture.captureExit.observedAtEpochMs = epochOffset + drainStartedAtMonotonicMs + 1;
+  capture.captureExit.scope = structuredClone(capture.pendingReadScope);
+  return capture;
+};
