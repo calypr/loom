@@ -46,6 +46,47 @@ const expectedCdaMutationControlNames = (journeyCase, trace) => [
   ...(journeyCase.requiredMutationControlNames ?? []),
   ...observedCdaOwnerEpochs(trace).map(epoch => journeyCase.observedOwnerEpochControlPrefix + epoch),
 ];
+const selfTestReceiptProblem = (receipt, expected) => {
+  if (!receipt || receipt.traceName !== expected.traceName || receipt.nativeCaseKey !== expected.nativeCaseKey ||
+      receipt.tracePath !== expected.tracePath || !/^[0-9a-f]{64}$/.test(receipt.traceSha256 ?? '') ||
+      receipt.selfTestReportPath !== expected.selfTestReportPath || !['pass', 'fail'].includes(receipt.status) ||
+      !Array.isArray(receipt.requiredMutationControlNames) || !Array.isArray(receipt.mutationControls)) {
+    return 'self-test receipt identity, byte digest, status, control set, and resolved output path are required';
+  }
+  if (['selfTestStatus', 'replayStatus', 'replayReportPath', 'requestCoverage', 'actionLabels', 'unmodeledEvents']
+    .some(field => Object.hasOwn(receipt, field))) {
+    return 'self-test receipt must not duplicate verifier or replay fields';
+  }
+  return null;
+};
+const selfTestReceiptWriterTest = () => {
+  const fixture = {
+    traceName: 'trace-fixture',
+    nativeCaseKey: 'scenario/case-fixture',
+    tracePath: '/tmp/trace-fixture.json',
+    traceSha256: 'a'.repeat(64),
+    selfTestReportPath: '/tmp/self-test-fixture.json',
+    status: 'pass',
+    requiredMutationControlNames: [],
+    mutationControls: [],
+  };
+  const expected = {
+    traceName: fixture.traceName,
+    nativeCaseKey: fixture.nativeCaseKey,
+    tracePath: fixture.tracePath,
+    selfTestReportPath: fixture.selfTestReportPath,
+  };
+  const validAccepted = selfTestReceiptProblem(fixture, expected) === null;
+  const missingOutputRejected = selfTestReceiptProblem({ ...fixture, selfTestReportPath: undefined }, expected) !== null;
+  const wrongOutputRejected = selfTestReceiptProblem({ ...fixture, selfTestReportPath: '/tmp/other.json' }, expected) !== null;
+  const duplicateStatusRejected = selfTestReceiptProblem({ ...fixture, selfTestStatus: 'pass' }, expected) !== null;
+  return validAccepted && missingOutputRejected && wrongOutputRejected && duplicateStatusRejected;
+};
+if (!selfTestReceiptWriterTest()) {
+  console.error('FAIL self-test receipt compatibility and output-path checks');
+  process.exit(1);
+}
+console.log('PASS self-test receipt compatibility and output-path checks');
 if (!journeyOnly && (!Array.isArray(payload.traces) || payload.traces.length === 0)) {
   console.error('FAIL trace corpus is empty');
   process.exit(1);
@@ -1675,6 +1716,8 @@ if (journeyOnly) {
       mutateCda('duplicate-native-request-observer-index', 'native request observer index must be unique', trace => {
         const applies = trace.actions.filter(action => action.label === 'RelatedSourceApply');
         applies[1].request.index = applies[0].request.index;
+        const rawRequest = trace.nativeRequests.find(entry => entry.browserRequestId === applies[1].request.browserRequestId);
+        rawRequest.index = applies[0].request.index;
       });
       mutateCda('native-ledger-missing-modeled-request', 'modeled/support request is absent from the complete native observer ledger', trace => {
         const action = relationApply(trace);
@@ -1707,6 +1750,8 @@ if (journeyOnly) {
         const applies = trace.actions.filter(action => action.label === 'RelatedSourceApply');
         applies[1].request.startedAt = applies[0].request.startedAt - 1;
         applies[1].settlement.startedAt = applies[1].request.startedAt;
+        const rawRequest = trace.nativeRequests.find(entry => entry.browserRequestId === applies[1].request.browserRequestId);
+        rawRequest.startedAt = applies[1].request.startedAt;
       });
       const observedOwnerEpochs = new Set(cdaTrace.actions
         .filter(action => ['Preview', 'RelatedSourcePreview'].includes(action.label))
@@ -1742,12 +1787,14 @@ if (journeyOnly) {
         '--output', reportPath,
         '--quiet',
       ], { cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-      let tamperedReceipt = null;
+      let tamperedReplayReport = null;
       try {
-        tamperedReceipt = JSON.parse(readFileSync(reportPath, 'utf8')).builderJourneyTrace;
+        tamperedReplayReport = JSON.parse(readFileSync(reportPath, 'utf8'));
       } catch {}
+      const tamperedReceipt = tamperedReplayReport?.builderJourneyTrace;
       const traceBodyTamperPassed = tamperedReplay.status === 0 &&
-        tamperedSha256 !== traceSha256 && tamperedReceipt?.traceSha256 === tamperedSha256;
+        tamperedSha256 !== traceSha256 && tamperedReplayReport?.traceSha256 === tamperedSha256 &&
+        tamperedReceipt?.traceSha256 === tamperedSha256;
       cdaControlResults.push({ name: 'trace-body-tamper-rejected', status: traceBodyTamperPassed ? 'pass' : 'fail' });
       if (!traceBodyTamperPassed) {
         console.error('FAIL CDA receipt binding: verifier receipt did not track changed raw trace bytes');
@@ -1779,17 +1826,30 @@ if (journeyOnly) {
           repeatEditOwnerPassed && repeatEditRequiredPassed && lateAbortOwnerPassed &&
           groupLifecycleControlsPassed && cdaControlsPassed &&
           mutationControlNamesMatch(cdaControlResults, requiredMutationControlNames);
+        const selfTestReportPath = resolve(ROOT, selfTestOutputPath);
         const receipt = {
           traceName: cdaJourneyCase.traceName,
           nativeCaseKey: cdaJourneyCase.workflow,
           tracePath: resolve(ROOT, tracesPath),
           traceSha256,
+          selfTestReportPath,
           status: allSelfTestsPassed ? 'pass' : 'fail',
           requiredMutationControlNames,
           mutationControls: cdaControlResults,
         };
-        mkdirSync(dirname(resolve(ROOT, selfTestOutputPath)), { recursive: true });
-        writeFileSync(resolve(ROOT, selfTestOutputPath), JSON.stringify(receipt, null, 2) + '\n');
+        const receiptProblem = selfTestReceiptProblem(receipt, {
+          traceName: cdaJourneyCase.traceName,
+          nativeCaseKey: cdaJourneyCase.workflow,
+          tracePath: resolve(ROOT, tracesPath),
+          selfTestReportPath,
+        });
+        if (receiptProblem) {
+          console.error('FAIL self-test receipt: ' + receiptProblem);
+          cdaControlsPassed = false;
+          receipt.status = 'fail';
+        }
+        mkdirSync(dirname(selfTestReportPath), { recursive: true });
+        writeFileSync(selfTestReportPath, JSON.stringify(receipt, null, 2) + '\n');
       }
     }
   }

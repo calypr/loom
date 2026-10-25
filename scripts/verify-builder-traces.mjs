@@ -3189,6 +3189,7 @@ function traceShapeProblem(trace, index, contract, events) {
       }
       if (action.label === 'PreviewRequestCancelled') {
         const previous = trace.actions[actionIndex - 1];
+        const expectedProposalPath = hasCdaRelatedCase ? '/construction-proposals' : 'construction-proposals';
         const sameRequest = previous?.request && action.request &&
           previous.request.method === 'POST' &&
           previous.request.method === action.request.method &&
@@ -3196,7 +3197,7 @@ function traceShapeProblem(trace, index, contract, events) {
           previous.request.captureId === action.request.captureId;
         if (!previous || previous.label !== 'Preview' ||
             canonicalJson(previous.owner) !== canonicalJson(action.owner) || !sameRequest ||
-          action.request?.path !== 'construction-proposals') {
+          action.request?.path !== expectedProposalPath) {
           return {
             message: actionWhere + ' PreviewRequestCancelled must match the immediately preceding Preview owner and request capture',
             actionIndex,
@@ -3261,16 +3262,44 @@ function traceShapeProblem(trace, index, contract, events) {
       if (hasCdaRelatedCase && ['LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored'].includes(action.label)) {
         const panel = action.renderedObservation?.proposalPanel;
         const classification = action.lateClassification;
-        const panelObservedAt = action.renderedObservation?.proposalPanelObservedAt;
+        const panelObservedAt = classification?.observedAt;
         const panelBrowserRequestId = action.renderedObservation?.proposalPanelBrowserRequestId;
+        const newerOwnerRequest = Array.isArray(trace.nativeRequests)
+          ? trace.nativeRequests.find(request => request.browserRequestId === classification?.ownerBrowserRequestId)
+          : null;
+        const newerOwnerSettlement = trace.actions.find((candidate, candidateIndex) =>
+          candidateIndex < actionIndex &&
+          candidate.request?.browserRequestId === classification?.ownerBrowserRequestId &&
+          ['PreviewComplete', 'RelatedSourcePreview'].includes(candidate.label));
+        const newerOwnerCompletionTimes = [
+          newerOwnerRequest?.completedAt,
+          newerOwnerRequest?.responseReceivedAt,
+          newerOwnerSettlement?.settlement?.completedAt,
+          newerOwnerSettlement?.settlement?.responseReceivedAt,
+        ].filter(Number.isFinite);
         if (classification?.available !== true || !isPlainObject(panel) ||
+            typeof panel.id !== 'string' || panel.id.length === 0 ||
+            !Number.isFinite(action.renderedObservation?.proposalPanelObservedAt) ||
+            action.renderedObservation.proposalPanelObservedAt !== classification.observedAt ||
             panelBrowserRequestId !== classification.ownerBrowserRequestId ||
             classification.ownerBrowserRequestId === action.request?.browserRequestId ||
             classification.renderedPanelProposalId !== panel.id ||
-            classification.observedAt !== panelObservedAt || !Number.isFinite(panelObservedAt) ||
+            typeof classification.ownerBrowserRequestId !== 'string' ||
+            !Number.isFinite(panelObservedAt) ||
             !Number.isFinite(classification.ownerStartedAt) || !Number.isFinite(classification.ownerCompletedAt) ||
             classification.ownerStartedAt <= action.request.startedAt ||
-            classification.ownerCompletedAt > panelObservedAt || panelObservedAt < action.settlement?.completedAt) {
+            newerOwnerRequest?.method !== 'POST' ||
+            cdaNativePathSuffix(newerOwnerRequest?.path) !== '/construction-proposals' ||
+            newerOwnerRequest.isMutation !== true ||
+            newerOwnerRequest.startedAt !== classification.ownerStartedAt ||
+            newerOwnerRequest.index <= action.request.index ||
+            !newerOwnerSettlement ||
+            newerOwnerSettlement.response?.proposalId !== panel.id ||
+            !newerOwnerCompletionTimes.includes(classification.ownerCompletedAt) ||
+            classification.ownerCompletedAt < classification.ownerStartedAt ||
+            classification.ownerCompletedAt > panelObservedAt ||
+            classification.ownerCompletedAt > action.settlement?.completedAt ||
+            panelObservedAt < action.settlement?.completedAt) {
           return { message: actionWhere + ' late preview transition must retain an actual newer request owner and its later rendered candidate panel', actionIndex };
         }
       }
@@ -3418,7 +3447,7 @@ function traceShapeProblem(trace, index, contract, events) {
       if (!action.owner || !action.request) continue;
       if ([
         'PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled',
-        'ChoicePreviewComplete', 'ChoicePreviewError',
+        'ChoicePreviewComplete', 'ChoicePreviewError', 'RelatedSourceCancel',
       ].includes(action.label)) continue;
       const problem = registerCapture(observedRequestKey(action.request), where + '.actions[' + actionIndex + '].request');
       if (problem) return { message: problem, actionIndex };
@@ -4859,6 +4888,7 @@ async function main() {
   const invalid = reportTraces.filter((trace) => trace.status !== expectedPassingStatus);
   const unmodeledEventSummary = reportUnmodeledEvents(traces, contract.unmodeledEventPolicy);
   const report = {
+    traceSha256,
     schemaVersion: 1,
     validationMode: options.shapeOnly ? 'shape-only' : 'formal-replay',
     formalReplayPerformed: !options.shapeOnly,
