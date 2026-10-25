@@ -3,7 +3,12 @@ name: Builder Formal Verification
 on:
   pull_request:
     paths:
+      - '.github/workflows/builder-formal.yml'
       - 'scripts/verify-builder-*.mjs'
+      - 'scripts/verify-ui/**'
+      - 'scripts/run-builder-journey.mjs'
+      - 'scripts/package.json'
+      - 'scripts/package-lock.json'
       - 'scripts/run-builder-mutation-probe.mjs'
       - 'scripts/generate-builder-route-ledger.mjs'
       - 'scripts/self-test-builder-traces.mjs'
@@ -28,13 +33,18 @@ jobs:
         with:
           node-version: '22.x'
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            scripts/package-lock.json
+            ui/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Install UI dependencies
         working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install formal conformance test dependencies
+        working-directory: scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run formal models, traces, and retained schedules
         run: node scripts/verify-builder-formal.mjs --skip-go
@@ -55,13 +65,18 @@ jobs:
         with:
           node-version: '22.x'
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            scripts/package-lock.json
+            ui/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Install UI dependencies
         working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install formal conformance test dependencies
+        working-directory: scripts
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run formal models, traces, schedules, and server contracts
         run: node scripts/verify-builder-formal.mjs

@@ -29,22 +29,22 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "02bab0951bdaba224b388d2d2ec8dc638b9c92ea16771a55a2985dda155c9df8",
+      "sha256": "73811dd89e85a68e3fefabb9948e0cbfa97e92326897e55764aed7b697bc892d",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
       "path": "scripts/verify-builder-formal.mjs",
-      "sha256": "0cd7aaafefcfadc74fcfa01b934b7647af400f12c0218c34c5f773075fbb4f76",
+      "sha256": "9a9333ea993db88143929b7b95ef5aab39766f4683aace3c62626a92f5c95468",
       "contract": "Formal test-corpus producer and runner that stamps actual HEAD and the formal proof-source fingerprint."
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "383150ebef25023e564cfe0f6c31f5a54cad15cd6d7720a129ae3bb3ceb52fb7",
+      "sha256": "89ec6aed6ee42681b9acbf0fcb18d53bc531403303fa6cdd11cfcff977bce1b8",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "3390b388c0a76976c5cebe2c9caef88f7ea620c2078fbf995df08341b4a37716",
+      "sha256": "83401e6432748fb7ae006a23ef9079720446a6ef2687dc8792a955c9cb26f95a",
       "contract": "Trace mutation controls for request ownership, Group persistence and reload keys/step, stale candidates and capture owners, exact action counts, and generic non-Group routes."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "cd788f830f97a7f1b8a3a2da22e895a7398a575fda94ee36ae22beb7d028a9b7",
+      "sha256": "dc16751bd54badd4c022cbdb527e0d6863a105410a0fa23711c5a42f20a44594",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -404,7 +404,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "4e146093c5fa238bdfb964da21e846d0f4ad9358f3f4a185bd7c0d403db83031",
+      "sha256": "73552734346f0be15a88c772ecf3b8502cfffca80ff85837a5af22b66c9ae2a1",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "eb38486d5d779fcd3bc165b5b8009feb3422b045db00eff62912d33fbbb1d100",
+      "sha256": "5d77e936df4acbb5db5b611c417f3563854582635eafc1241f6ba88132edc870",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -464,7 +464,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-      "sha256": "d2d49a141fe1c91fc938094a960e85ed11c232f46f73ca28e02f2832a3a04f21",
+      "sha256": "9ebc7aeb91b6a8cbc25432bbfa7092c3617bd3e3ebd700be5b26c89c5f3e7888",
       "contract": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow."
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "cb8722943cb83689ec2465445a8a3e2f4db7bc9324e3c574d80e43a17d9cdb52",
+      "sha256": "3c0d77c9d9ad6063fcd467dc5d22e03704d80bb000b891b914d793bfe9c0a677",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
@@ -559,12 +559,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs",
-      "sha256": "497476a6a37626adfb619edaec53a1a0293d09502656d9f86f87621194cf5f13",
+      "sha256": "d9305735d57e73f450db92f51dba3388b9170ba367aab01a58f1ed01246c23b6",
       "contract": "Structured TLC mutation outcome matching and runner failure rejection."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "1d1f3ff26618000a58f346e4093772140eb7a88cbe4ae5bfd56440459eef9143",
+      "sha256": "70ca6e623f52043c4136cf5e56827a336ad05a371dc3a306c632c03927033283",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -614,7 +614,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs",
-      "sha256": "964ac49d5b86737421d6a938bd8f54616d74ef1cfd2c2fd227c49a432a73ef84",
+      "sha256": "ca42cf12b89c094e536b8dc510e2df369a8914058dd6e56e07a033a57ac2ca57",
       "contract": "Synthetic unit fixture for Temporal trace adapter and TLC tests; not browser evidence."
     },
     {
@@ -624,12 +624,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs",
-      "sha256": "203a26373056d11d7fcedf94a7af2a983af79f4adbdaadb90c2e40d90e0838e2",
+      "sha256": "2e7f673eaaf0fe58304eab0649f7c7d36b363a81bfcabda38d00958d9fe9910c",
       "contract": "Focused Temporal contract, TLA replay, and mutation-control tests."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs",
-      "sha256": "54e8b7cb4c111605d2c0b6ad2ee9f23b45407793e1177edd5f2b50ba48867749",
+      "sha256": "d51ce0b82b6605a759f734c127f0899daf879697a7fe4917cacf63d2ffd954b0",
       "contract": "Checks the static DATE and DATE_TIME adapter bindings, contracts, and coverage projection."
     },
     {
@@ -649,7 +649,7 @@
     },
     {
       "path": "verification/builder-interactions/TemporalFilterJourney.tla",
-      "sha256": "cddbdf02d330251b10905956c363fc2a49114fe285bd243965e5f666b2ababc7",
+      "sha256": "7b2bd6f18c3b7d455aa74d87327541d1e0be4bc0d6c469817f93d792fbccdbfb",
       "contract": "Bounded state machine and invariants for the observed Temporal filter lifecycle."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "f8b71db71e60375ac689343acf7cbcb5c529a4aa7ac6b93086511977e2d5e952",
+      "sha256": "a667fe87b246b771ca8267d200ea099499b8add0ed61e7a06b098c28040cd3a8",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
@@ -721,6 +721,41 @@
       "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json",
       "sha256": "085fe38273813b2b82c35ade8ee1e0e78db22f24909d10da5192ee7f1ff7bcf4",
       "contract": "Sanitized retained run5 DATE target shape for the fixture-oracle placement regression."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json",
+      "sha256": "921ecbf438ee052464b8a582b3dee4a505a41b81fab154cf756ce81a715e32b8",
+      "contract": "Sanitized complete and historical partial Policy receipt shapes for strict native receipt conformance; not browser proof."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json",
+      "sha256": "42e3f14f3e7932d96d9ebad5a3eab4560cc92af2c4c8d652e81c63e4f4b0feba",
+      "contract": "Sanitized incomplete historical DATE capture metadata for missing read-ownership and receipt rejection; not browser proof."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-native-corpus.test.mjs",
+      "sha256": "9cc1776b9b13afbb8a82aaea539b13f5253ceb27c980294e47a7c450631d8ae7",
+      "contract": "Replays retained native DATE captures through the registered adapter and production TLC runner as an offline fixture check; it is not a new browser run."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-mutation-controls.test.mjs",
+      "sha256": "af33dd7b0d935615230c71b5c88a5a08dbcc8054743e96441cb70ab8f8aa96c9",
+      "contract": "Checks registered DATE and DATE_TIME mutation controls through the production TLC runner as focused unit evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-96a.json.gz",
+      "sha256": "51bd914beb1ebcbe511f09d6d4ccae865b1daa6be27105a6d1271ac649b7d996",
+      "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run5.json.gz",
+      "sha256": "dba44f69c87ce115bf6e7f1287500c92c4bdc8a88e7717d89571c1ba280e3c99",
+      "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz",
+      "sha256": "acc3cddaa584cbe1bafbde65d8b7aa4b88005346e1edb50d8d87270f0ef26cea",
+      "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
     }
   ]
 }

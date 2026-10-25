@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   builderColumnLabelForId,
   cdaGroupLifecycleSnapshotProblem,
@@ -2513,6 +2513,50 @@ const fingerprintFor = (sources, root) => sha256(JSON.stringify(sources
   .map(({ path }) => ({ path, sha256: sha256(readFileSync(resolve(root, path))) }))
   .sort((left, right) => left.path.localeCompare(right.path))));
 
+const relativeModuleSpecifiers = (source) => {
+  const specifiers = new Set();
+  const patterns = [
+    /\b(?:import|export)\b[^;]*?\bfrom\s*(['"])(\.{1,2}\/[^'"]+)\1/g,
+    /\bimport\s*\(\s*(['"])(\.{1,2}\/[^'"]+)\1\s*\)/g,
+    /\bimport\s*(['"])(\.{1,2}\/[^'"]+)\1/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) specifiers.add(match[2]);
+  }
+  return [...specifiers];
+};
+
+const resolveRelativeModule = (sourcePath, specifier, root) => {
+  const base = resolve(dirname(resolve(root, sourcePath)), specifier);
+  const candidates = /\.[a-z0-9]+$/i.test(base)
+    ? [base]
+    : [base, ...['.mjs', '.js', '.cjs', '.ts', '.tsx', '.jsx', '.json'].map((extension) => base + extension),
+      ...['index.mjs', 'index.js', 'index.ts', 'index.tsx'].map((name) => join(base, name))];
+  const target = candidates.find((candidate) => existsSync(candidate));
+  if (!target) throw new Error(sourcePath + ' imports missing relative module ' + specifier);
+  const relativePath = relative(root, target).split('\\').join('/');
+  if (!relativePath || relativePath === '..' || relativePath.startsWith('../') || isAbsolute(relativePath)) {
+    throw new Error(sourcePath + ' imports module outside the temporary repository: ' + specifier);
+  }
+  return relativePath;
+};
+
+const runtimeModuleClosure = (entryPaths, root) => {
+  const closure = new Set();
+  const pending = [...entryPaths];
+  while (pending.length > 0) {
+    const sourcePath = pending.pop();
+    if (closure.has(sourcePath)) continue;
+    const source = readFileSync(resolve(root, sourcePath), 'utf8');
+    closure.add(sourcePath);
+    for (const specifier of relativeModuleSpecifiers(source)) {
+      const dependency = resolveRelativeModule(sourcePath, specifier, root);
+      if (!closure.has(dependency)) pending.push(dependency);
+    }
+  }
+  return closure;
+};
+
 if (journeyOnly) {
   const profilePath = 'verification/builder-interactions/builder-preview-contract.json';
   const profile = JSON.parse(readFileSync(resolve(ROOT, profilePath), 'utf8'));
@@ -2593,7 +2637,7 @@ const runSourceProfileMutation = () => {
   try {
     const profilePaths = new Set([
       ...profile.sources.map((source) => source.path),
-      'scripts/verify-builder-traces.mjs',
+      ...runtimeModuleClosure(['scripts/verify-builder-traces.mjs'], ROOT),
       profilePath,
       'verification/builder-interactions/' + selectedTrace.model + '.tla',
       fixtureContractPath,
@@ -2607,6 +2651,13 @@ const runSourceProfileMutation = () => {
         copyFileSync(resolve(ROOT, path), target);
       }
     }
+    const installedScriptDependencies = resolve(ROOT, 'scripts/node_modules');
+    if (!existsSync(installedScriptDependencies)) {
+      throw new Error('scripts/node_modules is required to execute the copied trace validator');
+    }
+    const fixtureDependencies = resolve(fixtureRoot, 'scripts/node_modules');
+    mkdirSync(dirname(fixtureDependencies), { recursive: true });
+    symlinkSync(installedScriptDependencies, fixtureDependencies, 'dir');
     runGit(['init', '--quiet', '--object-format=sha1']);
     runGit(['add', '--', ...profilePaths]);
     runGit([
@@ -3316,14 +3367,15 @@ try {
     passed = runMutation('reconcile-late-receipt-takeover', (mutated) => {
       const trace = retainMountedReconcile(mutated);
       const late = trace?.actions.find((action) => action.label === lateReconcile);
-      if (late?.observation?.reconcile?.receipt) {
+      const returned = late?.observation?.reconcile?.returned;
+      if (late?.observation?.reconcile?.receipt && returned) {
         late.observation.reconcile.receipt = {
-          modelKey: 'R1',
-          receiptId: 'receipt-A',
-          requestKey: 'A',
-          workspaceKey: 'W1',
-          outputModelKey: 'O1',
-          outputId: 'specimens',
+          modelKey: returned.receiptModelKey,
+          receiptId: returned.receiptId,
+          requestKey: returned.requestKey,
+          workspaceKey: returned.workspaceKey,
+          outputModelKey: returned.outputModelKey,
+          outputId: returned.outputId,
         };
       }
     }, semanticFailureFor(lateReconcile), { allowPartial: true }) && passed;

@@ -18,6 +18,65 @@ const canonicalJson = value => Array.isArray(value)
     ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
     : JSON.stringify(value);
 
+const assertNativeFormalProofRecordingReady = (report, binding) => {
+  const assertionName = binding.formalProofAssertion;
+  assert(typeof assertionName === 'string' && assertionName.length > 0 && assertionName.trim() === assertionName,
+    'Native Builder journey binding must declare its exact formalProofAssertion.');
+  assert(Array.isArray(report.requiredChecks) &&
+    report.requiredChecks.filter(name => name === assertionName).length === 1,
+  'Registered formalProofAssertion must name exactly one required check.');
+  assert(Array.isArray(report.assertions), 'Native Builder report must initialize its assertions list.');
+  const existing = report.assertions.filter(assertion => assertion?.name === assertionName);
+  assert.equal(existing.length, 0,
+    existing.length > 1
+      ? `Native Builder report already contains duplicate registered formal proof assertions: ${assertionName}.`
+      : `Native Builder report already contains the registered formal proof assertion before the finalized receipt: ${assertionName}.`);
+  assert(report.target && typeof report.target === 'object' && !Array.isArray(report.target),
+    'Native Builder report must initialize its target object.');
+  assert(report.target.builderJourneyTrace === undefined || report.target.builderJourneyTrace === null,
+    'Native Builder report must not pre-populate a partial formal proof receipt.');
+  assert(report.dimensions?.correctness && typeof report.dimensions.correctness === 'object' &&
+    Array.isArray(report.dimensions.correctness.evidence),
+  'Native Builder report must initialize correctness evidence before recording its formal proof.');
+  return assertionName;
+};
+
+const recordNativeFormalProof = (report, assertionName, receipt) => {
+  assert.equal(receipt?.status, 'pass', 'Only a completed native formal receipt can be recorded as a passing assertion.');
+  assert.equal(receipt.replayStatus, 'pass', 'Native formal receipt replay must pass before assertion recording.');
+  assert.equal(receipt.selfTestStatus, 'pass', 'Native formal receipt self-test must pass before assertion recording.');
+  assert(Array.isArray(report.assertions), 'Native Builder report assertions must remain initialized.');
+  assert.equal(report.assertions.filter(assertion => assertion?.name === assertionName).length, 0,
+    `Native Builder report must not duplicate registered formal proof assertion ${assertionName}.`);
+  assert(Array.isArray(report.requiredChecks) &&
+    report.requiredChecks.filter(name => name === assertionName).length === 1,
+  'Registered formalProofAssertion must remain exactly one required check at recording time.');
+  const correctness = report.dimensions?.correctness;
+  assert(correctness && Array.isArray(correctness.evidence),
+    'Native Builder correctness evidence must remain initialized at proof recording time.');
+
+  const status = 'passed';
+  const nextAssertions = [...report.assertions, {
+    dimension: 'correctness',
+    name: assertionName,
+    status,
+    evidence: receipt,
+  }];
+  const nextCorrectness = {
+    ...correctness,
+    status: correctness.status === 'untested' ? status : correctness.status,
+    evidence: [...correctness.evidence, { name: assertionName, status, ...receipt }],
+  };
+  const nextDimensions = { ...report.dimensions, correctness: nextCorrectness };
+  const nextTarget = { ...report.target, builderJourneyTrace: receipt };
+  Object.assign(report, {
+    assertions: nextAssertions,
+    dimensions: nextDimensions,
+    target: nextTarget,
+  });
+  return receipt;
+};
+
 const repositoryPath = (repositoryRoot, path) => {
   const absolutePath = resolve(repositoryRoot, path);
   const repoRelative = relative(repositoryRoot, absolutePath);
@@ -520,6 +579,9 @@ export const writeAndReplayBuilderJourneyTrace = ({
   const contractPath = binding.contract;
   const isNativeLifecycle = binding.kind === 'native-lifecycle' && isNativeBuilderFormalCaptureKind(binding.captureKind);
   if (binding.kind === 'native-lifecycle') builderFormalAdapterForBinding(binding);
+  const formalProofAssertion = isNativeLifecycle
+    ? assertNativeFormalProofRecordingReady(report, binding)
+    : null;
   const receiptIdentity = builderJourneyTraceReceiptIdentity(binding, journeyTrace.name, scenarioID, caseName);
   const actions = journeyTrace.actions ?? [];
   const labels = actions.map(action => action.label);
@@ -670,27 +732,30 @@ export const writeAndReplayBuilderJourneyTrace = ({
     }, null, 2)}\n`);
   }
   if (isNativeLifecycle) {
-    report.target.builderJourneyTrace = selfTestStatus === 'pass'
-      ? finalizeNativeBuilderJourneyReceipt(verifierReceipt, selfTestReceipt, {
-          traceName: journeyTrace.name,
-          nativeCaseKey,
-          actionLabels: labels,
-          tracePath,
-          traceSha256,
-          selfTestReportPath,
-          contract: selectedContract,
-          traceDocument: tracePayload,
-        })
-      : {
-          ...verifierReceipt,
-          ...(Array.isArray(selfTestReceipt?.mutationControls)
-            ? { mutationControls: selfTestReceipt.mutationControls }
-            : {}),
-          status: selfTestStatus,
-          replayStatus: 'pass',
-          selfTestStatus,
-          selfTestReportPath,
-        };
+    if (selfTestStatus === 'pass') {
+      const finalizedReceipt = finalizeNativeBuilderJourneyReceipt(verifierReceipt, selfTestReceipt, {
+        traceName: journeyTrace.name,
+        nativeCaseKey,
+        actionLabels: labels,
+        tracePath,
+        traceSha256,
+        selfTestReportPath,
+        contract: selectedContract,
+        traceDocument: tracePayload,
+      });
+      recordNativeFormalProof(report, formalProofAssertion, finalizedReceipt);
+    } else {
+      report.target.builderJourneyTrace = {
+        ...verifierReceipt,
+        ...(Array.isArray(selfTestReceipt?.mutationControls)
+          ? { mutationControls: selfTestReceipt.mutationControls }
+          : {}),
+        status: selfTestStatus,
+        replayStatus: 'pass',
+        selfTestStatus,
+        selfTestReportPath,
+      };
+    }
   } else {
     report.target.builderJourneyTrace = {
       ...report.target.builderJourneyTrace,
