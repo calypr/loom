@@ -191,6 +191,7 @@ export const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, savedR
     stepId: row.stepId,
     inputStepId,
     source: { resourceType: sourceMatch[1], path: sourceMatch[2] },
+    sourceEvidence: 'construction-history-button-title-attribute',
     outputColumnId: savedRelatedSource.outputColumnId,
     route: structuredClone(savedRelatedSource.route),
     routeEvidence: 'saved-builder-projection',
@@ -214,7 +215,11 @@ export const assertMountedRelatedSourceMatchesSaved = (mounted, savedRelatedSour
       'The saved RELATED_SOURCE output identity must agree with its actual construction output.');
     assert.equal(mounted.stepId, savedRelatedSource.stepId);
     assert.equal(mounted.inputStepId, savedRelatedSource.inputStepId);
-    assert.deepEqual(mounted.source, savedRelatedSource.source);
+    assert.deepEqual(mounted.source, {
+      resourceType: savedRelatedSource.source?.resourceType,
+      path: savedRelatedSource.source?.path,
+    });
+    assert.equal(mounted.sourceEvidence, 'construction-history-button-title-attribute');
     assert.equal(mounted.outputColumnId, savedRelatedSource.outputColumnId);
     assert.deepEqual(mounted.route, savedRelatedSource.route);
     assert.equal(mounted.routeEvidence, 'saved-builder-projection');

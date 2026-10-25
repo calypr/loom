@@ -114,7 +114,10 @@ test('mounted RELATED_SOURCE capture reads its step under a closed Column adjust
   const savedRelatedSource = {
     stepId: 'related-step-1',
     inputStepId: 'group-step-1',
-    source: { resourceType: 'Observation', path: 'status' },
+    source: {
+      kind: 'FIELD', candidateId: 'candidate-1', nodeId: 'node-observation',
+      resourceType: 'Observation', path: 'status', cardinality: 'optional_one', logicalType: 'string',
+    },
     route: [
       {
         edgeId: 'edge-1', fromNodeId: 'node-1', toNodeId: 'node-2',
@@ -187,6 +190,9 @@ test('mounted RELATED_SOURCE capture reads its step under a closed Column adjust
   assert.equal(historySteps[1]?.adjustmentGroup?.open, false);
   assert.equal(mounted.stepId, savedRelatedSource.stepId);
   assert.equal(mounted.inputStepId, savedRelatedSource.inputStepId);
+  assert.deepEqual(mounted.source, { resourceType: 'Observation', path: 'status' });
+  assert.equal(mounted.sourceEvidence, 'construction-history-button-title-attribute');
+  assert.equal(Object.hasOwn(mounted.source, 'candidateId'), false);
   assert.equal(mounted.historyText, formattedHistoryTitle);
   assert.equal(mounted.displayedRouteLabel, expectedFromFormatter);
   assert.equal(mounted.displayedRouteEvidence, 'construction-history-button-title-attribute');
@@ -214,5 +220,17 @@ test('mounted RELATED_SOURCE capture reads its step under a closed Column adjust
     renderedRows: { ...renderedRows, semanticHeaders: ['Patient FHIR resource ID', 'Observation value'] },
     savedRelatedSource,
   }), /actual table-header DOM textContent/);
+  for (const displayedSource of ['Patient.status', 'Observation.code']) {
+    const wrongSourceHistory = historySteps.map(step => step.stepId === savedRelatedSource.stepId
+      ? { ...step, historyText: formattedHistoryTitle.replace('Observation.status', displayedSource) }
+      : step);
+    assert.equal(mountedRelatedSourceFromDOM({
+      historySteps: wrongSourceHistory,
+      renderedRows,
+      savedRelatedSource,
+    }), null, `Wrong displayed source ${displayedSource} must not be accepted as the mounted source.`);
+    assert.throws(() => assertMountedRelatedSourceMatchesSaved(null, savedRelatedSource),
+      /No mounted RELATED_SOURCE history row/);
+  }
   dom.window.close();
 });
