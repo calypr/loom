@@ -5,7 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { currentFormalJourneyEvidence } from '../../../generate-builder-browser-evidence.mjs';
-import { validateNativeBracketEnvelope, validateNativeBracketSummary, validateNativeTlaReceipt } from '../../../run-builder-journey.mjs';
+import {
+  resolveNativeEvidenceParent,
+  retainNativeDomainReportArtifact,
+  validateNativeBracketEnvelope,
+  validateNativeBracketSummary,
+  validateNativeTlaReceipt,
+} from '../../../run-builder-journey.mjs';
 import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from '../../../verify-builder-traces.mjs';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -373,4 +379,74 @@ test('CDA request coverage binds false-flag proposal previews and true-flag comm
     browserRequestId: 'browser-unknown-1', requestId: 'wire-unknown-1', index: 3, startedAt: 40, isMutation: false,
   });
   assert.match(cdaMutatingRequestCoverageProblem(unknownPost, 'trace', journeyCase, contract)?.message ?? '', /unknown read-only method\/path route outside the support allowlist/);
+});
+
+test('native lifecycle evidence defaults to bracket-managed external retention and rejects in-repo parents', () => {
+  assert.equal(resolveNativeEvidenceParent(undefined), null);
+  const externalEvidencePath = join(tmpdir(), 'loom-native-evidence-policy-test');
+  assert.equal(resolveNativeEvidenceParent(externalEvidencePath), externalEvidencePath);
+  assert.throws(() => resolveNativeEvidenceParent('.artifacts/builder-journey/native-case-bracket'),
+    /must stay outside the watched repository root/);
+});
+
+test('native report retention copies exact bytes only from its bracket run into repository artifacts', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'loom-native-report-retention-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repositoryRoot = join(root, 'repository');
+  const artifactRoot = join(repositoryRoot, '.artifacts');
+  const bracketRun = join(root, 'bracket-run');
+  const attachmentDirectory = join(bracketRun, 'attachments');
+  mkdirSync(artifactRoot, { recursive: true });
+  mkdirSync(attachmentDirectory, { recursive: true });
+  const summaryPath = join(bracketRun, 'summary.json');
+  const sourcePath = join(attachmentDirectory, 'native-report.json');
+  const destinationPath = join(artifactRoot, 'native-report.json');
+  const bytes = Buffer.from('{"status":"passed","target":{"builderJourneyTrace":{"status":"pass"}}}\n');
+  writeFileSync(summaryPath, '{}\n');
+  writeFileSync(sourcePath, bytes);
+
+  const retained = retainNativeDomainReportArtifact({
+    sourcePath,
+    destinationPath,
+    summaryPath,
+    repositoryRoot,
+    artifactRoot,
+  });
+
+  assert.equal(retained.path, '.artifacts/native-report.json');
+  assert.equal(retained.sha256, sha256(bytes));
+  assert.deepEqual(readFileSync(destinationPath), bytes);
+  assert.throws(() => retainNativeDomainReportArtifact({
+    sourcePath,
+    destinationPath,
+    summaryPath,
+    repositoryRoot,
+    artifactRoot,
+  }), /EEXIST/);
+
+  const outsideSource = join(root, 'unrelated-report.json');
+  writeFileSync(outsideSource, bytes);
+  assert.throws(() => retainNativeDomainReportArtifact({
+    sourcePath: outsideSource,
+    destinationPath: join(artifactRoot, 'unrelated-copy.json'),
+    summaryPath,
+    repositoryRoot,
+    artifactRoot,
+  }), /exact bracket run directory/);
+  assert.throws(() => retainNativeDomainReportArtifact({
+    sourcePath,
+    destinationPath: join(root, 'external-copy.json'),
+    summaryPath,
+    repositoryRoot,
+    artifactRoot,
+  }), /repository \.artifacts/);
+  const externalArtifactRoot = join(root, 'external-artifacts');
+  mkdirSync(externalArtifactRoot);
+  assert.throws(() => retainNativeDomainReportArtifact({
+    sourcePath,
+    destinationPath: join(externalArtifactRoot, 'external-copy.json'),
+    summaryPath,
+    repositoryRoot,
+    artifactRoot: externalArtifactRoot,
+  }), /resolve inside the repository root/);
 });

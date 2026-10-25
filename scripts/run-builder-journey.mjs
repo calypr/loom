@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDevSession, createFreshVerificationFixture } from './loom-dev.mjs';
 import { assertNativeBuilderJourneyMutationControls } from './verify-ui/helpers/builder-journey-trace.mjs';
@@ -944,6 +944,9 @@ const main = async () => {
     : DEFAULT_REPORT);
   const tracePath = resolve(ROOT, traceRelative);
   const reportPath = resolve(ROOT, reportRelative);
+  const retainedNativeReportPath = nativeSelection?.traceKind === 'native-lifecycle'
+    ? resolve(ROOT, `${reportPath.replace(/\.json$/, '')}-native-report.json`)
+    : null;
   let nativeEvidenceParent = null;
   if (nativeSelection?.traceKind === 'native-lifecycle') {
     const artifactRoot = resolve(ROOT, '.artifacts');
@@ -954,13 +957,23 @@ const main = async () => {
     if (existsSync(tracePath) || existsSync(reportPath)) {
       throw new Error('native lifecycle trace/report output already exists; choose fresh --trace and --report paths');
     }
-    nativeEvidenceParent = resolve(ROOT, options.evidenceParent ?? `.artifacts/builder-journey/${nativeArtifactStem}-bracket`);
-    if (!insideRepository(nativeEvidenceParent) || !isWithin(artifactRoot, nativeEvidenceParent)) {
-      throw new Error('native lifecycle evidence parent must stay under repository .artifacts during the frozen browser bracket');
+    if (!insideRepository(retainedNativeReportPath) || !isWithin(artifactRoot, retainedNativeReportPath) ||
+        existsSync(retainedNativeReportPath)) {
+      throw new Error('native lifecycle retained report must use a fresh output under repository .artifacts');
     }
+    nativeEvidenceParent = resolveNativeEvidenceParent(options.evidenceParent);
   }
   mkdirSync(dirname(tracePath), { recursive: true });
   mkdirSync(dirname(reportPath), { recursive: true });
+  if (nativeSelection?.traceKind === 'native-lifecycle') {
+    const repositoryRealPath = realpathSync(ROOT);
+    const artifactRootRealPath = realpathSync(resolve(ROOT, '.artifacts'));
+    if (!isWithin(repositoryRealPath, artifactRootRealPath) ||
+        !isWithin(artifactRootRealPath, realpathSync(dirname(tracePath))) ||
+        !isWithin(artifactRootRealPath, realpathSync(dirname(reportPath)))) {
+      throw new Error('native lifecycle trace and retained reports must resolve inside repository .artifacts');
+    }
+  }
 
   const env = {
     ...process.env,
@@ -990,6 +1003,7 @@ const main = async () => {
 
   let nativeRun = null;
   let nativeBracket = null;
+  let retainedNativeReport = null;
   const playwrightStatus = nativeSelection
     ? (nativeRun = runRegisteredNativeCase(env, nativeSelection, {
       targetPath: options.target ? resolve(ROOT, options.target) : null,
@@ -999,6 +1013,18 @@ const main = async () => {
   if (nativeSelection?.traceKind === 'native-lifecycle') {
     nativeBracket = validateNativeBracketEnvelope(nativeRun?.summaryEnvelope, nativeSelection,
       options.target ? resolve(ROOT, options.target) : null);
+    if (nativeBracket.summaryPath && nativeBracket.domainReportPath) {
+      try {
+        retainedNativeReport = retainNativeDomainReportArtifact({
+          sourcePath: resolve(ROOT, nativeBracket.domainReportPath),
+          destinationPath: retainedNativeReportPath,
+          summaryPath: resolve(ROOT, nativeBracket.summaryPath),
+        });
+      } catch (error) {
+        nativeBracket.issues.push('native domain report retention failed: ' + String(error?.message ?? error));
+        nativeBracket.status = 'failed';
+      }
+    }
   }
   let sourceFingerprintAfter = sourceFingerprint;
   let sourceFingerprintAfterError = null;
@@ -1025,6 +1051,7 @@ const main = async () => {
       journey: selectedJourney ? { id: selectedJourney.entry.id, spec: selectedJourney.entry.spec } : null,
       ...(nativeSelection ? { nativeCase: nativeSelection } : {}),
       ...(nativeBracket ? { nativeBracket } : {}),
+      ...(retainedNativeReport ? { retainedNativeReport } : {}),
       result: 'harness-failure',
       playwrightStatus,
       ...(nativeSelection ? { nativeRunnerStatus: playwrightStatus } : {}),
@@ -1103,6 +1130,7 @@ const main = async () => {
     journey,
     ...(nativeSelection ? { nativeCase: nativeSelection } : {}),
     ...(nativeBracket ? { nativeBracket } : {}),
+    ...(retainedNativeReport ? { retainedNativeReport } : {}),
     result,
     playwrightStatus,
     ...(nativeSelection ? { nativeRunnerStatus: playwrightStatus } : {}),
@@ -1190,6 +1218,52 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     process.exitCode = 1;
   });
+}
+
+export function resolveNativeEvidenceParent(configuredPath) {
+  if (configuredPath === undefined || configuredPath === null || configuredPath === '') return null;
+  const evidenceParent = resolve(ROOT, configuredPath);
+  if (insideRepository(evidenceParent)) {
+    throw new Error('native lifecycle bracket evidence must stay outside the watched repository root');
+  }
+  return evidenceParent;
+}
+
+export function retainNativeDomainReportArtifact({
+  sourcePath,
+  destinationPath,
+  summaryPath,
+  repositoryRoot = ROOT,
+  artifactRoot = resolve(repositoryRoot, '.artifacts'),
+}) {
+  const repository = realpathSync(repositoryRoot);
+  const artifacts = realpathSync(artifactRoot);
+  if (!isWithin(repository, artifacts)) {
+    throw new Error('repository .artifacts must resolve inside the repository root');
+  }
+  const bracketSummary = realpathSync(summaryPath);
+  const bracketRun = dirname(bracketSummary);
+  const source = realpathSync(sourcePath);
+  const destinationDirectory = realpathSync(dirname(destinationPath));
+  if (isWithin(repository, source)) {
+    throw new Error('native domain report source must remain in external bracket evidence');
+  }
+  if (!isWithin(bracketRun, source)) {
+    throw new Error('native domain report source must come from the exact bracket run directory');
+  }
+  if (!isWithin(artifacts, destinationDirectory)) {
+    throw new Error('retained native domain report must stay under repository .artifacts');
+  }
+  const bytes = readFileSync(source);
+  writeFileSync(destinationPath, bytes, { flag: 'wx' });
+  const retainedBytes = readFileSync(destinationPath);
+  if (!retainedBytes.equals(bytes)) {
+    throw new Error('retained native domain report differs from the exact bracket report bytes');
+  }
+  return {
+    path: relative(repository, join(destinationDirectory, basename(destinationPath))),
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
 }
 
 export { validateNativeBracketEnvelope, validateNativeBracketSummary, validateNativeTlaReceipt };

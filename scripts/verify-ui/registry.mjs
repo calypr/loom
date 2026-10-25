@@ -6452,6 +6452,7 @@ const registryRows = [
           captureAdapter: 'builder-native-journey-v1',
           captureSources: [
             'scripts/verify-ui/helpers/builder-journey-trace.mjs',
+            'scripts/verify-ui/helpers/construction-operation-diff.mjs',
             'scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs',
           ],
           name: 'cda-builder-group-related-source',
@@ -6506,6 +6507,7 @@ const registryRows = [
               'scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs',
               'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
               'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
+              'scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs',
               'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs',
             ],
             sourceFiles: [
@@ -6517,6 +6519,8 @@ const registryRows = [
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
               'scripts/verify-ui/helpers/builder-journey-trace.mjs',
+              'scripts/verify-ui/helpers/construction-operation-diff.mjs',
+              'scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs',
               'scripts/verify-ui/helpers/source-fingerprint.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
               'scripts/generate-builder-browser-evidence.mjs',
