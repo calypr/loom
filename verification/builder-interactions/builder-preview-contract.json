@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "35e236878da0bf73f3abafdce4645d0ca6aaf42f0edf8a6f4eadb747213394f6",
+      "sha256": "834baad71250b3fa907728b59e5a7fe94690ec8de51d7653977a16459addd9c2",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -404,7 +404,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "24438ad00a269232fe3edfd5fc752309b779270e7157061c61a1541c3d5e7575",
+      "sha256": "4e146093c5fa238bdfb964da21e846d0f4ad9358f3f4a185bd7c0d403db83031",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
@@ -524,17 +524,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "484d62a26856c112cadf23cd0f684763dea3f40509a73e32c7191837d7ca2816",
+      "sha256": "fa7780aec4020084a7fd5ec53d96a38697f0494c1a55117173141e0ca82bce6e",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
-      "sha256": "2e5754fde3d304efe0d1b77b465fb8bdda48695774b5abbb6ce193506a4fdfde",
+      "sha256": "af6b9066e3e9fe1a852fac02c8815e400d4e3ab91db008e5e86948edef16e2ef",
       "contract": "Policy One captured workflow and transport ledger validation."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "0e76437404fba33b5e9f20d2b8a38b17968e59459eb120c95aeecc29a7649449",
+      "sha256": "cc58a9536d67fd9bd23f892b47526b35177f0085aa87372a66e17a48c6fe7f27",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
@@ -544,17 +544,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs",
-      "sha256": "46222965f276c31f592b09f50a45155338228552ad45476b249832827a7370bb",
+      "sha256": "fe7cb123328fdab07ed9b4cedb464c2a42ca4504a24060580956e40a538abb5e",
       "contract": "Complete synthetic Policy One lifecycle for adapter and TLC unit checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "0512786b68091c43e8a659f21f2d6a2ccb2265c44b1602d19c3bb1a269159408",
+      "sha256": "ce17f62159bbd08f6175ebe06a4c891db91ef530f7bb4f464f5d50b50189d700",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "da3543d1dc34a20eea2e3425985c2a08192ead4dd714fdea85ec0cfc734e9251",
+      "sha256": "504a7ddc7840830a2ca84811ed8beca422566c5d7aed7a96502a1ef4f055e23d",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "826813312d29c85a5e5db6069419db64d070392608f65b95a8f8ccfa95d2ae37",
+      "sha256": "bbc53ed60a0b03bc816ffb9ee7bdc4fa6ad9559802c4409e1ccbab8669e9ac2a",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -579,13 +579,18 @@
     },
     {
       "path": "verification/builder-interactions/builder-policy-one-contract.json",
-      "sha256": "f4384638550c567cdd1c1e5397463f02af7f71e9beeb28aa1c002c9a68132657",
+      "sha256": "5e6464931d3961b0c902357d9fac57a2c9e417123af5ac95af19de1226f5e1cc",
       "contract": "Registered Policy One native journey action, event, and mutation-control contract."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-authoring.mjs",
       "sha256": "47d71968ddc3edac313c663fb269fbabd2d8bf236abcd65d3ee2eadb20b5c517",
       "contract": "Registered Builder authoring workflow dispatcher for the Patient ONE case."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/policy-one-transport-observer.mjs",
+      "sha256": "64cc856c8d4a3931bf747a35af5d2f83dac8be81c023f064262373f76d035440",
+      "contract": "Captures the complete Policy One setup and formal authoring transport span by exact Playwright request identity."
     }
   ]
 }

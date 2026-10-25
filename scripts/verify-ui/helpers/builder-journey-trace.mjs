@@ -444,7 +444,17 @@ export const assertNativeBuilderJourneySelfTestReceipt = (receipt, {
 };
 
 export const finalizeNativeBuilderJourneyReceipt = (verifierReceipt, selfTestReceipt, identity) => {
-  assertNativeBuilderJourneyReplayReceipt(verifierReceipt, identity);
+  const adapter = identity.contract ? builderFormalAdapterForContract(identity.contract) : null;
+  const registeredCoverageFields = adapter?.requestCoverageFields;
+  if (registeredCoverageFields && identity.requestCoverageFields !== undefined) {
+    assert.deepEqual(identity.requestCoverageFields, registeredCoverageFields,
+      'Caller request coverage fields must match the registered adapter contract.');
+  }
+  const replayIdentity = {
+    ...identity,
+    requestCoverageFields: registeredCoverageFields ?? identity.requestCoverageFields,
+  };
+  assertNativeBuilderJourneyReplayReceipt(verifierReceipt, replayIdentity);
   assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, identity);
   return {
     ...verifierReceipt,

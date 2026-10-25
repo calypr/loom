@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journey.mjs';
-import { writeAndReplayBuilderJourneyTrace } from '../builder-journey-trace.mjs';
+import {
+  finalizeNativeBuilderJourneyReceipt,
+  writeAndReplayBuilderJourneyTrace,
+} from '../builder-journey-trace.mjs';
 import { nativeJourneyActionInventoryProblem } from '../../../verify-builder-traces.mjs';
 import {
   builderFormalAdapterForBinding,
@@ -88,7 +91,7 @@ test('Policy coverage counts setup mutations separately and leaves malformed set
   const setupCoverage = adapter.requestCoverage(withSetupMutation);
   assert.equal(setupCoverage.observed, baseline.observed + 1);
   assert.equal(setupCoverage.modeledActions, baseline.modeledActions);
-  assert.equal(setupCoverage.setupMutations, 1);
+  assert.equal(setupCoverage.setupMutations, baseline.setupMutations + 1);
   assert.equal(setupCoverage.modeled, setupCoverage.observed);
   assert.equal(setupCoverage.unmapped, 0);
   assert.equal(setupCoverage.modeledActions + setupCoverage.reconcileReads +
@@ -97,7 +100,7 @@ test('Policy coverage counts setup mutations separately and leaves malformed set
   const malformed = structuredClone(withSetupMutation);
   malformed.transportLedger.at(-1).setupMutation = false;
   const malformedCoverage = adapter.requestCoverage(malformed);
-  assert.equal(malformedCoverage.setupMutations, 0);
+  assert.equal(malformedCoverage.setupMutations, baseline.setupMutations);
   assert.equal(malformedCoverage.unmapped, 1);
   assert.equal(malformedCoverage.modeled, malformedCoverage.observed - 1);
 
@@ -110,9 +113,16 @@ test('Policy coverage counts setup mutations separately and leaves malformed set
   });
   const setupAsActionCoverage = adapter.requestCoverage(setupAsAction);
   assert.equal(setupAsActionCoverage.modeledActions, baseline.modeledActions);
-  assert.equal(setupAsActionCoverage.setupMutations, 0);
+  assert.equal(setupAsActionCoverage.setupMutations, baseline.setupMutations);
   assert.equal(setupAsActionCoverage.unmapped, 1,
     'A SETUP row cannot be counted as a formal modeled action.');
+});
+
+test('final receipt validation keeps Policy coverage fields fixed by the registered contract', () => {
+  assert.throws(() => finalizeNativeBuilderJourneyReceipt({}, {}, {
+    contract: policyContract,
+    requestCoverageFields: ['modeledActions', 'reconcileReads', 'supportedReadOnly'],
+  }), /must match the registered adapter contract/u);
 });
 
 test('native journey shape preserves exact action/event pairs while leaving chronology to TLC', () => {
@@ -177,6 +187,14 @@ test('shared journey writer replays a complete synthetic Policy trace and all re
   assert.equal(receipt.traceName, 'builder-authoring:patient-one-disagreement');
   assert.equal(receipt.mutationControls.length, policyContract.nativeJourney.requiredMutationControlNames.length);
   assert(receipt.mutationControls.every(control => control.status === 'pass'));
+  assert.equal(receipt.requestCoverage.observed, journeyTrace.transportLedger.length);
+  assert.equal(receipt.requestCoverage.setupMutations,
+    journeyTrace.transportLedger.filter(row => row.classification === 'setup').length);
+  assert.equal(receipt.requestCoverage.modeledActions,
+    journeyTrace.transportLedger.filter(row => row.classification === 'modeled').length);
+  assert.equal(receipt.requestCoverage.modeledActions + receipt.requestCoverage.reconcileReads +
+    receipt.requestCoverage.supportedReadOnly + receipt.requestCoverage.setupMutations,
+  receipt.requestCoverage.observed);
   assert.equal(receipt.requestCoverage.unmapped, 0);
   assert.equal(receipt.requestCoverage.duplicates, 0);
   assert.equal(receipt.requestCoverageBasis, policyContract.nativeJourney.coverageBasis);
