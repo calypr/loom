@@ -491,7 +491,7 @@ describe('ConceptCatalog', () => {
 
     expect(await screen.findByRole('button', { name: 'Select Coverage example' })).toBeEnabled();
     expect(screen.getByText(
-      'Source coverage is unknown, so this concept list may be incomplete. If a concept is missing, check the Other fields tab.',
+      'This concept list may be incomplete. If a concept is missing, check the Other fields tab.',
     )).toBeInTheDocument();
   });
 
