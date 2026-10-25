@@ -953,7 +953,6 @@ const registryRows = [
             sourceFiles: [
               'scripts/verify-ui/helpers/policy-one-trace.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs',
-              'scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs',
               'scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs',
               'scripts/verify-ui/workflows/builder-group-entry.mjs',
             ],
@@ -966,7 +965,6 @@ const registryRows = [
               'scripts/verify-ui/helpers/policy-one-tla-replay.mjs',
               'scripts/verify-ui/helpers/policy-one-trace.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs',
-              'scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs',
               'scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs',
               'verification/builder-interactions/PolicyOneDisagreement.tla',
               'verification/builder-interactions/PolicyOneDisagreement.cfg',
@@ -979,7 +977,6 @@ const registryRows = [
             command: ['node-test', 'scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs'],
             sourceFiles: [
               'scripts/self-test-builder-traces.mjs',
-              'scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs',
             ],
           },
           {
