@@ -315,6 +315,101 @@ export const readPatientOneChoiceEditor = (doc = globalThis.document) => {
   };
 };
 
+export const markPolicyOneExpectedHttp422 = ({
+  networkObserver,
+  report,
+  request,
+  response,
+  requestCaptureId,
+  requestBody,
+  responseBody,
+}) => {
+  assert.equal(response.request(), request,
+    'the expected Policy ONE response must belong to its exact submitted request');
+  assert.equal(response.url(), request.url(),
+    'the expected Policy ONE response must retain the exact submitted request URL');
+  assert.equal(response.status(), 422,
+    'the expected Policy ONE response must retain its native 422 status');
+  assert.equal(typeof requestCaptureId, 'string');
+  assert(requestCaptureId.length > 0);
+  assert.equal(typeof requestBody?.commandId, 'string');
+  assert(requestBody.commandId.length > 0);
+  assert.equal(requestBody.constructionChoices?.length, 1,
+    'the expected Policy ONE request must carry one selected construction choice');
+  const choice = requestBody.constructionChoices[0];
+  assert.equal(choice.rowValuePolicy, 'ONE');
+  assert.equal(typeof choice.choiceId, 'string');
+  assert(choice.choiceId.length > 0);
+  assert.equal(responseBody?.error?.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+
+  const entry = networkObserver?.byRequest?.get(request);
+  assert(entry, 'the fixture observer must retain the exact submitted Playwright Request object');
+  assert.equal(entry.method, request.method().toUpperCase());
+  const requestURL = new URL(request.url());
+  assert.equal(entry.url, `${requestURL.origin}${requestURL.pathname}`);
+  assert.deepEqual(networkObserver.requestBody(entry), sanitizePayload(requestBody),
+    'fixture network evidence must retain the exact native ONE request body after its standard redaction');
+  assert.equal(entry.status, 422);
+  assert.equal(entry.failure?.kind, 'http');
+  assert.equal(entry.networkComplete, true);
+  assert.equal(entry.responseCapture, 'captured');
+  assert.equal(entry.responseCaptureComplete, true);
+  assert.equal(entry.responseBodyCaptured, true);
+  assert.deepEqual(networkObserver.responseBody(entry), sanitizePayload(responseBody),
+    'fixture network evidence must capture the body from the exact native 422');
+  assert.equal(networkObserver.failures.filter(failure => failure.entry === entry && failure.kind === 'http').length, 1,
+    'the exact native 422 must appear once in the fixture HTTP failure stream before classification');
+
+  const diagnostic = entry.reportNetwork;
+  assert(diagnostic, 'the exact native 422 must retain its fixture report diagnostic');
+  assert.equal(diagnostic.kind, 'http');
+  assert.equal(diagnostic.url, entry.url);
+  assert.equal(diagnostic.method, entry.method);
+  assert.equal(diagnostic.status, 422);
+  assert.equal(diagnostic.browserRequestId, entry.browserRequestId);
+  assert.equal(diagnostic.observerRequestIndex, entry.index);
+  const reportDiagnostics = report.network.filter(record => record.kind === 'http'
+    && record.browserRequestId === entry.browserRequestId
+    && record.observerRequestIndex === entry.index);
+  assert.equal(reportDiagnostics.length, 1,
+    'fixture network evidence must contain one HTTP diagnostic for the exact physical request');
+  assert.strictEqual(reportDiagnostics[0], diagnostic);
+  const reportFailures = report.errors.filter(record => record.kind === 'http'
+    && record.browserRequestId === entry.browserRequestId);
+  assert.equal(reportFailures.length, 1,
+    'fixture error evidence must contain one HTTP failure for the exact physical request');
+  assert.strictEqual(reportFailures[0], entry.reportError);
+
+  const classification = networkObserver.markExpectedValidation(entry, {
+    status: 422,
+    reason: 'the native Patient.id ONE request was checked against its exact request and response evidence',
+    proof: {
+      requestCaptureId,
+      commandId: requestBody.commandId,
+      outputId: requestBody.outputId,
+      choiceId: choice.choiceId,
+      rowValuePolicy: choice.rowValuePolicy,
+      responseErrorCode: responseBody.error.code,
+    },
+  });
+  assert.equal(entry.httpFailureExempted, true);
+  assert.equal(entry.failure, undefined);
+  return {
+    diagnostic,
+    classification,
+    requestCaptureId,
+    commandId: requestBody.commandId,
+    outputId: requestBody.outputId,
+    choiceId: choice.choiceId,
+    rowValuePolicy: choice.rowValuePolicy,
+    responseErrorCode: responseBody.error.code,
+    browserRequestId: entry.browserRequestId,
+    observerRequestIndex: entry.index,
+    responseCapture: entry.responseCapture,
+    responseBodyCaptured: entry.responseBodyCaptured,
+  };
+};
+
 const returnPolicyOneRowSettingsToTable = async (workflow, { readBuilder, expectedSavedState, actionLabel }) => {
   const { page } = workflow;
   const rowSettings = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
@@ -737,28 +832,45 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const afterOneSavedState = patientOneSavedState(afterONE, outputId);
   assert.deepEqual(afterOneSavedState, patientOneSavedState(beforeONE, outputId),
     'the exact saved Builder state must remain unchanged after the ONE refusal');
-  const expectedDiagnostic = report.network.filter(record => record.kind === 'network'
-    && record.status === 422 && record.method === 'POST' && record.rawURL === oneResponse.url());
-  assert.equal(expectedDiagnostic.length, 1, 'the exact expected native 422 must be present once in fixture network evidence');
-  const consoleDiagnostics = report.network.filter(record => record.kind === 'console-error'
-    && record.location === `${uiOrigin}${choiceProposalPath}` && /422/.test(record.text ?? ''));
+  const expectedHTTPFailure = markPolicyOneExpectedHttp422({
+    networkObserver: workflow.networkObserver,
+    report,
+    request: oneStarted.rawRequest,
+    response: oneResponse,
+    requestCaptureId: oneStarted.request.captureId,
+    requestBody: oneRequestBody,
+    responseBody: oneResponseBody,
+  });
+  const expectedDiagnostic = [expectedHTTPFailure.diagnostic];
   report.expectedFailures ??= [];
   report.expectedFailures.push({ method: 'POST', path: choiceProposalPath, status: 422,
     code: oneResponseBody.error.code, outputId, draftVersion: beforeONE.draftVersion,
     draftDigest: beforeONE.draftDigest, snapshotToken: beforeONE.catalog.snapshotToken,
     preOneSavedStateArtifact: { fileName: preOneStateFile, sha256: preOneStateDigest },
     field: { choiceId: oneChoice.choiceId, title: oneChoice.title, rowValuePolicy: oneChoice.rowValuePolicy },
-    rawPatientIDs: fixtureIDs, networkDiagnostics: expectedDiagnostic, consoleDiagnostics });
-  for (const diagnostic of [...expectedDiagnostic, ...consoleDiagnostics]) {
-    const index = report.network.indexOf(diagnostic);
-    if (index >= 0) report.network.splice(index, 1);
-  }
+    rawPatientIDs: fixtureIDs, networkDiagnostics: expectedDiagnostic,
+    fixtureNetwork: {
+      requestCaptureId: expectedHTTPFailure.requestCaptureId,
+      commandId: expectedHTTPFailure.commandId,
+      outputId: expectedHTTPFailure.outputId,
+      choiceId: expectedHTTPFailure.choiceId,
+      rowValuePolicy: expectedHTTPFailure.rowValuePolicy,
+      responseErrorCode: expectedHTTPFailure.responseErrorCode,
+      browserRequestId: expectedHTTPFailure.browserRequestId,
+      observerRequestIndex: expectedHTTPFailure.observerRequestIndex,
+      responseCapture: expectedHTTPFailure.responseCapture,
+      responseBodyCaptured: expectedHTTPFailure.responseBodyCaptured,
+      classification: expectedHTTPFailure.classification,
+    } });
   requireCheck(workflow, 'correctness', 'Patient.id ONE returns the exact multiple-values 422 for both raw IDs', true,
     { status: oneResponse.status(), code: oneResponseBody.error.code, path: choiceProposalPath,
       request: { outputId: oneRequestBody.outputId, draftVersion: oneRequestBody.expectedDraftVersion,
         draftDigest: oneRequestBody.expectedDraftDigest, snapshotToken: oneRequestBody.snapshotToken,
         choiceId: oneChoice.choiceId, title: oneChoice.title, rowValuePolicy: oneChoice.rowValuePolicy },
-      rawPatientIDs: fixtureIDs, savedWorkspaceUnchanged: true });
+      rawPatientIDs: fixtureIDs, savedWorkspaceUnchanged: true,
+      fixtureNetwork: { browserRequestId: expectedHTTPFailure.browserRequestId,
+        observerRequestIndex: expectedHTTPFailure.observerRequestIndex, responseCapture: expectedHTTPFailure.responseCapture,
+        responseBodyCaptured: expectedHTTPFailure.responseBodyCaptured } });
   requireCheck(workflow, 'persistence', 'rejected Patient.id ONE leaves the saved Group and exact draft unchanged', true,
     { draftVersion: afterONE.draftVersion, draftDigest: afterONE.draftDigest,
       groupStepID: groupedStep.id, workspaceUnchanged: true });

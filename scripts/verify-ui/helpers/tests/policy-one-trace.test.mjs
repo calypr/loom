@@ -3,12 +3,14 @@ import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
+import { createPlaywrightNetworkObserver } from '../playwright-network-observer.mjs';
 import {
   buildPolicyOneMutationControls,
   compilePolicyOneJourneyTrace,
   validatePolicyOneJourneyTrace,
 } from '../policy-one-tla-replay.mjs';
 import {
+  markPolicyOneExpectedHttp422,
   patientOneSavedState,
   policyApplyTraceExpectation,
   policyWorkspaceProjection,
@@ -121,6 +123,120 @@ const captureMutations = [
   ['Apply carries the wrong choice policy', input => { input.requests.apply.body.commands[0].constructionChoice.rowValuePolicy = 'ONE'; }, /request must use ALL/],
   ['Apply response is owned by another request', input => { input.responses.apply.requestObject = {}; }, /exact captured request object/],
 ];
+
+test('the Policy ONE HTTP exemption binds the exact recorder request and preserves unrelated failures', async () => {
+  const origin = 'http://loom.test';
+  const proposalPath = '/api/explorers/e/authoring/v2/construction-choice-proposals';
+  const unrelatedPath = '/api/explorers/e/authoring/v2/commands';
+  const page = new EventEmitter();
+  page.url = () => `${origin}/`;
+  const report = { errors: [] };
+  const observer = createPlaywrightNetworkObserver(page, {
+    scopeRequest: request => new URL(request.url()).origin === origin,
+    appOrigins: [origin],
+    responsePaths: [proposalPath],
+    report,
+  });
+  const makeRequest = (path, body, requestId) => {
+    const serializedBody = JSON.stringify(body);
+    return {
+      url: () => `${origin}${path}`,
+      method: () => 'POST',
+      headers: () => ({ 'x-request-id': requestId }),
+      postData: () => serializedBody,
+      postDataJSON: () => JSON.parse(serializedBody),
+      resourceType: () => 'fetch',
+      failure: () => null,
+    };
+  };
+  const makeResponse = (request, status, body) => ({
+    request: () => request,
+    url: () => request.url(),
+    status: () => status,
+    body: async () => Buffer.from(JSON.stringify(body)),
+    json: async () => body,
+  });
+
+  try {
+    const requestBody = {
+      commandId: 'command-one-422',
+      snapshotToken: 'snapshot-one-422',
+      expectedDraftVersion: 3,
+      expectedDraftDigest: 'draft-one-422',
+      outputId: 'output-one-422',
+      constructionChoices: [{
+        rowValuePolicy: 'ONE', choiceId: 'choice-patient-id-one', form: 'VALUE', title: 'Patient ID',
+      }],
+      limit: 25,
+    };
+    const responseBody = {
+      diagnostics: [{ code: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', stage: 'preview' }],
+      error: { code: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', message: 'multiple values' },
+    };
+    const request = makeRequest(proposalPath, requestBody, 'request-one-422');
+    const response = makeResponse(request, 422, responseBody);
+    const oneReady = observer.waitForResponse(entry => entry.path === proposalPath);
+    page.emit('request', request);
+    page.emit('response', response);
+    page.emit('requestfinished', request);
+    const oneEntry = await oneReady;
+
+    const unrelatedRequest = makeRequest(unrelatedPath, { commandId: 'unrelated-command' }, 'request-unrelated-500');
+    const unrelatedResponse = makeResponse(unrelatedRequest, 500, { error: 'server failure' });
+    const unrelatedReady = observer.waitForResponse(entry => entry.path === unrelatedPath);
+    page.emit('request', unrelatedRequest);
+    page.emit('response', unrelatedResponse);
+    page.emit('requestfinished', unrelatedRequest);
+    const unrelatedEntry = await unrelatedReady;
+
+    const wrongRequest = makeRequest(proposalPath, requestBody, 'different-physical-request');
+    assert.throws(() => markPolicyOneExpectedHttp422({
+      networkObserver: observer,
+      report,
+      request: wrongRequest,
+      response,
+      requestCaptureId: 'capture-one-422',
+      requestBody,
+      responseBody,
+    }), /exact submitted request/);
+    assert.equal(oneEntry.httpFailureExempted, undefined,
+      'a different Request object cannot exempt the captured 422');
+    assert(observer.failures.some(failure => failure.entry === oneEntry && failure.kind === 'http'));
+
+    const expected = markPolicyOneExpectedHttp422({
+      networkObserver: observer,
+      report,
+      request,
+      response,
+      requestCaptureId: 'capture-one-422',
+      requestBody,
+      responseBody,
+    });
+    assert.equal(expected.diagnostic.kind, 'http');
+    assert.equal(expected.diagnostic.status, 422);
+    assert.equal(expected.requestCaptureId, 'capture-one-422');
+    assert.equal(expected.commandId, requestBody.commandId);
+    assert.equal(expected.outputId, requestBody.outputId);
+    assert.equal(expected.choiceId, requestBody.constructionChoices[0].choiceId);
+    assert.equal(expected.rowValuePolicy, 'ONE');
+    assert.equal(expected.responseErrorCode, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+    assert.equal(expected.diagnostic.browserRequestId, oneEntry.browserRequestId);
+    assert.equal(expected.diagnostic.observerRequestIndex, oneEntry.index);
+    assert.equal(oneEntry.httpFailureExempted, true);
+    assert.equal(report.network.some(entry => entry.browserRequestId === oneEntry.browserRequestId), false,
+      'the shared observer removes only the explicitly classified 422 diagnostic');
+    assert.equal(report.errors.some(entry => entry.browserRequestId === oneEntry.browserRequestId), false);
+    assert.deepEqual(observer.failures.map(failure => failure.entry), [unrelatedEntry]);
+    assert.deepEqual(report.network.map(entry => ({ kind: entry.kind, status: entry.status,
+      browserRequestId: entry.browserRequestId })), [{
+      kind: 'http', status: 500, browserRequestId: unrelatedEntry.browserRequestId,
+    }]);
+    assert.equal(report.errors.filter(entry => entry.kind === 'http').length, 1,
+      'an unrelated HTTP failure remains visible after the expected 422 is classified');
+  } finally {
+    observer.stop();
+  }
+});
 
 test('a valid ONE rejection and same-choice ALL Apply persist distinct input and output bindings', () => {
   const input = makePolicyOneTraceInput();
