@@ -12,6 +12,8 @@ const OBLIGATIONS_PATH = 'verification/builder-interactions/test-obligations.jso
 const REGISTRY_PATH = 'scripts/verify-ui/registry.mjs';
 const ATTACHMENT_PATH = 'scripts/verify-ui/mjs-focused-check-attachments.json';
 const TOOL_PATH = 'scripts/migrate-mjs-focused-checks.mjs';
+const SELF_TEST_PATH = 'scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs';
+const MIGRATION_ADDED_PATHS = [TOOL_PATH, SELF_TEST_PATH];
 const HASH = /^[a-f0-9]{64}$/;
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -186,6 +188,9 @@ function assertCatalogState(root, catalog, obligations) {
   const retiredCount = catalog.files.filter((file) => file.lifecycle === 'retired').length;
   if (catalog.files.length !== active.length + retiredCount) fail('catalogue file lifecycle is invalid');
   if (obligations.mjsCatalogSummary?.currentFiles !== active.length) fail('obligation active-source count differs from the semantic catalogue');
+  if (!Number.isInteger(obligations.mjsCatalogSummary?.baselineFiles)
+    || !Number.isInteger(obligations.mjsCatalogSummary?.baselineRetired)
+    || !Number.isInteger(obligations.mjsCatalogSummary?.currentAdded)) fail('obligation baseline/addition counts are missing');
   const sourceRows = new Map();
   const obligationRows = new Map();
   for (const row of catalog.files) {
@@ -506,6 +511,8 @@ function makePlan(inputs) {
   discoveryEdits.push(...updateExecutionDiscovery(catalog, attachmentRows, generatedText));
   const catalogAfterText = jsonText(catalog);
   const catalogFinalText = reusable && discoveryEdits.length === 0 ? catalogText : catalogAfterText;
+  const unlistedMigrationSources = MIGRATION_ADDED_PATHS.filter((file) =>
+    existsSync(path.join(root, file)) && !inputs.activeByPath.has(file)).length;
   const planToken = sha256(stable({
     inputPreconditions,
     outputPreconditions,
@@ -525,6 +532,9 @@ function makePlan(inputs) {
     planToken,
     summary: {
       activeSources: inputs.active.length,
+      baselineActiveMjsSources: obligations.mjsCatalogSummary.baselineFiles - obligations.mjsCatalogSummary.baselineRetired,
+      addedMjsSources: obligations.mjsCatalogSummary.currentAdded + unlistedMigrationSources,
+      projectedActiveMjsSources: obligations.mjsCatalogSummary.currentFiles + unlistedMigrationSources,
       retiredSources: inputs.retiredCount,
       classifications: inputs.classifiedCounts,
       matchedTests: attachmentRows.reduce((sum, item) => sum + item.focusedChecks[0].command.length - 1, 0),

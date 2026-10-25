@@ -8,8 +8,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const realRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+const selfTestPath = 'scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs';
 const toolSource = readFileSync(path.join(realRoot, 'scripts/migrate-mjs-focused-checks.mjs'), 'utf8');
 const plannerSource = readFileSync(path.join(realRoot, 'scripts/verify-ui/helpers/focused-check-groups.mjs'), 'utf8');
+const selfTestSource = readFileSync(fileURLToPath(import.meta.url), 'utf8');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const write = (root, file, value) => {
   const target = path.join(root, file);
@@ -71,7 +73,7 @@ function fixture({ secondFamily = false } = {}) {
   };
   const obligations = {
     sources: { semanticCatalog: 'verification/builder-interactions/mjs-source-semantics.json', registry: registryPath },
-    mjsCatalogSummary: { currentFiles: rows.length, baselineRetired: 1 },
+    mjsCatalogSummary: { baselineFiles: rows.length + 1, baselineRetired: 1, currentFiles: rows.length, currentAdded: 0 },
     scripts: specs.map(({ file }) => ({
       path: file,
       present: true,
@@ -94,6 +96,7 @@ function fixture({ secondFamily = false } = {}) {
     }],
   };
   write(root, 'scripts/migrate-mjs-focused-checks.mjs', toolSource);
+  write(root, selfTestPath, selfTestSource);
   write(root, 'scripts/verify-ui/helpers/focused-check-groups.mjs', plannerSource);
   for (const [file, contents] of files) write(root, file, contents);
   write(root, 'verification/builder-interactions/mjs-focused-check-families.json', `${JSON.stringify(families, null, 2)}\n`);
@@ -126,6 +129,9 @@ test('plan previews exact nonempty attachment and case-bound claim edits with ha
   try {
     const proposed = plan(state.root);
     assert.equal(proposed.summary.activeSources, 5);
+    assert.equal(proposed.summary.baselineActiveMjsSources, 5);
+    assert.equal(proposed.summary.addedMjsSources, 2);
+    assert.equal(proposed.summary.projectedActiveMjsSources, 7);
     assert.equal(proposed.summary.retiredSources, 1);
     assert.equal(proposed.summary.classifications.supported, 1);
     assert.equal(proposed.summary.classifications['needs-review'], 0);
@@ -252,6 +258,7 @@ test('new matching test is discovered from obligation import edges without chang
     const obligationsPath = path.join(state.root, 'verification/builder-interactions/test-obligations.json');
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     obligations.mjsCatalogSummary.currentFiles += 1;
+    obligations.mjsCatalogSummary.currentAdded += 1;
     obligations.scripts.push({ path: newPath, present: true, currentSha256: hash(contents), semanticClaimIds: ['claim-b'], connections: [], journeyMappings: [] });
     obligations.scripts.find((row) => row.path === state.oraclePath).connections.push({
       kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: newPath,
@@ -298,6 +305,7 @@ test('ambiguous family destination and ambiguous test-family matches fail closed
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     for (const file of [workflowB, specB]) obligations.scripts.push({ path: file, present: true, currentSha256: hash(readFileSync(path.join(duplicateMatch.root, file))), semanticClaimIds: [], connections: [], journeyMappings: [] });
     obligations.mjsCatalogSummary.currentFiles += 2;
+    obligations.mjsCatalogSummary.currentAdded += 2;
     obligations.scripts.find((row) => row.path === duplicateMatch.oraclePath).connections.push({ kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: workflowB, targetPath: duplicateMatch.oraclePath, specifier: '../helpers/oracle.mjs', line: 1, column: 1 });
     obligations.scripts.find((row) => row.path === workflowB).connections = [{ kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: specB, targetPath: workflowB, specifier: '../workflows/workflow-b.mjs', line: 1, column: 1 }];
     write(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
