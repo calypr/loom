@@ -5,9 +5,14 @@ import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmS
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
+  builderColumnLabelForId,
+  cdaGroupLifecycleSnapshotProblem,
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
+  groupLifecycleShapeProblem,
+  mountedGroupKeyLabelsProblem,
+  mountedRelatedSourceProblem,
   relatedSourceSnapshotProblem,
   relatedSourceProjectionFromSteps,
 } from './verify-builder-traces.mjs';
@@ -143,8 +148,11 @@ const cdaRelatedOutputProjectionTest = () => {
     projection.relatedSource?.outputColumnId === relatedOutput.id &&
     projection.relatedSource.output.id === relatedOutput.id;
   const matchingDocumentColumnAccepted = !relatedSourceProjectionFromSteps(
-    steps, [{ columnId: relatedOutput.id }], group, 'fixture', journeyCase,
+    steps, [{ columnId: relatedOutput.id, label: relatedOutput.label }], group, 'fixture', journeyCase,
   ).problem;
+  const conflictingDocumentOutputLabelRejected = Boolean(relatedSourceProjectionFromSteps(
+    steps, [{ columnId: relatedOutput.id, label: 'Conflicting label' }], group, 'fixture', journeyCase,
+  ).problem);
   const missingStepOutput = structuredClone(steps);
   missingStepOutput[1].outputs = missingStepOutput[1].outputs.filter(output => output.id !== relatedOutput.id);
   const missingStepOutputRejected = Boolean(relatedSourceProjectionFromSteps(
@@ -157,7 +165,10 @@ const cdaRelatedOutputProjectionTest = () => {
   ).problem);
   const ambiguousDocumentColumnsRejected = Boolean(relatedSourceProjectionFromSteps(
     steps,
-    [{ columnId: relatedOutput.id }, { columnId: relatedOutput.id }],
+    [
+      { columnId: relatedOutput.id, label: relatedOutput.label },
+      { columnId: relatedOutput.id, label: relatedOutput.label },
+    ],
     group,
     'fixture',
     journeyCase,
@@ -182,9 +193,166 @@ const cdaRelatedOutputProjectionTest = () => {
   const missingDocumentColumnsRejected = Boolean(
     relatedSourceSnapshotProblem(missingDocumentColumns, 'fixture', journeyCase).problem,
   );
-  return constructedOutputAccepted && matchingDocumentColumnAccepted && missingStepOutputRejected &&
+  return constructedOutputAccepted && matchingDocumentColumnAccepted && conflictingDocumentOutputLabelRejected &&
+    missingStepOutputRejected &&
     duplicateConstructionOutputRejected && ambiguousDocumentColumnsRejected &&
     savedSnapshotAccepted && missingDocumentColumnsRejected;
+};
+const cdaMountedGroupOutputLabelTest = () => {
+  const outputId = 'related_record_fixture';
+  const label = 'Patient FHIR resource ID';
+  const journeyCase = {
+    traceName: 'cda-builder-group-related-source',
+    relatedSource: {
+      resourceType: 'Observation', fieldPath: 'status',
+      sourceRoute: [
+        { fromResourceType: 'Specimen', toResourceType: 'Patient' },
+        { fromResourceType: 'Patient', toResourceType: 'Observation' },
+      ],
+      form: 'ALL', contributorPolicy: 'ALL_MATCHES', rowValuePolicy: 'ALL',
+    },
+  };
+  const document = {
+    columns: [{ columnId: 'source-column-fixture', label: 'Source ID' }],
+    construction: { steps: [
+      { id: 'expand-specimen-patient', operation: { kind: 'RELATED_EXPAND' }, outputs: [{ id: outputId, label }] },
+      { id: 'expand-patient-observation', operation: { kind: 'RELATED_EXPAND' }, outputs: [{ id: outputId, label }] },
+    ] },
+  };
+  const mountedGroup = { keys: [label], historyText: 'Group by Patient FHIR resource ID counts rows' };
+  const savedGroup = { keys: [outputId] };
+  const repeatedStepOutputsAccepted = mountedGroupKeyLabelsProblem(
+    mountedGroup, savedGroup, document, 'fixture',
+  ) === null;
+  const groupDocument = {
+    output: { id: 'builder-output-fixture' },
+    columns: [{ columnId: 'source-column-fixture', label: 'Source ID' }],
+    construction: { steps: [
+      ...document.construction.steps,
+      { id: 'group-step-fixture', operation: { kind: 'GROUP', group: {
+        keys: [{ inputColumnId: outputId }], aggregates: [{ operation: 'COUNT_ROWS' }],
+      } }, outputs: [{ id: 'group-output-fixture' }] },
+    ] },
+  };
+  const savedSnapshot = {
+    explorerId: 'explorer-fixture',
+    group: { stepId: 'group-step-fixture', keys: [outputId], aggregate: 'COUNT_ROWS' },
+    relatedSource: null,
+    workspace: { documents: [groupDocument] },
+    outputId: 'builder-output-fixture', draftVersion: 1, draftDigest: 'digest-fixture',
+  };
+  const reloadAction = {
+    label: 'Reload',
+    groupLifecycle: {
+      mountEpoch: 5, documentTimeOrigin: 500,
+      savedBefore: savedSnapshot, savedAfter: savedSnapshot,
+      mountedGroup: { ...mountedGroup, stepId: 'group-step-fixture', aggregate: 'COUNT_ROWS', evidence: 'construction-history-dom' },
+      mountedRelatedSource: null,
+    },
+  };
+  const cdaReloadShapeAccepted = groupLifecycleShapeProblem(
+    reloadAction, 'fixture', true, 5, true, ['COUNT_ROWS', 'COUNT_DISTINCT'], false, true,
+  ) === null;
+  const cdaReloadKeyLabelMappingAccepted = mountedGroupKeyLabelsProblem(
+    reloadAction.groupLifecycle.mountedGroup, savedSnapshot.group, groupDocument, 'fixture',
+  ) === null;
+  const cdaReloadSnapshotAccepted = cdaGroupLifecycleSnapshotProblem(
+    reloadAction, 'fixture', journeyCase,
+  ) === null;
+  const cdaReloadMissingMountedLabelRejected = cdaGroupLifecycleSnapshotProblem({
+    ...reloadAction,
+    groupLifecycle: {
+      ...reloadAction.groupLifecycle,
+      mountedGroup: { ...reloadAction.groupLifecycle.mountedGroup, keys: [] },
+    },
+  }, 'fixture', journeyCase) !== null;
+  const missingMountedLabelRejected = mountedGroupKeyLabelsProblem(
+    { ...mountedGroup, keys: [] }, savedGroup, document, 'fixture',
+  ) !== null;
+  const wrongMountedLabelRejected = mountedGroupKeyLabelsProblem(
+    { ...mountedGroup, keys: ['Different label'] }, savedGroup, document, 'fixture',
+  ) !== null;
+  const missingLabelRejected = Boolean(builderColumnLabelForId(
+    { columns: [], construction: { steps: [] } }, outputId, 'fixture',
+  ).problem);
+  const missingOutputLabelRejected = Boolean(builderColumnLabelForId({
+    columns: [], construction: { steps: [{ outputs: [{ id: outputId }] }] },
+  }, outputId, 'fixture').problem);
+  const conflictingLabels = structuredClone(document);
+  conflictingLabels.construction.steps[1].outputs[0].label = 'Conflicting label';
+  const conflictingLabelsRejected = Boolean(builderColumnLabelForId(conflictingLabels, outputId, 'fixture').problem);
+  const duplicateSourceIdsRejected = Boolean(builderColumnLabelForId({
+    columns: [
+      { columnId: outputId, label },
+      { columnId: outputId, label },
+    ],
+    construction: { steps: [] },
+  }, outputId, 'fixture').problem);
+  return repeatedStepOutputsAccepted && cdaReloadShapeAccepted && cdaReloadKeyLabelMappingAccepted &&
+    cdaReloadSnapshotAccepted && cdaReloadMissingMountedLabelRejected &&
+    missingMountedLabelRejected && wrongMountedLabelRejected && missingLabelRejected &&
+    missingOutputLabelRejected && conflictingLabelsRejected && duplicateSourceIdsRejected;
+};
+const cdaMountedRelatedRouteLabelTest = () => {
+  const route = [
+    { fromResourceType: 'Specimen', toResourceType: 'Patient', relationship: 'subject' },
+    { fromResourceType: 'Patient', toResourceType: 'Observation', relationship: 'subject' },
+  ];
+  const journeyCase = {
+    traceName: 'cda-builder-group-related-source',
+    relatedSource: {
+      resourceType: 'Observation', fieldPath: 'status',
+      sourceRoute: route.map(({ fromResourceType, toResourceType }) => ({ fromResourceType, toResourceType })),
+    },
+  };
+  const savedRelatedSource = {
+    stepId: 'related-step',
+    inputStepId: 'group-step',
+    source: { resourceType: 'Observation', path: 'status' },
+    route,
+    outputColumnId: 'related-output',
+    output: { id: 'related-output', label: 'Status' },
+  };
+  const mounted = {
+    stepId: 'related-step',
+    inputStepId: 'group-step',
+    source: { resourceType: 'Observation', path: 'status' },
+    outputColumnId: 'related-output',
+    route,
+    routeEvidence: 'saved-builder-projection',
+    displayedRouteLabel: 'Subject → Subject',
+    displayedRouteEvidence: 'construction-history-button-title-attribute',
+    visibleColumn: { id: 'related-output', label: 'Status', visible: true, evidence: 'actual-table-header' },
+    historyText: 'Add all matching values from Observation.status via Subject → Subject as Status.',
+  };
+  const validAccepted = mountedRelatedSourceProblem(mounted, savedRelatedSource, 'fixture', journeyCase) === null;
+  const missingLabelRejected = (() => {
+    const changed = structuredClone(mounted);
+    delete changed.displayedRouteLabel;
+    return Boolean(mountedRelatedSourceProblem(changed, savedRelatedSource, 'fixture', journeyCase));
+  })();
+  const wrongLabelRejected = mountedRelatedSourceProblem({
+    ...mounted, displayedRouteLabel: 'Specimen → Patient → Observation',
+  }, savedRelatedSource, 'fixture', journeyCase) !== null;
+  const missingRouteEvidenceRejected = (() => {
+    const changed = structuredClone(mounted);
+    delete changed.routeEvidence;
+    return Boolean(mountedRelatedSourceProblem(changed, savedRelatedSource, 'fixture', journeyCase));
+  })();
+  const wrongRouteEvidenceRejected = mountedRelatedSourceProblem({
+    ...mounted, routeEvidence: 'inferred-from-title',
+  }, savedRelatedSource, 'fixture', journeyCase) !== null;
+  const wrongDisplayedEvidenceRejected = mountedRelatedSourceProblem({
+    ...mounted, displayedRouteEvidence: 'saved-builder-projection',
+  }, savedRelatedSource, 'fixture', journeyCase) !== null;
+  const alteredRawRouteRejected = (() => {
+    const changed = structuredClone(mounted);
+    changed.route[0].relationship = 'different-relationship';
+    return Boolean(mountedRelatedSourceProblem(changed, savedRelatedSource, 'fixture', journeyCase));
+  })();
+  return validAccepted && missingLabelRejected && wrongLabelRejected &&
+    missingRouteEvidenceRejected && wrongRouteEvidenceRejected &&
+    wrongDisplayedEvidenceRejected && alteredRawRouteRejected;
 };
 const cdaProposalObserverFlagTest = () => {
   const journeyCase = { readOnlySupportKinds: ['builder-read'] };
@@ -393,6 +561,16 @@ if (!cdaRelatedOutputProjectionTest()) {
   process.exit(1);
 }
 console.log('PASS CDA related output projection uses the saved step output and rejects missing/ambiguous IDs');
+if (!cdaMountedGroupOutputLabelTest()) {
+  console.error('FAIL CDA mounted Group key labels must resolve through exact source and construction output IDs');
+  process.exit(1);
+}
+console.log('PASS CDA mounted Group key labels resolve through exact source and construction output IDs');
+if (!cdaMountedRelatedRouteLabelTest()) {
+  console.error('FAIL CDA mounted related route label and saved route provenance must remain distinct');
+  process.exit(1);
+}
+console.log('PASS CDA mounted related route label and saved route provenance remain distinct');
 if (!cdaProposalObserverFlagTest()) {
   console.error('FAIL CDA proposal observer flag accepts modeled proposals and rejects unknown false POSTs');
   process.exit(1);

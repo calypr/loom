@@ -73,6 +73,9 @@ const BUILDER_GROUP_TRACE_NAMES = new Set([
   'builder-authoring:group-entry-raw-basic',
 ]);
 const BUILDER_CDA_GROUP_RELATED_TRACE_NAME = 'cda-builder-group-related-source';
+const BUILDER_CDA_EXPECTED_DISPLAYED_ROUTE_LABELS = new Map([
+  [BUILDER_CDA_GROUP_RELATED_TRACE_NAME, 'Subject → Subject'],
+]);
 const BUILDER_CDA_GROUP_RELATED_ACTIONS = new Set([
   'Group', 'EditGroup', 'EditGroupAgain', 'GroupEditCancel', 'Reload',
   'ExpandRows', 'RelatedSourcePreview', 'RelatedSourceApply', 'RelatedSourceCancel',
@@ -325,7 +328,7 @@ function previewOwnerProjectionProblem(owner, where, nullable = false, maxMountE
   return null;
 }
 
-function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, allowBrowserRequestId = false, allowedAggregates = ['COUNT_ROWS'], requireReloadEditorProjection = true) {
+function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, allowBrowserRequestId = false, allowedAggregates = ['COUNT_ROWS'], requireReloadEditorProjection = true, mountedGroupKeysAreLabels = false) {
   const lifecycle = action.groupLifecycle;
   if (lifecycle === undefined) {
     return required ? where + '.groupLifecycle is required by the selected Group lifecycle contract' : null;
@@ -398,15 +401,20 @@ function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, 
     const problem = groupProjectionProblem(lifecycle.mountedGroup, where + '.groupLifecycle.mountedGroup', allowedAggregates);
     if (problem) return problem;
     if (!requireReloadEditorProjection) {
-      if (lifecycle.mountedGroup === null || canonicalJson({
-        stepId: lifecycle.mountedGroup.stepId,
-        keys: lifecycle.mountedGroup.keys,
-        aggregate: lifecycle.mountedGroup.aggregate,
-      }) !== canonicalJson({
-        stepId: lifecycle.savedAfter.group?.stepId,
-        keys: lifecycle.savedAfter.group?.keys,
-        aggregate: lifecycle.savedAfter.group?.aggregate,
-      })) {
+      const mountedGroupMatchesSaved = mountedGroupKeysAreLabels
+        ? lifecycle.mountedGroup !== null &&
+          lifecycle.mountedGroup.stepId === lifecycle.savedAfter.group?.stepId &&
+          lifecycle.mountedGroup.aggregate === lifecycle.savedAfter.group?.aggregate
+        : lifecycle.mountedGroup !== null && canonicalJson({
+          stepId: lifecycle.mountedGroup.stepId,
+          keys: lifecycle.mountedGroup.keys,
+          aggregate: lifecycle.mountedGroup.aggregate,
+        }) === canonicalJson({
+          stepId: lifecycle.savedAfter.group?.stepId,
+          keys: lifecycle.savedAfter.group?.keys,
+          aggregate: lifecycle.savedAfter.group?.aggregate,
+        });
+      if (!mountedGroupMatchesSaved) {
         return where + '.groupLifecycle.mountedGroup must match the actual postreload Builder Group projection';
       }
       if (!Object.hasOwn(lifecycle, 'mountedRelatedSource')) {
@@ -469,6 +477,58 @@ function savedBuilderDocument(saved, where) {
   return { document: documents[0] };
 }
 
+function builderColumnLabelForId(document, columnId, where) {
+  if (typeof columnId !== 'string' || columnId.trim().length === 0) {
+    return { problem: where + ' must preserve a non-empty raw column ID' };
+  }
+  if (!isPlainObject(document) || !Array.isArray(document.columns)) {
+    return { problem: where + '.document.columns must preserve the raw source column list' };
+  }
+  const sourceMatches = document.columns
+    .filter((column) => (column?.columnId ?? column?.id) === columnId)
+    .map((column) => ({ label: column.label, source: 'document.columns' }));
+  if (sourceMatches.length > 1) {
+    return { problem: where + ' raw column ID must not be duplicated in document.columns' };
+  }
+  const matches = [...sourceMatches];
+  const steps = Array.isArray(document.construction?.steps) ? document.construction.steps : [];
+  for (const step of steps) {
+    for (const output of Array.isArray(step?.outputs) ? step.outputs : []) {
+      if (output?.id === columnId) matches.push({ label: output.label, source: 'construction step outputs' });
+    }
+  }
+  if (matches.length === 0) {
+    return { problem: where + ' raw column ID must exist in document.columns or a construction step output' };
+  }
+  if (matches.some((match) => typeof match.label !== 'string' || match.label.trim().length === 0)) {
+    return { problem: where + ' every exact raw column ID match must retain a non-empty label' };
+  }
+  const labels = new Set(matches.map((match) => match.label));
+  if (labels.size !== 1) {
+    return { problem: where + ' exact raw column ID matches have conflicting labels' };
+  }
+  return { label: matches[0].label };
+}
+
+function mountedGroupKeyLabelsProblem(mountedGroup, savedGroup, document, where) {
+  if (!isPlainObject(mountedGroup) || !Array.isArray(mountedGroup.keys) ||
+      !Array.isArray(savedGroup?.keys)) {
+    return where + '.keys must preserve the actual displayed Group key labels and their saved key IDs';
+  }
+  const expectedLabels = [];
+  for (const key of savedGroup.keys) {
+    const result = builderColumnLabelForId(document, key, where + '.keyLabels');
+    if (result.problem) return result.problem;
+    expectedLabels.push(result.label);
+  }
+  if (canonicalJson(mountedGroup.keys) !== canonicalJson(expectedLabels) ||
+      typeof mountedGroup.historyText !== 'string' || mountedGroup.historyText.trim().length === 0 ||
+      expectedLabels.some((label) => !mountedGroup.historyText.includes(label))) {
+    return where + '.keys must match actual construction-history labels joined to saved source/output IDs';
+  }
+  return null;
+}
+
 function relatedSourceProjectionFromSteps(steps, columns, group, where, journeyCase) {
   if (!Array.isArray(steps)) return { problem: where + '.construction.steps must preserve the raw selected construction steps' };
   const relatedSteps = steps.filter((step) => step?.operation?.kind === 'RELATED_SOURCE');
@@ -518,9 +578,12 @@ function relatedSourceProjectionFromSteps(steps, columns, group, where, journeyC
   }
   if (columns !== undefined) {
     if (!Array.isArray(columns)) return { problem: where + '.document.columns must preserve the raw column identity list' };
-    const matchingColumns = columns.filter((column) => (column?.columnId ?? column?.id) === related.outputColumnId);
-    if (matchingColumns.length > 1) {
-      return { problem: where + '.document.columns must not contain an ambiguous duplicate RELATED_SOURCE outputColumnId' };
+    const outputLabel = builderColumnLabelForId(
+      { columns, construction: { steps } }, related.outputColumnId, where + '.RELATED_SOURCE outputColumnId',
+    );
+    if (outputLabel.problem) return outputLabel;
+    if (outputLabel.label !== output.label) {
+      return { problem: where + ' RELATED_SOURCE output label conflicts with the same raw ID in document.columns or construction outputs' };
     }
   }
   return {
@@ -989,18 +1052,10 @@ function cdaGroupLifecycleSnapshotProblem(action, where, journeyCase) {
     const mountedGroup = lifecycle.mountedGroup;
     const afterDocument = savedBuilderDocument(after, where + '.groupLifecycle.savedAfter');
     if (afterDocument.problem) return afterDocument.problem;
-    const mountedKeyLabels = mountedGroup?.keyLabels;
-    const expectedKeyLabels = after.group?.keys?.map((key) => {
-      const column = afterDocument.document.columns?.find((candidate) =>
-        (candidate?.columnId ?? candidate?.id) === key);
-      return column?.label ?? null;
-    }) ?? [];
-    if (!Array.isArray(mountedKeyLabels) ||
-        canonicalJson(mountedKeyLabels) !== canonicalJson(expectedKeyLabels) ||
-        expectedKeyLabels.some((label) => typeof label !== 'string' ||
-          !mountedGroup.historyText.includes(label))) {
-      return where + '.groupLifecycle.mountedGroup.keyLabels must match displayed construction-history labels joined to raw selected columns';
-    }
+    const mountedGroupProblem = mountedGroupKeyLabelsProblem(
+      mountedGroup, after.group, afterDocument.document, where + '.groupLifecycle.mountedGroup',
+    );
+    if (mountedGroupProblem) return mountedGroupProblem;
     const mountedProblem = mountedRelatedSourceProblem(
       lifecycle.mountedRelatedSource,
       after.relatedSource,
@@ -1016,6 +1071,7 @@ function mountedRelatedSourceProblem(mounted, savedRelatedSource, where, journey
   if (savedRelatedSource === null) {
     return mounted === null ? null : where + ' must be null when the postreload workspace has no related source';
   }
+  const expectedDisplayedRouteLabel = BUILDER_CDA_EXPECTED_DISPLAYED_ROUTE_LABELS.get(journeyCase.traceName);
   if (!isPlainObject(mounted) ||
       typeof mounted.stepId !== 'string' || mounted.stepId !== savedRelatedSource.stepId ||
       typeof mounted.inputStepId !== 'string' || mounted.inputStepId !== savedRelatedSource.inputStepId ||
@@ -1023,19 +1079,24 @@ function mountedRelatedSourceProblem(mounted, savedRelatedSource, where, journey
       mounted.source?.resourceType !== journeyCase.relatedSource.resourceType ||
       mounted.source?.path !== journeyCase.relatedSource.fieldPath ||
       !Array.isArray(mounted.route) ||
+      canonicalJson(mounted.route) !== canonicalJson(savedRelatedSource.route) ||
+      mounted.routeEvidence !== 'saved-builder-projection' ||
       canonicalJson(mounted.route.map((hop) => ({
         fromResourceType: hop?.fromResourceType,
         toResourceType: hop?.toResourceType,
       }))) !== canonicalJson(journeyCase.relatedSource.sourceRoute) ||
+      typeof expectedDisplayedRouteLabel !== 'string' ||
+      mounted.displayedRouteLabel !== expectedDisplayedRouteLabel ||
+      mounted.displayedRouteEvidence !== 'construction-history-button-title-attribute' ||
       !isPlainObject(mounted.visibleColumn) || mounted.visibleColumn.id !== savedRelatedSource.outputColumnId ||
       mounted.visibleColumn.visible !== true || typeof mounted.visibleColumn.label !== 'string' ||
       mounted.visibleColumn.label !== savedRelatedSource.output.label ||
       typeof (mounted.visibleColumn.evidence ?? mounted.visibleColumn.source) !== 'string' ||
       (mounted.visibleColumn.evidence ?? mounted.visibleColumn.source).trim().length === 0 ||
       typeof mounted.historyText !== 'string' || mounted.historyText.trim().length === 0 ||
-      journeyCase.relatedSource.sourceRoute.some((hop) =>
-        !mounted.historyText.includes(hop.fromResourceType) || !mounted.historyText.includes(hop.toResourceType))) {
-    return where + ' must preserve actual postreload history, route, input, output, source, and visible column identities';
+      !mounted.historyText.includes(journeyCase.relatedSource.resourceType + '.' + journeyCase.relatedSource.fieldPath) ||
+      !mounted.historyText.includes(expectedDisplayedRouteLabel)) {
+    return where + ' must bind the actual displayed route title and visible output to the saved full route/source projection';
   }
   return null;
 }
@@ -3411,6 +3472,7 @@ function traceShapeProblem(trace, index, contract, events) {
         hasCdaRelatedCase,
         hasCdaRelatedCase ? ['COUNT_ROWS', 'COUNT_DISTINCT'] : ['COUNT_ROWS'],
         !hasCdaRelatedCase,
+        hasCdaRelatedCase,
       );
       if (groupLifecycleProblem) return { message: groupLifecycleProblem, actionIndex };
       if (hasCdaRelatedCase && action.groupLifecycle !== undefined) {
@@ -5079,9 +5141,14 @@ async function main() {
 }
 
 export {
+  builderColumnLabelForId,
+  cdaGroupLifecycleSnapshotProblem,
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
+  groupLifecycleShapeProblem,
+  mountedGroupKeyLabelsProblem,
+  mountedRelatedSourceProblem,
   relatedSourceSnapshotProblem,
   relatedSourceProjectionFromSteps,
 };
