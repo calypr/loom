@@ -544,6 +544,34 @@ const inspectJourney = (tracePath, minBackendCalls = 10, traceRequirements = {})
   };
 };
 
+const nativeEnvironmentTargetProblems = (summary, domainReport) => {
+  const problems = [];
+  const validation = summary?.targetValidation;
+  if (summary?.targetIdentity !== null) {
+    problems.push('environment-only bracket must not invent a registered targetIdentity');
+  }
+  if (validation?.scope !== 'environment-only' || validation?.registryBinding !== 'unbound' ||
+      validation?.runtimeDatasetIdentity !== 'not-checked' || validation?.configPath !== null ||
+      validation?.project !== null || validation?.generation !== null) {
+    problems.push('environment-only bracket must retain its unbound target validation scope');
+  }
+  const target = domainReport?.target;
+  if (!target || target.kind !== 'isolated' || typeof target.project !== 'string' || target.project.length === 0 ||
+      typeof target.generation !== 'string' || target.generation.length === 0) {
+    problems.push('domain report must identify its actual isolated fixture project and generation');
+    return problems;
+  }
+  const isolation = target.qaIsolation;
+  if (!isolation || isolation.project !== target.project || isolation.generation !== target.generation) {
+    problems.push('domain report isolated target must match its retained QA isolation project/generation');
+  }
+  const fixtureOracle = isolation?.fixtureOracle;
+  if (!fixtureOracle || fixtureOracle.project !== target.project || fixtureOracle.generation !== target.generation) {
+    problems.push('domain report fixture oracle must bind the actual isolated project/generation');
+  }
+  return problems;
+};
+
 const validateNativeBracketSummary = (summary, selection, targetPath, tracePaths = null) => {
   const issues = [];
   const requireValue = (condition, message) => { if (!condition) issues.push(message); };
@@ -554,16 +582,20 @@ const validateNativeBracketSummary = (summary, selection, targetPath, tracePaths
   requireValue(summary.scenario === selection.scenarioID && summary.case === selection.caseName,
     'native bracket identity does not match the registered case');
   requireValue(summary.integrity?.status === 'PASS', 'native bracket integrity status is not PASS');
-  requireValue(summary.targetValidation?.registryBinding === 'bound', 'native target is not bound to the owned target configuration');
-  if (targetPath) {
-    requireValue(resolve(summary.targetValidation?.configPath ?? '') === resolve(targetPath),
-      'native bracket target config differs from the selected owned target config');
+  if (selection.targetMode === 'environment') {
+    requireValue(targetPath === null, 'environment-only native case cannot use an owned target configuration');
+  } else {
+    requireValue(summary.targetValidation?.registryBinding === 'bound', 'native target is not bound to the owned target configuration');
+    if (targetPath) {
+      requireValue(resolve(summary.targetValidation?.configPath ?? '') === resolve(targetPath),
+        'native bracket target config differs from the selected owned target config');
+    }
+    const expectedProject = selection.expectedIdentity?.project;
+    requireValue(typeof expectedProject === 'string' && summary.targetIdentity?.project === expectedProject,
+      'native bracket project identity differs from the registered target');
+    requireValue(typeof summary.targetIdentity?.generation === 'string' && summary.targetIdentity.generation.length > 0,
+      'native bracket has no validated generation identity');
   }
-  const expectedProject = selection.expectedIdentity?.project;
-  requireValue(typeof expectedProject === 'string' && summary.targetIdentity?.project === expectedProject,
-    'native bracket project identity differs from the registered target');
-  requireValue(typeof summary.targetIdentity?.generation === 'string' && summary.targetIdentity.generation.length > 0,
-    'native bracket has no validated generation identity');
 
   const dimensions = summary.integrity?.dimensions ?? {};
   const source = dimensions.source;
@@ -602,9 +634,13 @@ const validateNativeBracketSummary = (summary, selection, targetPath, tracePaths
       domainReport = JSON.parse(readFileSync(domainReportPath, 'utf8'));
       requireValue(domainReport.status === 'passed' && domainReport.scenario === selection.scenarioID &&
         domainReport.case === selection.caseName, 'native domain report identity or status is invalid');
-      requireValue(domainReport.target?.project === summary.targetIdentity?.project &&
-        domainReport.target?.generation === summary.targetIdentity?.generation,
-      'native domain report project/generation differs from the bracket target identity');
+      if (selection.targetMode === 'environment') {
+        issues.push(...nativeEnvironmentTargetProblems(summary, domainReport));
+      } else {
+        requireValue(domainReport.target?.project === summary.targetIdentity?.project &&
+          domainReport.target?.generation === summary.targetIdentity?.generation,
+        'native domain report project/generation differs from the bracket target identity');
+      }
       requireValue(domainReport.target?.sourceFingerprint?.sha256 === source?.before?.sha256 &&
         domainReport.target?.sourceFingerprint?.files === source?.before?.files,
       'native domain report source fingerprint differs from the before/after bracket');
@@ -1406,4 +1442,9 @@ export function retainNativeDomainReportArtifact({
   };
 }
 
-export { validateNativeBracketEnvelope, validateNativeBracketSummary, validateNativeTlaReceipt };
+export {
+  nativeEnvironmentTargetProblems,
+  validateNativeBracketEnvelope,
+  validateNativeBracketSummary,
+  validateNativeTlaReceipt,
+};

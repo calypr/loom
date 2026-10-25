@@ -982,6 +982,20 @@ const registryRows = [
               'scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs',
             ],
           },
+          {
+            id: 'patient-one-environment-target-binding',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs'],
+            sourceFiles: [
+              'scripts/run-builder-journey.mjs',
+              'scripts/generate-builder-browser-evidence.mjs',
+              'scripts/verify-builder-traces.mjs',
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/helpers/builder-journey-trace.mjs',
+              'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
+              'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs',
+            ],
+          },
         ],
         requiredChecks: [
           "empty-key Group prepares one row for the two raw Patient records",

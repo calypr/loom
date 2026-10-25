@@ -8,6 +8,7 @@ import test from 'node:test';
 import { currentFormalJourneyEvidence } from '../../../generate-builder-browser-evidence.mjs';
 import {
   bracketSummaryFromOutput,
+  nativeEnvironmentTargetProblems,
   resolveNativeEvidenceParent,
   retainNativeDomainReportArtifact,
   validateNativeBracketEnvelope,
@@ -32,6 +33,89 @@ const canonicalJson = (value) => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const copy = (value) => structuredClone(value);
+const retainedBasicTargetFixture = {
+  kind: 'isolated',
+  project: 'loom_dev_verify_mvnpkod5-d7536dd',
+  generation: 'fixture-v1',
+  qaIsolation: {
+    project: 'loom_dev_verify_mvnpkod5-d7536dd',
+    generation: 'fixture-v1',
+    fixtureDir: '$CHECKOUT/testdata/devloop-fixture',
+    fixtureOracle: {
+      source: 'fresh project Patient.ndjson',
+      path: '$CHECKOUT/testdata/devloop-fixture/Patient.ndjson',
+      project: 'loom_dev_verify_mvnpkod5-d7536dd',
+      generation: 'fixture-v1',
+      resourceType: 'Patient',
+      patientIDs: ['dev-patient-001', 'dev-patient-002'],
+      expectedCountRows: 2,
+    },
+  },
+};
+
+test('environment-only formal bracket accepts its unbound scope and binds the isolated fixture identity', (t) => {
+  const { project, generation } = retainedBasicTargetFixture;
+  const root = makeRepositoryArtifactDirectory('native-environment-target-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bracket = makeBracketFixture(root);
+  const selection = { ...bracket.selection, targetMode: 'environment' };
+  delete selection.expectedIdentity;
+  const summary = copy(bracket.summary);
+  summary.targetIdentity = null;
+  summary.targetValidation = {
+    scope: 'environment-only',
+    registryBinding: 'unbound',
+    runtimeDatasetIdentity: 'not-checked',
+    configPath: null,
+    project: null,
+    generation: null,
+  };
+  const domainReport = copy(bracket.domainReport);
+  domainReport.target = {
+    ...domainReport.target,
+    ...copy(retainedBasicTargetFixture),
+  };
+  writeFileSync(bracket.summaryPath, JSON.stringify(summary));
+  writeFileSync(bracket.domainReportPath, JSON.stringify(domainReport));
+  const tracePaths = {
+    tracePath: bracket.tracePath,
+    replayReportPath: bracket.replayReportPath,
+    selfTestReportPath: bracket.selfTestReportPath,
+  };
+  const envelope = bracketSummaryFromOutput(JSON.stringify(bracket.outputEnvelope));
+  const validate = (target = null) => validateNativeBracketEnvelope(envelope, selection, target, tracePaths);
+
+  assert.equal(validate().status, 'passed');
+  assert.equal(validate(bracket.targetPath).status, 'failed');
+  assert(nativeEnvironmentTargetProblems({ ...summary, targetIdentity: { project, generation } }, domainReport)
+    .some(problem => problem.includes('must not invent a registered targetIdentity')));
+  assert(nativeEnvironmentTargetProblems({
+    ...summary,
+    targetValidation: { ...summary.targetValidation, scope: 'owned-config', registryBinding: 'bound' },
+  }, domainReport).some(problem => problem.includes('unbound target validation scope')));
+
+  writeFileSync(bracket.summaryPath, JSON.stringify({ ...summary, targetIdentity: { project, generation } }));
+  assert.equal(validate().status, 'failed');
+  writeFileSync(bracket.summaryPath, JSON.stringify(summary));
+  writeFileSync(bracket.summaryPath, JSON.stringify({
+    ...summary,
+    targetValidation: { ...summary.targetValidation, scope: 'owned-config', registryBinding: 'bound' },
+  }));
+  assert.equal(validate().status, 'failed');
+  writeFileSync(bracket.summaryPath, JSON.stringify(summary));
+  writeFileSync(bracket.domainReportPath, JSON.stringify({
+    ...domainReport,
+    target: { ...domainReport.target, qaIsolation: { ...domainReport.target.qaIsolation, project: 'other-project' } },
+  }));
+  assert.equal(validate().status, 'failed');
+  writeFileSync(bracket.domainReportPath, JSON.stringify(domainReport));
+  writeFileSync(bracket.domainReportPath, JSON.stringify({
+    ...domainReport,
+    target: { ...domainReport.target, qaIsolation: { ...domainReport.target.qaIsolation,
+      fixtureOracle: { project, generation: 'other-generation' } } },
+  }));
+  assert.equal(validate().status, 'failed');
+});
 
 const makeBracketFixture = (root) => {
   const contract = JSON.parse(readFileSync(new URL('../../../../verification/builder-interactions/builder-cda-group-related-contract.json', import.meta.url), 'utf8'));
