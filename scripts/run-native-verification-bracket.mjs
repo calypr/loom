@@ -35,7 +35,7 @@ const lifecycleDimensionNames = ['usability', 'correctness', 'persistence', 'per
 
 const usage = [
   'Usage:',
-  '  node scripts/run-native-verification-bracket.mjs --batch <manifest.json> [--evidence-parent <dir>] [--concurrency 1..3]',
+  '  node scripts/run-native-verification-bracket.mjs --batch <manifest.json> [--checks-only] [--evidence-parent <dir>] [--concurrency 1..3]',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target <config-path> [--grep <native-test-regex>]',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --target-from-environment --grep <native-test-regex>',
   '  node scripts/run-native-verification-bracket.mjs --scenario <id> --case <name> --checks-only [--target <config-path>]',
@@ -411,7 +411,7 @@ function parseCli(argv) {
     assert(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 3,
       '--concurrency must be an integer from 1 through 3.');
     const singleCaseOptions = [
-      'scenario', 'case', 'target', 'target-from-environment', 'grep', 'checks-only',
+      'scenario', 'case', 'target', 'target-from-environment', 'grep',
     ];
     const conflicts = singleCaseOptions.filter((name) => Object.hasOwn(parsed.values, name));
     assert.equal(conflicts.length, 0, '--batch cannot be combined with ' + conflicts.map((name) => '--' + name).join(', ') + '.');
@@ -419,6 +419,7 @@ function parseCli(argv) {
       batchPath: parsed.values.batch.trim(),
       evidenceParent: parsed.values['evidence-parent'],
       maxConcurrency: concurrency,
+      checksOnly: parsed.values['checks-only'] === true,
     };
   }
   assert(parsed.values.concurrency === undefined, '--concurrency is only available with --batch.');
@@ -850,24 +851,27 @@ function registryValidationSummary(entries = registry) {
   };
 }
 
-function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
-  if (!report) return { reportStatus: null, reason: 'No domain verification report was attached or found.' };
-  const identity = reportIdentity(report);
-  const custom = report.target?.kind === 'read-only-custom';
-  let caseContract;
-  try {
-    caseContract = scenarioCaseFor(expectedScenarioID, expectedCaseName, custom);
-  } catch (error) {
+function summarizeLifecycle(report, expectedScenarioID, expectedCaseName, caseContract, {
+  attachmentCount = report ? 1 : 0,
+  reason = 'No domain verification report was attached or found.',
+} = {}) {
+  assert(Array.isArray(caseContract?.requiredChecks) && caseContract.requiredChecks.length > 0,
+    'Lifecycle summaries require the selected registry case contract.');
+  const identity = report ? reportIdentity(report) : null;
+  const requiredChecks = caseContract.requiredChecks;
+  if (!report) {
     return {
-      reportStatus: report.status ?? null,
-      reason: 'Could not resolve registered required checks: ' + String(error?.message ?? error),
-      reportIdentity: { scenario: identity.scenario ?? null, caseName: identity.caseName ?? null },
-      reportIdentityMatchesSelection: identity.valid
-        && identity.scenario === expectedScenarioID
-        && identity.caseName === expectedCaseName,
+      reportStatus: null,
+      attachmentCount,
+      reason,
+      reportIdentityMatchesSelection: false,
+      requiredCheckCount: requiredChecks.length,
+      passedCheckCount: 0,
+      failedCheckNames: [],
+      missingCheckNames: [...requiredChecks],
+      requiredCheckListMatchesRegistry: false,
     };
   }
-  const requiredChecks = caseContract.requiredChecks;
   const assertions = Array.isArray(report.assertions) ? report.assertions : [];
   const reportedChecks = report.requiredChecks;
   const reportedNames = Array.isArray(reportedChecks) ? reportedChecks : null;
@@ -889,7 +893,7 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
   });
   return {
     reportStatus: report.status ?? null,
-    attachmentCount: 1,
+    attachmentCount,
     reportIdentity: { scenario: identity.scenario, caseName: identity.caseName },
     reportIdentityMatchesSelection: identity.valid
       && identity.scenario === expectedScenarioID
@@ -913,6 +917,17 @@ function summarizeLifecycle(report, expectedScenarioID, expectedCaseName) {
     maximumRenderCheckpointLatencyMs: renderCheckpoints.maximumDurationMs,
     renderCheckpoints: renderCheckpoints.checkpoints,
   };
+}
+
+function requiredCheckFailureReason(lifecycle) {
+  if (!Number.isInteger(lifecycle?.requiredCheckCount) || lifecycle.requiredCheckCount <= 0) return null;
+  if (lifecycle.attachmentCount !== 1) return 'A registered required-check report is missing or ambiguous.';
+  if (lifecycle.reportStatus !== 'passed') return 'The registered required-check report did not pass.';
+  if (lifecycle.reportIdentityMatchesSelection !== true) return 'The required-check report belongs to a different selected case.';
+  if (lifecycle.requiredCheckListMatchesRegistry !== true) return 'The required-check report does not list the exact registered checks.';
+  if (lifecycle.failedCheckNames?.length) return 'A registered required check failed.';
+  if (lifecycle.missingCheckNames?.length) return 'A registered required check is missing.';
+  return null;
 }
 
 function fingerprintCaptureIssue(value, expectedPhase, expectedRoot) {
@@ -1085,6 +1100,7 @@ function expectedCommandPaths(runDirectory) {
 async function prepareNativeVerificationCase({
   scenarioID,
   caseName,
+  contract: providedContract = null,
   grep,
   targetPath,
   checksOnly = false,
@@ -1103,7 +1119,7 @@ async function prepareNativeVerificationCase({
   const canonicalRoot = realpathSync(resolve(root));
   const scenario = registry.find((candidate) => candidate.id === scenarioID);
   assert(scenario, 'Unknown registered scenario: ' + scenarioID);
-  const contract = scenarioCaseFor(scenario, caseName);
+  const contract = providedContract ?? scenarioCaseFor(scenario, caseName);
   const focusedPlans = focusedPlansForContract(contract, canonicalRoot);
   const specPath = contract.playwrightTest;
   const specAbsolute = resolve(canonicalRoot, specPath);
@@ -1432,19 +1448,22 @@ async function executePreparedNativeCase(context) {
   if (attachmentData.candidates.length === 1) {
     domainReportData = attachmentData.candidates[0].data;
     summary.evidence.domainReport = attachmentData.candidates[0].path;
-    summary.lifecycle = summarizeLifecycle(domainReportData, scenarioID, caseName);
+    summary.lifecycle = summarizeLifecycle(domainReportData, scenarioID, caseName, contract);
   } else if (attachmentData.candidates.length > 1) {
-    summary.lifecycle = {
-      reportStatus: null,
+    summary.lifecycle = summarizeLifecycle(null, scenarioID, caseName, contract, {
       attachmentCount: attachmentData.candidates.length,
       reason: 'More than one domain report was attached to the selected Playwright result.',
-    };
+    });
   } else if (!officialJson) {
-    summary.lifecycle = { reportStatus: null, attachmentCount: 0, reason: 'Official Playwright JSON report is missing.' };
+    summary.lifecycle = summarizeLifecycle(null, scenarioID, caseName, contract, {
+      reason: 'Official Playwright JSON report is missing.',
+    });
   } else if (!attachmentData.matchedTest) {
-    summary.lifecycle = { reportStatus: null, attachmentCount: 0, reason: 'Official JSON report does not contain the exact selected test result.' };
+    summary.lifecycle = summarizeLifecycle(null, scenarioID, caseName, contract, {
+      reason: 'Official JSON report does not contain the exact selected test result.',
+    });
   } else {
-    summary.lifecycle = { reportStatus: null, attachmentCount: 0, reason: 'No domain verification report was attached or found.' };
+    summary.lifecycle = summarizeLifecycle(null, scenarioID, caseName, contract);
   }
   if (signal?.aborted) {
     summary.interrupted = true;
@@ -1777,6 +1796,7 @@ function finalizeNativeCase(summary, shared, {
   const browserPassed = browserAttempted
     && summary.commands.playwright.exitCode === 0
     && summary.reviewPacket?.browserTestPassed === true;
+  const requiredCheckFailure = browserAttempted ? requiredCheckFailureReason(summary.lifecycle) : null;
   const afterEvidenceComplete = shared.commands.captureAfter?.exitCode === 0
     && shared.commands.healthAfter?.exitCode === 0
     && shared.integrity.status !== 'UNVERIFIED';
@@ -1793,6 +1813,10 @@ function finalizeNativeCase(summary, shared, {
   } else if (summary.focusedChecks?.status === 'failed') {
     summary.status = 'failed';
     summary.failureCategory = 'focused-check';
+  } else if (requiredCheckFailure) {
+    summary.status = 'failed';
+    summary.failureCategory = 'required-check';
+    summary.notes.push(requiredCheckFailure);
   } else if (!browserAttempted || !afterEvidenceComplete || !shared.beforeReady) {
     summary.status = 'unverified';
   } else if (!browserPassed || shared.integrity.status === 'FAIL' || caseCommandFailures) {
@@ -1934,8 +1958,9 @@ async function runNativeVerificationEngine({
   const canonicalRoot = realpathSync(resolve(root));
   assert(resolvedCases.every((caseInput) => caseInput?.contract && caseInput?.env && caseInput?.targetValidation),
     'The internal verification engine requires resolved case targets.');
-  assert(!resolvedCases.some((caseInput) => caseInput.checksOnly) || resolvedCases.length === 1,
-    'Checks-only runs accept exactly one case.');
+  const checkOnlyCount = resolvedCases.filter((caseInput) => caseInput.checksOnly).length;
+  assert(checkOnlyCount === 0 || checkOnlyCount === resolvedCases.length,
+    'A checks-only batch cannot mix focused-only and browser cases.');
 
   const targetIdentities = resolvedCases.map((caseInput) => resolvedTargetIdentity(caseInput, canonicalRoot));
   const identityJSON = JSON.stringify(targetIdentities[0]);
@@ -2025,7 +2050,7 @@ async function runNativeVerificationEngine({
     return batchSummary;
   }
 
-  const checkOnly = resolvedCases[0].checksOnly === true;
+  const checkOnly = resolvedCases.every((caseInput) => caseInput.checksOnly === true);
   const preparedCases = [];
   for (const caseInput of resolvedCases) {
     try {
@@ -2214,9 +2239,9 @@ async function runNativeVerificationEngine({
   ));
   const allCasesPassed = caseSummaries.length > 0 && caseSummaries.every((summary) => summary.status === 'passed');
   if (checkOnly) {
-    batchSummary.status = caseSummaries[0]?.status === 'checks-passed' ? 'passed'
-      : caseSummaries[0]?.status === 'failed' ? 'failed' : 'unverified';
-    batchSummary.nativeStatus = caseSummaries[0]?.nativeStatus ?? 'unverified';
+    batchSummary.status = caseSummaries.length > 0 && caseSummaries.every((summary) => summary.status === 'checks-passed') ? 'passed'
+      : caseSummaries.some((summary) => summary.status === 'failed') ? 'failed' : 'unverified';
+    batchSummary.nativeStatus = 'not-run';
     batchSummary.integrityStatus = 'NOT_RUN';
   } else if (signal?.aborted) {
     batchSummary.status = 'unverified';
@@ -2268,7 +2293,7 @@ async function runNativeVerificationEngine({
   return batchSummary;
 }
 
-async function resolveBatchCases(cases, { root, env, targetLoader, registryValidation }) {
+async function resolveBatchCases(cases, { root, env, targetLoader, registryValidation, checksOnly }) {
   assert(Array.isArray(cases) && cases.length > 0, 'Batch manifest cases must be a non-empty array.');
   const seen = new Set();
   const resolvedCases = [];
@@ -2286,7 +2311,7 @@ async function resolveBatchCases(cases, { root, env, targetLoader, registryValid
     const caseKey = scenarioID + '\u0000' + caseName;
     assert(!seen.has(caseKey), 'Batch contains a duplicate scenario/case: ' + scenarioID + '/' + caseName + '.');
     seen.add(caseKey);
-    const { contract } = validateBatchCaseSelection(scenarioID, caseName);
+    const { scenario, contract: defaultContract } = validateBatchCaseSelection(scenarioID, caseName);
     const target = input.target;
     assert(target && typeof target === 'object' && !Array.isArray(target),
       'Batch case ' + scenarioID + '/' + caseName + ' requires a target object.');
@@ -2305,19 +2330,37 @@ async function resolveBatchCases(cases, { root, env, targetLoader, registryValid
     } else {
       throw new Error('Batch target mode must be "environment" or "config".');
     }
-    const bound = await bindCaseTarget({
-      contract,
-      targetPath,
-      targetFromEnvironment,
-      targetLoader,
-      root,
-      env,
-    });
+    const bound = checksOnly
+      ? {
+        targetPath: null,
+        targetObject: null,
+        mappedTargetEnvironment: {},
+        env: { ...env },
+        targetValidation: {
+          scope: 'checks-only',
+          registryBinding: 'unbound',
+          runtimeDatasetIdentity: 'not-checked',
+          configPath: null,
+          project: null,
+          generation: null,
+        },
+      }
+      : await bindCaseTarget({
+        contract: defaultContract,
+        targetPath,
+        targetFromEnvironment,
+        targetLoader,
+        root,
+        env,
+      });
+    const contract = checksOnly
+      ? defaultContract
+      : scenarioCaseFor(scenario, caseName, bound.targetObject?.kind === 'read-only-custom');
     resolvedCases.push({
       ...bound,
       scenarioID,
       caseName,
-      checksOnly: false,
+      checksOnly: checksOnly === true,
       contract,
       env: bound.env,
       registryValidation,
@@ -2328,6 +2371,7 @@ async function resolveBatchCases(cases, { root, env, targetLoader, registryValid
 
 export async function runNativeVerificationBatch({
   cases,
+  checksOnly = false,
   root = repositoryRoot,
   env = process.env,
   evidenceParent,
@@ -2347,6 +2391,7 @@ export async function runNativeVerificationBatch({
     env,
     targetLoader,
     registryValidation,
+    checksOnly,
   });
   return runNativeVerificationEngine({
     resolvedCases,
@@ -2368,7 +2413,7 @@ export async function runNativeVerificationBracket(options = {}) {
   assert(typeof caseName === 'string' && caseName.trim(), 'Provide --case.');
   const scenario = registry.find((candidate) => candidate.id === scenarioID);
   assert(scenario, 'Unknown registered scenario: ' + scenarioID);
-  const contract = scenarioCaseFor(scenario, caseName);
+  const contract = options.contract ?? scenarioCaseFor(scenario, caseName, options.targetObject?.kind === 'read-only-custom');
   const env = options.env ?? process.env;
   const targetPath = options.targetPath ?? options.targetValidation?.configPath ?? null;
   const targetValidation = options.targetValidation ?? {
@@ -2445,6 +2490,7 @@ export async function main(argv, {
         targetLoader,
         registryValidation,
         maxConcurrency: options.maxConcurrency,
+        checksOnly: options.checksOnly,
         atomicWriteJson,
       });
     } finally {
@@ -2470,16 +2516,18 @@ export async function main(argv, {
   if (!options.checksOnly || options.targetPath) {
     const scenario = registry.find((candidate) => candidate.id === options.scenarioID);
     assert(scenario, 'Unknown registered scenario: ' + options.scenarioID);
-    const contract = scenarioCaseFor(scenario, options.caseName);
+    const defaultContract = scenarioCaseFor(scenario, options.caseName);
     const bound = await bindCaseTarget({
-      contract,
+      contract: defaultContract,
       targetPath: options.targetPath,
       targetFromEnvironment: options.targetFromEnvironment,
       targetLoader,
       root: canonicalRoot,
       env,
     });
+    const contract = scenarioCaseFor(scenario, options.caseName, bound.targetObject?.kind === 'read-only-custom');
     Object.assign(options, bound, {
+      contract,
       targetValidation: bound.targetValidation,
       registryValidation,
     });

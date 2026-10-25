@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
-import { main } from '../../../run-native-verification-bracket.mjs';
+import { main, runNativeVerificationBracket } from '../../../run-native-verification-bracket.mjs';
 
 const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const cases = [
@@ -15,6 +15,11 @@ const cases = [
 const unannotatedCase = {
   scenario: 'builder-controls',
   case: 'tables',
+  target: { mode: 'environment' },
+};
+const customContractCase = {
+  scenario: 'viewer-query',
+  case: 'output',
   target: { mode: 'environment' },
 };
 const configTargetCases = [
@@ -77,12 +82,29 @@ function scenarioContract(scenarioID, caseName) {
   return scenarioCaseFor(scenario, caseName);
 }
 
+function createCaseSourceTree(directory, contract) {
+  const rootPath = join(directory, 'source');
+  const paths = [contract.playwrightTest];
+  for (const group of contract.focusedChecks ?? []) {
+    const offset = group.command[0] === 'node-test' ? 1 : 4;
+    paths.push(...group.command.slice(offset), ...(group.sourceFiles ?? []));
+  }
+  for (const path of new Set(paths)) {
+    const absolutePath = join(rootPath, path);
+    mkdirSync(join(absolutePath, '..'), { recursive: true, mode: 0o700 });
+    writeFileSync(absolutePath, 'fixture input\n', { mode: 0o600 });
+  }
+  return rootPath;
+}
+
 function batchCommandRunner({
   events = [],
   browserFailures = new Set(),
   browserTimeouts = new Set(),
   missingDiagnosticReports = new Set(),
   failedDiagnosticReports = new Set(),
+  disconnectedRequiredCheckReports = new Set(),
+  customRequiredCheckReports = new Set(),
   focusedFailures = new Set(),
   selectionFailures = new Set(),
   ambiguousSelections = new Set(),
@@ -97,7 +119,7 @@ function batchCommandRunner({
   malformedAfterSource = false,
   missingAfterDocs = false,
 } = {}) {
-  const knownCases = [...cases, unannotatedCase, ...configTargetCases].map(({ scenario, case: caseName }) => ({
+  const knownCases = [...cases, unannotatedCase, customContractCase, ...configTargetCases].map(({ scenario, case: caseName }) => ({
     key: `${scenario}/${caseName}`,
     scenario,
     caseName,
@@ -119,7 +141,11 @@ function batchCommandRunner({
     if (cwd) assert.equal(cwd, root, 'native commands stay in the current checkout');
 
     if (command === '--test') {
-      const key = keyForArgs();
+      const selectedFocusedCase = knownCases.find(({ contract }) => (contract.focusedChecks ?? []).some((group) => {
+        const offset = group.command[0] === 'node-test' ? 1 : 4;
+        return group.command.slice(offset).some((path) => args.includes(path));
+      }));
+      const key = keyForArgs() ?? selectedFocusedCase?.key ?? activeCase?.key ?? null;
       events.push(`focused:${key}:start`);
       const failed = focusedFailures.has(key);
       events.push(`focused:${key}:close`);
@@ -173,16 +199,21 @@ function batchCommandRunner({
       };
       if (!missingDiagnosticReports.has(key)) {
         const reportStatus = failedDiagnosticReports.has(key) ? 'failed' : 'passed';
+        const reportChecks = customRequiredCheckReports.has(key)
+          ? scenarioCaseFor(registry.find((entry) => entry.id === selected.scenario), selected.caseName, true).requiredChecks
+          : selected.contract.requiredChecks;
         writeJson(domainReportPath, {
           schemaVersion: 2,
           scenario: selected.scenario,
           case: selected.caseName,
           status: reportStatus,
-          target: { kind: 'owned-dev-fixture' },
+          target: { kind: customRequiredCheckReports.has(key) ? 'read-only-custom' : 'owned-dev-fixture' },
           dimensions: { usability: 'passed', correctness: 'passed', persistence: 'passed', performance: 'passed' },
-          requiredChecks: selected.contract.requiredChecks,
-          missingRequiredChecks: reportStatus === 'failed' ? selected.contract.requiredChecks.slice(0, 1) : [],
-          assertions: selected.contract.requiredChecks.map((name, index) => ({
+          requiredChecks: disconnectedRequiredCheckReports.has(key)
+            ? reportChecks.slice(1)
+            : reportChecks,
+          missingRequiredChecks: reportStatus === 'failed' ? reportChecks.slice(0, 1) : [],
+          assertions: reportChecks.map((name, index) => ({
             name,
             status: reportStatus === 'failed' && index === 0 ? 'failed' : 'passed',
           })),
@@ -308,6 +339,7 @@ function startTestBatch(directory, {
   manifestCases = cases,
   environment = baseEnvironment,
   commandOptions = {},
+  checksOnly = false,
   signal,
   atomicWriteJson,
   targetLoader,
@@ -321,6 +353,7 @@ function startTestBatch(directory, {
     '--batch', manifestPath,
     '--evidence-parent', directory,
   ];
+  if (checksOnly) args.push('--checks-only');
   if (concurrency !== undefined) args.push('--concurrency', String(concurrency));
   const promise = main(args, {
     env: { ...environment },
@@ -347,7 +380,45 @@ test('batch CLI help and exclusivity preserve the single-case command shape', as
 
   await assert.rejects(main(['--batch', '/tmp/batch.json', '--scenario', 'builder-controls']),
     undefined);
-  await assert.rejects(main(['--batch', '/tmp/batch.json', '--checks-only']), undefined);
+});
+
+test('checks-only batches run each focused group without starting registered browser or shared stages', async (t) => {
+  const directory = temporaryDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const { exitCode, printed, events } = await writeTestBatch(directory, { checksOnly: true });
+
+  assert.equal(exitCode, 0);
+  const batch = JSON.parse(printed.at(-1));
+  assert.equal(batch.status, 'passed');
+  assert.equal(batch.nativeStatus, 'not-run');
+  assert.equal(batch.integrityStatus, 'NOT_RUN');
+  assert.equal(batch.sharedBracket.status, 'NOT_RUN');
+  assert.equal(batch.cases.length, 2);
+  assert.deepEqual(batch.cases.map(({ scenario, case: caseName, status }) => [scenario, caseName, status]), [
+    ['builder-controls', 'first-table', 'checks-passed'],
+    ['builder-load', 'list', 'checks-passed'],
+  ]);
+  for (const entry of batch.cases) {
+    const summary = readJson(entry.summaryPath);
+    assert.equal(summary.mode, 'checks-only');
+    assert.equal(summary.nativeStatus, 'not-run');
+    assert.equal(summary.focusedChecks.status, 'passed');
+    assert.ok(summary.focusedChecks.groups.length > 0);
+    assert.ok(summary.focusedChecks.groups.every((group) => group.status === 'passed' && group.exitCode === 0));
+    assert.equal(summary.commands.playwright, undefined);
+  }
+  assert.ok(events.every((event) => event.startsWith('focused:')));
+
+  const failed = await writeTestBatch(directory, {
+    checksOnly: true,
+    commandOptions: { focusedFailures: new Set(['builder-load/list']) },
+  });
+  assert.equal(failed.exitCode, 1);
+  const failedBatch = JSON.parse(failed.printed.at(-1));
+  assert.equal(failedBatch.status, 'failed', 'a later focused-check failure prevents a passing batch');
+  assert.deepEqual(failedBatch.cases.map(({ status }) => status), ['checks-passed', 'failed']);
+  assert.equal(failedBatch.nativeStatus, 'not-run');
+  assert.ok(failed.events.every((event) => event.startsWith('focused:')));
 });
 
 test('batch concurrency validates its range before loading targets or starting runtime commands', async (t) => {
@@ -424,13 +495,7 @@ test('same fully resolved environment target runs serially with one shared brack
   const directory = temporaryDirectory();
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const observedEnvironments = [];
-  const { exitCode, printed, events } = await writeTestBatch(directory, {
-    commandOptions: {
-      missingDiagnosticReports: new Set(['builder-controls/first-table']),
-      failedDiagnosticReports: new Set(['builder-load/list']),
-      observedEnvironments,
-    },
-  });
+  const { exitCode, printed, events } = await writeTestBatch(directory, { commandOptions: { observedEnvironments } });
   assert.equal(exitCode, 0, `${printed.at(-1)}\n${events.join('\n')}`);
   const summary = JSON.parse(printed.at(-1));
   assert.equal(summary.status, 'passed');
@@ -491,11 +556,9 @@ test('same fully resolved environment target runs serially with one shared brack
     assert.equal(env.LOOM_CDA_API_ORIGIN, 'http://127.0.0.1:8188');
     assert.equal(env.LOOM_CDA_API_CONTAINER, 'owned-api');
   }
-  assert.equal(caseSummaries[0].lifecycle.reportStatus, null,
-    'an absent diagnostic domain report does not override a passing native result and integrity bracket');
+  assert.equal(caseSummaries[0].lifecycle.reportStatus, 'passed');
   assert.equal(caseSummaries[0].status, 'passed');
-  assert.equal(caseSummaries[1].lifecycle.reportStatus, 'failed',
-    'a failed diagnostic report remains diagnostic when native and integrity evidence passes');
+  assert.equal(caseSummaries[1].lifecycle.reportStatus, 'passed');
   assert.equal(caseSummaries[1].status, 'passed');
   const sharedProofPaths = existingFilePaths(summary.sharedBracket.evidence);
   assert.ok(sharedProofPaths.length > 0, 'shared proof points to retained artifact files');
@@ -503,6 +566,84 @@ test('same fully resolved environment target runs serially with one shared brack
     assert.ok(caseSummaries.some((caseSummary) => existingFilePaths(caseSummary).includes(path)),
       `each case summary references the shared artifact itself: ${path}`);
   }
+});
+
+test('registered required checks reject missing, failed, or disconnected lifecycle reports', async (t) => {
+  const directory = temporaryDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const variants = [
+    ['missing report', { missingDiagnosticReports: new Set(['builder-controls/first-table']) }],
+    ['failed assertion', { failedDiagnosticReports: new Set(['builder-controls/first-table']) }],
+    ['disconnected check list', { disconnectedRequiredCheckReports: new Set(['builder-controls/first-table']) }],
+  ];
+
+  for (const [label, commandOptions] of variants) {
+    const { exitCode, printed } = await writeTestBatch(directory, { commandOptions });
+    assert.equal(exitCode, 1, label);
+    const batch = JSON.parse(printed.at(-1));
+    assert.equal(batch.status, 'failed', label);
+    const failedCase = batch.cases.find(({ scenario, case: caseName }) =>
+      scenario === 'builder-controls' && caseName === 'first-table');
+    assert.equal(failedCase.status, 'failed', label);
+    const summary = readJson(failedCase.summaryPath);
+    assert.equal(summary.failureCategory, 'required-check', label);
+    assert.notEqual(summary.status, 'passed', label);
+  }
+});
+
+test('report target metadata cannot select a weaker required-check contract', async (t) => {
+  const directory = temporaryDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const summary = await runNativeVerificationBracket({
+    scenarioID: customContractCase.scenario,
+    caseName: customContractCase.case,
+    grep: '@viewer-query-output',
+    env: { ...baseEnvironment },
+    evidenceParent: directory,
+    commandRunner: batchCommandRunner({
+      customRequiredCheckReports: new Set(['viewer-query/output']),
+    }),
+  });
+  assert.equal(summary.status, 'failed');
+  assert.equal(summary.lifecycle.requiredCheckCount, 11,
+    'the selected environment target keeps the registry owned check set');
+  assert.equal(summary.lifecycle.requiredCheckListMatchesRegistry, false,
+    'a report claiming a custom target cannot replace the configured required checks');
+  assert.equal(summary.failureCategory, 'required-check');
+});
+
+test('a focused command that changes a declared input cannot pass on exit code alone', async (t) => {
+  const directory = temporaryDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const contract = scenarioContract('builder-controls', 'first-table');
+  const sourceRoot = realpathSync(createCaseSourceTree(directory, contract));
+  let caseRunDirectory = null;
+  t.after(() => { if (caseRunDirectory) rmSync(caseRunDirectory, { recursive: true, force: true }); });
+  const commandRunner = async (_command, args, { cwd }) => {
+    assert.equal(cwd, sourceRoot);
+    assert.equal(args[0], '--test');
+    const testPath = args.slice(1).find((path) => /\.test\.(?:cjs|js|mjs)$/i.test(path));
+    assert.ok(testPath, `node-test command names a test file: ${args.join(' ')}`);
+    writeFileSync(join(sourceRoot, testPath), 'changed while the test ran\n', { mode: 0o600 });
+    return { exitCode: 0, stdoutText: 'tests reported success\n', stderrText: '' };
+  };
+  const summary = await runNativeVerificationBracket({
+    scenarioID: 'builder-controls',
+    caseName: 'first-table',
+    checksOnly: true,
+    root: sourceRoot,
+    env: { ...baseEnvironment, LOOM_CDA_SOURCE_ROOT: sourceRoot },
+    evidenceParent: join(directory, 'evidence'),
+    commandRunner,
+  });
+  caseRunDirectory = summary.runDirectory;
+
+  assert.equal(summary.focusedChecks.status, 'failed');
+  assert.equal(summary.focusedChecks.groups[0].exitCode, 0);
+  assert.equal(summary.focusedChecks.groups[0].inputsUnchanged, false);
+  assert.equal(summary.focusedChecks.groups[0].status, 'failed');
+  assert.equal(summary.nativeStatus, 'not-run');
+  assert.equal(summary.commands.playwright, undefined);
 });
 
 test('two config-bound cases accept one identical fully resolved target and mapped environment', async (t) => {
@@ -700,8 +841,10 @@ test('ordinary native failure continues to the next case and keeps both final ve
   assert.equal(summary.status, 'failed');
   assert.deepEqual(summary.cases.map(({ status, nativeStatus }) => [status, nativeStatus]), [
     ['failed', 'failed'],
-    ['passed', 'passed'],
+    ['failed', 'passed'],
   ]);
+  const failedReportCase = summary.cases[1];
+  assert.equal(readJson(failedReportCase.summaryPath).failureCategory, 'required-check');
   assert.equal(summary.sharedBracket.status, 'PASS');
   assert.equal(events.filter((event) => event === 'shared:capture-before').length, 1);
   assert.equal(events.filter((event) => event === 'shared:capture-after').length, 1);
