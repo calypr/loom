@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from './verify-builder-traces.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const args = process.argv.slice(2);
@@ -82,11 +83,119 @@ const selfTestReceiptWriterTest = () => {
   const duplicateStatusRejected = selfTestReceiptProblem({ ...fixture, selfTestStatus: 'pass' }, expected) !== null;
   return validAccepted && missingOutputRejected && wrongOutputRejected && duplicateStatusRejected;
 };
+const cdaProposalObserverFlagTest = () => {
+  const journeyCase = { readOnlySupportKinds: ['builder-read'] };
+  const contract = {
+    readOnlySupportRoutes: { 'builder-read': { method: 'GET', pathSuffix: '/builder' } },
+    unmodeledEventPolicy: { 'builder-read': true },
+  };
+  const proposalRequest = {
+    method: 'POST',
+    path: '/construction-proposals',
+    requestId: 'wire-proposal-self-test',
+    browserRequestId: 'browser-proposal-self-test',
+    index: 4,
+    startedAt: 1000,
+  };
+  const commandRequest = {
+    method: 'POST',
+    path: '/commands',
+    requestId: 'wire-command-self-test',
+    browserRequestId: 'browser-command-self-test',
+    index: 5,
+    startedAt: 1020,
+  };
+  const supportRequest = {
+    method: 'GET',
+    path: '/builder',
+    requestId: 'wire-builder-read-self-test',
+    browserRequestId: 'browser-builder-read-self-test',
+    index: 6,
+    startedAt: 1040,
+    isMutation: false,
+  };
+  const proposalTrace = {
+    actions: [
+      { label: 'Preview', request: proposalRequest },
+      {
+        label: 'PreviewComplete',
+        request: { ...proposalRequest },
+        settlement: { kind: 'http-response', startedAt: 1000, completedAt: 1010 },
+      },
+      {
+        label: 'Group',
+        request: commandRequest,
+        settlement: { kind: 'http-response', startedAt: 1020, completedAt: 1030 },
+      },
+    ],
+    unmodeledEvents: [{
+      kind: 'builder-read',
+      note: 'read-only support fixture',
+      classification: 'unsupported',
+      reason: 'explicit route-family read contract',
+      requests: [supportRequest],
+    }],
+    nativeRequests: [
+      {
+        index: 4,
+        browserRequestId: proposalRequest.browserRequestId,
+        requestId: proposalRequest.requestId,
+        method: 'POST',
+        path: '/api/v1/projects/self-test/authoring/v2/construction-proposals',
+        startedAt: 1000,
+        isMutation: false,
+      },
+      {
+        index: 5,
+        browserRequestId: commandRequest.browserRequestId,
+        requestId: commandRequest.requestId,
+        method: 'POST',
+        path: '/api/v1/projects/self-test/authoring/v2/commands',
+        startedAt: 1020,
+        isMutation: true,
+      },
+      {
+        index: 6,
+        browserRequestId: supportRequest.browserRequestId,
+        requestId: supportRequest.requestId,
+        method: 'GET',
+        path: '/api/v1/projects/self-test/authoring/v2/builder',
+        startedAt: 1040,
+        isMutation: false,
+      },
+    ],
+  };
+  const validProposalAccepted = cdaMutatingRequestCoverageProblem(
+    proposalTrace, 'fixture', journeyCase, contract,
+  ) === null;
+  const coverage = cdaRequestCoverageReceipt(proposalTrace);
+  const modeledCoverageCountsBothFlags = coverage.observed === 2 && coverage.modeled === 2 &&
+    coverage.unmapped === 0 && coverage.duplicates === 0;
+  const unknownFalsePostTrace = JSON.parse(JSON.stringify(proposalTrace));
+  unknownFalsePostTrace.nativeRequests.push({
+    index: 7,
+    browserRequestId: 'browser-unknown-post-self-test',
+    requestId: 'wire-unknown-post-self-test',
+    method: 'POST',
+    path: '/api/v1/projects/self-test/authoring/v2/unknown',
+    startedAt: 1060,
+    isMutation: false,
+  });
+  const unknownFalsePostRejected = cdaMutatingRequestCoverageProblem(
+    unknownFalsePostTrace, 'fixture', journeyCase, contract,
+  )?.message.includes('unknown read-only method/path route outside the support allowlist');
+  return validProposalAccepted && modeledCoverageCountsBothFlags && unknownFalsePostRejected;
+};
 if (!selfTestReceiptWriterTest()) {
   console.error('FAIL self-test receipt compatibility and output-path checks');
   process.exit(1);
 }
 console.log('PASS self-test receipt compatibility and output-path checks');
+if (!cdaProposalObserverFlagTest()) {
+  console.error('FAIL CDA proposal observer flag accepts modeled proposals and rejects unknown false POSTs');
+  process.exit(1);
+}
+console.log('PASS CDA proposal observer flag accepts modeled proposals and rejects unknown false POSTs');
 if (!journeyOnly && (!Array.isArray(payload.traces) || payload.traces.length === 0)) {
   console.error('FAIL trace corpus is empty');
   process.exit(1);

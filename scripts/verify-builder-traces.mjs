@@ -1073,6 +1073,10 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
   };
   const registerRequest = (request, actionIndex, label) => {
     const requestID = observedRequestKey(request);
+    const expectedMutationFlag = request.method === 'POST' && cdaNativePathSuffix(request.path) === '/commands';
+    if (request.isMutation !== undefined && request.isMutation !== expectedMutationFlag) {
+      return where + '.actions[' + actionIndex + '] ' + label + ' request mutation flag does not match the observer route contract';
+    }
     if (!requestID) return where + '.actions[' + actionIndex + '] ' + label + ' must preserve its actual captureId or browserRequestId';
     if (typeof request.browserRequestId !== 'string' || request.browserRequestId.length === 0 ||
         !Number.isInteger(request.index) || request.index < 0 ||
@@ -1110,7 +1114,7 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
       index: request.index,
       startedAt: request.startedAt,
       requestId: request.requestId,
-      isMutation: true,
+      isMutation: expectedMutationFlag,
       label,
       actionIndex,
     });
@@ -1252,14 +1256,17 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
     if (!pathSuffix) return { message: where + '.nativeRequests[' + nativeIndex + '].path must be an owned absolute authoring route' };
     const pathBase = cdaNativePathBase(entry.path);
     if (pathBase !== null) nativePathBases.add(pathBase);
+    const classified = classifiedNativeRequests.get(entry.browserRequestId);
+    const modeledProposalRequest = !entry.isMutation && entry.method === 'POST' &&
+      pathSuffix === '/construction-proposals' &&
+      ['Preview', 'RelatedSourcePreview'].includes(classified?.label);
     if (entry.isMutation) {
-      if (entry.method !== 'POST' || !['/construction-proposals', '/commands'].includes(pathSuffix)) {
+      if (entry.method !== 'POST' || pathSuffix !== '/commands') {
         return { message: where + '.nativeRequests contains an unknown mutating request; all mutating routes must be modeled' };
       }
-    } else if (!supportRoutesBySuffix.has(entry.method + ' ' + pathSuffix)) {
+    } else if (!modeledProposalRequest && !supportRoutesBySuffix.has(entry.method + ' ' + pathSuffix)) {
       return { message: where + '.nativeRequests contains an unknown read-only method/path route outside the support allowlist' };
     }
-    const classified = classifiedNativeRequests.get(entry.browserRequestId);
     if (!classified) {
       return { message: where + '.nativeRequests contains an observed request with no modeled action or explicit read-only support binding' };
     }
@@ -1270,7 +1277,8 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
         classified.startedAt !== entry.startedAt || classifiedRequestId !== ledgerRequestId) {
       return { message: where + '.nativeRequests entry must match its exact action/support binding and chronology' };
     }
-    if (!entry.isMutation && !journeyCase.readOnlySupportKinds.includes(supportRoutesBySuffix.get(entry.method + ' ' + pathSuffix))) {
+    if (!entry.isMutation && !modeledProposalRequest &&
+        !journeyCase.readOnlySupportKinds.includes(supportRoutesBySuffix.get(entry.method + ' ' + pathSuffix))) {
       return { message: where + '.nativeRequests read-only request has no declared support kind' };
     }
   }
@@ -4653,23 +4661,24 @@ function reportUnmodeledEvents(traces, policy = {}) {
 }
 
 function cdaRequestCoverageReceipt(trace) {
-  const mutatingLabels = new Set([
+  const modeledRequestLabels = new Set([
     'Preview', 'RelatedSourcePreview', 'Group', 'EditGroup', 'EditGroupAgain',
     'ExpandRows', 'RelatedSourceApply',
   ]);
   const requests = Array.isArray(trace.nativeRequests) ? trace.nativeRequests : [];
-  const observedMutations = requests.filter((request) => request?.isMutation === true);
+  const observedModeledRequests = requests.filter((request) => request?.isMutation === true ||
+    request?.method === 'POST' && cdaNativePathSuffix(request.path) === '/construction-proposals');
   const modeledBrowserIDs = trace.actions
-    .filter((action) => mutatingLabels.has(action.label))
+    .filter((action) => modeledRequestLabels.has(action.label))
     .map((action) => action.request?.browserRequestId)
     .filter((browserRequestId) => typeof browserRequestId === 'string' && browserRequestId.length > 0);
   const mapped = new Set(modeledBrowserIDs);
-  const observedIDs = observedMutations.map((request) => request?.browserRequestId).filter(Boolean);
+  const observedIDs = observedModeledRequests.map((request) => request?.browserRequestId).filter(Boolean);
   const uniqueObservedIDs = new Set(observedIDs);
   return {
-    observed: observedMutations.length,
-    modeled: observedMutations.filter((request) => mapped.has(request.browserRequestId)).length,
-    unmapped: observedMutations.filter((request) => !mapped.has(request.browserRequestId)).length,
+    observed: observedModeledRequests.length,
+    modeled: observedModeledRequests.filter((request) => mapped.has(request.browserRequestId)).length,
+    unmapped: observedModeledRequests.filter((request) => !mapped.has(request.browserRequestId)).length,
     duplicates: observedIDs.length - uniqueObservedIDs.size,
   };
 }
@@ -5000,7 +5009,20 @@ async function main() {
     : 'PASS Builder trace validation: all ' + report.traceCount + ' traces match TLC model paths.');
 }
 
-main().catch((error) => {
-  console.error('\nFAIL Builder trace validation: ' + error.message);
-  process.exitCode = 1;
-});
+export { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt };
+
+const isDirectExecution = (() => {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectExecution) {
+  main().catch((error) => {
+    console.error('\nFAIL Builder trace validation: ' + error.message);
+    process.exitCode = 1;
+  });
+}
