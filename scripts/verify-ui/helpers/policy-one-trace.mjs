@@ -244,7 +244,7 @@ function inspectEditor(dom, label, expected, policy, { requireRefusalVisible = f
     `${label} must retain the same document time origin`);
   assert.equal(dom.selectedField, expected.field, `${label} must retain the exact selected field`);
   assert.equal(dom.policy, policy, `${label} must select ${policy}`);
-  assert.equal(dom.fieldChecked, true, `${label} must retain the selected field checkbox`);
+  assert.equal(dom.fieldSelected, true, `${label} must retain the selected field`);
   if (expected.form !== undefined) assert.equal(dom.form, expected.form, `${label} must retain the expected form`);
   assert(Array.isArray(dom.availablePolicies) && dom.availablePolicies.includes(expected.all.policy),
     `${label} must keep ${expected.all.policy} available`);
