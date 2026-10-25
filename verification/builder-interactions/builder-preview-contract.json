@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "ef6139d69f3d9fabf6d1d1cbd3e8ceaeb27bdf3e6943573a3b289dac47bbcdf0",
+      "sha256": "f1a9061bbc133fbc55381655589122cbab35c10b5fec4fd4df28b900d4c1c258",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
