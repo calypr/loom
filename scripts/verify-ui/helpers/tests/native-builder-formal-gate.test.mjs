@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -264,18 +264,19 @@ test('native entrypoint preflights TLC before focused checks and shares the froz
   const validCacheDirectory = join(root, 'valid-tlc-cache');
   mkdirSync(emptyCacheDirectory);
   mkdirSync(validCacheDirectory);
-  const sharedJarPath = join(tmpdir(), 'loom-builder-interactions-tools', 'tla2tools-1.7.4.jar');
-  assert(existsSync(sharedJarPath),
-    'this preflight regression needs the existing checksum-pinned TLC cache jar; run the formal verifier once to populate it');
-  const validCachedJarPath = join(validCacheDirectory, 'tla2tools-1.7.4.jar');
-  copyFileSync(sharedJarPath, validCachedJarPath);
   const emptyEnvironment = { PATH: process.env.PATH ?? '' };
+  const resolvedJarPath = join(root, 'verified-tools', 'tla2tools-1.7.4.jar');
+  const alteredJarPath = join(root, 'altered-tla2tools.jar');
   const explicitContext = resolveNativeTlaRuntimeContext({
-    env: { ...emptyEnvironment, TLA2TOOLS_JAR: validCachedJarPath },
+    env: { ...emptyEnvironment, TLA2TOOLS_JAR: '/caller/selected/tla2tools.jar' },
     cacheDirectory: emptyCacheDirectory,
+    resolveJar: ({ env, cacheDirectory }) => {
+      assert.equal(env.TLA2TOOLS_JAR, '/caller/selected/tla2tools.jar');
+      assert.equal(cacheDirectory, emptyCacheDirectory);
+      return resolvedJarPath;
+    },
   });
-  assert.equal(explicitContext.jarPath, realpathSync(validCachedJarPath),
-    'an explicit verified override must be canonicalized and honored');
+  assert.equal(explicitContext.jarPath, resolvedJarPath, 'the explicit override must be passed to the verified resolver');
   const selection = {
     scenarioID: 'scenario',
     caseName: 'native-case',
@@ -284,6 +285,11 @@ test('native entrypoint preflights TLC before focused checks and shares the froz
     traceKind: 'native-lifecycle',
   };
   const spawnCalls = [];
+  const cacheMissResolver = ({ env, cacheDirectory }) => {
+    assert.equal(Object.hasOwn(env, 'TLA2TOOLS_JAR'), false);
+    assert.equal(cacheDirectory, emptyCacheDirectory);
+    throw new Error('TLC jar does not exist at ' + join(cacheDirectory, 'tla2tools-1.7.4.jar'));
+  };
   const spawnSyncImpl = (...args) => {
     spawnCalls.push(args);
     return { status: 0, stdout: '', stderr: '' };
@@ -298,6 +304,7 @@ test('native entrypoint preflights TLC before focused checks and shares the froz
   try {
     assert.throws(() => runNativeCaseWithTlaPreflight(emptyEnvironment, selection, {
       cacheDirectory: emptyCacheDirectory,
+      resolveJar: cacheMissResolver,
       spawnSyncImpl,
     }), /TLA2TOOLS_JAR/u, 'an absent cached jar must fail before starting the native bracket');
   } finally {
@@ -306,13 +313,16 @@ test('native entrypoint preflights TLC before focused checks and shares the froz
   assert.equal(fetchCalls, 0, 'a missing jar must fail locally without a download attempt');
   assert.equal(spawnCalls.length, 0);
 
-  const alteredJarPath = join(root, 'altered-tla2tools.jar');
-  writeFileSync(alteredJarPath, 'not the pinned TLC jar');
   assert.throws(() => runNativeCaseWithTlaPreflight({
     ...emptyEnvironment,
     TLA2TOOLS_JAR: alteredJarPath,
   }, selection, {
     cacheDirectory: validCacheDirectory,
+    resolveJar: ({ env, cacheDirectory }) => {
+      assert.equal(env.TLA2TOOLS_JAR, alteredJarPath);
+      assert.equal(cacheDirectory, validCacheDirectory);
+      throw new Error('TLC 1.7.4 checksum mismatch at ' + alteredJarPath);
+    },
     spawnSyncImpl,
   }), /checksum mismatch/u, 'an altered explicit override must fail before starting the native bracket');
   assert.equal(spawnCalls.length, 0);
@@ -321,17 +331,18 @@ test('native entrypoint preflights TLC before focused checks and shares the froz
   let resolverCalls = 0;
   const execution = runNativeCaseWithTlaPreflight(suppliedEnvironment, selection, {
     cacheDirectory: validCacheDirectory,
-    resolveJar: (options) => {
+    resolveJar: ({ env, cacheDirectory }) => {
       resolverCalls += 1;
-      assert.strictEqual(options.env, suppliedEnvironment);
-      return resolveTlaToolsJar(options);
+      assert.strictEqual(env, suppliedEnvironment);
+      assert.equal(Object.hasOwn(env, 'TLA2TOOLS_JAR'), false);
+      assert.equal(cacheDirectory, validCacheDirectory);
+      return resolvedJarPath;
     },
     spawnSyncImpl,
   });
   assert.equal(resolverCalls, 1, 'the native runner must resolve the jar only once before checks');
-  const resolvedJarPath = realpathSync(validCachedJarPath);
   assert.equal(execution.runtimeContext.jarPath, resolvedJarPath,
-    'an unset override must resolve to the existing verified cache jar');
+    'an unset override must resolve from the configured verified cache');
   assert.equal(execution.nativeRun.exitStatus, 0);
   assert(Object.isFrozen(execution.runtimeContext));
   assert(Object.isFrozen(execution.environment));
