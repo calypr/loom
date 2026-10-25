@@ -2164,6 +2164,14 @@ function validateContract(contract) {
         ]) || canonicalJson(nativeRequestLedger.optionalWhenUnavailable) !== canonicalJson(['requestId'])) {
       fail('trace contract journeyCase must define the complete nativeRequests observer ledger schema');
     }
+    if (!Array.isArray(journeyCase.requiredMutationControlNames) ||
+        journeyCase.requiredMutationControlNames.length === 0 ||
+        journeyCase.requiredMutationControlNames.some((name) => typeof name !== 'string' || name.trim().length === 0) ||
+        new Set(journeyCase.requiredMutationControlNames).size !== journeyCase.requiredMutationControlNames.length ||
+        journeyCase.requiredMutationControlNames.some((name) => name.startsWith('request-owner-mount-epoch-')) ||
+        journeyCase.observedOwnerEpochControlPrefix !== 'request-owner-mount-epoch-') {
+      fail('trace contract journeyCase must define unique required mutation control names and the observed-owner epoch prefix');
+    }
     if (!Array.isArray(journeyCase.readOnlySupportKinds) ||
         journeyCase.readOnlySupportKinds.some((kind) => typeof kind !== 'string' || kind.trim().length === 0) ||
         canonicalJson([...journeyCase.readOnlySupportKinds].sort()) !==
@@ -4637,6 +4645,20 @@ function cdaRequestCoverageReceipt(trace) {
   };
 }
 
+function cdaRequiredMutationControlNames(trace, journeyCase) {
+  const actions = Array.isArray(trace.actions) ? trace.actions : [];
+  const observedOwnerEpochs = new Set(actions
+    .filter((action) => ['Preview', 'RelatedSourcePreview'].includes(action.label))
+    .map((action) => (action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner ??
+      action.relatedSourceLifecycle?.owner)?.mountEpoch)
+    .filter(Number.isInteger));
+  return [
+    ...journeyCase.requiredMutationControlNames,
+    ...[...observedOwnerEpochs].sort((left, right) => left - right)
+      .map((epoch) => journeyCase.observedOwnerEpochControlPrefix + epoch),
+  ];
+}
+
 async function main() {
   const options = parseArgs();
   const contract = validateContract(readJson(options.contract ? resolve(process.cwd(), options.contract) : CONTRACT_RELATIVE));
@@ -4644,11 +4666,14 @@ async function main() {
   const hasGroupLifecycle = groupLifecycleEnabled(contract);
 
   let payload;
+  let traceBytes;
   try {
-    payload = JSON.parse(readFileSync(resolve(process.cwd(), options.traces), 'utf8'));
+    traceBytes = readFileSync(resolve(process.cwd(), options.traces));
+    payload = JSON.parse(traceBytes.toString('utf8'));
   } catch (error) {
     fail('cannot read trace JSON ' + options.traces + ': ' + error.message);
   }
+  const traceSha256 = sha256(traceBytes);
   if (!isPlainObject(payload)) fail('trace JSON must be an object');
   if (payload.schemaVersion !== 1) fail('trace JSON schemaVersion must be 1');
   const provenance = validateSourceProvenance(payload, contract);
@@ -4872,9 +4897,13 @@ async function main() {
       traceName: journeyCase.traceName,
       nativeCaseKey: journeyCase.workflow,
       tracePath: resolve(process.cwd(), options.traces),
+      traceSha256,
       replayReportPath: options.output ? resolve(process.cwd(), options.output) : null,
       selfTestReportPath: null,
       actionLabels: cdaTrace?.actions?.map((action) => action.label) ?? [],
+      requiredMutationControlNames: cdaTrace
+        ? cdaRequiredMutationControlNames(cdaTrace, journeyCase)
+        : [...journeyCase.requiredMutationControlNames],
       status: replayStatus === 'pass' ? 'pending-self-test' : 'fail',
       replayStatus,
       selfTestStatus: 'not-run',

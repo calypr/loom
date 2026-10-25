@@ -23,8 +23,29 @@ if (!tracesPath && !journeyOnly) {
   process.exit(1);
 }
 
-let payload = tracesPath ? JSON.parse(readFileSync(resolve(ROOT, tracesPath), 'utf8')) : null;
+const rawTraceBytes = tracesPath ? readFileSync(resolve(ROOT, tracesPath)) : null;
+const traceSha256 = rawTraceBytes === null ? null : createHash('sha256').update(rawTraceBytes).digest('hex');
+let payload = rawTraceBytes === null ? null : JSON.parse(rawTraceBytes.toString('utf8'));
 const contract = JSON.parse(readFileSync(resolve(ROOT, contractPath), 'utf8'));
+const mutationControlNamesMatch = (controls, requiredNames) => {
+  if (!Array.isArray(controls) || !Array.isArray(requiredNames)) return false;
+  const names = controls.map(control => control?.name);
+  return names.length === requiredNames.length &&
+    names.every(name => typeof name === 'string') &&
+    new Set(names).size === names.length &&
+    names.every(name => requiredNames.includes(name)) &&
+    requiredNames.every(name => names.includes(name)) &&
+    controls.every(control => control.status === 'pass');
+};
+const observedCdaOwnerEpochs = trace => [...new Set((trace.actions ?? [])
+  .filter(action => ['Preview', 'RelatedSourcePreview'].includes(action.label))
+  .map(action => (action.groupLifecycle?.owner ?? action.rowExpansionLifecycle?.owner ??
+    action.relatedSourceLifecycle?.owner)?.mountEpoch)
+  .filter(Number.isInteger))].sort((left, right) => left - right);
+const expectedCdaMutationControlNames = (journeyCase, trace) => [
+  ...(journeyCase.requiredMutationControlNames ?? []),
+  ...observedCdaOwnerEpochs(trace).map(epoch => journeyCase.observedOwnerEpochControlPrefix + epoch),
+];
 if (!journeyOnly && (!Array.isArray(payload.traces) || payload.traces.length === 0)) {
   console.error('FAIL trace corpus is empty');
   process.exit(1);
@@ -1470,6 +1491,15 @@ if (journeyOnly) {
   const cdaControlResults = [];
   const cdaJourneyCase = contract.journeyCase;
   if (cdaJourneyCase?.traceName === 'cda-builder-group-related-source') {
+    if (!Array.isArray(cdaJourneyCase.requiredMutationControlNames) ||
+        cdaJourneyCase.requiredMutationControlNames.length === 0 ||
+        cdaJourneyCase.requiredMutationControlNames.some(name => typeof name !== 'string' || name.trim().length === 0) ||
+        new Set(cdaJourneyCase.requiredMutationControlNames).size !== cdaJourneyCase.requiredMutationControlNames.length ||
+        cdaJourneyCase.requiredMutationControlNames.some(name => name.startsWith('request-owner-mount-epoch-')) ||
+        cdaJourneyCase.observedOwnerEpochControlPrefix !== 'request-owner-mount-epoch-') {
+      console.error('FAIL CDA mutation-control contract: expected unique static names and the observed-owner epoch prefix');
+      cdaControlsPassed = false;
+    }
     const cdaTrace = payload.traces?.find(trace => trace.name === cdaJourneyCase.traceName);
     if (!tracesPath || !cdaTrace) {
       console.error('FAIL CDA structural fixture: --traces must contain the registered cda-builder-group-related-source trace');
@@ -1696,16 +1726,66 @@ if (journeyOnly) {
           });
       }
 
+      const requiredMutationControlNames = expectedCdaMutationControlNames(cdaJourneyCase, cdaTrace);
+      const receiptProbe = requiredMutationControlNames.map(name => ({ name, status: 'pass' }));
+      const reportPath = join(workDirectory, 'cda-trace-body-tamper.report.json');
+      const tamperedPath = join(workDirectory, 'cda-trace-body-tamper.traces.json');
+      const tamperedTraceBytes = Buffer.concat([rawTraceBytes, Buffer.from('\n \t')]);
+      const tamperedSha256 = createHash('sha256').update(tamperedTraceBytes).digest('hex');
+      writeFileSync(tamperedPath, tamperedTraceBytes);
+      const tamperedReplay = spawnSync(process.execPath, [
+        'scripts/verify-builder-traces.mjs',
+        '--traces', tamperedPath,
+        '--contract', contractPath,
+        '--allow-partial',
+        '--shape-only',
+        '--output', reportPath,
+        '--quiet',
+      ], { cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+      let tamperedReceipt = null;
+      try {
+        tamperedReceipt = JSON.parse(readFileSync(reportPath, 'utf8')).builderJourneyTrace;
+      } catch {}
+      const traceBodyTamperPassed = tamperedReplay.status === 0 &&
+        tamperedSha256 !== traceSha256 && tamperedReceipt?.traceSha256 === tamperedSha256;
+      cdaControlResults.push({ name: 'trace-body-tamper-rejected', status: traceBodyTamperPassed ? 'pass' : 'fail' });
+      if (!traceBodyTamperPassed) {
+        console.error('FAIL CDA receipt binding: verifier receipt did not track changed raw trace bytes');
+        console.error(((tamperedReplay.stdout || '') + (tamperedReplay.stderr || '')).split('\n').slice(-16).join('\n'));
+        cdaControlsPassed = false;
+      }
+
+      const missingNameProbe = receiptProbe.filter(control => control.name !== requiredMutationControlNames[0]);
+      const missingNameRejected = !mutationControlNamesMatch(missingNameProbe, requiredMutationControlNames);
+      cdaControlResults.push({ name: 'mutation-control-list-missing-name-rejected', status: missingNameRejected ? 'pass' : 'fail' });
+
+      const substitutedNameProbe = receiptProbe.map((control, index) => index === 0
+        ? { ...control, name: 'substituted-mutation-control-self-test' }
+        : control);
+      const substitutedNameRejected = !mutationControlNamesMatch(substitutedNameProbe, requiredMutationControlNames);
+      cdaControlResults.push({ name: 'mutation-control-list-substitution-rejected', status: substitutedNameRejected ? 'pass' : 'fail' });
+
+      const duplicateNameProbe = [...receiptProbe, receiptProbe[0]];
+      const duplicateNameRejected = !mutationControlNamesMatch(duplicateNameProbe, requiredMutationControlNames);
+      cdaControlResults.push({ name: 'mutation-control-list-duplicate-name-rejected', status: duplicateNameRejected ? 'pass' : 'fail' });
+
+      if (!mutationControlNamesMatch(cdaControlResults, requiredMutationControlNames)) {
+        console.error('FAIL CDA mutation controls: names must exactly and uniquely match the contract and every control must pass');
+        cdaControlsPassed = false;
+      }
+
       if (selfTestOutputPath) {
         const allSelfTestsPassed = crossEvidencePassed && choiceProofPassed && requestCancellationPassed &&
           repeatEditOwnerPassed && repeatEditRequiredPassed && lateAbortOwnerPassed &&
           groupLifecycleControlsPassed && cdaControlsPassed &&
-          cdaControlResults.every(result => result.status === 'pass');
+          mutationControlNamesMatch(cdaControlResults, requiredMutationControlNames);
         const receipt = {
           traceName: cdaJourneyCase.traceName,
           nativeCaseKey: cdaJourneyCase.workflow,
           tracePath: resolve(ROOT, tracesPath),
+          traceSha256,
           status: allSelfTestsPassed ? 'pass' : 'fail',
+          requiredMutationControlNames,
           mutationControls: cdaControlResults,
         };
         mkdirSync(dirname(resolve(ROOT, selfTestOutputPath)), { recursive: true });
