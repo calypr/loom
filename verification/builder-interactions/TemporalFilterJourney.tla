@@ -9,16 +9,18 @@ atMonotonicMs, atEpochMs, mountEpoch, request, before, after, ui, and filter
 fields. Request evidence retains captureId, optional requestId, mutation
 classification, method, path, status, body, and responseBody.
 Saved snapshots retain complete workspaceDocuments, workspaceDigest,
-catalogGeneration, draftVersion, draftDigest, outputId, columnId, columns, and
-steps. The exported event actions require these actual snapshot bindings:
+catalogGeneration, snapshotToken, draftVersion, draftDigest, outputId, columnId,
+columns, and steps. The exported event actions require these actual snapshot bindings:
 ExplorerCreated.after; SourceTableCreated.before/after;
 TemporalColumnApplied.before/after; FilterProposed(kind).before with no after
 read; FilterCancelled.before/after; FilterApplied(kind) or FilterRemoved
 before/after; Reload.before/after; and FilterEditOpened.before. Mutation
 requests carry `isMutation = TRUE`; proposal reads carry `FALSE`; UI-only
-actions use NoRequest. ObservedRequests retains captureId, mutation flag,
-method, path, status, candidateColumnIds, response receiptId, and response
-outputId. The first observed mount epoch comes from InitialMountEpoch. The event list and profile case are supplied through
+actions use NoRequest. ObservedRequests retains request capture/mutation/method/path/status,
+choice candidateColumnIds, reconcile request snapshotToken/draftVersion/draftDigest/outputId,
+and reconcile response snapshotToken/receiptId/output IDs. Builder snapshots retain
+snapshotToken for reconciliation binding. The first observed mount epoch comes
+from InitialMountEpoch. The event list and profile case are supplied through
 the public ModelEvents and Case constants, so a static adapter can bind the
 captured normalized sequence without changing these operators.
 UI evidence retains proposal/receipt/output/column IDs, native controls,
@@ -33,7 +35,7 @@ No == "No"
 NoSaved ==
   [outputId |-> No, columnId |-> No, columns |-> <<>>, steps |-> <<>>,
    draftVersion |-> 0, draftDigest |-> No, workspaceDigest |-> No,
-   catalogGeneration |-> No, workspaceDocuments |-> <<>>]
+   catalogGeneration |-> No, snapshotToken |-> No, workspaceDocuments |-> <<>>]
 NoProposal ==
   [proposalId |-> No, receiptId |-> No, captureId |-> No,
    requestId |-> No, mountEpoch |-> InitialMountEpoch,
@@ -50,10 +52,15 @@ NoRequest == [captureId |-> No, requestId |-> No, isMutation |-> FALSE,
                body |-> No, responseBody |-> No]
 NoObservedRequest ==
   [captureId |-> No, isMutation |-> FALSE, method |-> No, path |-> No,
-   status |-> No, candidateColumnIds |-> No, receiptId |-> No, outputId |-> No]
+   status |-> No, candidateColumnIds |-> No,
+   requestSnapshotToken |-> No, requestDraftVersion |-> No,
+   requestDraftDigest |-> No, requestOutputId |-> No,
+   responseSnapshotToken |-> No, receiptId |-> No,
+   responseOutputIds |-> No, outputId |-> No]
 NoSnapshot ==
   [readId |-> No, requestId |-> No, mountEpoch |-> InitialMountEpoch, status |-> No,
-   catalogGeneration |-> No, draftVersion |-> 0, draftDigest |-> No,
+   catalogGeneration |-> No, snapshotToken |-> No,
+   draftVersion |-> 0, draftDigest |-> No,
    workspaceDocuments |-> <<>>, workspaceDigest |-> No,
    outputId |-> No, columnId |-> No, columns |-> <<>>, steps |-> <<>>]
 NoUI == [capturedAtMonotonicMs |-> 0, capturedAtEpochMs |-> 0,
@@ -148,6 +155,7 @@ AbstractSnapshot(readId, rawId, mount, docs, version, draftDigest, workspaceDige
    catalogGeneration |-> CatalogGeneration,
    draftVersion |-> version,
    draftDigest |-> draftDigest,
+   snapshotToken |-> "Fixture-snapshot-token",
    workspaceDocuments |-> docs,
    workspaceDigest |-> workspaceDigest,
    outputId |-> outputId,
@@ -167,6 +175,7 @@ SavedFromSnapshot(snapshot) ==
    draftDigest |-> snapshot.draftDigest,
    workspaceDigest |-> snapshot.workspaceDigest,
    catalogGeneration |-> snapshot.catalogGeneration,
+   snapshotToken |-> snapshot.snapshotToken,
    workspaceDocuments |-> snapshot.workspaceDocuments]
 AbstractTableSnapshot ==
   AbstractSnapshot("read-table", "raw-read-table", Mount(0),
@@ -279,6 +288,7 @@ Event(ordinal, action, mount, request, before, after, ui, filter) ==
    ui |-> ui,
    filter |-> filter,
    proposalCaptureIds |-> proposalCaptures,
+   reconcileCaptureIds |-> <<>>,
    evidenceKind |-> "abstract-model-fixture"]
 
 AbstractObservedRequest(captureId, isMutation, method, path, status,
@@ -286,7 +296,24 @@ AbstractObservedRequest(captureId, isMutation, method, path, status,
   [captureId |-> captureId, isMutation |-> isMutation,
    method |-> method, path |-> path, status |-> status,
    candidateColumnIds |-> candidateColumnIds,
+   requestSnapshotToken |-> No, requestDraftVersion |-> No,
+   requestDraftDigest |-> No, requestOutputId |-> No,
+   responseSnapshotToken |-> No,
+   responseOutputIds |-> No,
    receiptId |-> receiptId, outputId |-> outputId]
+AbstractReconcileRequest(captureId, snapshotToken, draftVersion, draftDigest,
+                         outputId, receiptId) ==
+  [captureId |-> captureId, isMutation |-> FALSE, method |-> "POST",
+   path |-> "/authoring/v2/reconcile", status |-> 200,
+   candidateColumnIds |-> No,
+   requestSnapshotToken |-> snapshotToken,
+   requestDraftVersion |-> draftVersion,
+   requestDraftDigest |-> draftDigest,
+   requestOutputId |-> outputId,
+   responseSnapshotToken |-> snapshotToken,
+   responseOutputIds |-> <<outputId>>,
+   receiptId |-> receiptId,
+   outputId |-> No]
 AbstractObservedRequests ==
   <<AbstractObservedRequest("capture-explorer", TRUE, "POST", "/explorers", 201, No, No, No),
     AbstractObservedRequest("capture-table", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
@@ -305,7 +332,15 @@ AbstractObservedRequests ==
     AbstractObservedRequest("capture-proposal-P-remove", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-remove", AbstractOutputId),
     AbstractObservedRequest("capture-remove-filter", TRUE, "POST",
-      "/authoring/v2/commands", 200, No, No, No)>>
+      "/authoring/v2/commands", 200, No, No, No),
+    AbstractReconcileRequest("capture-reconcile-source", "Fixture-snapshot-token",
+      2, "draft-source", AbstractOutputId, "Receipt-reconcile-source"),
+    AbstractReconcileRequest("capture-reconcile-create", "Fixture-snapshot-token",
+      3, "draft-create", AbstractOutputId, "Receipt-reconcile-create"),
+    AbstractReconcileRequest("capture-reconcile-edit", "Fixture-snapshot-token",
+      4, "draft-edit", AbstractOutputId, "Receipt-reconcile-edit"),
+    AbstractReconcileRequest("capture-reconcile-remove", "Fixture-snapshot-token",
+      5, "draft-remove", AbstractOutputId, "Receipt-reconcile-remove")>>
 
 ProposalBody(saved, outputId, candidateSteps) ==
   [outputId |-> outputId,
@@ -415,14 +450,17 @@ CancelEvent ==
        No, No, No, Case.sourceRowIds),
     NoFilter)
 
-ReloadEvent(ordinal, mount, beforeSnapshot, afterSnapshot, rowIds, previewReceiptId) ==
-  Event(ordinal, "Reload", mount, NoRequest, beforeSnapshot, afterSnapshot,
-    UI(ordinal, mount, No, No, previewReceiptId, AbstractOutputId,
-       No, No, No, No, rowIds), NoFilter)
+ReloadEvent(ordinal, mount, beforeSnapshot, afterSnapshot, rowIds,
+            previewReceiptId, reconcileCaptureId) ==
+  LET reload == Event(ordinal, "Reload", mount, NoRequest,
+      beforeSnapshot, afterSnapshot,
+      UI(ordinal, mount, No, No, previewReceiptId, AbstractOutputId,
+         No, No, No, No, rowIds), NoFilter)
+  IN [reload EXCEPT !.reconcileCaptureIds = <<reconcileCaptureId>>]
 
 EditOpenedEvent ==
   Event(10, "FilterEditOpened", Mount(2), NoRequest, AbstractEditBefore, NoSnapshot,
-    UI(10, Mount(2), No, No, "P-create", AbstractOutputId, AbstractTemporalColumnId,
+    UI(10, Mount(2), No, No, "Receipt-reconcile-create", AbstractOutputId, AbstractTemporalColumnId,
        Case.inputType, Case.inputValue, Case.initialOperator, Case.initialRowIds),
     Filter("edit", AbstractFilterStepId, AbstractOutputId,
       AbstractTemporalColumnId, Case.valueKind, Case.initialOperator,
@@ -442,7 +480,7 @@ AbstractModelEvents ==
     ReloadEvent(6, Mount(1),
       SnapshotAt(AbstractSourceSnapshot, "read-reload-cancel-before", "raw-reload-cancel-before", Mount(0)),
       SnapshotAt(AbstractSourceSnapshot, "read-reload-cancel-after", "raw-reload-cancel-after", Mount(1)),
-      Case.sourceRowIds, "Receipt-column"),
+      Case.sourceRowIds, "Receipt-reconcile-source", "capture-reconcile-source"),
     ProposalTwo,
     ApplyEvent(8, "FilterApplied(create)", Mount(1), "capture-apply-create", "P-create", "create",
       [draftVersion |-> 2, draftDigest |-> "draft-source"],
@@ -453,7 +491,7 @@ AbstractModelEvents ==
     ReloadEvent(9, Mount(2),
       SnapshotAt(AbstractCreateAfter, "read-reload-create-before", "raw-reload-create-before", Mount(1)),
       SnapshotAt(AbstractCreateAfter, "read-reload-create-after", "raw-reload-create-after", Mount(2)),
-      Case.initialRowIds, "P-create"),
+      Case.initialRowIds, "Receipt-reconcile-create", "capture-reconcile-create"),
     EditOpenedEvent,
     ProposalEdit,
     ApplyEvent(12, "FilterApplied(edit)", Mount(2), "capture-apply-edit", "P-edit", "edit",
@@ -465,7 +503,7 @@ AbstractModelEvents ==
     ReloadEvent(13, Mount(3),
       SnapshotAt(AbstractEditAfter, "read-reload-edit-before", "raw-reload-edit-before", Mount(2)),
       SnapshotAt(AbstractEditAfter, "read-reload-edit-after", "raw-reload-edit-after", Mount(3)),
-      Case.editedRowIds, "P-edit"),
+      Case.editedRowIds, "Receipt-reconcile-edit", "capture-reconcile-edit"),
     ProposalRemove,
     ApplyEvent(15, "FilterRemoved", Mount(3), "capture-remove-filter", "P-remove", "remove",
       [draftVersion |-> 4, draftDigest |-> "draft-edit"],
@@ -475,7 +513,7 @@ AbstractModelEvents ==
     ReloadEvent(16, Mount(4),
       SnapshotAt(AbstractRemoveAfter, "read-reload-remove-before", "raw-reload-remove-before", Mount(3)),
       SnapshotAt(AbstractRemoveAfter, "read-reload-remove-after", "raw-reload-remove-after", Mount(4)),
-      Case.sourceRowIds, "P-remove")>>
+      Case.sourceRowIds, "Receipt-reconcile-remove", "capture-reconcile-remove")>>
 
 JourneyActions == <<"ExplorerCreated", "SourceTableCreated", "TemporalColumnApplied",
   "FilterProposed(create)", "FilterCancelled", "Reload", "FilterProposed(create)",
@@ -540,6 +578,7 @@ SnapshotReadAt(snapshot, mount) ==
   /\ snapshot # NoSnapshot
   /\ snapshot.readId # No
   /\ snapshot.status = 200
+  /\ snapshot.snapshotToken # No
   /\ snapshot.mountEpoch = mount
 
 RequestCASMatches(request, snapshot) ==
@@ -564,6 +603,42 @@ ChoiceProposalMatches(event, columnId, outputId) ==
             /\ choice.candidateColumnIds = <<columnId>>
             /\ choice.receiptId # No
             /\ choice.outputId = outputId
+
+LinkedReconcileRequests(event) ==
+  {request \in SequenceSet(ObservedRequests):
+    request.captureId \in SequenceSet(event.reconcileCaptureIds)
+    /\ request.method = "POST"
+    /\ EndsWith(request.path, "/reconcile")}
+ReconcileRequest(event) ==
+  LET requests == LinkedReconcileRequests(event)
+  IN IF Cardinality(requests) = 1
+       THEN CHOOSE request \in requests: TRUE
+       ELSE NoObservedRequest
+ReconcileMatchesReload(event) ==
+  LET request == ReconcileRequest(event)
+  IN IF request.captureId = No
+       THEN FALSE
+       ELSE /\ request.status = 200
+            /\ request.requestSnapshotToken # No
+            /\ request.requestDraftVersion \in Nat
+            /\ request.requestDraftDigest # No
+            /\ request.requestOutputId # No
+            /\ request.requestSnapshotToken = event.after.snapshotToken
+            /\ request.requestDraftVersion = event.after.draftVersion
+            /\ request.requestDraftDigest = event.after.draftDigest
+            /\ request.requestOutputId = event.after.outputId
+            /\ request.responseSnapshotToken # No
+            /\ request.responseSnapshotToken = request.requestSnapshotToken
+            /\ request.responseOutputIds # No
+            /\ event.after.outputId \in SequenceSet(request.responseOutputIds)
+            /\ request.receiptId # No
+            /\ event.ui.receiptId = request.receiptId
+            /\ event.ui.outputId = event.after.outputId
+ReconcilePreview(event) ==
+  LET request == ReconcileRequest(event)
+      responseOutput == CHOOSE outputId \in SequenceSet(request.responseOutputIds):
+        outputId = event.after.outputId
+  IN [receiptId |-> request.receiptId, outputId |-> responseOutput]
 
 PreviewDOMMatches(ui, preview) ==
   /\ (ui.receiptId = No \/ ui.receiptId = preview.receiptId)
@@ -882,13 +957,15 @@ Reload(event) ==
   /\ SnapshotReadAt(event.after, journey.mountEpoch + 1)
   /\ SnapshotMatches(journey.persisted, event.after)
   /\ event.before.readId # event.after.readId
+  /\ ReconcileMatchesReload(event)
   /\ event.ui.mountEpoch = journey.mountEpoch + 1
-  /\ NoActiveProposalDOM(event.ui, journey.savedPreview)
+  /\ NoActiveProposalDOM(event.ui, ReconcilePreview(event))
   /\ event.ui.rowIds = ExpectedRowsFor(journey.savedKind)
   /\ Commit(event, [journey EXCEPT
        !.phase = "reloaded",
        !.mountEpoch = @ + 1,
        !.mounted = journey.persisted,
+       !.savedPreview = ReconcilePreview(event),
        !.proposal = NoProposal,
        !.editor = NoEditor,
        !.previewRowIds = <<>>,
@@ -1080,6 +1157,7 @@ SavedStateOK(saved) ==
        /\ saved.draftDigest # No
        /\ saved.workspaceDigest # No
        /\ saved.catalogGeneration # No
+       /\ saved.snapshotToken # No
        /\ IF saved.outputId = No
             THEN /\ saved.columnId = No
                  /\ saved.columns = <<>>
@@ -1145,11 +1223,38 @@ InvObservedMutationsConsumed ==
   /\ ObservedMutationIds = EventMutationIds
   /\ Cardinality(ObservedMutationIds) = ObservedMutationCount
   /\ Cardinality(EventMutationIds) = EventMutationCount
+ObservedReconcileRequests ==
+  {request \in SequenceSet(ObservedRequests):
+    request.method = "POST" /\ EndsWith(request.path, "/reconcile")}
+ObservedReconcileIds ==
+  {request.captureId : request \in ObservedReconcileRequests}
+LinkedReconcileIds ==
+  UNION {SequenceSet(ModelEvents[i].reconcileCaptureIds)
+    : i \in 1..Len(ModelEvents)}
+InvReconcileEvidenceLinked ==
+  /\ LinkedReconcileIds = ObservedReconcileIds
+  /\ \A i \in 1..Len(ModelEvents):
+       IF ModelEvents[i].action = "Reload"
+       THEN Len(ModelEvents[i].reconcileCaptureIds) = 1
+       ELSE Len(ModelEvents[i].reconcileCaptureIds) = 0
+  /\ \A i \in 1..Len(ModelEvents):
+       \A j \in 1..Len(ModelEvents):
+         \A p \in 1..Len(ModelEvents[i].reconcileCaptureIds):
+           \A q \in 1..Len(ModelEvents[j].reconcileCaptureIds):
+             (i # j \/ p # q) =>
+               ModelEvents[i].reconcileCaptureIds[p]
+                 # ModelEvents[j].reconcileCaptureIds[q]
 InvChoiceProposalBindsNewColumn ==
   \A i \in 1..journey.cursor:
     LET event == journey.history[i]
     IN IF event.action = "TemporalColumnApplied"
        THEN ChoiceProposalMatches(event, event.after.columnId, event.after.outputId)
+       ELSE TRUE
+InvReloadReconcileBindsFreshSnapshot ==
+  \A i \in 1..journey.cursor:
+    LET event == journey.history[i]
+    IN IF event.action = "Reload"
+       THEN ReconcileMatchesReload(event)
        ELSE TRUE
 InvInactiveDOMKeepsProposalAndColumnAbsent ==
   \A i \in 1..journey.cursor:
