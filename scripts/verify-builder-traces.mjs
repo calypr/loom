@@ -340,6 +340,19 @@ function cdaCreateGroupTargetStepProblem(intent, where, savedBefore = undefined)
   return null;
 }
 
+function candidateConstructionOuterMetadataProblem(requestedConstruction, responseConstruction, where) {
+  const mismatch = where + ' candidateConstruction outer metadata must match the native request';
+  if (!isPlainObject(requestedConstruction) || !isPlainObject(responseConstruction) ||
+      !Array.isArray(requestedConstruction.steps) || !Array.isArray(responseConstruction.steps)) {
+    return mismatch;
+  }
+  const requestedMetadata = structuredClone(requestedConstruction);
+  const responseMetadata = structuredClone(responseConstruction);
+  delete requestedMetadata.steps;
+  delete responseMetadata.steps;
+  return canonicalJson(requestedMetadata) === canonicalJson(responseMetadata) ? null : mismatch;
+}
+
 function candidateIntentProblem(intent, where, allowedAggregates = ['COUNT_ROWS'], allowCdaCreateTargetStep = false, savedBefore = undefined) {
   if (!isPlainObject(intent)) return where + ' must be an object';
   if (!['create', 'edit', 'remove'].includes(intent.kind)) return where + '.kind must be create, edit, or remove';
@@ -1079,6 +1092,10 @@ function cdaGroupCandidateResponseProblem(intent, savedBefore, requestedConstruc
       requestedConstruction.steps.length !== responseConstruction.steps.length) {
     return mismatch;
   }
+  const outerMetadataProblem = candidateConstructionOuterMetadataProblem(
+    requestedConstruction, responseConstruction, where,
+  );
+  if (outerMetadataProblem) return outerMetadataProblem;
   const beforeDocument = savedBuilderDocument(savedBefore, where + '.savedBefore');
   if (beforeDocument.problem) return beforeDocument.problem;
   const savedConstructionSteps = beforeDocument.document.construction?.steps ?? [];
@@ -2082,6 +2099,10 @@ function cdaRowExpansionCandidateResponseProblem(requestedConstruction, response
       requestedConstruction.steps.length !== responseConstruction.steps.length) {
     return mismatch;
   }
+  const outerMetadataProblem = candidateConstructionOuterMetadataProblem(
+    requestedConstruction, responseConstruction, where,
+  );
+  if (outerMetadataProblem) return outerMetadataProblem;
   const selected = savedBuilderDocument(savedBefore, where + '.savedBefore');
   if (selected.problem) return selected.problem;
   const savedSteps = selected.document.construction?.steps ?? [];

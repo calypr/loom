@@ -46,6 +46,17 @@ const rawTraceBytes = tracesPath ? readFileSync(resolve(ROOT, tracesPath)) : nul
 const traceSha256 = rawTraceBytes === null ? null : createHash('sha256').update(rawTraceBytes).digest('hex');
 let payload = rawTraceBytes === null ? null : JSON.parse(rawTraceBytes.toString('utf8'));
 const contract = JSON.parse(readFileSync(resolve(ROOT, contractPath), 'utf8'));
+const selectedCdaContract = contract.journeyCase?.workflow ===
+  'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column' &&
+  contract.journeyCase?.traceName === 'cda-builder-group-related-source' &&
+  contract.journeyCase?.model === 'BuilderJourney';
+const selectedCdaTrace = selectedCdaContract && typeof contract.journeyCase?.traceName === 'string' &&
+  Array.isArray(payload?.traces) && payload.traces.some(trace =>
+    trace?.name === contract.journeyCase.traceName && trace?.model === contract.journeyCase.model);
+if (selectedCdaContract && !selectedCdaTrace) {
+  console.error('FAIL selected CDA contract requires its registered traceName/model in the trace corpus');
+  process.exit(1);
+}
 const mutationControlNamesMatch = (controls, requiredNames) => {
   if (!Array.isArray(controls) || !Array.isArray(requiredNames)) return false;
   const names = controls.map(control => control?.name);
@@ -892,6 +903,12 @@ const cdaRowExpansionCandidateRefreshTest = () => {
       lifecycle.inputStepId, lifecycle.route, where,
     ) !== null;
   };
+  const changedOuterMetadata = structuredClone(responseConstruction);
+  changedOuterMetadata.version += 1;
+  const wrongOuterMetadataRejected = cdaRowExpansionCandidateResponseProblem(
+    requestedConstruction, changedOuterMetadata, body.changedStepId, lifecycle.savedBefore,
+    lifecycle.inputStepId, lifecycle.route, where,
+  )?.includes('candidateConstruction outer metadata must match the native request');
   const wrongInheritedNullableRejected = reject((_request, response) => {
     response.steps.at(-1).outputs[inheritedIndex].nullable = false;
   });
@@ -946,7 +963,7 @@ const cdaRowExpansionCandidateRefreshTest = () => {
     wrongRequestNullableRejected && wrongNewOutputIdRejected && wrongNewOutputTypeRejected &&
     wrongNewOutputLabelRejected && wrongNewOutputNameRejected && wrongNewOutputNullableRejected &&
     wrongOperationRejected && wrongInputRejected &&
-    wrongRouteRejected && wrongChangedStepRejected;
+    wrongRouteRejected && wrongChangedStepRejected && wrongOuterMetadataRejected;
 };
 const cdaGroupCandidateOutputPropagationTest = () => {
   const trace = payload?.traces?.find(candidate => candidate.name === 'cda-builder-group-related-source');
@@ -997,6 +1014,11 @@ const cdaGroupCandidateOutputPropagationTest = () => {
   const acceptedCustom = cdaGroupLifecycleSnapshotProblem(
     customAction, 'fixture.customGroupOutputPropagation', journeyCase,
   ) === null;
+  const changedGroupResponseMetadata = structuredClone(customAction);
+  changedGroupResponseMetadata.response.candidateConstruction.version += 1;
+  const wrongGroupOuterMetadataRejected = cdaGroupLifecycleSnapshotProblem(
+    changedGroupResponseMetadata, 'fixture.groupOuterMetadataMutation', journeyCase,
+  )?.includes('candidateConstruction outer metadata must match the native request');
   const mutationRejected = (mutate) => {
     const action = structuredClone(customAction);
     mutate(action);
@@ -1061,7 +1083,8 @@ const cdaGroupCandidateOutputPropagationTest = () => {
   return acceptedActual && acceptedCustom && defaultOverwriteRejected && unrelatedLabelRejected &&
     changedGroupNameRejected && changedGroupLabelRejected && wrongRequestRelatedNameRejected &&
     wrongRequestRelatedLabelRejected && wrongOutputIdRejected &&
-    wrongOutputTypeRejected && wrongOperationRejected && wrongGroupInputRejected;
+    wrongOutputTypeRejected && wrongOperationRejected && wrongGroupInputRejected &&
+    wrongGroupOuterMetadataRejected;
 };
 const cdaLatePreviewObservationTest = () => {
   const staleRequest = {
@@ -1160,6 +1183,7 @@ if (!selfTestReceiptWriterTest()) {
   process.exit(1);
 }
 console.log('PASS self-test receipt compatibility and output-path checks');
+if (selectedCdaTrace) {
 if (!cdaRelatedOutputProjectionTest()) {
   console.error('FAIL CDA related output projection must use the unique saved step output and reject missing/ambiguous IDs');
   process.exit(1);
@@ -1210,6 +1234,7 @@ if (!cdaLatePreviewObservationTest()) {
   process.exit(1);
 }
 console.log('PASS CDA late preview observation binds the canonical timestamp, actual owner, and distinct event mounts');
+}
 if (!journeyOnly && (!Array.isArray(payload.traces) || payload.traces.length === 0)) {
   console.error('FAIL trace corpus is empty');
   process.exit(1);
