@@ -147,6 +147,7 @@
   "nativeJourney": {
     "captureAdapter": "temporal-filter-journey-v1",
     "captureKind": "builder-temporal-native-lifecycle",
+    "formalProofAssertion": "Captured DATE native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing",
     "nativeCaseKey": "basic-temporal-filter/date",
     "traceName": "basic-temporal-filter:date",
     "model": "TemporalFilterJourney",

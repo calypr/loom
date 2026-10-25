@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { createTemporalFilterCapture } from '../helpers/temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../helpers/temporal-filter-trace-adapter.mjs';
+import { TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS } from '../helpers/temporal-filter-tla-adapter.mjs';
 import {
   BASIC_TEMPORAL_FILTER_CASES,
   matchesBasicTemporalFilterCandidate,
   readBasicTemporalFilterOracle,
 } from '../helpers/basic-temporal-filter-oracle.mjs';
 
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const ACTION_TIMEOUT_MS = 5_000;
 const previewSelector = '[data-testid="construction-preview"] [data-testid="preview-table-scroll"] [role="table"]';
 const proposalPreviewSelector = '[data-testid="construction-proposal-preview"] table';
@@ -780,4 +784,29 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     temporalColumnId: temporalColumn.columnId,
   });
   report.journeyTrace = adaptTemporalFilterJourney(report.temporalFilterJourney);
+
+  const { writeAndReplayBuilderJourneyTrace } = await import('../helpers/builder-journey-trace.mjs');
+  const formalProof = writeAndReplayBuilderJourneyTrace({
+    scenarioID: report.scenario,
+    caseName,
+    journeyTrace: report.journeyTrace,
+    report,
+    fixture: {
+      project,
+      generation: target.fixtureGeneration,
+      explorer,
+      outputId,
+      fixtureIDs: [...oracle.ids],
+    },
+    repositoryRoot,
+  });
+  check('correctness', TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS[caseName],
+    formalProof.status === 'pass' && formalProof.replayStatus === 'pass' && formalProof.selfTestStatus === 'pass',
+    {
+      tracePath: formalProof.tracePath,
+      actionCount: report.journeyTrace.actions.length,
+      replayStatus: formalProof.replayStatus,
+      selfTestStatus: formalProof.selfTestStatus,
+      mutationControlCount: formalProof.mutationControls?.length ?? 0,
+    });
 };

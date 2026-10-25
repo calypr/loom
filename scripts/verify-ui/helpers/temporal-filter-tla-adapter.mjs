@@ -1332,6 +1332,11 @@ export const TEMPORAL_FILTER_MUTATION_CONTROL_NAMES = Object.freeze([
   'semantic-action-order-drift',
 ]);
 
+export const TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS = Object.freeze({
+  date: 'Captured DATE native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing',
+  'date-time': 'Captured DATE_TIME native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing',
+});
+
 export const createTemporalFilterMutationControls = trace => {
   validateTemporalFilterJourneyTrace(trace);
   const applyMutation = mutator => {

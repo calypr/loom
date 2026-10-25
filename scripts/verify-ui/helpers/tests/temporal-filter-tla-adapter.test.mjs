@@ -11,6 +11,7 @@ import {
   compileTemporalFilterJourneyTrace,
   createTemporalFilterMutationControls,
   TEMPORAL_FILTER_ACTION_EVENT_PAIRS,
+  TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS,
   TEMPORAL_FILTER_MUTATION_CONTROL_NAMES,
   validateTemporalFilterJourneyTrace,
 } from '../temporal-filter-tla-adapter.mjs';
@@ -51,6 +52,7 @@ test('DATE and DATE_TIME native contracts bind the exact TLA action/event chrono
     const traceName = `basic-temporal-filter:${caseName}`;
     assert.equal(nativeJourney.captureAdapter, 'temporal-filter-journey-v1');
     assert.equal(nativeJourney.captureKind, 'builder-temporal-native-lifecycle');
+    assert.equal(nativeJourney.formalProofAssertion, TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS[caseName]);
     assert.equal(nativeJourney.nativeCaseKey, nativeCaseKey);
     assert.equal(nativeJourney.traceName, traceName);
     assert.equal(nativeJourney.model, 'TemporalFilterJourney');
