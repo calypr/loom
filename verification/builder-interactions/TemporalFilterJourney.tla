@@ -1,19 +1,28 @@
 ---------------- MODULE TemporalFilterJourney ----------------
 EXTENDS Naturals, FiniteSets, Sequences, TLC
 
-CONSTANT Profile
+CONSTANTS Profile, Case, ModelEvents, ObservedRequests
 
 (***************************************************************************
 The public transition operators consume normalized events with action,
 atMonotonicMs, atEpochMs, mountEpoch, request, before, after, ui, and filter
-fields. Request evidence retains captureId, optional requestId and
-responseRequestId, isMutation, method, path, status, body, and responseBody.
+fields. Request evidence retains captureId, optional requestId, mutation
+classification, method, path, status, body, and responseBody.
 Saved snapshots retain complete workspaceDocuments, workspaceDigest,
 catalogGeneration, draftVersion, draftDigest, outputId, columnId, columns, and
-steps. UI evidence retains proposal/receipt/output/column IDs, native controls,
+steps. The exported event actions require these actual snapshot bindings:
+ExplorerCreated.after; SourceTableCreated.before/after;
+TemporalColumnApplied.before/after; FilterProposed(kind).before with no after
+read; FilterCancelled.before/after; FilterApplied(kind) or FilterRemoved
+before/after; Reload.before/after; and FilterEditOpened.before. Mutation
+requests carry `isMutation = TRUE`; proposal reads carry `FALSE`; UI-only
+actions use NoRequest. The event list and profile case are supplied through
+the public ModelEvents and Case constants, so a static adapter can bind the
+captured normalized sequence without changing these operators.
+UI evidence retains proposal/receipt/output/column IDs, native controls,
 and row IDs. Filter evidence retains intent, target step, and typed
 request/response/saved values.
-ModelEvents below use opaque document/digest tokens as bounded fixtures, not
+AbstractModelEvents below use opaque document/digest tokens as bounded fixtures, not
 browser evidence. A later adapter supplies actual IDs, complete documents,
 canonical digests, times, controls, and rows.
 ***************************************************************************)
@@ -26,7 +35,7 @@ NoSaved ==
    catalogGeneration |-> No, workspaceDocuments |-> <<>>]
 NoProposal ==
   [proposalId |-> No, receiptId |-> No, captureId |-> No,
-   requestId |-> No, responseRequestId |-> No, mountEpoch |-> 0,
+   requestId |-> No, mountEpoch |-> 0,
    status |-> No, intent |-> No, stepId |-> No, outputId |-> No,
    columnId |-> No, inputType |-> No, inputValue |-> No, operator |-> No,
    requestValue |-> No, responseValue |-> No, savedValue |-> No,
@@ -35,12 +44,11 @@ NoProposal ==
 NoEditor ==
   [intent |-> No, stepId |-> No, inputType |-> No,
    inputValue |-> No, operator |-> No, value |-> No]
-NoRequest == [captureId |-> No, requestId |-> No,
-               responseRequestId |-> No, isMutation |-> No,
+NoRequest == [captureId |-> No, requestId |-> No, isMutation |-> FALSE,
                method |-> No, path |-> No, status |-> No,
                body |-> No, responseBody |-> No]
 NoSnapshot ==
-  [readId |-> No, requestId |-> No, status |-> No,
+  [readId |-> No, requestId |-> No, mountEpoch |-> 0, status |-> No,
    catalogGeneration |-> No, draftVersion |-> 0, draftDigest |-> No,
    workspaceDocuments |-> <<>>, workspaceDigest |-> No,
    outputId |-> No, columnId |-> No, columns |-> <<>>, steps |-> <<>>]
@@ -57,7 +65,7 @@ EndsWith(value, suffix) ==
   /\ Len(value) >= Len(suffix)
   /\ SubSeq(value, Len(value) - Len(suffix) + 1, Len(value)) = suffix
 
-Case ==
+AbstractCase ==
   CASE Profile = "DATE" ->
     [caseName |-> "date", resourceType |-> "Patient", fieldPath |-> "birthDate",
      inputType |-> "date", inputValue |-> "1980-01-02", valueKind |-> "DATE",
@@ -94,13 +102,13 @@ AbstractTemporalColumnId == "Temporal-column"
 AbstractFilterStepId == "Filter-step-1"
 CatalogGeneration == "Fixture-generation"
 OtherSteps ==
-  <<[stepId |-> "Source-step", operation |-> [kind |-> "SOURCE"]],
-    [stepId |-> "Other-step", operation |-> [kind |-> "OTHER"]]>>
-RootColumns == <<AbstractRootColumnId>>
-SourceColumns == Append(RootColumns, AbstractTemporalColumnId)
+  <<[id |-> "Source-step", operation |-> [kind |-> "SOURCE"]],
+    [id |-> "Other-step", operation |-> [kind |-> "OTHER"]]>>
+RootColumns == <<[columnId |-> AbstractRootColumnId]>>
+SourceColumns == Append(RootColumns, [columnId |-> AbstractTemporalColumnId])
 
 FilterStep(stepId, columnId, value, operator) ==
-  [stepId |-> stepId,
+  [id |-> stepId,
    operation |-> [kind |-> "FILTER",
                   filter |-> [columnId |-> columnId,
                               operator |-> operator, values |-> <<value>>]]]
@@ -123,10 +131,11 @@ AbstractCreatedDocuments == "AbstractCreatedDocuments"
 AbstractEditedDocuments == "AbstractEditedDocuments"
 AbstractRemovedDocuments == "AbstractRemovedDocuments"
 
-AbstractSnapshot(readId, rawId, docs, version, draftDigest, workspaceDigest,
+AbstractSnapshot(readId, rawId, mount, docs, version, draftDigest, workspaceDigest,
                  outputId, columnId, columns, steps) ==
   [readId |-> readId,
    requestId |-> rawId,
+   mountEpoch |-> mount,
    status |-> 200,
    catalogGeneration |-> CatalogGeneration,
    draftVersion |-> version,
@@ -137,45 +146,77 @@ AbstractSnapshot(readId, rawId, docs, version, draftDigest, workspaceDigest,
    columnId |-> columnId,
    columns |-> columns,
    steps |-> steps]
+SnapshotAt(snapshot, readId, rawId, mount) ==
+  AbstractSnapshot(readId, rawId, mount, snapshot.workspaceDocuments,
+    snapshot.draftVersion, snapshot.draftDigest, snapshot.workspaceDigest,
+    snapshot.outputId, snapshot.columnId, snapshot.columns, snapshot.steps)
+SavedFromSnapshot(snapshot) ==
+  [outputId |-> snapshot.outputId,
+   columnId |-> snapshot.columnId,
+   columns |-> snapshot.columns,
+   steps |-> snapshot.steps,
+   draftVersion |-> snapshot.draftVersion,
+   draftDigest |-> snapshot.draftDigest,
+   workspaceDigest |-> snapshot.workspaceDigest,
+   catalogGeneration |-> snapshot.catalogGeneration,
+   workspaceDocuments |-> snapshot.workspaceDocuments]
 AbstractTableSnapshot ==
-  AbstractSnapshot("read-table", "raw-read-table",
-    AbstractTableDocuments, 0,
+  AbstractSnapshot("read-table", "raw-read-table", 0,
+    AbstractTableDocuments, 1,
     "draft-table", "workspace-table", AbstractOutputId, No,
     RootColumns, OtherSteps)
 AbstractSourceSnapshot ==
-  AbstractSnapshot("read-source", "raw-read-source", AbstractSourceDocuments, 1,
+  AbstractSnapshot("read-source", "raw-read-source", 0, AbstractSourceDocuments, 2,
     "draft-source", "workspace-source", AbstractOutputId,
-    AbstractTemporalColumnId, SourceColumns, OtherSteps)
+    AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
+AbstractBlankSnapshot ==
+  AbstractSnapshot("read-explorer-created", "raw-read-explorer-created", 0,
+    "AbstractBlankDocuments", 0, "draft-blank", "workspace-blank",
+    No, No, <<>>, <<>>)
+AbstractBeforeTableSnapshot ==
+  AbstractSnapshot("read-before-table", "raw-read-before-table", 0,
+    "AbstractBlankDocuments", 0, "draft-blank", "workspace-blank",
+    No, No, <<>>, <<>>)
+AbstractSourceSnapshotMount1 ==
+  AbstractSnapshot("read-source-mount-1", "raw-read-source-mount-1", 1,
+    AbstractSourceDocuments, 2, "draft-source", "workspace-source",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 AbstractCreateBefore ==
-  AbstractSnapshot("read-before-create", "raw-read-before-create",
-    AbstractSourceDocuments, 1, "draft-source", "workspace-source",
-    AbstractOutputId, AbstractTemporalColumnId, SourceColumns, OtherSteps)
+  AbstractSnapshot("read-before-create", "raw-read-before-create", 1,
+    AbstractSourceDocuments, 2, "draft-source", "workspace-source",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 AbstractCreateAfter ==
-  AbstractSnapshot("read-after-create", "raw-read-after-create",
-    AbstractCreatedDocuments, 2, "draft-create", "workspace-create",
-    AbstractOutputId, AbstractTemporalColumnId, SourceColumns, AbstractCreatedSteps)
+  AbstractSnapshot("read-after-create", "raw-read-after-create", 1,
+    AbstractCreatedDocuments, 3, "draft-create", "workspace-create",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractCreatedSteps)
 AbstractEditBefore ==
-  AbstractSnapshot("read-before-edit", "raw-read-before-edit",
-    AbstractCreatedDocuments, 2, "draft-create", "workspace-create",
-    AbstractOutputId, AbstractTemporalColumnId, SourceColumns, AbstractCreatedSteps)
+  AbstractSnapshot("read-before-edit", "raw-read-before-edit", 2,
+    AbstractCreatedDocuments, 3, "draft-create", "workspace-create",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractCreatedSteps)
 AbstractEditAfter ==
-  AbstractSnapshot("read-after-edit", "raw-read-after-edit",
-    AbstractEditedDocuments, 3, "draft-edit", "workspace-edit",
-    AbstractOutputId, AbstractTemporalColumnId, SourceColumns, AbstractEditedSteps)
+  AbstractSnapshot("read-after-edit", "raw-read-after-edit", 2,
+    AbstractEditedDocuments, 4, "draft-edit", "workspace-edit",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractEditedSteps)
 AbstractRemoveBefore ==
-  AbstractSnapshot("read-before-remove", "raw-read-before-remove",
-    AbstractEditedDocuments, 3, "draft-edit", "workspace-edit",
-    AbstractOutputId, AbstractTemporalColumnId, SourceColumns, AbstractEditedSteps)
+  AbstractSnapshot("read-before-remove", "raw-read-before-remove", 3,
+    AbstractEditedDocuments, 4, "draft-edit", "workspace-edit",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractEditedSteps)
 AbstractRemoveAfter ==
-  AbstractSnapshot("read-after-remove", "raw-read-after-remove",
-    AbstractRemovedDocuments, 4, "draft-remove", "workspace-remove",
-    AbstractOutputId, AbstractTemporalColumnId, SourceColumns, OtherSteps)
+  AbstractSnapshot("read-after-remove", "raw-read-after-remove", 3,
+    AbstractRemovedDocuments, 5, "draft-remove", "workspace-remove",
+    AbstractOutputId, AbstractTemporalColumnId,
+    Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 
-Request(captureId, requestId, responseRequestId, isMutation,
-        method, path, status, body, responseBody) ==
+Request(captureId, requestId, isMutation, method, path, status, body, responseBody) ==
   [captureId |-> captureId,
    requestId |-> requestId,
-   responseRequestId |-> responseRequestId,
    isMutation |-> isMutation,
    method |-> method,
    path |-> path,
@@ -213,7 +254,14 @@ Filter(intent, stepId, outputId, columnId, valueKind, operator,
    receiptId |-> receiptId]
 
 Event(ordinal, action, mount, request, before, after, ui, filter) ==
-  [action |-> action,
+  LET proposalCaptures ==
+    IF action = "TemporalColumnApplied"
+      THEN <<"capture-choice-column">>
+      ELSE IF action \in {"FilterProposed(create)", "FilterProposed(edit)",
+                          "FilterProposed(remove)"}
+        THEN <<request.captureId>>
+        ELSE <<>>
+  IN [action |-> action,
    atMonotonicMs |-> ordinal * 10,
    atEpochMs |-> ordinal * 1000,
    mountEpoch |-> mount,
@@ -222,88 +270,113 @@ Event(ordinal, action, mount, request, before, after, ui, filter) ==
    after |-> after,
    ui |-> ui,
    filter |-> filter,
+   proposalCaptureIds |-> proposalCaptures,
    evidenceKind |-> "abstract-model-fixture"]
 
-ProposalBody(kind, targetStepId, outputId, columnId,
-             candidateSteps, value, operator) ==
-  [intent |-> kind,
-   targetStepId |-> targetStepId,
-   outputId |-> outputId,
-   columnId |-> columnId,
-   operator |-> operator,
-   value |-> value,
+AbstractObservedRequest(captureId, isMutation, method, path) ==
+  [captureId |-> captureId, isMutation |-> isMutation,
+   method |-> method, path |-> path]
+AbstractObservedRequests ==
+  <<AbstractObservedRequest("capture-explorer", TRUE, "POST", "/explorers"),
+    AbstractObservedRequest("capture-table", TRUE, "POST", "/authoring/v2/commands"),
+    AbstractObservedRequest("capture-column", TRUE, "POST", "/authoring/v2/commands"),
+    AbstractObservedRequest("capture-choice-column", FALSE, "POST",
+      "/authoring/v2/construction-choice-proposals"),
+    AbstractObservedRequest("capture-proposal-P-cancel", FALSE, "POST",
+      "/authoring/v2/construction-proposals"),
+    AbstractObservedRequest("capture-apply-create", TRUE, "POST", "/authoring/v2/commands"),
+    AbstractObservedRequest("capture-proposal-P-create", FALSE, "POST",
+      "/authoring/v2/construction-proposals"),
+    AbstractObservedRequest("capture-apply-edit", TRUE, "POST", "/authoring/v2/commands"),
+    AbstractObservedRequest("capture-proposal-P-edit", FALSE, "POST",
+      "/authoring/v2/construction-proposals"),
+    AbstractObservedRequest("capture-proposal-P-remove", FALSE, "POST",
+      "/authoring/v2/construction-proposals"),
+    AbstractObservedRequest("capture-remove-filter", TRUE, "POST",
+      "/authoring/v2/commands")>>
+
+ProposalBody(saved, outputId, candidateSteps) ==
+  [outputId |-> outputId,
+   expectedDraftVersion |-> saved.draftVersion,
+   expectedDraftDigest |-> saved.draftDigest,
    candidateConstruction |-> [steps |-> candidateSteps]]
-ProposalResponse(proposalId, outputId, columnId, candidateSteps,
-                 value, operator, rowIds) ==
+ProposalResponse(proposalId, saved, outputId, candidateSteps) ==
   [proposalId |-> proposalId,
-   previewStatus |-> "READY",
-   value |-> value,
+   outputId |-> outputId,
+   draftVersion |-> saved.draftVersion,
+   draftDigest |-> saved.draftDigest,
    candidateConstruction |-> [steps |-> candidateSteps],
-   preview |-> [receiptId |-> proposalId,
-                outputId |-> outputId,
-                columnId |-> columnId,
-                operator |-> operator,
-                rowIds |-> rowIds]]
+   preview |-> [receiptId |-> proposalId, outputId |-> outputId]]
 
 ProposalEvidence(ordinal, mount, proposalId, kind, targetStepId,
-                 requestValue, responseValue, savedValue, operator,
+                 savedSnapshot, requestValue, responseValue, operator,
                  requestSteps, responseSteps, rowIds) ==
   LET capture == "capture-proposal-" \o proposalId
-      req == Request(capture, "raw-" \o proposalId, "raw-" \o proposalId,
-                     FALSE, "POST", "/authoring/v2/construction-proposals", 200,
-                     ProposalBody(kind, targetStepId, AbstractOutputId,
-                       AbstractTemporalColumnId, requestSteps, requestValue, operator),
-                     ProposalResponse(proposalId, AbstractOutputId,
-                       AbstractTemporalColumnId, responseSteps, responseValue,
-                       operator, rowIds))
-      filter == Filter(kind, AbstractFilterStepId, AbstractOutputId,
+      req == Request(capture, "raw-" \o proposalId, FALSE,
+                     "POST", "/authoring/v2/construction-proposals", 200,
+                     ProposalBody(SavedFromSnapshot(savedSnapshot), AbstractOutputId,
+                       requestSteps),
+                     ProposalResponse(proposalId, SavedFromSnapshot(savedSnapshot),
+                       AbstractOutputId, responseSteps))
+      selectedStep == IF kind = "create"
+        THEN requestSteps[CHOOSE i \in 1..Len(requestSteps):
+          requestSteps[i].operation.kind = "FILTER"].id
+        ELSE targetStepId
+      filter == Filter(kind, selectedStep, AbstractOutputId,
         AbstractTemporalColumnId, Case.valueKind, operator, requestValue,
-        responseValue, savedValue, proposalId, proposalId)
+        responseValue, No, proposalId, proposalId)
       ui == UI(ordinal, mount, "ready", proposalId, proposalId,
         AbstractOutputId, AbstractTemporalColumnId,
         IF kind = "remove" THEN No ELSE Case.inputType,
         IF kind = "remove" THEN No ELSE Case.inputValue,
         operator, rowIds)
   IN Event(ordinal, "FilterProposed(" \o kind \o ")", mount,
-           req, NoSnapshot, NoSnapshot, ui, filter)
+           req, savedSnapshot, NoSnapshot, ui, filter)
 
 ExplorerRequest ==
-  Request("capture-explorer", "raw-explorer", "raw-explorer", TRUE,
+  Request("capture-explorer", "raw-explorer", TRUE,
           "POST", "/api/v1/projects/{project}/explorers", 201,
           [intent |-> "CREATE_BLANK", title |-> "Temporal filter"],
           [explorerId |-> "Explorer-1"])
 TableRequest ==
-  Request("capture-table", "raw-table", "raw-table", TRUE,
+  Request("capture-table", "raw-table", TRUE,
           "POST", "/authoring/v2/commands", 200,
-          [commands |-> <<[type |-> "CREATE_TABLE",
-                           outputId |-> AbstractOutputId]>>],
-          [outputId |-> AbstractOutputId])
+          [expectedDraftVersion |-> 0,
+           expectedDraftDigest |-> "draft-blank",
+           commands |-> <<[type |-> "CREATE_TABLE"]>>],
+          [accepted |-> TRUE])
 ColumnRequest ==
-  Request("capture-column", "raw-column", "raw-column", TRUE,
+  Request("capture-column", "raw-column", TRUE,
           "POST", "/authoring/v2/commands", 200,
-          [commands |-> <<[type |-> "APPLY_CONSTRUCTION_CHOICE",
+          [expectedDraftVersion |-> 1,
+           expectedDraftDigest |-> "draft-table",
+           commands |-> <<[type |-> "APPLY_CONSTRUCTION_CHOICE",
                            outputId |-> AbstractOutputId,
                            columnId |-> AbstractTemporalColumnId]>>],
           [accepted |-> TRUE])
 
 ProposalOne == ProposalEvidence(4, 0, "P-cancel", "create", No,
-  Case.initialRequestValue, Case.initialResponseValue, Case.initialSavedValue,
+  SnapshotAt(AbstractSourceSnapshot, "read-proposal-cancel-before", "raw-proposal-cancel-before", 0),
+  Case.initialRequestValue, Case.initialResponseValue,
   Case.initialOperator, AbstractCreatedRequestSteps, AbstractCreatedSteps,
   Case.initialRowIds)
 ProposalTwo == ProposalEvidence(7, 1, "P-create", "create", No,
-  Case.initialRequestValue, Case.initialResponseValue, Case.initialSavedValue,
+  SnapshotAt(AbstractSourceSnapshotMount1, "read-proposal-create-before", "raw-proposal-create-before", 1),
+  Case.initialRequestValue, Case.initialResponseValue,
   Case.initialOperator, AbstractCreatedRequestSteps, AbstractCreatedSteps,
   Case.initialRowIds)
 ProposalEdit == ProposalEvidence(11, 2, "P-edit", "edit", AbstractFilterStepId,
-  Case.editedRequestValue, Case.editedResponseValue, Case.editedSavedValue,
+  SnapshotAt(AbstractEditBefore, "read-proposal-edit-before", "raw-proposal-edit-before", 2),
+  Case.editedRequestValue, Case.editedResponseValue,
   Case.editedOperator, AbstractEditedRequestSteps, AbstractEditedSteps,
   Case.editedRowIds)
 ProposalRemove == ProposalEvidence(14, 3, "P-remove", "remove", AbstractFilterStepId,
-  No, No, Case.editedSavedValue, Case.editedOperator,
+  SnapshotAt(AbstractRemoveBefore, "read-proposal-remove-before", "raw-proposal-remove-before", 3),
+  No, No, Case.editedOperator,
   OtherSteps, OtherSteps, Case.sourceRowIds)
 
 ApplyRequest(captureId, proposalId, saved) ==
-  Request(captureId, "raw-" \o captureId, "raw-" \o captureId, TRUE,
+  Request(captureId, "raw-" \o captureId, TRUE,
     "POST", "/authoring/v2/commands", 200,
     [expectedDraftVersion |-> saved.draftVersion,
      expectedDraftDigest |-> saved.draftDigest,
@@ -324,22 +397,20 @@ ApplyEvent(ordinal, action, mount, captureId, proposalId, intent,
   IN Event(ordinal, action, mount, req, before, after, ui, filter)
 
 CancelEvent ==
-  Event(5, "FilterCancelled", 0, NoRequest, NoSnapshot,
-    AbstractSourceSnapshot,
+  Event(5, "FilterCancelled", 0, NoRequest,
+    SnapshotAt(AbstractSourceSnapshot, "read-cancel-before", "raw-cancel-before", 0),
+    SnapshotAt(AbstractSourceSnapshot, "read-cancel-after", "raw-cancel-after", 0),
     UI(5, 0, "none", No, No, AbstractOutputId, AbstractTemporalColumnId,
        No, No, No, Case.sourceRowIds),
-    Filter("create", AbstractFilterStepId, AbstractOutputId,
-      AbstractTemporalColumnId, Case.valueKind, Case.initialOperator,
-      Case.initialRequestValue, Case.initialResponseValue,
-      Case.initialSavedValue, "P-cancel", "P-cancel"))
+    NoFilter)
 
-ReloadEvent(ordinal, mount, readId, rawId, savedSnapshot, rowIds) ==
-  Event(ordinal, "Reload", mount, NoRequest, NoSnapshot, savedSnapshot,
+ReloadEvent(ordinal, mount, beforeSnapshot, afterSnapshot, rowIds) ==
+  Event(ordinal, "Reload", mount, NoRequest, beforeSnapshot, afterSnapshot,
     UI(ordinal, mount, "none", No, No, AbstractOutputId,
        AbstractTemporalColumnId, No, No, No, rowIds), NoFilter)
 
 EditOpenedEvent ==
-  Event(10, "FilterEditOpened", 2, NoRequest, NoSnapshot, NoSnapshot,
+  Event(10, "FilterEditOpened", 2, NoRequest, AbstractEditBefore, NoSnapshot,
     UI(10, 2, "none", No, No, AbstractOutputId, AbstractTemporalColumnId,
        Case.inputType, Case.inputValue, Case.initialOperator, Case.initialRowIds),
     Filter("edit", AbstractFilterStepId, AbstractOutputId,
@@ -347,42 +418,53 @@ EditOpenedEvent ==
       Case.initialSavedValue, Case.initialSavedValue, Case.initialSavedValue,
       No, No))
 
-ModelEvents ==
-  <<Event(1, "ExplorerCreated", 0, ExplorerRequest, NoSnapshot, NoSnapshot, NoUI, NoFilter),
-    Event(2, "SourceTableCreated", 0, TableRequest, NoSnapshot, NoSnapshot, NoUI, NoFilter),
+AbstractModelEvents ==
+  <<Event(1, "ExplorerCreated", 0, ExplorerRequest, NoSnapshot,
+      AbstractBlankSnapshot, NoUI, NoFilter),
+    Event(2, "SourceTableCreated", 0, TableRequest,
+      AbstractBeforeTableSnapshot, AbstractTableSnapshot, NoUI, NoFilter),
     Event(3, "TemporalColumnApplied", 0, ColumnRequest,
-      AbstractTableSnapshot, AbstractSourceSnapshot, NoUI, NoFilter),
+      SnapshotAt(AbstractTableSnapshot, "read-before-temporal-column", "raw-before-temporal-column", 0),
+      AbstractSourceSnapshot, NoUI, NoFilter),
     ProposalOne,
     CancelEvent,
-    ReloadEvent(6, 1, "read-reload-cancel", "raw-read-reload-cancel",
-      AbstractSourceSnapshot, Case.sourceRowIds),
+    ReloadEvent(6, 1,
+      SnapshotAt(AbstractSourceSnapshot, "read-reload-cancel-before", "raw-reload-cancel-before", 0),
+      SnapshotAt(AbstractSourceSnapshot, "read-reload-cancel-after", "raw-reload-cancel-after", 1),
+      Case.sourceRowIds),
     ProposalTwo,
     ApplyEvent(8, "FilterApplied(create)", 1, "capture-apply-create", "P-create", "create",
-      [draftVersion |-> 1, draftDigest |-> "draft-source"],
+      [draftVersion |-> 2, draftDigest |-> "draft-source"],
       AbstractCreateBefore, AbstractCreateAfter,
       Case.initialOperator, Case.initialRequestValue,
       Case.initialResponseValue, Case.initialSavedValue,
       Case.initialRowIds),
-    ReloadEvent(9, 2, "read-reload-create", "raw-read-reload-create",
-      AbstractCreateAfter, Case.initialRowIds),
+    ReloadEvent(9, 2,
+      SnapshotAt(AbstractCreateAfter, "read-reload-create-before", "raw-reload-create-before", 1),
+      SnapshotAt(AbstractCreateAfter, "read-reload-create-after", "raw-reload-create-after", 2),
+      Case.initialRowIds),
     EditOpenedEvent,
     ProposalEdit,
     ApplyEvent(12, "FilterApplied(edit)", 2, "capture-apply-edit", "P-edit", "edit",
-      [draftVersion |-> 2, draftDigest |-> "draft-create"],
+      [draftVersion |-> 3, draftDigest |-> "draft-create"],
       AbstractEditBefore, AbstractEditAfter,
       Case.editedOperator, Case.editedRequestValue,
       Case.editedResponseValue, Case.editedSavedValue,
       Case.editedRowIds),
-    ReloadEvent(13, 3, "read-reload-edit", "raw-read-reload-edit",
-      AbstractEditAfter, Case.editedRowIds),
+    ReloadEvent(13, 3,
+      SnapshotAt(AbstractEditAfter, "read-reload-edit-before", "raw-reload-edit-before", 2),
+      SnapshotAt(AbstractEditAfter, "read-reload-edit-after", "raw-reload-edit-after", 3),
+      Case.editedRowIds),
     ProposalRemove,
     ApplyEvent(15, "FilterRemoved", 3, "capture-remove-filter", "P-remove", "remove",
-      [draftVersion |-> 3, draftDigest |-> "draft-edit"],
+      [draftVersion |-> 4, draftDigest |-> "draft-edit"],
       AbstractRemoveBefore, AbstractRemoveAfter,
-      Case.editedOperator, No, No, Case.editedSavedValue,
+      Case.editedOperator, No, No, No,
       Case.sourceRowIds),
-    ReloadEvent(16, 4, "read-reload-remove", "raw-read-reload-remove",
-      AbstractRemoveAfter, Case.sourceRowIds)>>
+    ReloadEvent(16, 4,
+      SnapshotAt(AbstractRemoveAfter, "read-reload-remove-before", "raw-reload-remove-before", 3),
+      SnapshotAt(AbstractRemoveAfter, "read-reload-remove-after", "raw-reload-remove-after", 4),
+      Case.sourceRowIds)>>
 
 JourneyActions == <<"ExplorerCreated", "SourceTableCreated", "TemporalColumnApplied",
   "FilterProposed(create)", "FilterCancelled", "Reload", "FilterProposed(create)",
@@ -400,6 +482,7 @@ Init ==
     [cursor |-> 0,
      phase |-> "empty",
      mountEpoch |-> 0,
+     savedKind |-> "empty",
      explorerId |-> No,
      outputId |-> No,
      temporalColumnId |-> No,
@@ -425,9 +508,7 @@ EventFits(event, action, expectedMount, hasRequest, mutation) ==
   /\ IF event.request = NoRequest
        THEN TRUE
        ELSE /\ event.request.captureId # No
-            /\ (event.request.requestId = No
-                \/ event.request.responseRequestId = No
-                \/ event.request.requestId = event.request.responseRequestId)
+            /\ (event.request.requestId = No \/ Len(event.request.requestId) > 0)
 
 SnapshotMatches(saved, snapshot) ==
   /\ snapshot # NoSnapshot
@@ -442,20 +523,23 @@ SnapshotMatches(saved, snapshot) ==
   /\ snapshot.columns = saved.columns
   /\ snapshot.steps = saved.steps
 
-SavedFromSnapshot(snapshot) ==
-  [outputId |-> snapshot.outputId,
-   columnId |-> snapshot.columnId,
-   columns |-> snapshot.columns,
-   steps |-> snapshot.steps,
-   draftVersion |-> snapshot.draftVersion,
-   draftDigest |-> snapshot.draftDigest,
-   workspaceDigest |-> snapshot.workspaceDigest,
-   catalogGeneration |-> snapshot.catalogGeneration,
-   workspaceDocuments |-> snapshot.workspaceDocuments]
+SnapshotReadAt(snapshot, mount) ==
+  /\ snapshot # NoSnapshot
+  /\ snapshot.readId # No
+  /\ snapshot.status = 200
+  /\ snapshot.mountEpoch = mount
 
-StepIndices(steps, stepId) == {i \in 1..Len(steps) : steps[i].stepId = stepId}
+RequestCASMatches(request, snapshot) ==
+  /\ request.body.expectedDraftVersion = snapshot.draftVersion
+  /\ request.body.expectedDraftDigest = snapshot.draftDigest
+
+StepIdentity(step) == step.id
+ColumnIdentity(column) ==
+  IF "columnId" \in DOMAIN column THEN column.columnId ELSE column.id
+StepIndices(steps, stepId) == {i \in 1..Len(steps) : StepIdentity(steps[i]) = stepId}
 UniqueStep(steps, stepId) == Cardinality(StepIndices(steps, stepId)) = 1
-ColumnIndices(columns, columnId) == {i \in 1..Len(columns) : columns[i] = columnId}
+ColumnIndices(columns, columnId) ==
+  {i \in 1..Len(columns) : ColumnIdentity(columns[i]) = columnId}
 UniqueColumn(columns, columnId) == Cardinality(ColumnIndices(columns, columnId)) = 1
 FilterIndices(steps) ==
   {i \in 1..Len(steps) : steps[i].operation.kind = "FILTER"}
@@ -470,26 +554,25 @@ RemoveStep(steps, stepId) ==
   THEN steps
   ELSE RemoveAt(steps, CHOOSE i \in StepIndices(steps, stepId): TRUE)
 RemoveColumn(columns, columnId) ==
-  IF {i \in 1..Len(columns) : columns[i] = columnId} = {}
+  IF ColumnIndices(columns, columnId) = {}
   THEN columns
   ELSE RemoveAt(columns,
-       CHOOSE i \in 1..Len(columns): columns[i] = columnId)
+       CHOOSE i \in ColumnIndices(columns, columnId): TRUE)
 SavedFilterStep(saved) ==
   CHOOSE i \in FilterIndices(saved.steps): TRUE
 SavedFilterValue(saved) ==
   saved.steps[SavedFilterStep(saved)].operation.filter.values[1]
 SavedFilterOperator(saved) ==
   saved.steps[SavedFilterStep(saved)].operation.filter.operator
-SavedFilterStepId(saved) == saved.steps[SavedFilterStep(saved)].stepId
+SavedFilterStepId(saved) == StepIdentity(saved.steps[SavedFilterStep(saved)])
 
-ExpectedRows(saved) ==
-  IF saved = NoSaved
-  THEN <<>>
-  ELSE IF FilterCount(saved.steps) = 0
-  THEN Case.sourceRowIds
-  ELSE IF SavedFilterOperator(saved) = Case.initialOperator
-  THEN Case.initialRowIds
-  ELSE Case.editedRowIds
+ExpectedRowsFor(savedKind) ==
+  CASE savedKind = "empty" -> <<>>
+    [] savedKind = "source" -> Case.sourceRowIds
+    [] savedKind = "created" -> Case.initialRowIds
+    [] savedKind = "edited" -> Case.editedRowIds
+    [] savedKind = "removed" -> Case.sourceRowIds
+    [] OTHER -> FALSE
 
 Commit(event, updatedJourney) ==
   journey' = [updatedJourney EXCEPT
@@ -503,32 +586,58 @@ ExplorerCreated(event) ==
   /\ journey.phase = "empty"
   /\ EventFits(event, "ExplorerCreated", 0, TRUE, TRUE)
   /\ event.before = NoSnapshot
-  /\ event.after = NoSnapshot
+  /\ SnapshotReadAt(event.after, journey.mountEpoch)
+  /\ event.after.outputId = No
+  /\ event.after.columnId = No
+  /\ event.after.columns = <<>>
+  /\ event.after.steps = <<>>
   /\ event.request.method = "POST"
   /\ EndsWith(event.request.path, "/explorers")
   /\ event.request.status = 201
   /\ event.request.responseBody.explorerId # No
   /\ Commit(event, [journey EXCEPT
        !.phase = "explorer-created",
-       !.explorerId = event.request.responseBody.explorerId])
+       !.savedKind = "empty",
+       !.explorerId = event.request.responseBody.explorerId,
+       !.persisted = SavedFromSnapshot(event.after),
+       !.mounted = SavedFromSnapshot(event.after)])
 
 SourceTableCreated(event) ==
   /\ journey.phase = "explorer-created"
   /\ EventFits(event, "SourceTableCreated", 0, TRUE, TRUE)
+  /\ SnapshotReadAt(event.before, journey.mountEpoch)
+  /\ SnapshotReadAt(event.after, journey.mountEpoch)
+  /\ SnapshotMatches(journey.persisted, event.before)
+  /\ event.before.outputId = No
+  /\ event.after.outputId # No
+  /\ event.after.columnId = No
+  /\ event.after.columns # <<>>
   /\ event.request.method = "POST"
   /\ event.request.status = 200
   /\ event.request.body.commands[1].type = "CREATE_TABLE"
-  /\ event.request.responseBody.outputId # No
+  /\ RequestCASMatches(event.request, event.before)
+  /\ event.after.draftVersion > event.before.draftVersion
+  /\ event.after.draftDigest # event.before.draftDigest
+  /\ event.after.workspaceDigest # event.before.workspaceDigest
+  /\ event.after.workspaceDocuments # event.before.workspaceDocuments
   /\ Commit(event, [journey EXCEPT
        !.phase = "table-created",
-       !.outputId = event.request.responseBody.outputId])
+       !.savedKind = "source",
+       !.outputId = event.after.outputId,
+       !.persisted = SavedFromSnapshot(event.after),
+       !.mounted = SavedFromSnapshot(event.after),
+       !.renderedRowIds = Case.sourceRowIds])
 
 TemporalColumnApplied(event) ==
   /\ journey.phase = "table-created"
   /\ EventFits(event, "TemporalColumnApplied", 0, TRUE, TRUE)
+  /\ SnapshotReadAt(event.before, journey.mountEpoch)
+  /\ SnapshotReadAt(event.after, journey.mountEpoch)
+  /\ SnapshotMatches(journey.persisted, event.before)
   /\ event.request.method = "POST"
   /\ event.request.status = 200
   /\ event.request.body.commands[1].type = "APPLY_CONSTRUCTION_CHOICE"
+  /\ RequestCASMatches(event.request, event.before)
   /\ event.before.outputId = journey.outputId
   /\ event.after.outputId = journey.outputId
   /\ event.before.columns = RemoveColumn(event.after.columns, event.after.columnId)
@@ -537,9 +646,15 @@ TemporalColumnApplied(event) ==
   /\ UniqueColumn(event.after.columns, event.after.columnId)
   /\ event.before.steps = event.after.steps
   /\ event.after.columnId # No
-  /\ SnapshotMatches(SavedFromSnapshot(event.after), event.after)
+  /\ event.request.body.commands[1].outputId = event.after.outputId
+  /\ event.request.body.commands[1].columnId = event.after.columnId
+  /\ event.after.draftVersion > event.before.draftVersion
+  /\ event.after.draftDigest # event.before.draftDigest
+  /\ event.after.workspaceDigest # event.before.workspaceDigest
+  /\ event.after.workspaceDocuments # event.before.workspaceDocuments
   /\ Commit(event, [journey EXCEPT
        !.phase = "source-ready",
+       !.savedKind = "source",
        !.temporalColumnId = event.after.columnId,
        !.persisted = SavedFromSnapshot(event.after),
        !.mounted = SavedFromSnapshot(event.after),
@@ -550,7 +665,6 @@ ProposalFrom(event) ==
    receiptId |-> event.request.responseBody.preview.receiptId,
    captureId |-> event.request.captureId,
    requestId |-> event.request.requestId,
-   responseRequestId |-> event.request.responseRequestId,
    mountEpoch |-> event.mountEpoch,
    status |-> "ready",
    intent |-> event.filter.intent,
@@ -563,10 +677,10 @@ ProposalFrom(event) ==
    requestValue |-> event.filter.requestValue,
    responseValue |-> event.filter.responseValue,
    savedValue |-> event.filter.savedValue,
-   baseDraftVersion |-> journey.persisted.draftVersion,
-   baseDraftDigest |-> journey.persisted.draftDigest,
+   baseDraftVersion |-> event.before.draftVersion,
+   baseDraftDigest |-> event.before.draftDigest,
    candidateSteps |-> event.request.responseBody.candidateConstruction.steps,
-   rowIds |-> event.request.responseBody.preview.rowIds]
+   rowIds |-> event.ui.rowIds]
 
 ProposalMatches(event, kind, requestValue, responseValue, savedValue,
                 operator, rowIds) ==
@@ -583,26 +697,21 @@ ProposalMatches(event, kind, requestValue, responseValue, savedValue,
      /\ req.method = "POST"
      /\ EndsWith(req.path, "/authoring/v2/construction-proposals")
      /\ req.status = 200
-     /\ body.intent = kind
      /\ body.outputId = journey.outputId
-     /\ body.columnId = journey.temporalColumnId
-     /\ body.operator = operator
-     /\ body.value = requestValue
+     /\ RequestCASMatches(req, event.before)
      /\ res.proposalId # No
-     /\ res.previewStatus = "READY"
-     /\ res.value = responseValue
+     /\ res.outputId = journey.outputId
+     /\ res.draftVersion = event.before.draftVersion
+     /\ res.draftDigest = event.before.draftDigest
      /\ res.preview.receiptId = res.proposalId
      /\ res.preview.outputId = journey.outputId
-     /\ res.preview.columnId = journey.temporalColumnId
-     /\ res.preview.operator = operator
-     /\ res.preview.rowIds = rowIds
+     /\ SnapshotReadAt(event.before, journey.mountEpoch)
+     /\ SnapshotMatches(saved, event.before)
      /\ ui.mountEpoch = journey.mountEpoch
-     /\ ui.proposalStatus = "ready"
+     /\ ui.proposalStatus \in {"ready", "READY"}
      /\ ui.proposalId = res.proposalId
      /\ ui.receiptId = res.preview.receiptId
      /\ ui.outputId = journey.outputId
-     /\ ui.columnId = journey.temporalColumnId
-     /\ ui.operator = operator
      /\ ui.rowIds = rowIds
      /\ filter.intent = kind
      /\ filter.outputId = journey.outputId
@@ -615,45 +724,56 @@ ProposalMatches(event, kind, requestValue, responseValue, savedValue,
      /\ filter.proposalId = res.proposalId
      /\ filter.receiptId = res.preview.receiptId
      /\ IF kind = "remove"
-          THEN /\ body.targetStepId = target
-               /\ UniqueStep(saved.steps, target)
+          THEN /\ UniqueStep(saved.steps, target)
                /\ ~HasStep(candidateRequest, target)
                /\ ~HasStep(candidateResponse, target)
                /\ FilterCount(candidateRequest) = 0
                /\ FilterCount(candidateResponse) = 0
+               /\ RemoveStep(saved.steps, target) = candidateRequest
                /\ RemoveStep(saved.steps, target) = candidateResponse
                /\ ui.inputType = No
                /\ ui.inputValue = No
-               /\ savedValue = SavedFilterValue(saved)
+               /\ filter.columnId = journey.temporalColumnId
+               /\ filter.requestValue = No
+               /\ filter.responseValue = No
+               /\ filter.savedValue = No
                /\ operator = SavedFilterOperator(saved)
-          ELSE /\ ui.inputType = Case.inputType
-               /\ ui.inputValue # No
-               /\ IF kind = "create"
-                    THEN /\ body.targetStepId = No
-                         /\ ~HasStep(saved.steps, target)
-                         /\ FilterCount(candidateResponse) = FilterCount(saved.steps) + 1
-                         /\ RemoveStep(candidateResponse, target) = saved.steps
-                    ELSE /\ kind = "edit"
-                         /\ body.targetStepId = target
-                         /\ UniqueStep(saved.steps, target)
-                         /\ UniqueStep(candidateRequest, target)
-                         /\ UniqueStep(candidateResponse, target)
-                         /\ FilterCount(candidateResponse) = FilterCount(saved.steps)
-                         /\ RemoveStep(candidateResponse, target) = RemoveStep(saved.steps, target)
+          ELSE /\ FilterCount(candidateRequest) = 1
+               /\ FilterCount(candidateResponse) = 1
+               /\ UniqueStep(candidateRequest, target)
+               /\ UniqueStep(candidateResponse, target)
+               /\ filter.stepId = target
+               /\ filter.columnId = journey.temporalColumnId
+               /\ filter.savedValue = No
+               /\ RemoveStep(candidateRequest, target) = RemoveStep(saved.steps, target)
+               /\ RemoveStep(candidateResponse, target) = RemoveStep(saved.steps, target)
                /\ FilterStepAt(candidateRequest, target).operation.filter.values[1] = requestValue
                /\ FilterStepAt(candidateResponse, target).operation.filter.values[1] = responseValue
+               /\ FilterStepAt(candidateRequest, target).operation.filter.columnId = journey.temporalColumnId
                /\ FilterStepAt(candidateResponse, target).operation.filter.columnId = journey.temporalColumnId
+               /\ FilterStepAt(candidateRequest, target).operation.filter.operator = operator
                /\ FilterStepAt(candidateResponse, target).operation.filter.operator = operator
+               /\ ui.inputType = Case.inputType
+               /\ ui.inputValue = Case.inputValue
+               /\ ui.columnId = journey.temporalColumnId
+               /\ ui.operator = operator
+               /\ IF kind = "create"
+                    THEN /\ ~HasStep(saved.steps, target)
+                         /\ FilterCount(saved.steps) = 0
+                    ELSE /\ kind = "edit"
+                         /\ UniqueStep(saved.steps, target)
+               /\ RemoveStep(candidateRequest, target) = RemoveStep(candidateResponse, target)
 
 FilterProposed(event, kind, expectedRequestValue, expectedResponseValue,
                expectedSavedValue, expectedOperator, expectedRows) ==
   /\ EventFits(event, "FilterProposed(" \o kind \o ")",
        journey.mountEpoch, TRUE, FALSE)
-  /\ event.before = NoSnapshot
+  /\ SnapshotReadAt(event.before, journey.mountEpoch)
   /\ event.after = NoSnapshot
   /\ journey.persisted # NoSaved
   /\ journey.mounted = journey.persisted
   /\ journey.proposal = NoProposal
+  /\ expectedSavedValue = No
   /\ ProposalMatches(event, kind, expectedRequestValue, expectedResponseValue,
        expectedSavedValue, expectedOperator, expectedRows)
   /\ Commit(event, [journey EXCEPT
@@ -671,20 +791,20 @@ FilterProposedCreate(event) ==
   /\ journey.phase \in {"source-ready", "reloaded"}
   /\ FilterCount(journey.persisted.steps) = 0
   /\ FilterProposed(event, "create", Case.initialRequestValue,
-       Case.initialResponseValue, Case.initialSavedValue,
+       Case.initialResponseValue, No,
        Case.initialOperator, Case.initialRowIds)
 
 FilterProposedEdit(event) ==
   /\ journey.phase = "editing"
   /\ FilterProposed(event, "edit", Case.editedRequestValue,
-       Case.editedResponseValue, Case.editedSavedValue,
+       Case.editedResponseValue, No,
        Case.editedOperator, Case.editedRowIds)
 
 FilterProposedRemove(event) ==
   /\ journey.phase = "reloaded"
   /\ FilterCount(journey.persisted.steps) = 1
   /\ FilterProposed(event, "remove", No, No,
-       SavedFilterValue(journey.persisted), SavedFilterOperator(journey.persisted),
+       No, SavedFilterOperator(journey.persisted),
        Case.sourceRowIds)
 
 FilterCancelled(event) ==
@@ -692,16 +812,21 @@ FilterCancelled(event) ==
   /\ journey.proposal # NoProposal
   /\ journey.proposal.intent = "create"
   /\ EventFits(event, "FilterCancelled", journey.mountEpoch, FALSE, FALSE)
-  /\ event.filter.proposalId = journey.proposal.proposalId
-  /\ event.filter.receiptId = journey.proposal.receiptId
+  /\ SnapshotReadAt(event.before, journey.mountEpoch)
+  /\ SnapshotReadAt(event.after, journey.mountEpoch)
+  /\ SnapshotMatches(journey.persisted, event.before)
   /\ SnapshotMatches(journey.persisted, event.after)
+  /\ event.before.readId # event.after.readId
+  /\ event.before.workspaceDocuments = event.after.workspaceDocuments
+  /\ event.before.draftVersion = event.after.draftVersion
+  /\ event.before.draftDigest = event.after.draftDigest
   /\ event.ui.mountEpoch = journey.mountEpoch
   /\ event.ui.proposalStatus = "none"
   /\ event.ui.proposalId = No
   /\ event.ui.receiptId = No
   /\ event.ui.outputId = journey.outputId
   /\ event.ui.columnId = journey.temporalColumnId
-  /\ event.ui.rowIds = ExpectedRows(journey.persisted)
+  /\ event.ui.rowIds = ExpectedRowsFor(journey.savedKind)
   /\ Commit(event, [journey EXCEPT
        !.phase = "source-ready",
        !.proposal = NoProposal,
@@ -713,14 +838,18 @@ Reload(event) ==
   /\ journey.phase \in {"source-ready", "created", "edited", "removed"}
   /\ journey.proposal = NoProposal
   /\ EventFits(event, "Reload", journey.mountEpoch + 1, FALSE, FALSE)
+  /\ SnapshotReadAt(event.before, journey.mountEpoch)
+  /\ SnapshotMatches(journey.persisted, event.before)
+  /\ SnapshotReadAt(event.after, journey.mountEpoch + 1)
   /\ SnapshotMatches(journey.persisted, event.after)
+  /\ event.before.readId # event.after.readId
   /\ event.ui.mountEpoch = journey.mountEpoch + 1
   /\ event.ui.proposalStatus = "none"
   /\ event.ui.proposalId = No
   /\ event.ui.receiptId = No
   /\ event.ui.outputId = journey.outputId
   /\ event.ui.columnId = journey.temporalColumnId
-  /\ event.ui.rowIds = ExpectedRows(journey.persisted)
+  /\ event.ui.rowIds = ExpectedRowsFor(journey.savedKind)
   /\ Commit(event, [journey EXCEPT
        !.phase = "reloaded",
        !.mountEpoch = @ + 1,
@@ -735,16 +864,17 @@ FilterEditOpened(event) ==
   /\ journey.persisted # NoSaved
   /\ FilterCount(journey.persisted.steps) = 1
   /\ EventFits(event, "FilterEditOpened", journey.mountEpoch, FALSE, FALSE)
+  /\ SnapshotReadAt(event.before, journey.mountEpoch)
+  /\ SnapshotMatches(journey.persisted, event.before)
+  /\ event.after = NoSnapshot
   /\ event.ui.mountEpoch = journey.mountEpoch
   /\ event.ui.proposalStatus = "none"
   /\ event.ui.outputId = journey.outputId
   /\ event.ui.columnId = journey.temporalColumnId
   /\ event.ui.inputType = Case.inputType
-  /\ event.ui.inputValue # No
+  /\ event.ui.inputValue = Case.inputValue
   /\ event.ui.operator = SavedFilterOperator(journey.persisted)
-  /\ event.ui.rowIds = ExpectedRows(journey.persisted)
-  /\ event.filter.stepId = SavedFilterStepId(journey.persisted)
-  /\ event.filter.savedValue = SavedFilterValue(journey.persisted)
+  /\ event.ui.rowIds = Case.initialRowIds
   /\ Commit(event, [journey EXCEPT
        !.phase = "editing",
        !.editor = [intent |-> "edit",
@@ -752,7 +882,7 @@ FilterEditOpened(event) ==
                    inputType |-> event.ui.inputType,
                    inputValue |-> event.ui.inputValue,
                    operator |-> event.ui.operator,
-                   value |-> event.filter.savedValue]])
+                   value |-> SavedFilterValue(journey.persisted)]])
 
 ProposalStateMatches(event, kind, expectedRequestValue,
                      expectedResponseValue, expectedSavedValue,
@@ -773,29 +903,32 @@ ProposalStateMatches(event, kind, expectedRequestValue,
      /\ proposal.operator = expectedOperator
      /\ proposal.requestValue = expectedRequestValue
      /\ proposal.responseValue = expectedResponseValue
-     /\ proposal.savedValue = expectedSavedValue
+     /\ proposal.savedValue = No
      /\ proposal.rowIds =
           IF kind = "remove" THEN Case.sourceRowIds ELSE expectedRows
      /\ proposal.proposalId = filter.proposalId
      /\ proposal.receiptId = filter.receiptId
      /\ proposal.stepId = filter.stepId
      /\ proposal.candidateSteps = after.steps
+     /\ SnapshotReadAt(before, journey.mountEpoch)
      /\ event.request.isMutation = TRUE
      /\ event.request.method = "POST"
      /\ EndsWith(event.request.path, "/authoring/v2/commands")
      /\ event.request.status = 200
-     /\ command.expectedDraftVersion = before.draftVersion
-     /\ command.expectedDraftDigest = before.draftDigest
+     /\ RequestCASMatches(event.request, before)
      /\ command.commands[1].type = "APPLY_CONSTRUCTION_PROPOSAL"
      /\ command.commands[1].outputId = journey.outputId
      /\ command.commands[1].proposalId = proposal.proposalId
      /\ SnapshotMatches(journey.persisted, before)
+     /\ SnapshotReadAt(after, journey.mountEpoch)
+     /\ before.readId # after.readId
      /\ after.draftVersion > before.draftVersion
      /\ after.draftDigest # before.draftDigest
      /\ after.workspaceDigest # before.workspaceDigest
      /\ after.outputId = journey.outputId
      /\ after.columnId = journey.temporalColumnId
      /\ after.columns = before.columns
+     /\ after.steps = proposal.candidateSteps
      /\ filter.intent = kind
      /\ filter.stepId = proposal.stepId
      /\ filter.outputId = journey.outputId
@@ -811,7 +944,7 @@ ProposalStateMatches(event, kind, expectedRequestValue,
      /\ event.ui.receiptId = No
      /\ event.ui.outputId = journey.outputId
      /\ event.ui.columnId = journey.temporalColumnId
-     /\ event.ui.rowIds = ExpectedRows(SavedFromSnapshot(after))
+     /\ event.ui.rowIds = expectedRows
 
 ApplyFilter(event, kind, action, expectedRequestValue,
             expectedResponseValue, expectedSavedValue, expectedOperator,
@@ -819,6 +952,9 @@ ApplyFilter(event, kind, action, expectedRequestValue,
   /\ EventFits(event, action, journey.mountEpoch, TRUE, TRUE)
   /\ ProposalStateMatches(event, kind, expectedRequestValue,
        expectedResponseValue, expectedSavedValue, expectedOperator, expectedRows)
+  /\ event.filter.proposalId = journey.proposal.proposalId
+  /\ event.filter.receiptId = journey.proposal.receiptId
+  /\ event.filter.stepId = journey.proposal.stepId
   /\ IF kind = "create"
        THEN /\ FilterCount(event.before.steps) = 0
             /\ FilterCount(event.after.steps) = 1
@@ -827,6 +963,10 @@ ApplyFilter(event, kind, action, expectedRequestValue,
             /\ RemoveStep(event.after.steps, journey.proposal.stepId) = event.before.steps
             /\ FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter.values[1]
                  = expectedSavedValue
+            /\ FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter.columnId
+                 = journey.temporalColumnId
+            /\ FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter.operator
+                 = expectedOperator
        ELSE IF kind = "edit"
        THEN /\ FilterCount(event.before.steps) = 1
             /\ FilterCount(event.after.steps) = 1
@@ -836,6 +976,14 @@ ApplyFilter(event, kind, action, expectedRequestValue,
                  = RemoveStep(event.after.steps, journey.proposal.stepId)
             /\ FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter.values[1]
                  = expectedSavedValue
+            /\ FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter.columnId
+                 = journey.temporalColumnId
+            /\ FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter.operator
+                 = expectedOperator
+            /\ [FilterStepAt(event.before.steps, journey.proposal.stepId)
+                 EXCEPT !.operation.filter =
+                   FilterStepAt(event.after.steps, journey.proposal.stepId).operation.filter]
+                 = FilterStepAt(event.after.steps, journey.proposal.stepId)
        ELSE /\ kind = "remove"
             /\ FilterCount(event.before.steps) = 1
             /\ FilterCount(event.after.steps) = 0
@@ -845,6 +993,8 @@ ApplyFilter(event, kind, action, expectedRequestValue,
   /\ Commit(event, [journey EXCEPT
        !.phase = IF kind = "create" THEN "created"
                  ELSE IF kind = "edit" THEN "edited" ELSE "removed",
+       !.savedKind = IF kind = "create" THEN "created"
+                     ELSE IF kind = "edit" THEN "edited" ELSE "removed",
        !.persisted = SavedFromSnapshot(event.after),
        !.mounted = SavedFromSnapshot(event.after),
        !.proposal = NoProposal,
@@ -891,15 +1041,20 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 SavedStateOK(saved) ==
   IF saved = NoSaved
   THEN TRUE
-  ELSE /\ saved.outputId # No
-       /\ saved.columnId # No
-       /\ saved.draftVersion \in Nat
+  ELSE /\ saved.draftVersion \in Nat
+       /\ saved.draftDigest # No
+       /\ saved.workspaceDigest # No
        /\ saved.catalogGeneration # No
-       /\ Len(saved.workspaceDocuments) > 0
+       /\ IF saved.outputId = No
+            THEN /\ saved.columnId = No
+                 /\ saved.columns = <<>>
+                 /\ saved.steps = <<>>
+            ELSE saved.outputId # No
 
 TypeOK ==
   /\ journey.cursor \in 0..Len(ModelEvents)
   /\ journey.mountEpoch \in 0..4
+  /\ journey.savedKind \in {"empty", "source", "created", "edited", "removed"}
   /\ Len(journey.history) = journey.cursor
   /\ SavedStateOK(journey.persisted)
   /\ SavedStateOK(journey.mounted)
@@ -931,6 +1086,54 @@ InvOrderedTrace ==
   \A i \in 1..journey.cursor: journey.history[i].action = JourneyActions[i]
 InvSemanticActionOrder ==
   \A i \in 1..Len(JourneyActions): ModelEvents[i].action = JourneyActions[i]
+SequenceSet(sequence) == {sequence[i] : i \in 1..Len(sequence)}
+ObservedMutationRequests ==
+  {request \in SequenceSet(ObservedRequests): request.isMutation = TRUE}
+ObservedMutationIds ==
+  {request.captureId : request \in ObservedMutationRequests}
+EventRequests ==
+  SequenceSet([i \in 1..Len(ModelEvents) |-> ModelEvents[i].request])
+EventMutationRequests ==
+  {request \in EventRequests: request.isMutation = TRUE}
+EventMutationIds ==
+  {request.captureId : request \in EventMutationRequests}
+ObservedMutationCount ==
+  Cardinality({i \in 1..Len(ObservedRequests): ObservedRequests[i].isMutation = TRUE})
+EventMutationCount ==
+  Cardinality({i \in 1..Len(ModelEvents): ModelEvents[i].request.isMutation = TRUE})
+InvObservedRequestIDsUnique ==
+  \A i, j \in 1..Len(ObservedRequests):
+    i # j => ObservedRequests[i].captureId # ObservedRequests[j].captureId
+InvObservedMutationsConsumed ==
+  /\ ObservedMutationIds = EventMutationIds
+  /\ Cardinality(ObservedMutationIds) = ObservedMutationCount
+  /\ Cardinality(EventMutationIds) = EventMutationCount
+ObservedProposalRequests ==
+  {request \in SequenceSet(ObservedRequests):
+    request.method = "POST"
+    /\ (EndsWith(request.path, "/construction-proposals")
+        \/ EndsWith(request.path, "/construction-choice-proposals"))}
+ObservedProposalIds ==
+  {request.captureId : request \in ObservedProposalRequests}
+LinkedProposalIds ==
+  UNION {SequenceSet(ModelEvents[i].proposalCaptureIds)
+    : i \in 1..Len(ModelEvents)}
+InvProposalEvidenceLinked ==
+  /\ LinkedProposalIds = ObservedProposalIds
+  /\ \A i \in 1..Len(ModelEvents):
+       IF ModelEvents[i].action \in {"FilterProposed(create)",
+            "FilterProposed(edit)", "FilterProposed(remove)"}
+       THEN /\ Len(ModelEvents[i].proposalCaptureIds) = 1
+            /\ ModelEvents[i].proposalCaptureIds[1]
+                 = ModelEvents[i].request.captureId
+       ELSE TRUE
+  /\ \A i \in 1..Len(ModelEvents):
+       \A j \in 1..Len(ModelEvents):
+         \A p \in 1..Len(ModelEvents[i].proposalCaptureIds):
+           \A q \in 1..Len(ModelEvents[j].proposalCaptureIds):
+             (i # j \/ p # q) =>
+               ModelEvents[i].proposalCaptureIds[p]
+                 # ModelEvents[j].proposalCaptureIds[q]
 InvAllWritesConsumed ==
   \A i \in 1..journey.cursor:
     (journey.history[i].request # NoRequest)
@@ -942,32 +1145,54 @@ InvMountOwnsProposal ==
      /\ journey.proposal.outputId = journey.outputId
      /\ journey.proposal.columnId = journey.temporalColumnId
 InvMountedStateMatchesSaved ==
-  journey.cursor < 3 \/ journey.mounted = journey.persisted
+  journey.mounted = journey.persisted
 InvStableColumnIdentity ==
   journey.cursor < 3
   \/ journey.temporalColumnId = journey.persisted.columnId
 InvRenderMatchesSavedFilter ==
-  journey.cursor < 3 \/ journey.renderedRowIds = ExpectedRows(journey.persisted)
+  journey.renderedRowIds = ExpectedRowsFor(journey.savedKind)
 InvProposalPreviewRowsMatch ==
   journey.proposal = NoProposal
   \/ journey.proposal.rowIds = journey.previewRowIds
 InvEveryProposalEchoesOwnerAndPredicate ==
   \A i \in 1..journey.cursor:
     LET e == journey.history[i]
+        requestCandidate == e.request.body.candidateConstruction.steps
+        responseCandidate == e.request.responseBody.candidateConstruction.steps
+        target == e.filter.stepId
     IN IF e.action \in {"FilterProposed(create)", "FilterProposed(edit)",
                          "FilterProposed(remove)"}
        THEN /\ e.request.captureId # No
             /\ e.request.responseBody.proposalId = e.filter.proposalId
             /\ e.request.responseBody.preview.receiptId = e.filter.receiptId
-            /\ e.request.responseBody.preview.outputId = e.filter.outputId
-            /\ e.request.responseBody.preview.columnId = e.filter.columnId
-            /\ e.request.responseBody.preview.operator = e.filter.operator
+            /\ e.request.body.outputId = e.filter.outputId
+            /\ e.request.responseBody.outputId = e.filter.outputId
+            /\ e.request.body.expectedDraftVersion = e.before.draftVersion
+            /\ e.request.body.expectedDraftDigest = e.before.draftDigest
+            /\ e.request.responseBody.draftVersion = e.before.draftVersion
+            /\ e.request.responseBody.draftDigest = e.before.draftDigest
             /\ e.ui.proposalId = e.filter.proposalId
             /\ e.ui.receiptId = e.filter.receiptId
             /\ e.ui.outputId = e.filter.outputId
-            /\ e.ui.columnId = e.filter.columnId
-            /\ e.ui.operator = e.filter.operator
-            /\ e.ui.rowIds = e.request.responseBody.preview.rowIds
+            /\ IF e.filter.intent = "remove"
+                 THEN /\ FilterCount(requestCandidate) = 0
+                      /\ FilterCount(responseCandidate) = 0
+                 ELSE /\ FilterCount(requestCandidate) = 1
+                      /\ FilterCount(responseCandidate) = 1
+                      /\ UniqueStep(requestCandidate, target)
+                      /\ UniqueStep(responseCandidate, target)
+                      /\ FilterStepAt(requestCandidate, target).operation.filter.columnId
+                           = e.filter.columnId
+                      /\ FilterStepAt(responseCandidate, target).operation.filter.columnId
+                           = e.filter.columnId
+                      /\ FilterStepAt(requestCandidate, target).operation.filter.operator
+                           = e.filter.operator
+                      /\ FilterStepAt(responseCandidate, target).operation.filter.operator
+                           = e.filter.operator
+                      /\ FilterStepAt(requestCandidate, target).operation.filter.values[1]
+                           = e.filter.requestValue
+                      /\ FilterStepAt(responseCandidate, target).operation.filter.values[1]
+                           = e.filter.responseValue
        ELSE TRUE
 InvAllOtherStepsAndColumnsPreserved ==
   \A i \in 1..journey.cursor:
@@ -979,8 +1204,8 @@ InvAllOtherStepsAndColumnsPreserved ==
             /\ e.after.columns = e.before.columns
        ELSE IF e.action = "FilterApplied(edit)"
        THEN /\ RemoveStep(e.before.steps, target) = RemoveStep(e.after.steps, target)
-            /\ e.before.steps[CHOOSE j \in StepIndices(e.before.steps, target): TRUE].stepId
-                 = e.after.steps[CHOOSE j \in StepIndices(e.after.steps, target): TRUE].stepId
+            /\ StepIdentity(e.before.steps[CHOOSE j \in StepIndices(e.before.steps, target): TRUE])
+                 = StepIdentity(e.after.steps[CHOOSE j \in StepIndices(e.after.steps, target): TRUE])
             /\ e.after.columns = e.before.columns
        ELSE IF e.action = "FilterRemoved"
        THEN /\ RemoveStep(e.before.steps, target) = e.after.steps
@@ -1030,8 +1255,19 @@ InvReloadRestoresPersisted ==
     LET e == journey.history[i]
     IN IF e.action = "Reload"
        THEN /\ e.after.status = 200
+            /\ e.before.status = 200
+            /\ e.before.readId # e.after.readId
+            /\ e.before.workspaceDocuments = e.after.workspaceDocuments
+            /\ e.before.draftVersion = e.after.draftVersion
+            /\ e.before.draftDigest = e.after.draftDigest
+            /\ e.before.mountEpoch + 1 = e.after.mountEpoch
             /\ e.ui.mountEpoch = e.mountEpoch
-            /\ e.ui.rowIds = ExpectedRows(SavedFromSnapshot(e.after))
+            /\ e.ui.rowIds =
+                 CASE i = 6 -> Case.sourceRowIds
+                   [] i = 9 -> Case.initialRowIds
+                   [] i = 13 -> Case.editedRowIds
+                   [] i = 16 -> Case.sourceRowIds
+                   [] OTHER -> FALSE
        ELSE TRUE
 InvPreviewRowsAreLiteral ==
   \A i \in 1..journey.cursor:
