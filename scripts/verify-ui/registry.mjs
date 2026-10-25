@@ -6519,6 +6519,7 @@ const registryRows = [
               'scripts/verify-ui/helpers/source-fingerprint.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
               'scripts/generate-builder-browser-evidence.mjs',
+              'scripts/run-native-verification-bracket.mjs',
               'scripts/run-builder-journey.mjs',
               'scripts/verify-ui/registry.mjs',
               'ui/apps/demo/src/main.tsx',

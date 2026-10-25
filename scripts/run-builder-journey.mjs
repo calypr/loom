@@ -367,7 +367,7 @@ const runRegisteredNativeCase = (env, selection, { targetPath = null, evidencePa
   const summary = bracketSummaryFromOutput(result.stdout);
   return {
     exitStatus: result.status ?? 1,
-    summary,
+    summaryEnvelope: summary,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
   };
@@ -614,6 +614,53 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
     passedCheckCount: lifecycle.passedCheckCount ?? null,
     lifecycleDimensions: lifecycle.dimensions ?? null,
     formalTraceProof: domainReport?.target?.builderJourneyTrace ?? null,
+  };
+};
+
+const validateNativeBracketEnvelope = (envelope, selection, targetPath) => {
+  const issues = [];
+  const requireValue = (condition, message) => { if (!condition) issues.push(message); };
+  requireValue(envelope && typeof envelope === 'object', 'native bracket output envelope is missing');
+  if (!envelope || typeof envelope !== 'object') return { status: 'failed', issues };
+  requireValue(envelope.status === 'passed', 'native bracket output status is ' + String(envelope.status));
+  requireValue(envelope.scenario === selection.scenarioID && envelope.case === selection.caseName,
+    'native bracket output identity does not match the registered case');
+  requireValue(typeof envelope.summary === 'string' && envelope.summary.trim().length > 0,
+    'native bracket output has no retained full summary path');
+  requireValue(typeof envelope.report === 'string' && envelope.report.trim().length > 0,
+    'native bracket output has no retained domain report path');
+  if (typeof envelope.summary !== 'string' || envelope.summary.trim().length === 0) {
+    return { status: 'failed', issues };
+  }
+  const summaryPath = resolve(ROOT, envelope.summary);
+  if (!existsSync(summaryPath)) {
+    issues.push('native bracket full summary artifact is missing: ' + envelope.summary);
+    return { status: 'failed', issues, summaryPath: envelope.summary };
+  }
+  let summary;
+  try { summary = JSON.parse(readFileSync(summaryPath, 'utf8')); }
+  catch (error) {
+    issues.push('native bracket full summary artifact is not valid JSON: ' + String(error?.message ?? error));
+    return { status: 'failed', issues, summaryPath: envelope.summary };
+  }
+  if (summary?.status !== envelope.status) {
+    issues.push('native bracket output status differs from its retained full summary');
+  }
+  if (resolve(summary?.evidence?.summary ?? '') !== summaryPath) {
+    issues.push('native bracket output summary path differs from the path retained in the full summary');
+  }
+  if (resolve(summary?.evidence?.domainReport ?? '') !== resolve(ROOT, envelope.report)) {
+    issues.push('native bracket output domain-report path differs from the path retained in the full summary');
+  }
+  const validated = validateNativeBracketSummary(summary, selection, targetPath);
+  issues.push(...validated.issues);
+  return {
+    ...validated,
+    status: issues.length === 0 ? 'passed' : 'failed',
+    issues,
+    summaryPath: envelope.summary,
+    envelopeScenario: envelope.scenario,
+    envelopeCase: envelope.case,
   };
 };
 
@@ -907,7 +954,7 @@ const main = async () => {
     }), nativeRun.exitStatus)
     : runPlaywright(env, selectedJourney?.specPath);
   if (nativeSelection?.traceKind === 'native-lifecycle') {
-    nativeBracket = validateNativeBracketSummary(nativeRun?.summary, nativeSelection,
+    nativeBracket = validateNativeBracketEnvelope(nativeRun?.summaryEnvelope, nativeSelection,
       options.target ? resolve(ROOT, options.target) : null);
   }
   let sourceFingerprintAfter = sourceFingerprint;
@@ -1102,4 +1149,4 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
   });
 }
 
-export { validateNativeBracketSummary, validateNativeTlaReceipt };
+export { validateNativeBracketEnvelope, validateNativeBracketSummary, validateNativeTlaReceipt };

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { currentFormalJourneyEvidence } from '../../../generate-builder-browser-evidence.mjs';
-import { validateNativeBracketSummary, validateNativeTlaReceipt } from '../../../run-builder-journey.mjs';
+import { validateNativeBracketEnvelope, validateNativeBracketSummary, validateNativeTlaReceipt } from '../../../run-builder-journey.mjs';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => Array.isArray(value)
@@ -86,6 +86,9 @@ const makeBracketFixture = (root) => {
     },
     evidence: { domainReport: domainReportPath },
   };
+  const summaryPath = join(root, 'summary.json');
+  summary.evidence.summary = summaryPath;
+  writeFileSync(summaryPath, JSON.stringify(summary));
   return { selection, fingerprint, controls, domainReport, domainReportPath, summary };
 };
 
@@ -128,6 +131,18 @@ test('native Builder proof gates accept a complete retained receipt and reject l
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const bracket = makeBracketFixture(root);
   assert.equal(validateNativeBracketSummary(bracket.summary, bracket.selection, bracket.summary.targetValidation.configPath).status, 'passed');
+  const envelope = {
+    status: 'passed',
+    scenario: bracket.selection.scenarioID,
+    case: bracket.selection.caseName,
+    summary: bracket.summary.evidence.summary,
+    report: bracket.domainReportPath,
+  };
+  assert.equal(validateNativeBracketEnvelope(envelope, bracket.selection, bracket.summary.targetValidation.configPath).status, 'passed');
+  assert.equal(validateNativeBracketEnvelope({ ...envelope, summary: join(root, 'missing-summary.json') }, bracket.selection,
+    bracket.summary.targetValidation.configPath).status, 'failed');
+  assert.equal(validateNativeBracketEnvelope({ ...envelope, scenario: 'wrong-scenario' }, bracket.selection,
+    bracket.summary.targetValidation.configPath).status, 'failed');
 
   const failedCheck = copy(bracket.summary);
   failedCheck.lifecycle.passedCheckCount = 0;
