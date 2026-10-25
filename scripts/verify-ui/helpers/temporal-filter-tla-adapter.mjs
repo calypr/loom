@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
+import { fixtureProjectExplorerCollectionPath } from './fixture-context.mjs';
 import { READ_ONLY_POST_PATH_SUFFIXES } from './playwright-network-observer.mjs';
 import {
   TEMPORAL_FILTER_ACTION_EVENT_PAIRS,
@@ -445,8 +446,8 @@ const explorerIdFrom = capture => {
 
 const supportedPureRead = (capture, request) => {
   const path = request.path;
-  const projectRoot = `/api/v1/projects/${encodeURIComponent(capture.project)}`;
-  const explorersRoot = `${projectRoot}/explorers`;
+  const explorersRoot = fixtureProjectExplorerCollectionPath(capture.project);
+  const projectRoot = explorersRoot.slice(0, -'/explorers'.length);
   const explorerIds = new Set([explorerIdFrom(capture), capture.bootstrapExplorerId]
     .filter(value => typeof value === 'string' && value.length > 0));
   const explorerRoots = [...explorerIds].map(explorerId =>

@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createTemporalFilterCapture } from '../temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
+import { matchesTemporalExplorerCreateResponse } from '../../workflows/basic-temporal-filter.mjs';
 import {
   makeTemporalFilterJourneyCaptureFixture,
   TEMPORAL_FILTER_FIXTURE_BASE_TIME,
@@ -15,6 +17,31 @@ test('Temporal lifecycle recorder is installed before the first navigation can i
   const firstNavigation = source.indexOf('await page.goto(');
   assert(captureStart >= 0 && firstNavigation >= 0 && captureStart < firstNavigation,
     'Capture event handlers must be installed before the bootstrap Builder navigation starts.');
+});
+
+test('DATE Explorer creation matcher accepts the retained canonical browser route and rejects the storage alias route', () => {
+  const project = 'loom_dev_verify_mvo2jf3p-3be4623';
+  const title = 'Verify 3p-3be4623 Patient birthDate filter';
+  const uiOrigin = 'http://127.0.0.1:30000';
+  const response = {
+    url: () => `${uiOrigin}/api/v1/projects/loom_dev_verify_mvo2jf3p%252F3be4623/explorers`,
+    status: () => 201,
+    request: () => ({
+      method: () => 'POST',
+      postDataJSON: () => ({ name: title, title }),
+    }),
+  };
+  const browserPath = fixtureProjectExplorerCollectionPath(project);
+  const storageAliasPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+
+  assert.equal(response.status(), 201, 'The retained browser observation is the successful Explorer creation response.');
+  assert.equal(new URL(response.url()).pathname, browserPath);
+  assert.notEqual(storageAliasPath, browserPath,
+    'The direct API storage alias route is not the canonical browser-proxy path for this fixture project.');
+  assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin, explorerCollectionPath: browserPath, title }), true);
+  assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin, explorerCollectionPath: storageAliasPath, title }), false);
+  assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin: 'http://127.0.0.1:8180', explorerCollectionPath: browserPath, title }), false);
+  assert.equal(matchesTemporalExplorerCreateResponse(response, { uiOrigin, explorerCollectionPath: browserPath, title: 'other Explorer' }), false);
 });
 
 test('capture retains and drains a construction-capabilities request that settles after first navigation', async () => {

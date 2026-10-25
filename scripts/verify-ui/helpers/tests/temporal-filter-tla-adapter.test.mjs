@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 import {
@@ -24,6 +25,23 @@ const dateTimeContractPath = resolve(repositoryRoot, 'verification/builder-inter
 const tlcJar = process.env.TLA2TOOLS_JAR;
 
 const makeJourney = caseName => adaptTemporalFilterJourney(makeTemporalFilterJourneyCaptureFixture(caseName));
+const OBSERVED_DATE_PROJECT = 'loom_dev_verify_mvo2jf3p-3be4623';
+const rebaseCaptureToObservedDateProject = capture => {
+  const sourceRoot = fixtureProjectExplorerCollectionPath(capture.project);
+  const browserRoot = fixtureProjectExplorerCollectionPath(OBSERVED_DATE_PROJECT);
+  capture.project = OBSERVED_DATE_PROJECT;
+  capture.requestEvents = capture.requestEvents.map(request => {
+    assert(request.path.startsWith(sourceRoot),
+      `Synthetic request ${request.browserRequestId} must start on the original fixture project route.`);
+    return { ...request, path: `${browserRoot}${request.path.slice(sourceRoot.length)}` };
+  });
+  return browserRoot;
+};
+const makeObservedDateRouteJourney = () => {
+  const capture = makeTemporalFilterJourneyCaptureFixture('date');
+  rebaseCaptureToObservedDateProject(capture);
+  return adaptTemporalFilterJourney(capture);
+};
 
 test('DATE and DATE_TIME native contracts bind the exact TLA action/event chronology', () => {
   const requiredCounts = {
@@ -74,8 +92,10 @@ test('DATE and DATE_TIME native contracts bind the exact TLA action/event chrono
   }
 });
 
-test('compiler and TLA retain read-only bootstrap capability requests before the first semantic action', { timeout: 30_000 }, () => {
+test('compiler and TLA retain bootstrap capability requests on the canonical browser route before the first semantic action', { timeout: 30_000 }, () => {
   const capture = makeTemporalFilterJourneyCaptureFixture('date');
+  const browserExplorerPath = rebaseCaptureToObservedDateProject(capture);
+  assert.equal(browserExplorerPath, '/api/v1/projects/loom_dev_verify_mvo2jf3p%252F3be4623/explorers');
   const bootstrapExplorer = capture.bootstrapExplorerId;
   const firstEpoch = Math.min(...capture.requestEvents.map(request => request.startedAt)) - 10;
   const firstMonotonic = Math.min(...capture.requestEvents.map(request => request.atMonotonicMs)) - 10;
@@ -84,7 +104,7 @@ test('compiler and TLA retain read-only bootstrap capability requests before the
       browserRequestId: 'schema-fixture-bootstrap-capability-get',
       requestId: 'builder-bootstrap-capability-1',
       method: 'GET',
-      path: `/api/v1/projects/${capture.project}/explorers/${bootstrapExplorer}/authoring/v2/capability`,
+      path: `${browserExplorerPath}/${encodeURIComponent(bootstrapExplorer)}/authoring/v2/capability`,
       request: null,
       response: {},
       startedAt: firstEpoch,
@@ -95,7 +115,7 @@ test('compiler and TLA retain read-only bootstrap capability requests before the
       browserRequestId: 'schema-fixture-bootstrap-construction-capabilities',
       requestId: 'builder-bootstrap-capabilities-1',
       method: 'POST',
-      path: `/api/v1/projects/${capture.project}/explorers/${bootstrapExplorer}/authoring/v2/construction-capabilities`,
+      path: `${browserExplorerPath}/${encodeURIComponent(bootstrapExplorer)}/authoring/v2/construction-capabilities`,
       request: { outputId: 'bootstrap-output' },
       response: { capabilities: [] },
       startedAt: firstEpoch + 3,
@@ -182,6 +202,20 @@ test('compiler rejects read-only POST capability paths outside the recorded proj
     `/api/v1/projects/${project}/explorers/unowned-explorer/authoring/v2/construction-capabilities`,
     'wrong-explorer-bootstrap-capabilities');
   assert.throws(() => compileTemporalFilterJourneyTrace(wrongExplorer), /no temporal-filter path allowlist entry/u);
+
+  const observedBrowserRoot = fixtureProjectExplorerCollectionPath(OBSERVED_DATE_PROJECT);
+  const wrongObservedProject = makeObservedDateRouteJourney();
+  const observedBootstrapExplorer = wrongObservedProject.temporalFilterLifecycle.bootstrapExplorerId;
+  appendUnownedCapability(wrongObservedProject,
+    `${fixtureProjectExplorerCollectionPath('loom_dev_verify_foreign-3be4623')}/${encodeURIComponent(observedBootstrapExplorer)}/authoring/v2/construction-capabilities`,
+    'wrong-canonical-project-bootstrap-capabilities');
+  assert.throws(() => compileTemporalFilterJourneyTrace(wrongObservedProject), /no temporal-filter path allowlist entry/u);
+
+  const wrongObservedExplorer = makeObservedDateRouteJourney();
+  appendUnownedCapability(wrongObservedExplorer,
+    `${observedBrowserRoot}/${encodeURIComponent('unowned-explorer')}/authoring/v2/construction-capabilities`,
+    'wrong-canonical-explorer-bootstrap-capabilities');
+  assert.throws(() => compileTemporalFilterJourneyTrace(wrongObservedExplorer), /no temporal-filter path allowlist entry/u);
 });
 
 const runTlc = (trace, moduleSuffix, { mutateModel } = {}) => {

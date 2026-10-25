@@ -599,7 +599,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs",
-      "sha256": "45709ec78a15a9aa91b412a8471f8a9f380d4775e533383e6047f78e15eeecdd",
+      "sha256": "eaf435350443f15733724d333fcfdcfa35d80bcee6836f3ba945302529e224ff",
       "contract": "Validates and compiles the observed Temporal lifecycle into the bounded TLA+ replay and mutation controls."
     },
     {
@@ -619,12 +619,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs",
-      "sha256": "11643a051da2a99f0b9b44d39e04b7b22ca95dc3475493527e4f9ad7f2422aa0",
+      "sha256": "3e707cbef87ac6a2fc2e1553ab27c8352fb7fffdec1ecce81a2876de67b6b997",
       "contract": "Focused tests for Temporal browser capture ownership and chronology."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs",
-      "sha256": "dd45f4e7f8e2dc68595483e7fe134398d33e514a0a0bf110ab5e470efd03c0ee",
+      "sha256": "c5586ee3a5b21d0e221963d7c3a9e1147904a04f3e4f9080aef0b25397598868",
       "contract": "Focused Temporal contract, TLA replay, and mutation-control tests."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "487d53ad6341422fc5dc779e7918b927e5435c130e4cd597694530ec4300aa71",
+      "sha256": "2c7d7ae6cafd8ee19501808c5b7715520b35a554649a035e965b3e516ce3e235",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {

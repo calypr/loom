@@ -6,6 +6,7 @@ import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { createTemporalFilterCapture } from '../helpers/temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../helpers/temporal-filter-trace-adapter.mjs';
+import { fixtureProjectExplorerCollectionPath } from '../helpers/fixture-context.mjs';
 import { TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS } from '../helpers/temporal-filter-tla-adapter.mjs';
 import {
   BASIC_TEMPORAL_FILTER_CASES,
@@ -22,6 +23,13 @@ const header = value => normalize(value).split('\n', 1)[0].toLowerCase();
 
 const requestBody = request => {
   try { return request.postDataJSON(); } catch { return undefined; }
+};
+
+export const matchesTemporalExplorerCreateResponse = (response, { uiOrigin, explorerCollectionPath, title }) => {
+  const request = response.request();
+  const url = new URL(response.url());
+  return request.method() === 'POST' && url.origin === uiOrigin &&
+    url.pathname === explorerCollectionPath && requestBody(request)?.title === title;
 };
 
 const snapshotTable = async (locator, rowSelector = '[role="row"], tbody tr') => locator.evaluate((table, selectedRows) => ({
@@ -90,7 +98,8 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       });
   };
   const project = target.fixtureProject;
-  const explorerCollectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
+  const browserExplorerCollectionPath = fixtureProjectExplorerCollectionPath(project);
+  const directAPIExplorerCollectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
   const uiOrigin = new URL(target.uiUrl).origin;
   const title = `Verify ${context.runID.slice(-10)} ${contract.resourceType} ${contract.fieldPath} filter`;
   const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 0 });
@@ -100,7 +109,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   let reconcileCursor = networkObserver.requests.length;
   const createFromIndex = networkObserver.requests.length;
   const createRequest = capture.waitForRequest(entry => entry.method === 'POST' &&
-    entry.path === explorerCollectionPath && entry.request?.title === title, { fromIndex: createFromIndex });
+    entry.path === browserExplorerCollectionPath && entry.request?.title === title, { fromIndex: createFromIndex });
   const newExplorer = page.getByText('New explorer', { exact: true });
   await act('open a new disposable Explorer', newExplorer, () => newExplorer.click(), {
     after: () => page.locator('#new-explorer-name').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
@@ -110,12 +119,9 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     editable: true,
     after: async () => assert.equal(await explorerName.inputValue(), title),
   });
-  const createResponsePromise = page.waitForResponse(response => {
-    const request = response.request();
-    const url = new URL(response.url());
-    return request.method() === 'POST' && url.origin === uiOrigin &&
-      url.pathname === explorerCollectionPath && requestBody(request)?.title === title;
-  }, { timeout: ACTION_TIMEOUT_MS });
+  const createResponsePromise = page.waitForResponse(response => matchesTemporalExplorerCreateResponse(response, {
+    uiOrigin, explorerCollectionPath: browserExplorerCollectionPath, title,
+  }), { timeout: ACTION_TIMEOUT_MS });
   const createBlank = page.getByRole('button', { name: 'Create blank', exact: true });
   await act('create the fresh temporal-filter Explorer', createBlank, () => createBlank.click(), {
     after: async () => {
@@ -133,10 +139,11 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   });
   const explorer = await page.getByRole('combobox', { name: 'Explorer' }).inputValue();
   report.target.explorer = explorer;
-  const apiRoot = `${explorerCollectionPath}/${encodeURIComponent(explorer)}`;
-  const commandPath = `${apiRoot}/authoring/v2/commands`;
-  const builderPath = `${apiRoot}/authoring/v2/builder`;
-  const reconcilePath = `${apiRoot}/authoring/v2/reconcile`;
+  const browserExplorerRoot = `${browserExplorerCollectionPath}/${encodeURIComponent(explorer)}`;
+  const directAPIExplorerRoot = `${directAPIExplorerCollectionPath}/${encodeURIComponent(explorer)}`;
+  const commandPath = `${browserExplorerRoot}/authoring/v2/commands`;
+  const builderPath = `${directAPIExplorerRoot}/authoring/v2/builder`;
+  const reconcilePath = `${browserExplorerRoot}/authoring/v2/reconcile`;
   const readBuilder = async () => {
     const started = capture.beginBuilderRead();
     const response = await fetch(`${target.apiUrl}${builderPath}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
@@ -304,7 +311,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
         const request = response.request();
         const url = new URL(response.url());
         return request.method() === 'POST' && url.origin === uiOrigin &&
-          url.pathname === `${apiRoot}/authoring/v2/construction-choice-proposals` &&
+          url.pathname === `${browserExplorerRoot}/authoring/v2/construction-choice-proposals` &&
           requestBody(request)?.outputId === outputId;
       }, { timeout: remainingTimeout() });
       await addSelected.click({ timeout: remainingTimeout() });
@@ -487,7 +494,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
           const request = response.request();
           const url = new URL(response.url());
           return request.method() === 'POST' && url.origin === uiOrigin &&
-            url.pathname === `${apiRoot}/authoring/v2/construction-proposals` &&
+            url.pathname === `${browserExplorerRoot}/authoring/v2/construction-proposals` &&
             matchesBasicTemporalFilterCandidate(requestBody(request), {
               outputId, columnId: temporalColumn.columnId, operator, savedValue: requestValue ?? savedValue,
             });
