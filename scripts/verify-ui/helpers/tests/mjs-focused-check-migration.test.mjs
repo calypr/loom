@@ -67,7 +67,14 @@ function fixture({ ignoreLoader = false } = {}) {
       lifecycle: 'active',
       purpose: file,
       assertions: file === sourcePath ? assertions : [],
-      executionDiscovery: { status: 'no-static-path-found', evidence: [], unresolvedFacts: ['no registered node command'] },
+      executionDiscovery: {
+        status: 'no-static-path-found',
+        evidence: file === sourcePath ? [
+          { path: file, line: 1, kind: 'imports node:test; no registry focused-check command names this test file' },
+          { path: file, line: 2, kind: 'independent assertion evidence' },
+        ] : [],
+        unresolvedFacts: ['no registered node command'],
+      },
     })).concat([{
       path: 'scripts/retired.mjs', sha256: 'c'.repeat(64), role: 'test', testLayer: 'node-test', lifecycle: 'retired', purpose: 'retired', assertions: [],
     }]),
@@ -159,8 +166,11 @@ test('plan previews exact nonempty attachment and case-bound claim edits with ha
         focusedCheckIds: ['oracle-family-a'], evidence: state.mappingEvidence,
       }],
     }]);
-    assert.ok(proposed.executionDiscoveryEdits[0].after.evidence.some((item) =>
-      item.path === 'scripts/verify-ui/mjs-focused-check-attachments.json'));
+    const executionEvidence = proposed.executionDiscoveryEdits.find((edit) => edit.path === state.sourcePath).after.evidence;
+    assert.equal(executionEvidence.some((item) => item.kind === 'imports node:test; no registry focused-check command names this test file'), false);
+    assert.ok(executionEvidence.some((item) => item.kind === 'independent assertion evidence'));
+    assert.ok(executionEvidence.some((item) => item.path === 'scripts/verify-ui/mjs-focused-check-attachments.json'
+      && item.kind === 'generated focused node-test command' && item.line > 0));
     assert.ok(proposed.preconditions.some((item) => item.file === state.oraclePath && /^[a-f0-9]{64}$/.test(item.sha256)));
     assert.ok(proposed.edits.length > 0);
     assert.ok(proposed.edits.find((edit) => edit.file.endsWith('.json')));

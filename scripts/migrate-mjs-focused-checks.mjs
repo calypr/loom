@@ -337,7 +337,8 @@ function updateExecutionDiscovery(catalog, attachmentRows, generatedText) {
       if (commandOffset < 0) fail(`generated attachment omits command path ${testPath}`);
       const line = generatedText.slice(0, commandOffset).split('\n').length;
       const evidence = (row.executionDiscovery?.evidence ?? []).filter((item) =>
-        !(item.path === ATTACHMENT_PATH && item.kind === 'generated focused node-test command'));
+        item.kind !== 'imports node:test; no registry focused-check command names this test file'
+          && !(item.path === ATTACHMENT_PATH && item.kind === 'generated focused node-test command'));
       evidence.push({ path: ATTACHMENT_PATH, line, kind: 'generated focused node-test command' });
       row.executionDiscovery = {
         ...(row.executionDiscovery ?? {}),
