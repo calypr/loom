@@ -5,11 +5,11 @@ Status: generated from the TLA models and existing test metadata.
 ## Script quality inventory
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
-676 are currently tracked; 2 baseline files have retained tombstones.
-13177 semantic claims are defined once; 9248 source occurrences are direct test assertions, out of 18994 total labeled occurrences.
+678 are currently tracked; 2 baseline files have retained tombstones.
+13186 semantic claims are defined once; 9257 source occurrences are direct test assertions, out of 19003 total labeled occurrences.
 9746 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
-678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
-68 files are classified as independent tool/module purposes; 292 MJS files and 5322 semantic claims have no canonical journey mapping.
+680 catalog records have source-review evidence; 680 MJS records remain runtime-unverified.
+69 files are classified as independent tool/module purposes; 294 MJS files and 5331 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
@@ -18,8 +18,8 @@ Status: generated from the TLA models and existing test metadata.
 | browser-workflow | 146 |
 | config | 5 |
 | helper-or-oracle | 144 |
-| test | 219 |
-| tool-or-module | 68 |
+| test | 220 |
+| tool-or-module | 69 |
 
 ### Journey assembly by canonical case
 
@@ -170,11 +170,11 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 
 | Scope | Count |
 | --- | ---: |
-| Tool/module files | 68 |
+| Tool/module files | 69 |
 | Tool/module files with a canonical case mapping | 7 |
-| Tool/module files without a canonical case mapping | 61 |
-| All MJS files without a canonical case mapping | 292 |
-| Semantic claims without a canonical case mapping | 5322 |
+| Tool/module files without a canonical case mapping | 62 |
+| All MJS files without a canonical case mapping | 294 |
+| Semantic claims without a canonical case mapping | 5331 |
 
 ### Explicit formal links
 
@@ -267,7 +267,7 @@ These are source associations, not passing runs. Model actions, invariants, sche
 | Disposition | Files |
 | --- | ---: |
 | integrate | 2 |
-| keep | 675 |
+| keep | 677 |
 | merge-candidate | 1 |
 
 | MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |

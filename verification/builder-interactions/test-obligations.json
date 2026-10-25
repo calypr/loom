@@ -13553,6 +13553,99 @@
       }
     },
     {
+      "path": "scripts/migrate-mjs-focused-checks.mjs",
+      "roleHint": "tool-or-module",
+      "present": true,
+      "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24",
+      "lifecycle": "active",
+      "origin": "added",
+      "currentSha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24",
+      "purpose": "Plans, validates, applies, and checks reviewed shared-oracle MJS focused-check families against the canonical registry and semantic catalogue.",
+      "role": "tool-or-module",
+      "testLayer": "command-line",
+      "sourceReview": {
+        "status": "reviewed",
+        "reviewedCommit": "0ba092b726a76d6f0c4dc866f1d3f5a3452b8c15",
+        "evidence": [
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 77,
+            "kind": "validates exact case-family rules and rejects test-path inventories"
+          },
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 138,
+            "kind": "checks that the registry consumes generated focused attachments"
+          },
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 357,
+            "kind": "rejects generated checks no current reviewed family owns"
+          },
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 477,
+            "kind": "builds the reviewed source-hash-bound migration plan"
+          },
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 644,
+            "kind": "dispatches plan, apply, and check CLI modes"
+          }
+        ],
+        "confidence": "high"
+      },
+      "sourceRevision": {
+        "commit": "0ba092b726a76d6f0c4dc866f1d3f5a3452b8c15",
+        "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24"
+      },
+      "executionDiscovery": {
+        "status": "static-path-found",
+        "evidence": [
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 663,
+            "kind": "direct command-line entry point"
+          }
+        ],
+        "unresolvedFacts": []
+      },
+      "assertions": [],
+      "semanticClaimIds": [],
+      "journeyMappings": [],
+      "connections": [],
+      "action": "independent-tool-or-module",
+      "exception": "No focused command or literal import edge was found for this independent tool/module.",
+      "oracle": null,
+      "formalApplicability": {
+        "kind": "not-applicable",
+        "rationale": "The migration command changes test registration and source-claim mappings; it does not drive a Builder journey or transition a formal model.",
+        "evidence": [
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "line": 457,
+            "kind": "migration plan and generated focused-check attachment"
+          }
+        ],
+        "bindings": [],
+        "limitation": "The command proves wiring and focused test execution only; it does not establish browser or TLA coverage."
+      },
+      "disposition": {
+        "kind": "keep",
+        "reason": "The deterministic migration command is the reusable mechanism for integrating reviewed shared-oracle tests."
+      },
+      "replacementProof": {
+        "paths": [],
+        "evidence": [],
+        "gap": ""
+      },
+      "duplicateCandidates": [],
+      "runtimeEvidence": {
+        "status": "unverified",
+        "reason": "No matching passed focused command evidence was joined."
+      }
+    },
+    {
       "path": "scripts/owned-query-probe.mjs",
       "roleHint": "tool-or-module",
       "present": true,
@@ -47493,6 +47586,15 @@
           "specifier": "../../verify-ui/helpers/focused-check-groups.mjs",
           "line": 6,
           "column": 54
+        },
+        {
+          "kind": "literal-import-candidate",
+          "evidence": "static-only-candidate",
+          "sourcePath": "scripts/migrate-mjs-focused-checks.mjs",
+          "targetPath": "scripts/verify-ui/helpers/focused-check-groups.mjs",
+          "specifier": "./verify-ui/helpers/focused-check-groups.mjs",
+          "line": 7,
+          "column": 41
         },
         {
           "kind": "literal-import-candidate",
@@ -110431,6 +110533,241 @@
       "runtimeEvidence": {
         "status": "unverified",
         "reason": "A focused command is configured, but no matching passed per-case summary was joined."
+      }
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+      "roleHint": "test",
+      "present": true,
+      "sha256": "26bef1d45f5b0dfc94fc48476f1571c5d85e34099849a794b25629e25019abe7",
+      "lifecycle": "active",
+      "origin": "added",
+      "currentSha256": "26bef1d45f5b0dfc94fc48476f1571c5d85e34099849a794b25629e25019abe7",
+      "purpose": "Tests migration preview, source guards, family discovery, registry consumption, orphan rejection, rollback, and idempotence using a temporary repository fixture.",
+      "role": "test",
+      "testLayer": "node-test",
+      "sourceReview": {
+        "status": "reviewed",
+        "reviewedCommit": "0ba092b726a76d6f0c4dc866f1d3f5a3452b8c15",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 135,
+            "kind": "plan preview and generated claim binding assertions"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 182,
+            "kind": "already-wired shared-helper classification assertion"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 228,
+            "kind": "stale source-hash apply rejection"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 245,
+            "kind": "disconnected registry apply rollback"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 261,
+            "kind": "idempotent apply and read-only check"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 287,
+            "kind": "orphaned generated focused-check rejection"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 312,
+            "kind": "disconnected registry check rejection"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 337,
+            "kind": "family discovery without test path enumeration"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 375,
+            "kind": "ambiguous family destination and match rejection"
+          }
+        ],
+        "confidence": "high"
+      },
+      "sourceRevision": {
+        "commit": "0ba092b726a76d6f0c4dc866f1d3f5a3452b8c15",
+        "sha256": "26bef1d45f5b0dfc94fc48476f1571c5d85e34099849a794b25629e25019abe7"
+      },
+      "executionDiscovery": {
+        "status": "no-static-path-found",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 1,
+            "kind": "imports Node test runner and migration command source"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 135,
+            "kind": "declares explicit migration CLI behavior checks"
+          }
+        ],
+        "unresolvedFacts": [
+          "The test is invoked by an explicit assigned-check command; no checked-in test runner currently registers this tool self-test."
+        ]
+      },
+      "assertions": [
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L147:tool-contract.mjs-migration-plan-previews-reviewed-attachments-and-claims",
+          "semanticClaimId": "tool-contract.mjs-migration-plan-previews-reviewed-attachments-and-claims",
+          "sourceLines": [
+            147,
+            162,
+            174,
+            175,
+            176
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L220:tool-contract.mjs-migration-preserves-configured-tests-outside-family-matches",
+          "semanticClaimId": "tool-contract.mjs-migration-preserves-configured-tests-outside-family-matches",
+          "sourceLines": [
+            220,
+            221,
+            222
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L237:tool-contract.mjs-migration-rejects-stale-source-before-writing",
+          "semanticClaimId": "tool-contract.mjs-migration-rejects-stale-source-before-writing",
+          "sourceLines": [
+            237,
+            238,
+            239
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L253:tool-contract.mjs-migration-rolls-back-when-fresh-registry-ignores-attachment",
+          "semanticClaimId": "tool-contract.mjs-migration-rolls-back-when-fresh-registry-ignores-attachment",
+          "sourceLines": [
+            253,
+            254,
+            255
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L271:tool-contract.mjs-migration-apply-and-check-are-idempotent",
+          "semanticClaimId": "tool-contract.mjs-migration-apply-and-check-are-idempotent",
+          "sourceLines": [
+            271,
+            273,
+            274,
+            275,
+            277,
+            281
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L305:tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+          "semanticClaimId": "tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+          "sourceLines": [
+            305,
+            306
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L343:tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+          "semanticClaimId": "tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+          "sourceLines": [
+            343,
+            344
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L358:tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+          "semanticClaimId": "tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+          "sourceLines": [
+            358,
+            359,
+            397,
+            398
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        },
+        {
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L303:tool-contract.mjs-migration-rejects-unmanaged-generated-check-removal",
+          "semanticClaimId": "tool-contract.mjs-migration-rejects-unmanaged-generated-check-removal",
+          "sourceLines": [
+            303,
+            304,
+            305,
+            306
+          ],
+          "evidenceKind": "test-assertion",
+          "independence": "independent"
+        }
+      ],
+      "semanticClaimIds": [
+        "tool-contract.mjs-migration-apply-and-check-are-idempotent",
+        "tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+        "tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+        "tool-contract.mjs-migration-plan-previews-reviewed-attachments-and-claims",
+        "tool-contract.mjs-migration-preserves-configured-tests-outside-family-matches",
+        "tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+        "tool-contract.mjs-migration-rejects-stale-source-before-writing",
+        "tool-contract.mjs-migration-rejects-unmanaged-generated-check-removal",
+        "tool-contract.mjs-migration-rolls-back-when-fresh-registry-ignores-attachment"
+      ],
+      "journeyMappings": [],
+      "connections": [],
+      "action": "review-unconnected-file",
+      "exception": "No configured focused command or literal import edge was found.",
+      "oracle": null,
+      "formalApplicability": {
+        "kind": "not-applicable",
+        "rationale": "The test validates migration tooling, not a Builder interaction or a formal-model transition.",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+            "line": 135,
+            "kind": "migration tooling test contract"
+          }
+        ],
+        "bindings": [],
+        "limitation": "Passing this self-test does not establish browser journey or TLA coverage."
+      },
+      "disposition": {
+        "kind": "keep",
+        "reason": "The migration tool needs a focused regression for stale input, ambiguity, loader disconnection, and idempotence."
+      },
+      "replacementProof": {
+        "paths": [],
+        "evidence": [],
+        "gap": ""
+      },
+      "duplicateCandidates": [],
+      "runtimeEvidence": {
+        "status": "unverified",
+        "reason": "No matching passed focused command evidence was joined."
       }
     },
     {
@@ -489773,24 +490110,24 @@
   ],
   "mjsCatalogSummary": {
     "baselineFiles": 678,
-    "currentFiles": 676,
+    "currentFiles": 678,
     "baselineRetired": 2,
-    "currentAdded": 0,
-    "sourceReviewed": 678,
-    "runtimeUnverified": 678,
+    "currentAdded": 2,
+    "sourceReviewed": 680,
+    "runtimeUnverified": 680,
     "invocationUncertain": 38,
-    "semanticClaims": 13177,
-    "sourceAssertionOccurrences": 18994,
-    "sourceAssertions": 9248,
+    "semanticClaims": 13186,
+    "sourceAssertionOccurrences": 19003,
+    "sourceAssertions": 9257,
     "nonAssertionOccurrences": 9746,
     "claimsWithoutSourceAssertions": 5430,
-    "claimsWithoutJourneyMappings": 5322,
+    "claimsWithoutJourneyMappings": 5331,
     "assertionEvidenceKindCounts": {
       "call-through": 3538,
       "fixture-fact": 159,
       "oracle-computation": 1012,
       "runtime-guard": 4631,
-      "test-assertion": 9248,
+      "test-assertion": 9257,
       "trace-capture": 406
     },
     "roleCounts": {
@@ -489798,18 +490135,18 @@
       "browser-workflow": 146,
       "config": 5,
       "helper-or-oracle": 144,
-      "test": 219,
-      "tool-or-module": 68
+      "test": 220,
+      "tool-or-module": 69
     },
     "formalApplicabilityCounts": {
       "candidate": 261,
       "direct-trace": 7,
-      "not-applicable": 402,
+      "not-applicable": 404,
       "trace-support": 8
     },
     "dispositionCounts": {
       "integrate": 2,
-      "keep": 675,
+      "keep": 677,
       "merge-candidate": 1
     }
   },
@@ -1081766,6 +1082103,182 @@
             30,
             31,
             32
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-plan-previews-reviewed-attachments-and-claims",
+      "statement": "The migration plan previews exact focused-check attachments, case-bound claim edits, and source-hash preconditions.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L147:tool-contract.mjs-migration-plan-previews-reviewed-attachments-and-claims",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            147,
+            162,
+            174,
+            175,
+            176
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-preserves-configured-tests-outside-family-matches",
+      "statement": "A configured Node test that shares an oracle helper but lacks the family function set remains already-wired and is excluded from the family command.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L220:tool-contract.mjs-migration-preserves-configured-tests-outside-family-matches",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            220,
+            221,
+            222
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-rejects-stale-source-before-writing",
+      "statement": "Apply rejects a source-hash change made after planning and preserves both output preimages.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L237:tool-contract.mjs-migration-rejects-stale-source-before-writing",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            237,
+            238,
+            239
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-rolls-back-when-fresh-registry-ignores-attachment",
+      "statement": "Apply rolls back generated attachment and semantic-catalogue bytes when a fresh registry import does not consume the focused check.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L253:tool-contract.mjs-migration-rolls-back-when-fresh-registry-ignores-attachment",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            253,
+            254,
+            255
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-apply-and-check-are-idempotent",
+      "statement": "A reviewed migration can be applied again as a byte-identical no-op and check mode leaves its outputs unchanged.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L271:tool-contract.mjs-migration-apply-and-check-are-idempotent",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            271,
+            273,
+            274,
+            275,
+            277,
+            281
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+      "statement": "Check mode rejects generated JSON that no longer appears in the exact registered case.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L305:tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            305,
+            306
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+      "statement": "A new matching Node test is discovered from the shared oracle import without adding a test path to family rules.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L343:tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            343,
+            344
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+      "statement": "The migration rejects duplicate family destinations and a test that matches more than one approved family.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L358:tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            358,
+            359,
+            397,
+            398
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tool-contract.mjs-migration-rejects-unmanaged-generated-check-removal",
+      "statement": "The migration planner rejects previously generated focused checks that no current reviewed family owns, preventing silent check removal.",
+      "category": "tool-contract",
+      "journeys": [],
+      "sourceAssertions": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+          "lifecycle": "active",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L303:tool-contract.mjs-migration-rejects-unmanaged-generated-check-removal",
+          "evidenceKind": "test-assertion",
+          "sourceLines": [
+            303,
+            304,
+            305,
+            306
           ]
         }
       ]
