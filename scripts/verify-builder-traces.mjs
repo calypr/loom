@@ -1047,6 +1047,107 @@ function cdaNativePathBase(path) {
   return markerIndex > 0 ? path.slice(0, markerIndex) : null;
 }
 
+function cdaLatePreviewObservationProblem(trace, action, actionIndex) {
+  const panel = action.renderedObservation?.proposalPanel;
+  const responseEventObservation = action.responseEventObservation;
+  const responseEventPanel = responseEventObservation?.proposalPanel;
+  const classification = action.lateClassification;
+  const panelObservedAt = classification?.proposalPanelObservedAt;
+  const panelBrowserRequestId = action.renderedObservation?.proposalPanelBrowserRequestId;
+  const eventSnapshot = action.eventTimeSnapshot;
+  const responseMount = eventSnapshot?.responseMount;
+  const observationMount = eventSnapshot?.observationMount;
+  const newerOwnerRequest = Array.isArray(trace.nativeRequests)
+    ? trace.nativeRequests.find(request => request.browserRequestId === classification?.ownerBrowserRequestId)
+    : null;
+  const newerOwnerStartIndex = trace.actions.findIndex((candidate, candidateIndex) =>
+    candidateIndex < actionIndex &&
+    ['Preview', 'RelatedSourcePreview'].includes(candidate.label) &&
+    candidate.request?.browserRequestId === classification?.ownerBrowserRequestId);
+  const newerOwnerStart = newerOwnerStartIndex >= 0 ? trace.actions[newerOwnerStartIndex] : null;
+  const newerOwnerLifecycle = newerOwnerStart?.relatedSourceLifecycle ??
+    newerOwnerStart?.groupLifecycle ?? newerOwnerStart?.rowExpansionLifecycle;
+  const newerOwner = newerOwnerLifecycle?.owner;
+  const newerOwnerSettlement = trace.actions.find(candidate =>
+    candidate.request?.browserRequestId === classification?.ownerBrowserRequestId &&
+    ['PreviewComplete', 'RelatedSourcePreview'].includes(candidate.label));
+  const newerOwnerCompletionTimes = [
+    newerOwnerRequest?.completedAt,
+    newerOwnerRequest?.responseReceivedAt,
+    newerOwnerSettlement?.settlement?.completedAt,
+    newerOwnerSettlement?.settlement?.responseReceivedAt,
+  ].filter(Number.isFinite);
+  const staleSettlementCompletedAt = Number.isFinite(action.settlement?.completedAt)
+    ? action.settlement.completedAt
+    : action.settlement?.responseReceivedAt;
+  const invalid = classification?.available !== true || !isPlainObject(panel) ||
+    typeof panel.id !== 'string' || panel.id.length === 0 || panel.status !== 'ready' ||
+    !isPlainObject(action.renderedObservation?.builder) ||
+    !isPlainObject(responseEventObservation) || !isPlainObject(responseEventPanel) ||
+    responseEventPanel.id !== panel.id || responseEventPanel.status !== panel.status ||
+    !Number.isFinite(responseEventObservation.proposalPanelObservedAt) ||
+    responseEventObservation.proposalPanelObservedAt !== panelObservedAt ||
+    responseEventObservation.proposalPanelBrowserRequestId !== classification.ownerBrowserRequestId ||
+    !Number.isFinite(action.renderedObservation?.proposalPanelObservedAt) ||
+    action.renderedObservation.proposalPanelObservedAt !== classification.proposalPanelObservedAt ||
+    panelBrowserRequestId !== classification.ownerBrowserRequestId ||
+    classification.ownerBrowserRequestId === action.request?.browserRequestId ||
+    classification.renderedPanelProposalId !== panel.id ||
+    typeof classification.ownerBrowserRequestId !== 'string' ||
+    !Number.isFinite(panelObservedAt) ||
+    !Number.isFinite(classification.ownerStartedAt) || !Number.isFinite(classification.ownerCompletedAt) ||
+    classification.ownerStartedAt <= action.request.startedAt ||
+    !Number.isFinite(staleSettlementCompletedAt) || classification.ownerStartedAt >= staleSettlementCompletedAt ||
+    newerOwnerRequest?.method !== 'POST' ||
+    cdaNativePathSuffix(newerOwnerRequest?.path) !== '/construction-proposals' ||
+    newerOwnerRequest.isMutation !== false ||
+    newerOwnerRequest.startedAt !== classification.ownerStartedAt ||
+    newerOwnerRequest.index <= action.request.index ||
+    !newerOwnerStart ||
+    newerOwnerStart.request?.browserRequestId !== newerOwnerRequest.browserRequestId ||
+    newerOwnerStart.request?.startedAt !== classification.ownerStartedAt ||
+    newerOwner?.browserRequestId !== newerOwnerRequest.browserRequestId ||
+    !Number.isInteger(newerOwner?.mountEpoch) ||
+    newerOwner.mountEpoch !== newerOwnerLifecycle?.mountEpoch ||
+    newerOwner.documentTimeOrigin !== newerOwnerLifecycle?.documentTimeOrigin ||
+    typeof newerOwner.documentTimeOrigin !== 'number' || !Number.isFinite(newerOwner.documentTimeOrigin) ||
+    newerOwner.documentTimeOrigin <= 0 ||
+    !newerOwnerSettlement ||
+    newerOwnerSettlement.response?.status < 200 || newerOwnerSettlement.response?.status >= 300 ||
+    newerOwnerSettlement.response?.proposalId !== panel.id ||
+    newerOwnerSettlement.response?.proposalPreviewStatus !== 'READY' ||
+    !newerOwnerCompletionTimes.includes(classification.ownerCompletedAt) ||
+    classification.ownerCompletedAt < classification.ownerStartedAt ||
+    classification.ownerCompletedAt > panelObservedAt ||
+    panelObservedAt < staleSettlementCompletedAt ||
+    eventSnapshot?.available !== true ||
+    !Number.isInteger(responseMount?.mountEpoch) ||
+    responseMount.mountEpoch !== action.observedEpoch ||
+    typeof responseMount.documentTimeOrigin !== 'number' ||
+    !Number.isFinite(responseMount.documentTimeOrigin) || responseMount.documentTimeOrigin <= 0 ||
+    !Number.isInteger(observationMount?.mountEpoch) ||
+    observationMount.mountEpoch !== action.observedEpoch ||
+    typeof observationMount.documentTimeOrigin !== 'number' ||
+    !Number.isFinite(observationMount.documentTimeOrigin) || observationMount.documentTimeOrigin <= 0 ||
+    observationMount.documentTimeOrigin !== responseMount.documentTimeOrigin ||
+    !Number.isFinite(eventSnapshot.observedAt) || eventSnapshot.observedAt !== panelObservedAt ||
+    action.renderedObservationMount !== undefined &&
+      (!isPlainObject(action.renderedObservationMount) ||
+       action.renderedObservationMount.mountEpoch !== observationMount.mountEpoch ||
+       action.renderedObservationMount.documentTimeOrigin !== observationMount.documentTimeOrigin) ||
+    action.label === 'LatePreviewCompleteIgnored' &&
+      (!isPlainObject(action.response) || action.response.status < 200 || action.response.status >= 300 ||
+       action.response.proposalPreviewStatus !== 'READY' || action.settlement?.kind !== 'http-response') ||
+    action.label === 'LatePreviewErrorIgnored' &&
+      !(action.response === null && action.settlement?.kind === 'request-failed') &&
+      !(isPlainObject(action.response) &&
+        (action.response.status < 200 || action.response.status >= 300 ||
+         action.response.proposalPreviewStatus !== 'READY') && action.settlement?.kind === 'http-response');
+  return invalid
+    ? 'late preview transition must retain actual newer owner, request/settlement chronology, and event-time DOM mounts'
+    : null;
+}
+
 function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) {
   if (!Array.isArray(trace.nativeRequests)) {
     return { message: where + '.nativeRequests must preserve the complete native observer request ledger for CDA coverage' };
@@ -1073,9 +1174,8 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
   };
   const registerRequest = (request, actionIndex, label) => {
     const requestID = observedRequestKey(request);
-    const expectedMutationFlag = request.method === 'POST' && cdaNativePathSuffix(request.path) === '/commands';
-    if (request.isMutation !== undefined && request.isMutation !== expectedMutationFlag) {
-      return where + '.actions[' + actionIndex + '] ' + label + ' request mutation flag does not match the observer route contract';
+    if (typeof request.isMutation !== 'boolean') {
+      return where + '.actions[' + actionIndex + '] ' + label + ' request must preserve the actual observer mutation flag';
     }
     if (!requestID) return where + '.actions[' + actionIndex + '] ' + label + ' must preserve its actual captureId or browserRequestId';
     if (typeof request.browserRequestId !== 'string' || request.browserRequestId.length === 0 ||
@@ -1114,7 +1214,7 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
       index: request.index,
       startedAt: request.startedAt,
       requestId: request.requestId,
-      isMutation: expectedMutationFlag,
+      isMutation: request.isMutation,
       label,
       actionIndex,
     });
@@ -3268,48 +3368,8 @@ function traceShapeProblem(trace, index, contract, events) {
         }
       }
       if (hasCdaRelatedCase && ['LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored'].includes(action.label)) {
-        const panel = action.renderedObservation?.proposalPanel;
-        const classification = action.lateClassification;
-        const panelObservedAt = classification?.observedAt;
-        const panelBrowserRequestId = action.renderedObservation?.proposalPanelBrowserRequestId;
-        const newerOwnerRequest = Array.isArray(trace.nativeRequests)
-          ? trace.nativeRequests.find(request => request.browserRequestId === classification?.ownerBrowserRequestId)
-          : null;
-        const newerOwnerSettlement = trace.actions.find((candidate, candidateIndex) =>
-          candidateIndex < actionIndex &&
-          candidate.request?.browserRequestId === classification?.ownerBrowserRequestId &&
-          ['PreviewComplete', 'RelatedSourcePreview'].includes(candidate.label));
-        const newerOwnerCompletionTimes = [
-          newerOwnerRequest?.completedAt,
-          newerOwnerRequest?.responseReceivedAt,
-          newerOwnerSettlement?.settlement?.completedAt,
-          newerOwnerSettlement?.settlement?.responseReceivedAt,
-        ].filter(Number.isFinite);
-        if (classification?.available !== true || !isPlainObject(panel) ||
-            typeof panel.id !== 'string' || panel.id.length === 0 ||
-            !Number.isFinite(action.renderedObservation?.proposalPanelObservedAt) ||
-            action.renderedObservation.proposalPanelObservedAt !== classification.observedAt ||
-            panelBrowserRequestId !== classification.ownerBrowserRequestId ||
-            classification.ownerBrowserRequestId === action.request?.browserRequestId ||
-            classification.renderedPanelProposalId !== panel.id ||
-            typeof classification.ownerBrowserRequestId !== 'string' ||
-            !Number.isFinite(panelObservedAt) ||
-            !Number.isFinite(classification.ownerStartedAt) || !Number.isFinite(classification.ownerCompletedAt) ||
-            classification.ownerStartedAt <= action.request.startedAt ||
-            newerOwnerRequest?.method !== 'POST' ||
-            cdaNativePathSuffix(newerOwnerRequest?.path) !== '/construction-proposals' ||
-            newerOwnerRequest.isMutation !== true ||
-            newerOwnerRequest.startedAt !== classification.ownerStartedAt ||
-            newerOwnerRequest.index <= action.request.index ||
-            !newerOwnerSettlement ||
-            newerOwnerSettlement.response?.proposalId !== panel.id ||
-            !newerOwnerCompletionTimes.includes(classification.ownerCompletedAt) ||
-            classification.ownerCompletedAt < classification.ownerStartedAt ||
-            classification.ownerCompletedAt > panelObservedAt ||
-            classification.ownerCompletedAt > action.settlement?.completedAt ||
-            panelObservedAt < action.settlement?.completedAt) {
-          return { message: actionWhere + ' late preview transition must retain an actual newer request owner and its later rendered candidate panel', actionIndex };
-        }
+        const lateProblem = cdaLatePreviewObservationProblem(trace, action, actionIndex);
+        if (lateProblem) return { message: actionWhere + ' ' + lateProblem, actionIndex };
       }
       const isCdaRowExpansionAction = hasCdaRelatedCase && cdaRowLifecycleIndexes.has(actionIndex);
       if (hasCdaRelatedCase) {
@@ -5009,7 +5069,11 @@ async function main() {
     : 'PASS Builder trace validation: all ' + report.traceCount + ' traces match TLC model paths.');
 }
 
-export { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt };
+export {
+  cdaLatePreviewObservationProblem,
+  cdaMutatingRequestCoverageProblem,
+  cdaRequestCoverageReceipt,
+};
 
 const isDirectExecution = (() => {
   if (!process.argv[1]) return false;

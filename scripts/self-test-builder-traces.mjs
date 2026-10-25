@@ -4,7 +4,11 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from './verify-builder-traces.mjs';
+import {
+  cdaLatePreviewObservationProblem,
+  cdaMutatingRequestCoverageProblem,
+  cdaRequestCoverageReceipt,
+} from './verify-builder-traces.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const args = process.argv.slice(2);
@@ -96,6 +100,7 @@ const cdaProposalObserverFlagTest = () => {
     browserRequestId: 'browser-proposal-self-test',
     index: 4,
     startedAt: 1000,
+    isMutation: false,
   };
   const commandRequest = {
     method: 'POST',
@@ -104,6 +109,7 @@ const cdaProposalObserverFlagTest = () => {
     browserRequestId: 'browser-command-self-test',
     index: 5,
     startedAt: 1020,
+    isMutation: true,
   };
   const supportRequest = {
     method: 'GET',
@@ -186,6 +192,98 @@ const cdaProposalObserverFlagTest = () => {
   )?.message.includes('unknown read-only method/path route outside the support allowlist');
   return validProposalAccepted && modeledCoverageCountsBothFlags && unknownFalsePostRejected;
 };
+const cdaLatePreviewObservationTest = () => {
+  const staleRequest = {
+    method: 'POST', path: '/construction-proposals', requestId: 'wire-stale',
+    browserRequestId: 'browser-stale', index: 1, startedAt: 100, isMutation: false,
+  };
+  const currentRequest = {
+    method: 'POST', path: '/construction-proposals', requestId: 'wire-current',
+    browserRequestId: 'browser-current', index: 2, startedAt: 150, isMutation: false,
+  };
+  const staleOwner = {
+    kind: 'proposal', attempt: 'P1', browserRequestId: staleRequest.browserRequestId,
+    requestId: staleRequest.requestId, mountEpoch: 0, documentTimeOrigin: 1000,
+  };
+  const currentOwner = {
+    kind: 'proposal', attempt: 'P2', browserRequestId: currentRequest.browserRequestId,
+    requestId: currentRequest.requestId, mountEpoch: 1, documentTimeOrigin: 2000,
+  };
+  const panel = { status: 'ready', id: 'proposal-current', rows: [] };
+  const renderedObservation = {
+    builder: { status: 'ready' },
+    proposalPanel: panel,
+    proposalPanelObservedAt: 250,
+    proposalPanelBrowserRequestId: currentRequest.browserRequestId,
+  };
+  const currentResponse = {
+    status: 200, proposalId: panel.id, proposalPreviewStatus: 'READY',
+  };
+  const trace = {
+    nativeRequests: [
+      { ...staleRequest, path: '/api/v1/projects/self-test/authoring/v2/construction-proposals' },
+      { ...currentRequest, path: '/api/v1/projects/self-test/authoring/v2/construction-proposals', completedAt: 220 },
+    ],
+    actions: [
+      { label: 'Preview', owner: staleOwner, request: staleRequest,
+        groupLifecycle: { mountEpoch: 0, owner: staleOwner } },
+      { label: 'Preview', owner: currentOwner, request: currentRequest,
+        groupLifecycle: { mountEpoch: 1, documentTimeOrigin: 2000, owner: currentOwner } },
+      {
+        label: 'LatePreviewCompleteIgnored',
+        owner: staleOwner,
+        request: staleRequest,
+        response: { status: 200, proposalId: 'proposal-stale', proposalPreviewStatus: 'READY' },
+        settlement: { kind: 'http-response', startedAt: 100, completedAt: 200 },
+        observedEpoch: 1,
+        groupLifecycle: { mountEpoch: 0, documentTimeOrigin: 1000, owner: staleOwner },
+        renderedObservation,
+        responseEventObservation: renderedObservation,
+        eventTimeSnapshot: {
+          available: true,
+          observedAt: 250,
+          responseMount: { mountEpoch: 1, documentTimeOrigin: 2000 },
+          observationMount: { mountEpoch: 1, documentTimeOrigin: 2000 },
+        },
+        lateClassification: {
+          available: true,
+          ownerBrowserRequestId: currentRequest.browserRequestId,
+          ownerStartedAt: 150,
+          ownerCompletedAt: 220,
+          renderedPanelProposalId: panel.id,
+          proposalPanelObservedAt: 250,
+          proposalPanelBrowserRequestId: currentRequest.browserRequestId,
+        },
+      },
+      {
+        label: 'PreviewComplete',
+        owner: currentOwner,
+        request: currentRequest,
+        response: currentResponse,
+        settlement: { kind: 'http-response', startedAt: 150, completedAt: 220 },
+        groupLifecycle: { mountEpoch: 1, documentTimeOrigin: 2000, owner: currentOwner },
+      },
+    ],
+  };
+  const lateAction = trace.actions[2];
+  const acceptedCrossMountLate = cdaLatePreviewObservationProblem(trace, lateAction, 2) === null;
+  const wrongPanelTime = structuredClone(trace);
+  wrongPanelTime.actions[2].lateClassification.proposalPanelObservedAt = 251;
+  const wrongPanelTimeRejected = cdaLatePreviewObservationProblem(wrongPanelTime, wrongPanelTime.actions[2], 2) !== null;
+  const wrongObserverFlag = structuredClone(trace);
+  wrongObserverFlag.nativeRequests[1].isMutation = true;
+  const wrongObserverFlagRejected = cdaLatePreviewObservationProblem(wrongObserverFlag, wrongObserverFlag.actions[2], 2) !== null;
+  const wrongEventMount = structuredClone(trace);
+  wrongEventMount.actions[2].eventTimeSnapshot.responseMount.mountEpoch = 0;
+  const wrongEventMountRejected = cdaLatePreviewObservationProblem(wrongEventMount, wrongEventMount.actions[2], 2) !== null;
+  const wrongOwnerLifecycleMount = structuredClone(trace);
+  wrongOwnerLifecycleMount.actions[1].groupLifecycle.mountEpoch = 0;
+  const wrongOwnerLifecycleMountRejected = cdaLatePreviewObservationProblem(
+    wrongOwnerLifecycleMount, wrongOwnerLifecycleMount.actions[2], 2,
+  ) !== null;
+  return acceptedCrossMountLate && wrongPanelTimeRejected && wrongObserverFlagRejected &&
+    wrongEventMountRejected && wrongOwnerLifecycleMountRejected;
+};
 if (!selfTestReceiptWriterTest()) {
   console.error('FAIL self-test receipt compatibility and output-path checks');
   process.exit(1);
@@ -196,6 +294,11 @@ if (!cdaProposalObserverFlagTest()) {
   process.exit(1);
 }
 console.log('PASS CDA proposal observer flag accepts modeled proposals and rejects unknown false POSTs');
+if (!cdaLatePreviewObservationTest()) {
+  console.error('FAIL CDA late preview observation binds the canonical timestamp, actual owner, and distinct event mounts');
+  process.exit(1);
+}
+console.log('PASS CDA late preview observation binds the canonical timestamp, actual owner, and distinct event mounts');
 if (!journeyOnly && (!Array.isArray(payload.traces) || payload.traces.length === 0)) {
   console.error('FAIL trace corpus is empty');
   process.exit(1);
