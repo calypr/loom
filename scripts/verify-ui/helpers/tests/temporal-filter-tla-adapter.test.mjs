@@ -55,6 +55,8 @@ test('compiler binds synthetic adapter-produced DATE events, snapshots, DOM refe
   assert.match(compiled.configText, /CONSTANT InitialMountEpoch <- TraceInitialMountEpoch/u);
   assert.match(compiled.configText, /CONSTANT ObservedRequests <- TraceObservedRequests/u);
   assert.match(compiled.configText, /INVARIANT InvObservedMutationsConsumed/u);
+  assert.match(compiled.configText, /INVARIANT InvReconcileEvidenceLinked/u);
+  assert.match(compiled.configText, /INVARIANT InvReloadReconcileBindsFreshSnapshot/u);
   assert.match(compiled.configText, /PROPERTY EventuallyComplete/u);
   assert.match(compiled.responseTimeBoundary, /responseReceivedAt/u);
   assert.equal(compiled.eventCount, trace.actions.length);
@@ -128,6 +130,64 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
   firstProposal.completedAt = firstProposal.responseReceivedAt + 1;
   const beforeReadyTrace = adaptTemporalFilterJourney(readyDOMBeforeProposalResponse);
   assert.throws(() => compileTemporalFilterJourneyTrace(beforeReadyTrace), /DOM observation must follow the bound request response arrival/u);
+});
+
+test('compiler binds reload DOM and Builder state to each actual reconcile request and response', () => {
+  const trace = makeJourney('date');
+  const validated = validateTemporalFilterJourneyTrace(trace);
+  const reloads = validated.modelEvents.filter(event => event.action === 'Reload');
+  const reconcileRequests = validated.observedRequests.filter(request => request.path.endsWith('/reconcile'));
+  assert.equal(reloads.length, 4);
+  assert.deepEqual(reconcileRequests.map(request => request.captureId).sort(),
+    trace.temporalFilterLifecycle.requestEvents
+      .filter(request => request.method === 'POST' && request.path.endsWith('/reconcile'))
+      .map(request => request.browserRequestId).sort(),
+    'The model ledger must retain every captured reconcile request.');
+  for (const event of reloads) {
+    assert(event.reconcileCaptureIds.length > 0, 'Reload must bind its actual reconcile browser request ID or IDs.');
+    const request = reconcileRequests.find(candidate => event.reconcileCaptureIds.includes(candidate.captureId) &&
+      candidate.requestSnapshotToken === event.after.snapshotToken &&
+      candidate.requestDraftVersion === event.after.draftVersion &&
+      candidate.requestDraftDigest === event.after.draftDigest &&
+      candidate.requestOutputId === event.after.outputId &&
+      candidate.responseSnapshotToken === candidate.requestSnapshotToken &&
+      candidate.receiptId === event.ui.receiptId);
+    assert(request, 'Reload must bind a response for its actual saved Builder CAS and DOM receipt.');
+    assert.equal(request.requestSnapshotToken, event.after.snapshotToken);
+    assert.equal(request.requestDraftVersion, event.after.draftVersion);
+    assert.equal(request.requestDraftDigest, event.after.draftDigest);
+    assert.equal(request.requestOutputId, event.after.outputId);
+    assert.equal(request.responseSnapshotToken, request.requestSnapshotToken);
+    assert(request.responseOutputIds.includes(event.after.outputId));
+    assert.equal(request.receiptId, event.ui.receiptId);
+    assert.equal(validated.pureReadCaptureIds.includes(request.captureId), false,
+      'A reconcile used by Reload belongs to the model request ledger, not the pure-read sidecar.');
+  }
+
+  const staleCAS = makeJourney('date');
+  const staleCASRaw = staleCAS.temporalFilterLifecycle.requestEvents.find(request =>
+    request.browserRequestId === staleCAS.temporalFilterLifecycle.steps[5].reconcileCaptureIds[0]);
+  staleCASRaw.request.draftDigest = 'stale-digest';
+  assert.throws(() => compileTemporalFilterJourneyTrace(staleCAS), /fresh saved Builder draft digest/u);
+
+  const staleReceipt = makeJourney('date');
+  const staleReceiptRaw = staleReceipt.temporalFilterLifecycle.requestEvents.find(request =>
+    request.browserRequestId === staleReceipt.temporalFilterLifecycle.steps[5].reconcileCaptureIds[0]);
+  staleReceiptRaw.response.receiptId = 'detached-receipt';
+  assert.throws(() => compileTemporalFilterJourneyTrace(staleReceipt), /DOM receipt must match a successful actual reconcile response/u);
+
+  const missingReloadLink = makeJourney('date');
+  missingReloadLink.temporalFilterLifecycle.steps[5].reconcileCaptureIds = [];
+  assert.throws(() => compileTemporalFilterJourneyTrace(missingReloadLink), /reconcile request links must remain equal to their raw step references/u);
+
+  const responseAfterReloadRead = makeJourney('date');
+  const rawStep = responseAfterReloadRead.temporalFilterLifecycle.steps[5];
+  const raw = responseAfterReloadRead.temporalFilterLifecycle.requestEvents.find(request =>
+    request.browserRequestId === rawStep.reconcileCaptureIds[0]);
+  raw.responseReceivedAt = responseAfterReloadRead.temporalFilterLifecycle.builderReads[
+    rawStep.afterReadIndex].requestStartedAtEpochMs + 1;
+  raw.completedAt = raw.responseReceivedAt + 1;
+  assert.throws(() => compileTemporalFilterJourneyTrace(responseAfterReloadRead), /Reload post-settlement Builder GET must start/u);
 });
 
 test('synthetic DATE and DATE_TIME adapter captures pass their generated TLA trace instances', { timeout: 30_000 }, () => {

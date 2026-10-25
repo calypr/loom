@@ -55,6 +55,7 @@ const MISSING_SNAPSHOT = Object.freeze({
   mountEpoch: 0,
   status: NO,
   catalogGeneration: NO,
+  snapshotToken: NO,
   draftVersion: 0,
   draftDigest: NO,
   workspaceDocuments: [],
@@ -132,6 +133,7 @@ const fieldId = value => value?.columnId ?? value?.id ?? NO;
 const stepId = value => value?.id ?? value?.stepId ?? NO;
 const isProposalRequest = request => request.method === 'POST' &&
   PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix));
+const isReconcileRequest = request => request.method === 'POST' && request.path.endsWith('/reconcile');
 
 const projectFilterValue = value => {
   assert(value && typeof value === 'object' && typeof value.kind === 'string',
@@ -187,6 +189,7 @@ const projectSnapshot = (snapshot, initialMountEpoch) => {
     mountEpoch: snapshot.mountEpoch,
     status: snapshot.status,
     catalogGeneration: noIfAbsent(snapshot.catalogGeneration),
+    snapshotToken: noIfAbsent(snapshot.snapshotToken),
     draftVersion: noIfAbsent(snapshot.draftVersion),
     draftDigest: noIfAbsent(snapshot.draftDigest),
     workspaceDocuments: opaqueJSON(snapshot.workspaceDocuments),
@@ -318,6 +321,7 @@ const projectModelEvent = (event, rawStep, timeOrigin, initialMountEpoch) => ({
   ui: projectUI(event.ui, timeOrigin, initialMountEpoch),
   filter: projectFilterEvidence(event.filter),
   proposalCaptureIds: safeArray(rawStep.proposalCaptureIds),
+  reconcileCaptureIds: safeArray(rawStep.reconcileCaptureIds),
 });
 
 const buildCase = (caseName, actions) => {
@@ -377,6 +381,7 @@ const snapshotAt = (capture, index) => {
     status: read.status,
     mountEpoch: read.mountEpoch,
     catalogGeneration: read.catalogGeneration ?? null,
+    snapshotToken: read.snapshotToken ?? null,
     draftVersion: read.draftVersion ?? null,
     draftDigest: read.draftDigest ?? null,
     workspaceDocuments: read.workspaceDocuments,
@@ -484,6 +489,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
   for (const read of lifecycle.builderReads) {
     assert(Number.isFinite(read.requestStartedAtEpochMs) && Number.isFinite(read.capturedAtEpochMs),
       `Builder read ${read.readId} must retain request-start and body-observation epoch times.`);
+    assert(typeof read.snapshotToken === 'string' && read.snapshotToken.length > 0,
+      `Builder read ${read.readId} must retain its actual catalog snapshot token.`);
     assert(read.capturedAtEpochMs >= read.requestStartedAtEpochMs,
       `Builder read ${read.readId} response body must follow its actual GET start.`);
     assert(Number.isInteger(read.requestMountEpoch) && Number.isInteger(read.mountEpoch));
@@ -524,16 +531,21 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const rawRequestById = new Map(rawRequests.map(request => [request.browserRequestId, request]));
   const actionRequestIds = [];
   const proposalLinks = [];
+  const reconcileLinks = [];
   for (let index = 0; index < trace.actions.length; index += 1) {
     const event = trace.actions[index];
     const rawStep = lifecycle.steps[index];
     assert.equal(rawStep.label, event.action, `Canonical action ${index} must map to its same-index raw step.`);
+    assert.deepEqual(event.reconcileCaptureIds, rawStep.reconcileCaptureIds,
+      `${event.action} reconcile request links must remain equal to their raw step references.`);
     assert(Number.isFinite(event.atMonotonicMs) && Number.isFinite(event.atEpochMs),
       `${event.action} must retain its observed timestamp.`);
     assert(Number.isInteger(event.mountEpoch), `${event.action} must retain its mount epoch.`);
     assert.equal(event.mountEpoch, rawStep.mountEpoch, `${event.action} must preserve the raw semantic-step mount epoch.`);
     assert(rawStep.requestCaptureId === null || rawStep.requestCaptureId === undefined ||
       typeof rawStep.requestCaptureId === 'string', `${event.action} request link must preserve its actual ID.`);
+    assert(Array.isArray(rawStep.reconcileCaptureIds),
+      `${event.action} must retain its raw reconcile request links, including an empty list.`);
     const requestCaptureId = rawStep.requestCaptureId ?? null;
     assert.deepEqual(event.before, snapshotAt(lifecycle, rawStep.beforeReadIndex),
       `${event.action} before snapshot must resolve from its actual raw Builder read index.`);
@@ -627,6 +639,51 @@ export const validateTemporalFilterJourneyTrace = trace => {
       assert(linkedProposals.includes(requestCaptureId),
         `${event.action} primary request must also be linked as its proposal evidence.`);
     }
+
+    const linkedReconciles = rawStep.reconcileCaptureIds;
+    const reconcileRequests = linkedReconciles.map(captureId => {
+      const request = rawRequestById.get(captureId);
+      assert(request, `${event.action} reconcile link must resolve to an actual observer request.`);
+      assert(isReconcileRequest(request), `${event.action} reconcile link must identify POST /reconcile.`);
+      assert.equal(request.isMutation, false,
+        'POST /reconcile must preserve the observer’s read-only classification.');
+      assert(Number.isFinite(request.responseReceivedAt),
+        `${event.action} reconcile must retain its actual response-arrival time.`);
+      return request;
+    });
+    if (event.action === 'Reload') {
+      assert(linkedReconciles.length > 0,
+        'Each Reload must bind its actual reconcile request or requests.');
+      assert(beforeRead && afterRead && domObservation,
+        'Each Reload must bind its actual pre-read, post-read, and DOM observation.');
+      const reconcile = reconcileRequests.find(request =>
+        Number.isFinite(request.status) && request.status >= 200 && request.status < 300 &&
+        request.response?.receiptId === event.ui.receiptId);
+      assert(reconcile,
+        'Reload DOM receipt must match a successful actual reconcile response.');
+      assert.equal(reconcile.request?.snapshotToken, event.after.snapshotToken,
+        'Reload reconcile request must use the fresh saved Builder snapshot token.');
+      assert.equal(reconcile.request?.draftVersion, event.after.draftVersion,
+        'Reload reconcile request must use the fresh saved Builder draft version.');
+      assert.equal(reconcile.request?.draftDigest, event.after.draftDigest,
+        'Reload reconcile request must use the fresh saved Builder draft digest.');
+      assert.equal(reconcile.request?.outputId, event.after.outputId,
+        'Reload reconcile request must name the output in its saved Builder snapshot.');
+      assert.equal(reconcile.response?.snapshotToken, reconcile.request.snapshotToken,
+        'Reload reconcile response must echo its actual saved snapshot token.');
+      assert(typeof reconcile.response?.receiptId === 'string' && reconcile.response.receiptId.length > 0,
+        'Reload reconcile response must retain its actual compilation receipt ID.');
+      const responseOutputIds = safeArray(reconcile.response?.outputs).map(output => output?.outputId);
+      assert(responseOutputIds.includes(event.after.outputId),
+        'Reload reconcile response must contain the actual saved output.');
+      assert.equal(event.ui.outputId, event.after.outputId,
+        'Reload DOM preview output must match its actual saved Builder snapshot.');
+      assert(afterRead.requestStartedAtEpochMs >= reconcile.responseReceivedAt,
+        'Reload post-settlement Builder GET must start after its reconcile response arrives.');
+      assert(domObservation.capturedAtEpochMs >= reconcile.responseReceivedAt,
+        'Reload DOM observation must follow its reconcile response arrival.');
+    }
+    reconcileLinks.push(...linkedReconciles);
   }
   assert.equal(new Set(actionRequestIds).size, actionRequestIds.length,
     'Each semantic request must be consumed by one action only.');
@@ -639,6 +696,12 @@ export const validateTemporalFilterJourneyTrace = trace => {
     .map(request => request.browserRequestId).sort();
   assert.deepEqual([...proposalLinks].sort(), expectedProposals,
     'Every observer construction proposal must be linked to exactly one semantic step.');
+  const expectedReconciles = rawRequests.filter(isReconcileRequest)
+    .map(request => request.browserRequestId).sort();
+  assert.equal(new Set(reconcileLinks).size, reconcileLinks.length,
+    'Each observed reconcile request must be linked to one semantic step only.');
+  assert.deepEqual([...reconcileLinks].sort(), expectedReconciles,
+    'Every observer POST /reconcile must be linked to exactly one semantic step.');
 
   const firstActionRead = trace.actions[0]?.after;
   assert(firstActionRead && trace.initialObservation,
@@ -647,6 +710,7 @@ export const validateTemporalFilterJourneyTrace = trace => {
   assert.equal(trace.initialObservation.mountEpoch, firstActionRead.mountEpoch);
   assert.equal(trace.initialObservation.draftVersion, firstActionRead.draftVersion);
   assert.equal(trace.initialObservation.draftDigest, firstActionRead.draftDigest);
+  assert.equal(trace.initialObservation.snapshotToken, firstActionRead.snapshotToken);
   assert.deepEqual(trace.initialObservation.workspaceDocuments, firstActionRead.workspaceDocuments);
 
   const timeOrigin = {
@@ -665,12 +729,21 @@ export const validateTemporalFilterJourneyTrace = trace => {
     path: request.path,
     status: noIfAbsent(request.status),
     outputId: noIfAbsent(request.response?.outputId),
-    receiptId: noIfAbsent(request.response?.preview?.receiptId),
+    receiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
     candidateColumnIds: safeArray(request.response?.candidateColumnIds),
+    requestSnapshotToken: noIfAbsent(request.request?.snapshotToken),
+    requestDraftVersion: noIfAbsent(request.request?.draftVersion),
+    requestDraftDigest: noIfAbsent(request.request?.draftDigest),
+    requestOutputId: noIfAbsent(request.request?.outputId),
+    responseSnapshotToken: noIfAbsent(request.response?.snapshotToken),
+    responseOutputIds: Array.isArray(request.response?.outputs)
+      ? request.response.outputs.map(output => noIfAbsent(output?.outputId))
+      : NO,
     requestEvidence: opaqueJSON(request.request),
     responseEvidence: opaqueJSON(request.response),
   }));
-  const pureReadCaptureIds = rawRequests.filter(request => !request.isMutation && !isProposalRequest(request))
+  const pureReadCaptureIds = rawRequests.filter(request => !request.isMutation &&
+    !isProposalRequest(request) && !isReconcileRequest(request))
     .map(request => request.browserRequestId);
 
   return {
@@ -704,6 +777,8 @@ const invariantNames = Object.freeze([
   'InvRenderMatchesSavedFilter',
   'InvProposalPreviewRowsMatch',
   'InvAllOtherStepsAndColumnsPreserved',
+  'InvReconcileEvidenceLinked',
+  'InvReloadReconcileBindsFreshSnapshot',
   'InvApplyUsesCurrentProposalAndCAS',
   'InvTypedProfileValues',
   'InvReloadRestoresPersisted',
