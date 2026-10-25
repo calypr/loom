@@ -6,8 +6,10 @@ import { findRenderedBuilderHeaderIndex } from '../builder-rendered-grid.mjs';
 import {
   capturePatientOnePreOneState,
   readNativeGroupProposal,
+  readPatientOneChoiceEditor,
   readNativeGroupSummary,
   readPatientOnePreviewBinding,
+  readPatientOneRenderedGrid,
 } from '../../workflows/builder-patient-one-disagreement.mjs';
 
 const requireFromLoomUI = createRequire(new URL('../../../../ui/packages/loom-ui/package.json', import.meta.url));
@@ -98,6 +100,52 @@ test('Patient ONE proposal reader gets raw IDs and count from the sibling render
   assert(countIndex >= 0, `rendered proposal must include Row count: ${JSON.stringify(proposal.headers)}`);
   assert.deepEqual(JSON.parse(proposal.rows[0][idIndex].raw), ['dev-patient-001', 'dev-patient-002']);
   assert.equal(proposal.rows[0][countIndex].text, '2');
+});
+
+test('Patient ONE recovery observation retains the same editor controls and exact rendered rows', () => {
+  const recoveryMarkup = `
+    <section aria-label="Add columns editor">
+      <select aria-label="Values per grouped row">
+        <option value="ALL">Keep all distinct values</option>
+        <option value="ONE" selected>Require one distinct value</option>
+      </select>
+      <div data-testid="feature-catalog-raw-fields">
+        <button type="button" aria-label="Select Patient.id" aria-pressed="true">Patient.id</button>
+      </div>
+      <aside aria-label="Selected feature action">
+        <p role="alert">Patient.id has multiple distinct values</p>
+      </aside>
+    </section>
+    <div data-testid="preview-table-scroll"><div role="table">
+      <div role="row"><div role="columnheader">Patient ID</div><div role="columnheader">Row count</div></div>
+      <div role="row"><div role="cell" title='["dev-patient-001","dev-patient-002"]'>dev-patient-001; dev-patient-002</div><div role="cell" title="2">2</div></div>
+    </div></div>`;
+  const { window } = new JSDOM(recoveryMarkup);
+
+  const editor = readPatientOneChoiceEditor(window.document);
+  assert.equal(typeof editor.documentTimeOrigin, 'number');
+  assert.match(editor.editorMountIdentity, /^editor-\d+$/);
+  assert.equal(editor.selectedField, 'Patient.id');
+  assert.deepEqual(editor.availablePolicies, ['ALL', 'ONE']);
+  assert.equal(editor.editorOpen, true);
+  assert.equal(editor.fieldSelected, true);
+  assert.equal(editor.policy, 'ONE');
+  assert.equal(editor.allAvailable, true);
+  assert.equal(editor.errorVisible, true);
+  assert.match(editor.errorText, /multiple distinct values/);
+  assert.equal(readPatientOneChoiceEditor(window.document).editorMountIdentity, editor.editorMountIdentity,
+    'repeated observation must identify the same actual editor element');
+
+  const mountedEditor = window.document.querySelector('[aria-label="Add columns editor"]');
+  mountedEditor.replaceWith(mountedEditor.cloneNode(true));
+  assert.notEqual(readPatientOneChoiceEditor(window.document).editorMountIdentity, editor.editorMountIdentity,
+    'replacing the editor element must produce a different observed mount identity');
+
+  const grid = readPatientOneRenderedGrid(window.document);
+  assert.deepEqual(grid.headers, ['Patient ID', 'Row count']);
+  assert.equal(grid.cells.length, 1);
+  assert.deepEqual(JSON.parse(grid.cells[0][0].raw), ['dev-patient-001', 'dev-patient-002']);
+  assert.equal(grid.cells[0][1].text, '2');
 });
 
 test('Patient ONE pre-ONE artifact binds the saved Builder document to its rendered receipt identity', () => {

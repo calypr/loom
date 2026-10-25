@@ -699,7 +699,7 @@ TypeOK ==
   /\ SourceColumnIds \in SUBSET STRING
   /\ SourceBindings \subseteq STRING
   /\ StringIdentityValues \subseteq STRING
-  /\ DocumentTimeOrigin \in Nat
+  /\ DocumentTimeOrigin \in STRING
   /\ lastAction \in {"Init", "GroupPreviewSubmitted", "GroupPreviewReady",
        "GroupApplySubmitted", "GroupApplied",
        "OneSubmitted", "OneRejected", "SelectAll", "AllSubmitted",
@@ -882,12 +882,14 @@ RemovalApplyUsesSecondCandidate ==
     /\ model.cancelledRemovalCandidate = RemovalOneCandidate
     /\ model.removalCandidate = RemovalTwoCandidate
     /\ RemovalOneCaptureId # RemovalTwoCaptureId
-    /\ RemovalOneCandidateId # RemovalTwoCandidateId
     /\ model.removalResponse.proposalId = RemovalTwoCandidateId
     /\ model.removalApplyRequest = RemovalApplyRequest
-    /\ model.removalApplyRequest.candidateId = RemovalTwoCandidateId
-    /\ model.removalApplyRequest.candidateRequestId = RemovalTwoRequestId
-    /\ model.removalApplyRequest.candidateCaptureId = RemovalTwoCaptureId
+    /\ model.removalApplyRequest.candidateId =
+         model.removalResponse.proposalId
+    /\ model.removalApplyRequest.candidateRequestId =
+         model.removalRequest.requestId
+    /\ model.removalApplyRequest.candidateCaptureId =
+         model.removalResponse.captureId
     /\ model.removalApplyRequest.commandId = RemovalApplyCommandId
     /\ model.removalApplyRequest.commandId # NoCommand
     /\ model.removalApplyRequest.commandId # RemovalTwoCandidateId
