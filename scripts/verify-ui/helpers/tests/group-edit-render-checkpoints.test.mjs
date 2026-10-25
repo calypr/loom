@@ -19,7 +19,46 @@ import {
 } from '../../workflows/verify-cda-group-edit-before-related-column-browser.mjs';
 import { browserEval } from '../cda-playwright.mjs';
 
-const completeCheckpoints = () => groupEditRenderCheckpointNames.map((name) => ({ name, durationMs: 4999 }));
+const retainedCseZdiCheckpoints = Object.freeze([
+  { name: 'selected-raw-Specimen-reload', durationMs: 3770 },
+  { name: 'expand-Specimen-Patient', durationMs: 4769 },
+  { name: 'apply expand-Specimen-Patient', durationMs: 3034 },
+  { name: 'expand-Patient-Observation', durationMs: 4723 },
+  { name: 'apply expand-Patient-Observation', durationMs: 3032 },
+  { name: 'group-by-Specimen-ID-count-rows', durationMs: 3453 },
+  { name: 'apply-initial-Group', durationMs: 2104 },
+  { name: 'reload-initial-Group', durationMs: 3701 },
+  { name: 'edit-Group-to-count-distinct-before-column', durationMs: 3430 },
+  { name: 'cancel-Group-edit-before-column', durationMs: 1023 },
+  { name: 'reapply-Group-count-distinct-before-column', durationMs: 3448 },
+  { name: 'apply-Group-edit-before-column', durationMs: 2040 },
+  { name: 'reload-Group-edit-before-column', durationMs: 3796 },
+  { name: 'automatic-Observation-status-RELATED_SOURCE-preview-after-Group-edit', durationMs: 4791 },
+  { name: 'cancel-related-column-after-Group-edit', durationMs: 1031 },
+  { name: 'reopened-Observation-status-RELATED_SOURCE-preview-before-Apply', durationMs: 4794 },
+  { name: 'apply-related-column-after-Group-edit', durationMs: 2087 },
+  { name: 'reload-related-column-after-Group-edit', durationMs: 3729 },
+  { name: 'edit-Group-back-to-count-rows-with-related-column', durationMs: 3401 },
+  { name: 'cancel-Group-round-trip-edit', durationMs: 1032 },
+  { name: 'reapply-Group-count-rows-with-related-column', durationMs: 3437 },
+  { name: 'apply-Group-round-trip-with-related-column', durationMs: 2061 },
+  { name: 'reload-Group-round-trip-with-related-column', durationMs: 3782 },
+  { name: 'automatic-remove-RELATED_SOURCE-preview-cancel-target', durationMs: 3460 },
+  { name: 'cancel-remove-RELATED_SOURCE', durationMs: 1018 },
+  { name: 'reopened-remove-RELATED_SOURCE-preview-before-Apply', durationMs: 3444 },
+  { name: 'apply-remove-RELATED_SOURCE-to-restore-Group', durationMs: 2034 },
+  { name: 'reload-final-Group-source-restoration', durationMs: 3750 },
+].map(Object.freeze));
+const correctedCseZdiCheckpoints = () => {
+  const applyLabelCorrections = new Map([
+    ['apply expand-Specimen-Patient', 'apply-expand-Specimen-Patient'],
+    ['apply expand-Patient-Observation', 'apply-expand-Patient-Observation'],
+  ]);
+  return retainedCseZdiCheckpoints.map(checkpoint => ({
+    ...checkpoint,
+    name: applyLabelCorrections.get(checkpoint.name) ?? checkpoint.name,
+  }));
+};
 const productionRouteDisplayLabel = route => {
   const moduleUrl = new URL('../../../../ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts', import.meta.url).href;
   const script = `import { relationshipLabel } from ${JSON.stringify(moduleUrl)}; const route = ${JSON.stringify(route)}; process.stdout.write(JSON.stringify(route.map(relationshipLabel).join(' → ')));`;
@@ -47,26 +86,58 @@ test('Group edit action-to-render recording enforces the five-second budget', ()
   assert.equal(report.cases.length, 1);
 });
 
-test('Group edit performance summary rejects missing, wrong, duplicate, and over-budget checkpoints', () => {
-  assert.equal(groupEditRenderCheckpointSummary(completeCheckpoints()).status, 'passed');
+test('retained cseZDI checkpoint names differ only by the two expand Apply labels', () => {
+  const observedNames = retainedCseZdiCheckpoints.map(({ name }) => name);
+  assert.equal(observedNames.length, 28);
+  assert.equal(new Set(observedNames).size, 28);
 
-  const missing = completeCheckpoints().slice(1);
+  const observedSummary = groupEditRenderCheckpointSummary(retainedCseZdiCheckpoints);
+  assert.equal(observedSummary.status, 'failed');
+  assert.deepEqual(observedSummary.missing, [
+    'apply-expand-Specimen-Patient',
+    'apply-expand-Patient-Observation',
+  ]);
+  assert.deepEqual(observedSummary.unexpected, [
+    'apply expand-Specimen-Patient',
+    'apply expand-Patient-Observation',
+  ]);
+  assert.deepEqual(observedSummary.overBudget, []);
+  assert.equal(observedSummary.maximumDurationMs, 4794);
+
+  const corrected = correctedCseZdiCheckpoints();
+  assert.equal(new Set(corrected.map(({ name }) => name)).size, 28);
+  assert.deepEqual([...corrected.map(({ name }) => name)].sort(), [...groupEditRenderCheckpointNames].sort());
+  const correctedSummary = groupEditRenderCheckpointSummary(corrected);
+  assert.equal(correctedSummary.status, 'passed');
+  assert.equal(correctedSummary.checkpointCount, 28);
+  assert.deepEqual(correctedSummary.missing, []);
+  assert.deepEqual(correctedSummary.duplicates, []);
+  assert.deepEqual(correctedSummary.unexpected, []);
+  assert.deepEqual(correctedSummary.overBudget, []);
+  assert.equal(correctedSummary.maximumDurationMs, 4794);
+});
+
+test('Group edit performance summary rejects missing, wrong, duplicate, and over-budget retained checkpoints', () => {
+  const actual = correctedCseZdiCheckpoints();
+
+  const missing = actual.slice(1);
   const missingSummary = groupEditRenderCheckpointSummary(missing);
   assert.equal(missingSummary.status, 'failed');
-  assert.deepEqual(missingSummary.missing, [groupEditRenderCheckpointNames[0]]);
+  assert.deepEqual(missingSummary.missing, [actual[0].name]);
 
-  const wrong = completeCheckpoints();
+  const wrong = actual.map(checkpoint => ({ ...checkpoint }));
   wrong[0] = { ...wrong[0], name: 'wrong checkpoint' };
   const wrongSummary = groupEditRenderCheckpointSummary(wrong);
   assert.equal(wrongSummary.status, 'failed');
   assert.deepEqual(wrongSummary.unexpected, ['wrong checkpoint']);
-  assert.deepEqual(wrongSummary.missing, [groupEditRenderCheckpointNames[0]]);
+  assert.deepEqual(wrongSummary.missing, [actual[0].name]);
 
-  const duplicate = completeCheckpoints();
+  const duplicate = actual.map(checkpoint => ({ ...checkpoint }));
   duplicate.push({ ...duplicate[0] });
   assert.equal(groupEditRenderCheckpointSummary(duplicate).status, 'failed');
+  assert.deepEqual(groupEditRenderCheckpointSummary(duplicate).duplicates, [actual[0].name]);
 
-  const slow = completeCheckpoints();
+  const slow = actual.map(checkpoint => ({ ...checkpoint }));
   slow[0] = { ...slow[0], durationMs: groupEditRenderBudgetMs + 1 };
   const slowSummary = groupEditRenderCheckpointSummary(slow);
   assert.equal(slowSummary.status, 'failed');

@@ -1744,7 +1744,7 @@ FOR s IN (
       expectedRows: expectedExpandedRows, state: builder, label: `expand-${hop.from}-${hop.to}`, startedAt,
       captureKind: 'expandRows', attempt: 'P1' });
     builder = await applyGroupProposal(expandedProposal, builder, expectedExpandedRows,
-      `apply expand-${hop.from}-${hop.to}`, { journeyLabel: 'ExpandRows' });
+      `apply-expand-${hop.from}-${hop.to}`, { journeyLabel: 'ExpandRows' });
     await closeRowSettings();
     assertSourceBinding(builder, selectedPopulationRoute);
   }
