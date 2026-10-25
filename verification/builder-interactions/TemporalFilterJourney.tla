@@ -23,8 +23,7 @@ UI evidence retains proposal/receipt/output/column IDs, native controls,
 and row IDs. Filter evidence retains intent, target step, and typed
 request/response/saved values.
 AbstractModelEvents below use opaque document/digest tokens as bounded fixtures, not
-browser evidence. A later adapter supplies actual IDs, complete documents,
-canonical digests, times, controls, and rows.
+browser evidence.
 ***************************************************************************)
 
 Profiles == {"DATE", "DATE_TIME"}
