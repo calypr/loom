@@ -604,7 +604,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs",
-      "sha256": "4f9dc7debe3d134afb566721a679ddd03793fbd67e78323b004bd291abd76dc8",
+      "sha256": "e7ca22502f202238e47a552c066b2e70fe2d81d7ffd0f680d48c65a6d6e95011",
       "contract": "Independent literal DATE and DATE_TIME fixture row oracles."
     },
     {
@@ -634,7 +634,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs",
-      "sha256": "ebc1fbf36b0d7487404f43da78d0252631e16ab66a1311f975fb793b99cd67ea",
+      "sha256": "6cc0d662ee4b4821889ecaed530f953a3ad7777aa667a8beec06558bf5defe42",
       "contract": "Tests the independent Basic DATE and DATE_TIME literal row oracles."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "f8b71db71e60375ac689343acf7cbcb5c529a4aa7ac6b93086511977e2d5e952",
+      "sha256": "65f312852b2e799884adafc754418816af5ea805f5aaaaf6344aa4ad20aa3329",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
