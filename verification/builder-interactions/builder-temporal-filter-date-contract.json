@@ -101,16 +101,12 @@
         "FilterProposed(create)",
         "FilterCancelled",
         "Reload",
-        "FilterProposed(create)",
         "FilterApplied(create)",
-        "Reload",
         "FilterEditOpened",
         "FilterProposed(edit)",
         "FilterApplied(edit)",
-        "Reload",
         "FilterProposed(remove)",
-        "FilterRemoved",
-        "Reload"
+        "FilterRemoved"
       ]
     },
     "requiredActionCountsByTrace": {

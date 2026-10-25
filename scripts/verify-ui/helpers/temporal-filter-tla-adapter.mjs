@@ -445,15 +445,18 @@ const explorerIdFrom = capture => {
 
 const supportedPureRead = (capture, request) => {
   const path = request.path;
-  if (request.method === 'POST') {
-    return READ_ONLY_POST_PATH_SUFFIXES.some(suffix => path.endsWith(suffix));
-  }
-  if (!SAFE_READ_METHODS.has(request.method)) return false;
   const projectRoot = `/api/v1/projects/${encodeURIComponent(capture.project)}`;
   const explorersRoot = `${projectRoot}/explorers`;
-  if (path === explorersRoot) return true;
   const explorerIds = new Set([explorerIdFrom(capture), capture.bootstrapExplorerId]
     .filter(value => typeof value === 'string' && value.length > 0));
+  const explorerRoots = [...explorerIds].map(explorerId =>
+    `${explorersRoot}/${encodeURIComponent(explorerId)}`);
+  if (request.method === 'POST') {
+    return explorerRoots.some(explorerRoot => READ_ONLY_POST_PATH_SUFFIXES.some(suffix =>
+      path === `${explorerRoot}${suffix}`));
+  }
+  if (!SAFE_READ_METHODS.has(request.method)) return false;
+  if (path === explorersRoot) return true;
   for (const explorerId of explorerIds) {
     if (path === `${explorersRoot}/${encodeURIComponent(explorerId)}`) return true;
     const authoringRoot = `${explorersRoot}/${encodeURIComponent(explorerId)}/authoring/v2`;

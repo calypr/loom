@@ -66,7 +66,9 @@ test('DATE and DATE_TIME native contracts bind the exact TLA action/event chrono
     assert.deepEqual(nativeJourney.requiredMutationControlNames, TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);
     assert.deepEqual(nativeJourney.actions, expectedActions);
     assert.deepEqual(contract.models.TemporalFilterJourney.actions, Object.keys(requiredCounts));
-    assert.deepEqual(contract.phase1.requiredActionsByTrace[traceName], expectedActions.map(action => action.label));
+    assert.deepEqual(contract.phase1.requiredActionsByTrace[traceName], Object.keys(requiredCounts),
+      'The common required-action inventory must be unique; exact chronology belongs to nativeJourney.actions.');
+    assert.equal(nativeJourney.actions.length, 16, 'The native contract must preserve every ordered action occurrence.');
     assert.deepEqual(contract.phase1.requiredActionCountsByTrace[traceName], requiredCounts);
     assert.deepEqual(contract.phase1.requiredEvents, Object.keys(requiredCounts));
   }
@@ -126,6 +128,60 @@ test('compiler and TLA retain read-only bootstrap capability requests before the
     'TLA relative time origin must include the request that began before the first semantic action.');
   const result = runTlc(trace, 'BootstrapCapabilityRequests');
   assert.equal(result.status, 0, result.output);
+});
+
+test('compiler rejects read-only POST capability paths outside the recorded project or Explorer', () => {
+  const appendUnownedCapability = (trace, path, requestName) => {
+    const capture = trace.temporalFilterLifecycle;
+    const startedAt = Math.max(...capture.requestEvents.map(request => request.startedAt)) + 10;
+    const atMonotonicMs = Math.max(...capture.requestEvents.map(request => request.atMonotonicMs)) + 10;
+    const request = {
+      index: capture.requestEvents.length,
+      browserRequestId: `schema-fixture-browser-request-${requestName}`,
+      requestId: `schema-fixture-raw-request-${requestName}`,
+      method: 'POST',
+      path,
+      status: 200,
+      request: {},
+      response: {},
+      startedAt,
+      responseReceivedAt: startedAt + 1,
+      completedAt: startedAt + 2,
+      responseMountEpoch: 5,
+      failureMountEpoch: null,
+      isMutation: false,
+      failure: null,
+      readCancellationDiagnostic: false,
+      responseCapture: 'captured',
+      responseCaptureComplete: true,
+      responseBodyCaptured: true,
+      atMonotonicMs,
+      atEpochMs: startedAt,
+      mountEpoch: 5,
+    };
+    capture.requestEvents.push(request);
+    trace.nativeRequests.push({
+      index: request.index,
+      browserRequestId: request.browserRequestId,
+      requestId: request.requestId,
+      method: request.method,
+      path: request.path,
+      startedAt: request.startedAt,
+      isMutation: request.isMutation,
+    });
+  };
+  const wrongProject = makeJourney('date');
+  appendUnownedCapability(wrongProject,
+    `/api/v1/projects/another-project/explorers/${wrongProject.temporalFilterLifecycle.bootstrapExplorerId}/authoring/v2/construction-capabilities`,
+    'wrong-project-bootstrap-capabilities');
+  assert.throws(() => compileTemporalFilterJourneyTrace(wrongProject), /no temporal-filter path allowlist entry/u);
+
+  const wrongExplorer = makeJourney('date');
+  const { project } = wrongExplorer.temporalFilterLifecycle;
+  appendUnownedCapability(wrongExplorer,
+    `/api/v1/projects/${project}/explorers/unowned-explorer/authoring/v2/construction-capabilities`,
+    'wrong-explorer-bootstrap-capabilities');
+  assert.throws(() => compileTemporalFilterJourneyTrace(wrongExplorer), /no temporal-filter path allowlist entry/u);
 });
 
 const runTlc = (trace, moduleSuffix, { mutateModel } = {}) => {
