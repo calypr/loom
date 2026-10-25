@@ -1562,7 +1562,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   for (const [requestObject, requestCaptureId] of observedCaptures) {
     transportObserver.bindRequestCaptureId(requestObject, requestCaptureId);
   }
-  const { captures: transportCaptures } = await transportObserver.finish();
+  const { captures: transportCaptures, formalExit } = await transportObserver.finish();
   const { journeyTrace } = buildPolicyOneTrace({
     expected: {
       outputId,
@@ -1627,6 +1627,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       actions: policyOneEvidence,
       transportCaptures,
       formalEntry: policyOneFormalEntry,
+      formalExit,
       outcome: {
         kind: 'source-restored',
         workspace: policyWorkspaceProjection({ savedState: restoredState,

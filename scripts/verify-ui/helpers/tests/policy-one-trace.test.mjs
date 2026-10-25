@@ -85,6 +85,26 @@ const extraTransport = ({
   };
 };
 
+const pendingSupportCapture = ({ transportIndex, requestEventIndex, path, ownerScope, requestId, requestBody }) => ({
+  transportIndex,
+  requestEventIndex,
+  capturePhase: 'FORMAL',
+  method: 'POST',
+  path,
+  resourcePath: `${ownerScope}/authoring/v2/${path}`,
+  ownerScope,
+  requestId,
+  requestCaptureId: null,
+  requestBody,
+  settlement: 'pending',
+  responseOwnerIndex: null,
+  responseHeaders: null,
+  responseReadError: null,
+  responseObservedBeforeFailure: false,
+  status: null,
+  response: null,
+});
+
 const captureMutations = [
   ['wrong request object ownership', input => { input.responses.one.requestObject = {}; }, /exact captured request object/],
   ['wrong response captureId', input => { input.responses.one.captureId = 'some-other-capture'; }, /captureId must match/],
@@ -521,6 +541,79 @@ test('the Policy observer retains an in-flight setup request across formal entry
   assert.equal(capture.captures[2].failure, 'net::ERR_ABORTED');
 });
 
+test('the Policy observer snapshots no-header support requests as pending and detaches at formal exit', async () => {
+  class ObserverPage extends EventEmitter {
+    async evaluate() { return {}; }
+  }
+  const page = new ObserverPage();
+  const observer = createPolicyOneTransportObserver(page);
+  await observer.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-source',
+  });
+  const makeRequest = (path, requestId, body) => ({
+    url: () => `http://loom.test/api/explorers/e/authoring/v2/${path}`,
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': requestId }),
+    postDataJSON: () => body,
+    failure: () => null,
+  });
+  page.emit('request', makeRequest('semantic-inventory', 'catalog-request-physical-1', {
+    outputId: 'output-1', rowRoot: 'Patient', limit: 50,
+  }));
+  page.emit('request', makeRequest('construction-capabilities', 'capabilities-request-physical-2', {
+    outputId: 'output-1', expectedDraftVersion: 2, expectedDraftDigest: 'draft-source',
+    stageId: 'source_projection',
+  }));
+
+  const captured = await observer.finish({ timeoutMs: 15 });
+  assert.equal(captured.formalExit.deadlineReached, true);
+  assert.equal(captured.formalExit.drainTimeoutMs, 15);
+  assert.equal(captured.formalExit.afterTransportIndex, 2);
+  assert.equal(captured.formalExit.afterEventIndex, 2);
+  assert.deepEqual(captured.formalExit.pendingTransportIndices, [1, 2]);
+  assert.deepEqual(captured.formalExit.pendingResponseReadTransportIndices, []);
+  assert.deepEqual(captured.captures.map(entry => entry.settlement), ['pending', 'pending']);
+  for (const entry of captured.captures) {
+    assert.equal(entry.responseHeaders, null);
+    assert.equal(entry.status, null);
+    assert.equal(entry.response, null);
+    assert.equal(entry.responseOwnerIndex, null);
+    assert.equal(Object.hasOwn(entry, 'settlementEventIndex'), false);
+    assert.equal(Object.hasOwn(entry, 'failure'), false);
+  }
+  assert.equal(page.listenerCount('request'), 0,
+    'events after the recorded formal exit cannot extend or mutate its transport span');
+  page.emit('request', makeRequest('semantic-inventory', 'late-request-outside-span', {
+    outputId: 'output-1', rowRoot: 'Patient', limit: 50,
+  }));
+  assert.equal(captured.captures.length, 2);
+
+  const headerPage = new ObserverPage();
+  const headerObserver = createPolicyOneTransportObserver(headerPage);
+  await headerObserver.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-source',
+  });
+  const headerRequest = makeRequest('semantic-inventory', 'catalog-header-physical', {
+    outputId: 'output-1', rowRoot: 'Patient', limit: 50,
+  });
+  headerPage.emit('request', headerRequest);
+  headerPage.emit('response', {
+    request: () => headerRequest,
+    status: () => 200,
+    headers: () => ({ 'x-request-id': 'catalog-header-physical' }),
+    json: async () => ({ receiptId: 'uncredited-receipt', outputId: 'output-1' }),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(headerObserver.finish({ timeoutMs: 15 }), /response headers were observed/);
+  const headerRecord = headerObserver.entryForRequest(headerRequest).record;
+  assert.deepEqual(headerRecord.responseHeaders, { status: 200, requestId: 'catalog-header-physical' });
+  assert.equal(headerRecord.settlement, 'pending');
+  assert.equal(headerRecord.status, null);
+  assert.equal(headerRecord.responseOwnerIndex, null);
+  assert.deepEqual(headerRecord.responseBody?.receiptIds, ['uncredited-receipt'],
+    'captured body facts remain observable even though the request has no terminal response credit');
+});
+
 test('the Policy observer rejects formal entry when a setup command failed or was canceled', async () => {
   class ObserverPage extends EventEmitter {
     async evaluate() { return {}; }
@@ -723,6 +816,122 @@ test('the transport ledger accounts for explicitly supported read-only routes an
   assert.throws(() => buildPolicyOneTrace(unknownGet), /unsupported authoring transport GET unregistered-endpoint/);
 });
 
+test('the adapter retains only exact-scope pending support reads at an observed formal exit', () => {
+  const input = makePolicyOneTraceInput();
+  const ownerScope = input.context.transportCaptures[0].ownerScope;
+  input.context.transportCaptures.push(
+    pendingSupportCapture({
+      transportIndex: 4,
+      requestEventIndex: 7,
+      path: 'semantic-inventory',
+      ownerScope,
+      requestId: 'feature-catalog-unit-physical-1',
+      requestBody: {
+        outputId: 'output-1', snapshotToken: 'snapshot-1', rowRoot: 'Patient', limit: 50,
+        selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      },
+    }),
+    pendingSupportCapture({
+      transportIndex: 5,
+      requestEventIndex: 8,
+      path: 'construction-capabilities',
+      ownerScope,
+      requestId: 'construction-capabilities-unit-physical-2',
+      requestBody: {
+        outputId: 'output-1', snapshotToken: 'snapshot-1', expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-after', stageId: 'source_projection',
+      },
+    }),
+  );
+  input.context.formalExit = {
+    afterTransportIndex: 5,
+    afterEventIndex: 8,
+    observedAt: Date.now(),
+    drainTimeoutMs: 5000,
+    deadlineReached: true,
+    pendingTransportIndices: [4, 5],
+    pendingResponseReadTransportIndices: [],
+  };
+
+  const trace = buildPolicyOneTrace(input).journeyTrace;
+  const pending = trace.transportLedger.filter(entry => entry.settlement === 'pending');
+  assert.deepEqual(pending.map(entry => [entry.path, entry.classification, entry.ownerScope]), [
+    ['semantic-inventory', 'read-only', ownerScope],
+    ['construction-capabilities', 'read-only', ownerScope],
+  ]);
+  assert.deepEqual(trace.formalExit.pendingTransportIndices, [4, 5]);
+  assert.deepEqual(pending.map(entry => ({
+    status: entry.status,
+    response: entry.response,
+    responseOwnerIndex: entry.responseOwnerIndex,
+    currentReceiptProducerTransportIndices: entry.currentReceiptProducerTransportIndices,
+    successfulPreviewConsumerTransportIndices: entry.successfulPreviewConsumerTransportIndices,
+  })), [
+    { status: null, response: null, responseOwnerIndex: null,
+      currentReceiptProducerTransportIndices: [], successfulPreviewConsumerTransportIndices: [] },
+    { status: null, response: null, responseOwnerIndex: null,
+      currentReceiptProducerTransportIndices: [], successfulPreviewConsumerTransportIndices: [] },
+  ]);
+
+  const foreignOwner = structuredClone(input);
+  const foreign = foreignOwner.context.transportCaptures[3];
+  foreign.ownerScope = 'https://fixture.invalid/api/explorers/other';
+  foreign.resourcePath = `${foreign.ownerScope}/authoring/v2/${foreign.path}`;
+  assert.throws(() => buildPolicyOneTrace(foreignOwner), /exact formal Explorer owner scope/);
+
+  const pendingCommand = structuredClone(input);
+  const command = pendingCommand.context.transportCaptures[2];
+  command.settlement = 'pending';
+  delete command.settlementEventIndex;
+  command.status = null;
+  command.responseOwnerIndex = null;
+  command.responseHeaders = null;
+  command.response = null;
+  pendingCommand.context.transportCaptures[3].requestEventIndex = 6;
+  pendingCommand.context.transportCaptures[4].requestEventIndex = 7;
+  pendingCommand.context.formalExit = {
+    afterTransportIndex: 5,
+    afterEventIndex: 7,
+    observedAt: Date.now(),
+    drainTimeoutMs: 5000,
+    deadlineReached: true,
+    pendingTransportIndices: [3, 4, 5],
+    pendingResponseReadTransportIndices: [],
+  };
+  assert.throws(() => buildPolicyOneTrace(pendingCommand), /explicitly supported formal read-only route/);
+
+  const pendingReconcile = makePolicyOneTraceInput();
+  pendingReconcile.context.transportCaptures.push(pendingSupportCapture({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    path: 'reconcile',
+    ownerScope: pendingReconcile.context.transportCaptures[0].ownerScope,
+    requestId: 'builder-9-1',
+    requestBody: { snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-after' },
+  }));
+  pendingReconcile.context.formalExit = {
+    afterTransportIndex: 4,
+    afterEventIndex: 7,
+    observedAt: Date.now(),
+    drainTimeoutMs: 5000,
+    deadlineReached: true,
+    pendingTransportIndices: [4],
+    pendingResponseReadTransportIndices: [],
+  };
+  assert.throws(() => buildPolicyOneTrace(pendingReconcile), /explicitly supported formal read-only route/);
+
+  const missingBoundary = makePolicyOneTraceInput();
+  missingBoundary.context.transportCaptures.push(pendingSupportCapture({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    path: 'semantic-inventory',
+    ownerScope,
+    requestId: 'feature-catalog-unit-physical-3',
+    requestBody: { outputId: 'output-1', rowRoot: 'Patient', limit: 50 },
+  }));
+  assert.throws(() => buildPolicyOneTrace(missingBoundary), /actual formal exit boundary/);
+});
+
 test('the transport ledger rejects a missing event or a request not bijected to its raw row', () => {
   const missingEvent = makePolicyOneTraceInput();
   missingEvent.context.transportCaptures.push(extraTransport({
@@ -732,7 +941,7 @@ test('the transport ledger rejects a missing event or a request not bijected to 
     method: 'GET',
     path: 'builder',
   }));
-  assert.throws(() => buildPolicyOneTrace(missingEvent), /account for every request and settlement event/);
+  assert.throws(() => buildPolicyOneTrace(missingEvent), /every observed request and terminal event/);
 
   const bodyMismatch = makePolicyOneTraceInput();
   bodyMismatch.context.transportCaptures[0].requestBody = { ...bodyMismatch.context.transportCaptures[0].requestBody,

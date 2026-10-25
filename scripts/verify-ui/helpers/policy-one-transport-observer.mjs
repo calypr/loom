@@ -101,6 +101,7 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
         intentDigest: body?.intentDigest ?? null,
         previewRowsPresent: Array.isArray(preview?.rows),
       };
+      if (entry.record.settlement === 'pending') entry.record.responseBody = entry.responseBodyFacts;
       if (entry.record.settlement === 'response') {
         entry.record.response = entry.responseBodyFacts;
       } else if (entry.record.settlement === 'request-failed') {
@@ -167,24 +168,46 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
   page.on('requestfinished', settleRequestFinished);
   page.on('requestfailed', settleRequestFailed);
 
-  const waitUntilIdle = async ({ timeoutMs = 5000 } = {}) => {
+  const waitUntilIdle = async ({ timeoutMs = 5000, allowPendingAtDeadline = false } = {}) => {
     const deadline = Date.now() + timeoutMs;
     while (true) {
       const pending = [...pendingRequests].map(request => entriesByRequest.get(request));
       const eventIndexBeforeQuietTurn = transportEventIndex;
       if (pending.length || pendingResponseReads.size) {
         const remaining = deadline - Date.now();
-        assert(remaining > 0, `authoring setup transports remain unsettled: ${pending.map(entry =>
-          `${entry.record.method} ${entry.record.path}#${entry.record.transportIndex}`).join(', ')}`);
-        await waitForPromises([
-          ...pending.map(entry => entry.terminal),
-          ...pendingResponseReads,
-        ], remaining);
+        if (remaining <= 0 && allowPendingAtDeadline && pending.length > 0 && pendingResponseReads.size === 0) {
+          return {
+            deadlineReached: true,
+            pendingTransportIndices: pending.map(entry => entry.record.transportIndex).sort((left, right) => left - right),
+          };
+        }
+        assert(remaining > 0, `authoring setup transports or response bodies remain unsettled: ${pending.map(entry =>
+          `${entry.record.method} ${entry.record.path}#${entry.record.transportIndex}`).join(', ') ||
+          `${pendingResponseReads.size} response body read(s)`}`);
+        try {
+          await waitForPromises([
+            ...pending.map(entry => entry.terminal),
+            ...pendingResponseReads,
+          ], remaining);
+        } catch (error) {
+          if (allowPendingAtDeadline && Date.now() >= deadline &&
+              pendingRequests.size > 0 && pendingResponseReads.size === 0) {
+            return {
+              deadlineReached: true,
+              pendingTransportIndices: [...pendingRequests]
+                .map(request => entriesByRequest.get(request).record.transportIndex)
+                .sort((left, right) => left - right),
+            };
+          }
+          throw error;
+        }
         continue;
       }
       await new Promise(resolve => setImmediate(resolve));
       if (pendingRequests.size === 0 && pendingResponseReads.size === 0 &&
-          transportEventIndex === eventIndexBeforeQuietTurn) return;
+          transportEventIndex === eventIndexBeforeQuietTurn) {
+        return { deadlineReached: false, pendingTransportIndices: [] };
+      }
       assert(Date.now() < deadline, 'authoring transport activity did not become idle before the formal entry boundary');
     }
   };
@@ -251,11 +274,51 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
 
   const transportIndexForRequest = request => entryForRequest(request).record.transportIndex;
 
-  const finish = async () => {
+  const finish = async ({ timeoutMs = 5000 } = {}) => {
     assert.equal(capturePhase, 'FORMAL', 'Policy One transport observer must finish after formal entry');
-    await waitUntilIdle();
+    const drain = await waitUntilIdle({ timeoutMs, allowPendingAtDeadline: true });
+    const pending = [...pendingRequests].map(request => entriesByRequest.get(request));
+    assert.deepEqual(pending.map(entry => entry.record.transportIndex).sort((left, right) => left - right),
+      drain.pendingTransportIndices,
+      'formal exit must retain the exact physical requests still pending at its boundary');
+    assert.equal(pendingResponseReads.size, 0,
+      'response-body reads must drain before the formal exit boundary');
+    for (const entry of pending) {
+      const record = entry.record;
+      assert.equal(record.capturePhase, 'FORMAL',
+        `setup transport ${record.transportIndex} must settle before formal exit`);
+      assert.equal(record.responseHeaders, null,
+        `pending transport ${record.transportIndex} cannot be accepted after response headers were observed`);
+      assert.equal(record.responseReadError, null,
+        `pending transport ${record.transportIndex} cannot hide an observed response-body error`);
+      assert.equal(record.status, null,
+        `pending transport ${record.transportIndex} cannot claim an HTTP status`);
+      assert.equal(record.responseOwnerIndex, null,
+        `pending transport ${record.transportIndex} cannot claim a response owner`);
+      assert.equal(record.response, null,
+        `pending transport ${record.transportIndex} cannot claim response facts`);
+      assert.equal(record.settlementEventIndex, undefined,
+        `pending transport ${record.transportIndex} cannot invent a terminal event`);
+      assert.equal(record.failure, undefined,
+        `pending transport ${record.transportIndex} cannot invent a cancellation`);
+    }
+    const formalExit = {
+      afterTransportIndex: transportIndex,
+      afterEventIndex: transportEventIndex,
+      observedAt: Date.now(),
+      drainTimeoutMs: timeoutMs,
+      deadlineReached: drain.deadlineReached,
+      pendingTransportIndices: drain.pendingTransportIndices,
+      pendingResponseReadTransportIndices: [],
+    };
+    capturePhase = 'FINISHED';
+    page.off('request', captureRequest);
+    page.off('response', observeResponse);
+    page.off('requestfinished', settleRequestFinished);
+    page.off('requestfailed', settleRequestFailed);
     return {
       formalEntry: structuredClone(formalEntry),
+      formalExit,
       captures: captures.map(entry => structuredClone(entry.record)),
     };
   };
