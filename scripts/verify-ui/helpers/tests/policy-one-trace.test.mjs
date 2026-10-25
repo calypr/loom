@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
 import {
   buildPolicyOneMutationControls,
   compilePolicyOneJourneyTrace,
+  validatePolicyOneJourneyTrace,
 } from '../policy-one-tla-replay.mjs';
 import {
   patientOneSavedState,
   policyApplyTraceExpectation,
   policyWorkspaceProjection,
 } from '../../workflows/builder-patient-one-disagreement.mjs';
+import { observeAuthoringAttempt } from '../fast-fixtures.mjs';
+import { createPolicyOneTransportObserver } from '../policy-one-transport-observer.mjs';
 import {
   makePolicyOneTraceInput,
   makeSyntheticPolicyOneJourneyTrace,
@@ -45,6 +49,8 @@ const extraTransport = ({
     transportIndex,
     requestEventIndex,
     settlementEventIndex,
+    capturePhase: 'FORMAL',
+    setupMutation: false,
     method,
     path,
     resourcePath: `${ownerScope}/authoring/v2/${path}`,
@@ -253,6 +259,178 @@ test('workspace projections separate fixture counts from observed rows and requi
     sourceState,
     fixtureIDs,
   }), /saved Group projection must bind its observed row count/);
+});
+
+test('the Policy observer retains an in-flight setup request across formal entry and binds the actual observeAuthoringAttempt request', async () => {
+  class ObserverPage extends EventEmitter {
+    waitForRequest(predicate, { timeout = 1000 } = {}) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.off('request', onRequest);
+          reject(new Error('timed out waiting for a matching request'));
+        }, timeout);
+        const onRequest = request => {
+          if (!predicate(request)) return;
+          clearTimeout(timer);
+          this.off('request', onRequest);
+          resolve(request);
+        };
+        this.on('request', onRequest);
+      });
+    }
+
+    async evaluate() { return {}; }
+  }
+
+  const makeRequest = ({ method = 'POST', path, requestId, body }) => ({
+    url: () => `http://loom.test/api/explorers/e/authoring/v2/${path}`,
+    method: () => method,
+    headers: () => requestId ? { 'x-request-id': requestId } : {},
+    postDataJSON: () => body,
+    failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+  });
+  const makeResponse = (requestObject, body, { status = 200, requestId } = {}) => ({
+    request: () => requestObject,
+    status: () => status,
+    headers: () => requestId ? { 'x-request-id': requestId } : {},
+    json: async () => body,
+    ok: () => status >= 200 && status < 300,
+  });
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    return { promise, resolve };
+  };
+
+  const page = new ObserverPage();
+  const observer = createPolicyOneTransportObserver(page);
+  const setupRequest = makeRequest({ path: 'construction-capabilities', requestId: 'setup-capabilities-physical-id',
+    body: { outputId: 'output-1', expectedDraftVersion: 2, expectedDraftDigest: 'draft-source' } });
+  page.emit('request', setupRequest);
+  const setupIdle = observer.waitUntilIdle();
+  const setupBody = deferred();
+  let setupIdleSettled = false;
+  setupIdle.then(() => { setupIdleSettled = true; });
+  page.emit('response', makeResponse(setupRequest, setupBody.promise));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(setupIdleSettled, false,
+    'the setup drain must wait for the pre-boundary response body to finish reading');
+  setupBody.resolve({ capabilities: [] });
+  await setupIdle;
+  const snapshotEventIndex = observer.eventIndex;
+  const formalEntry = await observer.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-source',
+  }, { expectedEventIndex: snapshotEventIndex });
+  assert.equal(formalEntry.afterTransportIndex, 1);
+  assert.equal(formalEntry.afterEventIndex, 2);
+  assert.equal(formalEntry.initialSavedState.draftVersion, 2);
+
+  const attempt = observeAuthoringAttempt(page, {
+    method: 'POST', path: 'construction-proposals',
+    owner: { kind: 'policy-one-group-preview', attempt: 'entry-boundary-test' }, timeout: 1000,
+  });
+  const proposalRequest = makeRequest({
+    path: 'construction-proposals', requestId: 'proposal-physical-id',
+    body: { outputId: 'output-1', expectedDraftVersion: 2 },
+  });
+  page.emit('request', proposalRequest);
+  const started = await attempt.started;
+  const proposalResponse = makeResponse(proposalRequest, {
+    proposalId: 'proposal-1', outputId: 'output-1', snapshotToken: 'snapshot-1',
+    draftVersion: 2, draftDigest: 'draft-source', previewStatus: 'READY',
+    preview: { receiptId: 'receipt-1', outputId: 'output-1', rowCount: 1, rows: [] },
+  }, { requestId: 'proposal-physical-id' });
+  page.emit('response', proposalResponse);
+  const settled = await attempt.settled;
+  assert.equal(settled.response?.captureId, started.request.captureId);
+  assert.equal(settled.response?.status, 200);
+  const semanticRecord = observer.bindRequestCaptureId(started.rawRequest, started.request.captureId);
+  assert.equal(semanticRecord.capturePhase, 'FORMAL');
+  assert.equal(semanticRecord.transportIndex, observer.transportIndexForRequest(started.rawRequest));
+  assert.equal(semanticRecord.requestId, started.request.requestId);
+  assert.equal(semanticRecord.requestCaptureId, settled.request.captureId);
+  assert.equal(semanticRecord.responseOwnerIndex, semanticRecord.transportIndex);
+
+  const capture = await observer.finish();
+  assert.deepEqual(capture.captures.map(entry => entry.capturePhase), ['SETUP', 'FORMAL']);
+  assert.equal(capture.captures[0].settlement, 'response');
+  assert.equal(capture.captures[1].requestCaptureId, started.request.captureId);
+  assert.equal(capture.captures[1].responseOwnerIndex, capture.captures[1].transportIndex);
+});
+
+test('the Policy observer rejects formal entry when a setup command failed or was canceled', async () => {
+  class ObserverPage extends EventEmitter {
+    async evaluate() { return {}; }
+  }
+  const page = new ObserverPage();
+  const observer = createPolicyOneTransportObserver(page);
+  const failedSetupCommand = {
+    url: () => 'http://loom.test/api/explorers/e/authoring/v2/commands',
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': 'failed-setup-command-id' }),
+    postDataJSON: () => ({ commandId: 'failed-setup-command-id', commands: [{ type: 'CREATE_TABLE' }] }),
+    failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+  };
+  page.emit('request', failedSetupCommand);
+  page.emit('requestfailed', failedSetupCommand);
+  await assert.rejects(observer.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 0, draftDigest: 'draft-empty',
+  }), /setup mutation 1 must have a successful HTTP response/);
+});
+
+test('setup reconcile receipts expire when a same-owner setup command changes CAS across request/response orderings', () => {
+  for (const setupReceiptCase of [
+    'reconcile-before-command',
+    'command-before-reconcile-response',
+    'command-starts-first',
+  ]) {
+    const trace = makeSyntheticPolicyOneJourneyTrace({ setupReceiptCase });
+    const staleSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-70-1');
+    const setupCommand = trace.transportLedger.find(row => row.capturePhase === 'SETUP'
+      && row.classification === 'setup' && row.setupMutation);
+    const currentSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-71-1');
+    const setupPreview = trace.transportLedger.find(row => row.path === 'preview'
+      && row.requestBody.receiptId === currentSetupReceipt?.response.receiptId);
+    const currentFormalReceipt = trace.transportLedger.find(row => row.requestId === 'builder-72-1');
+    const formalPreview = trace.transportLedger.find(row => row.path === 'preview'
+      && row.requestBody.receiptId === currentFormalReceipt?.response.receiptId);
+    assert(staleSetupReceipt && setupCommand && currentSetupReceipt && setupPreview
+      && currentFormalReceipt && formalPreview);
+    assert.deepEqual(staleSetupReceipt.reconcileOwnerChangeSetupCommandIds,
+      [setupCommand.requestBody.commandId],
+    `${setupReceiptCase} must retain the exact successful setup command as the reconcile's owner change`);
+    assert.deepEqual(staleSetupReceipt.successfulPreviewConsumerTransportIndices, [],
+      `${setupReceiptCase} must not credit the stale receipt to the later preview`);
+    assert.deepEqual(currentSetupReceipt.successfulPreviewConsumerTransportIndices, [setupPreview.transportIndex]);
+    assert.deepEqual(setupPreview.currentReceiptProducerTransportIndices, [currentSetupReceipt.transportIndex]);
+    assert.deepEqual(currentFormalReceipt.successfulPreviewConsumerTransportIndices, [formalPreview.transportIndex]);
+    if (setupReceiptCase === 'command-starts-first') {
+      assert.deepEqual([
+        setupCommand.requestEventIndex,
+        staleSetupReceipt.requestEventIndex,
+        setupCommand.settlementEventIndex,
+        staleSetupReceipt.settlementEventIndex,
+      ], [1, 2, 3, 4], 'the overlap case must preserve the exact command-starts-first event order');
+    }
+    assert.equal(staleSetupReceipt.ownerInvalidationObserved,
+      setupReceiptCase !== 'reconcile-before-command',
+      'pre-response invalidation must follow the actual setup command settlement order');
+  }
+});
+
+test('the compiler rejects a setup settlement moved across the captured formal-entry boundary at shape validation', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const setupMutation = trace.transportLedger.find(row => row.capturePhase === 'SETUP' && row.setupMutation);
+  assert(setupMutation);
+  const originalBoundary = trace.formalEntry.afterEventIndex;
+  assert(setupMutation.settlementEventIndex <= originalBoundary);
+
+  trace.formalEntry.afterEventIndex = setupMutation.settlementEventIndex - 1;
+
+  assert.throws(() => validatePolicyOneJourneyTrace(trace),
+    /setup transport .* settle before formal entry/);
+  assert.throws(() => compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicySetupSettlementCrossesEntry' }),
+    /setup transport .* settle before formal entry/);
 });
 
 test('the registered Policy One contract matches captured actions, compiler events, and self-test controls', () => {

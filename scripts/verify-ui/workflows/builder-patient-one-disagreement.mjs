@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { openFreshPatientTable } from './builder-group-entry.mjs';
 import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
 import { observeAuthoringAttempt } from '../helpers/fast-fixtures.mjs';
+import { createPolicyOneTransportObserver } from '../helpers/policy-one-transport-observer.mjs';
 import { sanitizePayload } from '../helpers/playwright-browser.mjs';
 import { buildPolicyOneTrace } from '../helpers/policy-one-trace.mjs';
 
@@ -320,6 +321,7 @@ export const policySnapshot = ({ builder, outputId, sourceState, fixtureIDs, ren
 
 export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const { page, report } = workflow;
+  const transportObserver = createPolicyOneTransportObserver(page);
   const { fixtureIDs, fixtureOracle, explorer, explorerName, apiRoot, outputId, sourceIdColumn, sourceIdColumnId } =
     await openFreshPatientTable(workflow, context, 'Patient ONE disagreement');
   const fixturePath = join(context.target.fixtureDir, 'Patient.ndjson');
@@ -351,10 +353,33 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     };
   }, { tableSelector: '[data-testid="preview-table-scroll"] [role="table"]' });
   assert.equal(fixtureIDs.length, 2, 'ONE disagreement requires the two-record fixture precondition');
-  const sourceBuilder = await readBuilder();
-  const sourceSavedState = patientOneSavedState(sourceBuilder, outputId);
-  const sourceGrid = await page.evaluate(readPatientOneRenderedGrid);
-  const sourcePreviewBinding = await page.evaluate(readPatientOnePreviewBinding);
+  let sourceBuilder;
+  let sourceSavedState;
+  let sourceGrid;
+  let sourcePreviewBinding;
+  let sourceEventIndex;
+  let policyOneFormalEntry;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await transportObserver.waitUntilIdle();
+    sourceEventIndex = transportObserver.eventIndex;
+    sourceBuilder = await readBuilder();
+    sourceSavedState = patientOneSavedState(sourceBuilder, outputId);
+    sourceGrid = await page.evaluate(readPatientOneRenderedGrid);
+    sourcePreviewBinding = await page.evaluate(readPatientOnePreviewBinding);
+    await transportObserver.waitUntilIdle();
+    if (transportObserver.eventIndex !== sourceEventIndex) continue;
+    policyOneFormalEntry = await transportObserver.beginFormalSpan({
+      ...sourceSavedState,
+      snapshotToken: sourceBuilder.catalog.snapshotToken,
+      workspaceProjection: policyWorkspaceProjection({
+        savedState: sourceSavedState, renderedRows: sourceGrid, sourceState: sourceSavedState,
+        fixtureIDs, addedColumnId: null,
+      }),
+    }, { expectedEventIndex: sourceEventIndex });
+    break;
+  }
+  assert(policyOneFormalEntry,
+    'fresh Patient saved state must be read after every setup authoring request is terminal');
   const sourceIdIndex = findRenderedBuilderHeaderIndex(sourceGrid.headers, sourceIdColumn.label);
   assert(sourceIdIndex >= 0, `fresh Patient table must render ${sourceIdColumn.label}`);
   assert.deepEqual(sorted(sourceGrid.cells.map(row => row[sourceIdIndex]?.text)), fixtureIDs,
@@ -371,6 +396,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   };
   const policyOneInitialObservation = {
     workspace: policyOneSourceObservation.workspaceProjection,
+    outputId,
+    snapshotToken: sourceBuilder.catalog.snapshotToken,
     draftVersion: sourceSavedState.draftVersion,
     draftDigest: sourceSavedState.draftDigest,
   };
@@ -382,96 +409,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     rowCount: sourceGrid.cells.length,
     patientIds: sorted(sourceGrid.cells.map(row => row[sourceIdIndex]?.text)),
   };
+  const transportIndexForRequest = request => transportObserver.transportIndexForRequest(request);
   const policyOneEvidence = [];
-  const policyOneBackendCallCaptures = [];
-  const policyOneTransportByRequest = new Map();
-  const pendingPolicyOneTransportReads = new Set();
-  const authoringPrefix = '/authoring/v2/';
-  let transportIndex = 0;
-  let transportEventIndex = 0;
-  const captureBackendRequest = request => {
-    if (policyOneTransportByRequest.has(request)) return policyOneTransportByRequest.get(request);
-    const url = new URL(request.url());
-    const prefixIndex = url.pathname.indexOf(authoringPrefix);
-    if (prefixIndex < 0) return undefined;
-    let requestBody = null;
-    try { requestBody = request.postDataJSON(); } catch { requestBody = null; }
-    const entry = {
-      requestObject: request,
-      record: {
-        transportIndex: ++transportIndex,
-        requestEventIndex: ++transportEventIndex,
-        origin: url.origin,
-        resourcePath: `${url.origin}${url.pathname}`,
-        ownerScope: `${url.origin}${url.pathname.slice(0, prefixIndex)}`,
-        method: request.method(),
-        path: url.pathname.slice(prefixIndex + authoringPrefix.length),
-        requestId: String(request.headers()['x-request-id'] ?? '').trim() || null,
-        requestBody,
-        settlement: 'pending',
-        status: null,
-        responseOwnerIndex: null,
-        response: null,
-      },
-    };
-    policyOneTransportByRequest.set(request, entry);
-    policyOneBackendCallCaptures.push(entry);
-    return entry;
-  };
-  const captureBackendCall = (request, response = null) => {
-    const url = new URL(request.url());
-    if (!url.pathname.includes(authoringPrefix)) return;
-    const entry = policyOneTransportByRequest.get(request);
-    assert(entry, 'authoring transport settlement must retain its exact observed request object');
-    assert.equal(entry.record.settlement, 'pending',
-      `authoring transport ${entry.record.transportIndex} must settle exactly once`);
-    if (!response) {
-      entry.record.settlement = 'request-failed';
-      entry.record.settlementEventIndex = ++transportEventIndex;
-      entry.record.failure = request.failure()?.errorText ?? 'request failed without error detail';
-      return;
-    }
-    entry.record.settlement = 'response';
-    entry.record.settlementEventIndex = ++transportEventIndex;
-    entry.record.responseOwnerIndex = entry.record.transportIndex;
-    entry.record.status = response.status();
-    const responseRequestId = String(response.headers()['x-request-id'] ?? '').trim() || null;
-    const responseRead = response.json().then(body => {
-      const preview = body?.preview ?? null;
-      const outputIds = [
-        ...(Array.isArray(body?.outputs) ? body.outputs.map(output => output?.outputId) : []),
-        body?.outputId,
-        preview?.outputId,
-      ].filter(value => typeof value === 'string');
-      const receiptIds = [body?.receiptId, body?.proposalId, preview?.receiptId]
-        .filter(value => typeof value === 'string');
-      entry.record.response = {
-        status: response.status(),
-        requestId: responseRequestId ?? body?.requestId ?? null,
-        receiptId: body?.receiptId ?? body?.proposalId ?? preview?.receiptId ?? null,
-        receiptIds: [...new Set(receiptIds)],
-        outputIds: [...new Set(outputIds)],
-        snapshotToken: body?.snapshotToken ?? preview?.snapshotToken ?? null,
-        draftVersion: body?.draftVersion ?? null,
-        draftDigest: body?.draftDigest ?? null,
-        candidateWorkspaceDigest: body?.candidateWorkspaceDigest ?? null,
-        intentDigest: body?.intentDigest ?? null,
-        previewRowsPresent: Array.isArray(preview?.rows),
-      };
-    }).catch(error => {
-      entry.record.responseReadError = String(error);
-    });
-    pendingPolicyOneTransportReads.add(responseRead);
-    responseRead.finally(() => pendingPolicyOneTransportReads.delete(responseRead));
-  };
-  page.on('request', captureBackendRequest);
-  page.on('response', response => captureBackendCall(response.request(), response));
-  page.on('requestfailed', request => captureBackendCall(request));
-  const transportIndexForRequest = request => {
-    const entry = policyOneTransportByRequest.get(request);
-    assert(entry, 'semantic request must retain its raw observer transport index');
-    return entry.record.transportIndex;
-  };
   requireCheck(workflow, 'correctness', 'fresh Patient table renders the exact two fixture IDs', true,
     { fixtureIDs, headers: sourceGrid.headers, cells: sourceGrid.cells });
   const openRows = page.getByTestId('construction-rows-settings-trigger');
@@ -1421,7 +1360,6 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'removing Group restores the original Patient fields and rows after reload',
   ];
 
-  await Promise.all([...pendingPolicyOneTransportReads]);
   const observedCaptures = [
     [groupPreviewStarted.rawRequest, groupPreviewExchange.request.captureId],
     [groupApplyStarted.rawRequest, groupApplyExchange.request.captureId],
@@ -1433,11 +1371,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     [removalApplyStarted.rawRequest, removalApplyExchange.request.captureId],
   ];
   for (const [requestObject, requestCaptureId] of observedCaptures) {
-    const capture = policyOneTransportByRequest.get(requestObject);
-    assert(capture, 'semantic request must appear in the raw authoring transport ledger');
-    capture.record.requestCaptureId = requestCaptureId;
+    transportObserver.bindRequestCaptureId(requestObject, requestCaptureId);
   }
-  const transportCaptures = policyOneBackendCallCaptures.map(({ record }) => record);
+  const { captures: transportCaptures } = await transportObserver.finish();
   const { journeyTrace } = buildPolicyOneTrace({
     expected: {
       outputId,
@@ -1501,6 +1437,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       initialPreview: policyOneInitialPreview,
       actions: policyOneEvidence,
       transportCaptures,
+      formalEntry: policyOneFormalEntry,
       outcome: {
         kind: 'source-restored',
         workspace: policyWorkspaceProjection({ savedState: restoredState,
