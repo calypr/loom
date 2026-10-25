@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { scenarioCaseFor } from '../registry.mjs';
 
 const sourceManifestPath = 'verification/builder-interactions/builder-preview-contract.json';
@@ -230,6 +230,76 @@ const assertNativeReceiptIdentity = (receipt, traceName, nativeCaseKey, stage) =
   assert.equal(receipt.nativeCaseKey, nativeCaseKey,
     `${stage} nativeCaseKey must match the selected registered case.`);
   assert(!Object.hasOwn(receipt, 'caseKey'), `${stage} must not include a legacy caseKey alias.`);
+};
+
+const pathWithin = (parent, candidate) => {
+  const local = relative(parent, candidate);
+  return local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local);
+};
+
+export const resolveNativeBuilderJourneyArtifactPath = (reference, repositoryRoot) => {
+  assert(typeof reference === 'string' && reference.length > 0 && reference.trim() === reference,
+    'Native Builder journey artifact path must be an exact non-empty string.');
+  assert(typeof repositoryRoot === 'string' && repositoryRoot.length > 0,
+    'Native Builder journey artifact path needs the repository root.');
+  const root = realpathSync(resolve(repositoryRoot));
+  let localReference = reference;
+  if (localReference.startsWith('$CHECKOUT/')) localReference = localReference.slice('$CHECKOUT/'.length);
+  else assert(!localReference.includes('$CHECKOUT'),
+    'Native Builder journey artifact path may use only the literal $CHECKOUT/ root prefix.');
+  const candidate = isAbsolute(localReference) ? resolve(localReference) : resolve(root, localReference);
+  if (!isAbsolute(localReference)) {
+    assert(candidate !== root && pathWithin(root, candidate),
+      'Native Builder journey artifact path escapes the repository root: ' + reference);
+  }
+  const realCandidate = realpathSync(candidate);
+  assert(realCandidate !== root && pathWithin(root, realCandidate),
+    'Native Builder journey artifact symlink escapes the repository root: ' + reference);
+  return realCandidate;
+};
+
+export const nativeBuilderJourneyReceiptFromReport = (report, { binding, scenarioID, caseName, requiredChecks }) => {
+  assert(binding && typeof binding === 'object' && !Array.isArray(binding),
+    'Native Builder journey report selection needs the registered trace binding.');
+  assert(typeof binding.name === 'string' && binding.name.length > 0,
+    'Native Builder journey report selection needs the registered traceName.');
+  assert(typeof scenarioID === 'string' && scenarioID.length > 0 &&
+    typeof caseName === 'string' && caseName.length > 0,
+  'Native Builder journey report selection needs the registered scenario and case.');
+  const nativeCaseKey = `${scenarioID}/${caseName}`;
+  if (!Object.hasOwn(binding, 'formalProofAssertion')) {
+    const legacyReceipt = report?.target?.builderJourneyTrace ?? null;
+    if (legacyReceipt) assertNativeReceiptIdentity(legacyReceipt, binding.name, nativeCaseKey, 'Legacy target receipt');
+    return legacyReceipt;
+  }
+  assert(typeof binding.formalProofAssertion === 'string' && binding.formalProofAssertion.length > 0 &&
+    binding.formalProofAssertion.trim() === binding.formalProofAssertion,
+  'Registered formalProofAssertion must be an exact non-empty assertion name.');
+  assert(Array.isArray(requiredChecks) &&
+    requiredChecks.filter((name) => name === binding.formalProofAssertion).length === 1,
+  'Registered formalProofAssertion must name exactly one required check.');
+  const assertions = Array.isArray(report?.assertions) ? report.assertions : [];
+  const matches = assertions.filter((assertion) => assertion?.name === binding.formalProofAssertion);
+  assert.equal(matches.length, 1,
+    `Native Builder journey report must contain exactly one registered formal proof assertion: ${binding.formalProofAssertion}.`);
+  const assertion = matches[0];
+  assert.equal(assertion.status, 'passed',
+    `Registered formal proof assertion did not pass: ${binding.formalProofAssertion}.`);
+  const receipt = assertion.evidence;
+  assertNativeReceiptIdentity(receipt, binding.name, nativeCaseKey,
+    `Registered formal proof assertion ${binding.formalProofAssertion}`);
+  const targetReceipt = report?.target?.builderJourneyTrace;
+  if (targetReceipt) {
+    for (const field of [
+      'traceName', 'nativeCaseKey', 'status', 'replayStatus', 'selfTestStatus', 'traceSha256',
+      'actionLabels', 'requiredMutationControlNames', 'requestCoverage', 'requiredActionCountsByTrace',
+      'requiredActionMinimumsByTrace', 'unmodeledEvents', 'mutationControls',
+    ]) {
+      assert.equal(canonicalJson(targetReceipt[field]), canonicalJson(receipt[field]),
+        `Target and registered assertion formal receipts differ at ${field}.`);
+    }
+  }
+  return receipt;
 };
 
 const assertNativeReceiptTraceDigest = (receipt, tracePath, stage) => {

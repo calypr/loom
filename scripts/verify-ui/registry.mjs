@@ -6458,6 +6458,7 @@ const registryRows = [
           name: 'cda-builder-group-related-source',
           model: 'BuilderJourney',
           contract: 'verification/builder-interactions/builder-cda-group-related-contract.json',
+          formalProofAssertion: 'Captured Group and RELATED_SOURCE browser transitions replay through BuilderJourney TLC with the registered action contract',
           requiredActions: [
             'Preview',
             'PreviewComplete',

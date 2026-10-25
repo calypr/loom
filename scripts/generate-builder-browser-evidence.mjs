@@ -5,7 +5,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sourceFingerprint } from './verify-ui/helpers/source-fingerprint.mjs';
-import { assertNativeBuilderJourneyMutationControls } from './verify-ui/helpers/builder-journey-trace.mjs';
+import {
+  assertNativeBuilderJourneyMutationControls,
+  nativeBuilderJourneyReceiptFromReport,
+  resolveNativeBuilderJourneyArtifactPath,
+} from './verify-ui/helpers/builder-journey-trace.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const DEFAULT_OUTPUT = 'verification/builder-interactions/browser-evidence.json';
@@ -320,9 +324,7 @@ const nativeRunSourceFreshness = (root, run, historical) => {
 
 const formalJourneyArtifact = (root, reference, label) => {
   requireValue(typeof reference === 'string' && reference.length > 0, label + ' path is missing');
-  const absolute = isAbsolute(reference) ? resolve(reference) : pathWithin(root, reference, label);
-  const local = relative(root, absolute);
-  requireValue(local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local), label + ' must be retained under the repository: ' + reference);
+  const absolute = resolveNativeBuilderJourneyArtifactPath(reference, root);
   requireValue(existsSync(absolute), label + ' is missing: ' + reference);
   const bytes = readFileSync(absolute);
   return {
@@ -337,7 +339,6 @@ const formalJourneyArtifact = (root, reference, label) => {
 const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus, reportPath) => {
   const binding = registeredCase.journeyTrace;
   if (binding?.kind !== 'native-lifecycle') return null;
-  const evidence = report.target?.builderJourneyTrace;
   if (sourceStatus.status !== 'current') {
     return {
       name: binding.name,
@@ -348,6 +349,12 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
       nativeReport: displayPath(root, isAbsolute(reportPath) ? reportPath : pathWithin(root, reportPath, 'native report')),
     };
   }
+  const evidence = nativeBuilderJourneyReceiptFromReport(report, {
+    binding,
+    scenarioID: report.scenario,
+    caseName: report.case,
+    requiredChecks: registeredCase.requiredChecks,
+  });
   requireValue(evidence && typeof evidence === 'object', 'current native-lifecycle report has no formal journey evidence');
   const nativeCaseKey = report.scenario + '/' + report.case;
   requireValue(evidence.traceName === binding.name && evidence.nativeCaseKey === nativeCaseKey && evidence.status === 'pass' &&
@@ -364,6 +371,14 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   const replayReceipt = tla.builderJourneyTrace;
   const selfTestMutationControls = asArray(selfTest.mutationControls);
   const traceSha256 = sha256(traceArtifact.bytes);
+  const replayTracePath = typeof replayReceipt?.tracePath === 'string'
+    ? resolveNativeBuilderJourneyArtifactPath(replayReceipt.tracePath, root) : null;
+  const replayOutputPath = typeof replayReceipt?.replayReportPath === 'string'
+    ? resolveNativeBuilderJourneyArtifactPath(replayReceipt.replayReportPath, root) : null;
+  const selfTestTracePath = typeof selfTest.tracePath === 'string'
+    ? resolveNativeBuilderJourneyArtifactPath(selfTest.tracePath, root) : null;
+  const selfTestOutputPath = typeof selfTest.selfTestReportPath === 'string'
+    ? resolveNativeBuilderJourneyArtifactPath(selfTest.selfTestReportPath, root) : null;
   const contract = readJson(root, binding.contract, 'registered formal journey contract');
   const proofScope = currentProofScope(root);
   requireValue(proofScope.status === 'current' && proofScope.declaredMismatches.length === 0,
@@ -394,7 +409,7 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   const expectedNativeCaseKey = report.scenario + '/' + report.case;
   requireValue(replayReceipt?.traceName === binding.name && replayReceipt?.nativeCaseKey === expectedNativeCaseKey &&
     replayReceipt?.replayStatus === 'pass' && replayReceipt?.status === 'pending-self-test' &&
-    replayReceipt?.tracePath === evidence.tracePath && replayReceipt?.replayReportPath === evidence.replayReportPath &&
+    replayTracePath === traceArtifact.absolute && replayOutputPath === tlaArtifact.absolute &&
     sameJson(replayReceipt?.actionLabels, asArray(trace?.actions).map((action) => action.label)),
   'TLA report typed receipt differs from the registered trace, browser case, or captured action order');
   const requestCoverage = replayReceipt?.requestCoverage;
@@ -407,8 +422,8 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   'TLA receipt action counts or event classification are incomplete');
   requireValue(selfTest.status === 'pass' && evidence.selfTestStatus === 'pass' &&
     selfTest.traceName === binding.name && selfTest.nativeCaseKey === expectedNativeCaseKey &&
-    selfTest.tracePath === evidence.tracePath && selfTest.selfTestReportPath === evidence.selfTestReportPath &&
-    resolve(evidence.replayReportPath) === tlaArtifact.absolute,
+    selfTestTracePath === traceArtifact.absolute && selfTestOutputPath === selfTestArtifact.absolute &&
+    tlaArtifact.absolute === resolveNativeBuilderJourneyArtifactPath(evidence.replayReportPath, root),
   'formal journey mutation receipt does not match the registered trace, native case, or self-test output');
   requireValue(sameJson(evidence.requestCoverage, replayReceipt.requestCoverage) &&
     sameJson(evidence.requiredActionCountsByTrace, replayReceipt.requiredActionCountsByTrace) &&

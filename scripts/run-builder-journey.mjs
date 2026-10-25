@@ -6,9 +6,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDevSession, createFreshVerificationFixture } from './loom-dev.mjs';
 import {
-  assertNativeBuilderJourneyMutationControls,
+  finalizeNativeBuilderJourneyReceipt,
+  nativeBuilderJourneyReceiptFromReport,
   builderJourneyReportPaths,
   builderJourneyTraceBindingFor,
+  resolveNativeBuilderJourneyArtifactPath,
 } from './verify-ui/helpers/builder-journey-trace.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
@@ -166,6 +168,13 @@ const registeredNativeJourney = (nativeCaseId) => {
   if (binding.captureAdapter !== 'builder-native-journey-v1') {
     throw new Error('registered native journeyTrace has an unsupported capture adapter: ' + String(binding.captureAdapter));
   }
+  if (Object.hasOwn(binding, 'formalProofAssertion') &&
+      (typeof binding.formalProofAssertion !== 'string' || !binding.formalProofAssertion.trim() ||
+       binding.formalProofAssertion.trim() !== binding.formalProofAssertion ||
+       !Array.isArray(registeredCase.requiredChecks) ||
+       registeredCase.requiredChecks.filter((name) => name === binding.formalProofAssertion).length !== 1)) {
+    throw new Error('registered journeyTrace formalProofAssertion must name exactly one required native check');
+  }
   if (typeof binding.name !== 'string' || !binding.name.trim() || binding.name.trim() !== binding.name) {
     throw new Error('registered journeyTrace name must be a non-empty exact string');
   }
@@ -302,6 +311,7 @@ const registeredNativeJourney = (nativeCaseId) => {
     traceName: binding.name,
     model: binding.model,
     contract: binding.contract,
+    formalProofAssertion: binding.formalProofAssertion,
     traceKind: binding.kind,
     captureAdapter: binding.captureAdapter,
     requiredTraceActions: binding.requiredActions,
@@ -345,7 +355,7 @@ const runPlaywright = (env, specPath) => {
   return result.status ?? 1;
 };
 
-const bracketSummaryFromOutput = (output) => {
+export const bracketSummaryFromOutput = (output) => {
   const value = String(output ?? '').trim();
   for (let start = value.lastIndexOf('{'); start >= 0; start = value.lastIndexOf('{', start - 1)) {
     try {
@@ -507,7 +517,7 @@ const inspectJourney = (tracePath, minBackendCalls = 10, traceRequirements = {})
   };
 };
 
-const validateNativeBracketSummary = (summary, selection, targetPath) => {
+const validateNativeBracketSummary = (summary, selection, targetPath, tracePaths = null) => {
   const issues = [];
   const requireValue = (condition, message) => { if (!condition) issues.push(message); };
   requireValue(summary && typeof summary === 'object', 'native bracket summary is missing');
@@ -556,6 +566,7 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
     lifecycle.dimensions?.[dimension] === 'passed'), 'native lifecycle dimensions are incomplete or failed');
 
   let domainReport = null;
+  let formalTraceProof = null;
   const domainReportPath = summary.evidence?.domainReport;
   if (typeof domainReportPath !== 'string' || !existsSync(domainReportPath)) {
     issues.push('native domain report artifact is missing');
@@ -589,45 +600,87 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
         domainReport.assertions.every((assertion) => assertion.status === 'passed'),
       'native domain report assertions do not all pass');
       if (selection.traceKind === 'native-lifecycle') {
-        const traceProof = domainReport.target?.builderJourneyTrace;
-        const requestCoverage = traceProof?.requestCoverage;
-        const mutationControls = traceProof?.mutationControls;
-        const tracePath = typeof traceProof?.tracePath === 'string' ? resolve(ROOT, traceProof.tracePath) : null;
-        let actualTraceSha256 = null;
-        let traceDocument = null;
-        if (tracePath && existsSync(tracePath)) {
-          const traceBytes = readFileSync(tracePath);
-          actualTraceSha256 = createHash('sha256').update(traceBytes).digest('hex');
-          try { traceDocument = JSON.parse(traceBytes.toString('utf8')); }
-          catch (error) { issues.push('native formal trace is not valid JSON: ' + String(error?.message ?? error)); }
-        }
-        requireValue(traceProof?.status === 'pass' && traceProof?.replayStatus === 'pass' &&
-          traceProof?.selfTestStatus === 'pass' &&
-          traceProof?.traceName === selection.traceName &&
-          traceProof?.nativeCaseKey === `${selection.scenarioID}/${selection.caseName}`,
-        'native domain report did not include a passing source-bound trace replay and mutation self-test');
-        requireValue(actualTraceSha256 !== null && traceProof.traceSha256 === actualTraceSha256,
-          'native formal receipt traceSha256 does not bind the exact retained trace bytes');
-        requireValue(Number.isInteger(requestCoverage?.observed) &&
-          requestCoverage.modeled === requestCoverage.observed &&
-          requestCoverage.unmapped === 0 && requestCoverage.duplicates === 0 &&
-          Object.keys(traceProof.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
-          Object.keys(traceProof.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
-          traceProof.unmodeledEvents?.unclassified?.total === 0,
-        'native formal receipt has incomplete request, action-count, or read-only support coverage');
-        requireValue(Array.isArray(mutationControls) && mutationControls.length > 0 &&
-          mutationControls.every((control) => typeof control.name === 'string' &&
-            control.name.length > 0 && control.status === 'pass'),
-        'native formal receipt is missing passing mutation controls');
+        const formalAssertionName = selection.formalProofAssertion;
+        requireValue(typeof formalAssertionName === 'string' && formalAssertionName.length > 0 &&
+          selection.requiredChecks.filter((name) => name === formalAssertionName).length === 1,
+        'registered native journeyTrace must name exactly one required formal proof assertion');
         try {
-          const nativeContract = JSON.parse(readFileSync(resolve(ROOT, selection.contract), 'utf8'));
-          assertNativeBuilderJourneyMutationControls(mutationControls, {
-            contract: nativeContract,
-            traceDocument,
-            where: 'Native bracket mutation receipt',
+          const receiptEvidence = nativeBuilderJourneyReceiptFromReport(domainReport, {
+            binding: {
+              name: selection.traceName,
+              formalProofAssertion: selection.formalProofAssertion,
+            },
+            scenarioID: selection.scenarioID,
+            caseName: selection.caseName,
+            requiredChecks: selection.requiredChecks,
           });
+          requireValue(receiptEvidence && typeof receiptEvidence === 'object',
+            'native domain report is missing the registered formal proof assertion receipt');
+          requireValue(tracePaths && typeof tracePaths === 'object',
+            'native runner did not reserve the registered trace, replay, and self-test output paths');
+
+          const boundPath = (field, label) => {
+            const evidencePath = receiptEvidence?.[field];
+            requireValue(typeof evidencePath === 'string' && evidencePath.length > 0,
+              'native formal proof assertion is missing ' + label);
+            const actualPath = resolveNativeBuilderJourneyArtifactPath(evidencePath, ROOT);
+            const expectedPath = realpathSync(tracePaths[field]);
+            requireValue(actualPath === expectedPath,
+              'native formal proof assertion ' + label + ' differs from the selected output path');
+            return actualPath;
+          };
+          const tracePath = boundPath('tracePath', 'tracePath');
+          const replayReportPath = boundPath('replayReportPath', 'replayReportPath');
+          const selfTestReportPath = boundPath('selfTestReportPath', 'selfTestReportPath');
+          const traceBytes = readFileSync(tracePath);
+          const actualTraceSha256 = createHash('sha256').update(traceBytes).digest('hex');
+          const traceDocument = JSON.parse(traceBytes.toString('utf8'));
+          const actionLabels = traceDocument.traces?.[0]?.actions?.map((action) => action.label);
+          const replayReport = JSON.parse(readFileSync(replayReportPath, 'utf8'));
+          const selfTestReceipt = JSON.parse(readFileSync(selfTestReportPath, 'utf8'));
+          const nativeContract = JSON.parse(readFileSync(resolve(ROOT, selection.contract), 'utf8'));
+          const verifiedProof = finalizeNativeBuilderJourneyReceipt(
+            replayReport.builderJourneyTrace,
+            selfTestReceipt,
+            {
+              traceName: selection.traceName,
+              nativeCaseKey: selection.nativeCaseKey,
+              actionLabels,
+              tracePath,
+              traceSha256: actualTraceSha256,
+              selfTestReportPath,
+              contract: nativeContract,
+              traceDocument,
+            },
+          );
+          const normalizedEvidence = {
+            ...receiptEvidence,
+            tracePath: resolveNativeBuilderJourneyArtifactPath(receiptEvidence.tracePath, ROOT),
+            replayReportPath: resolveNativeBuilderJourneyArtifactPath(receiptEvidence.replayReportPath, ROOT),
+            selfTestReportPath: resolveNativeBuilderJourneyArtifactPath(receiptEvidence.selfTestReportPath, ROOT),
+          };
+          requireValue(canonicalJson(normalizedEvidence) === canonicalJson(verifiedProof),
+            'registered formal proof assertion differs from the retained replay and self-test receipts');
+          const requestCoverage = verifiedProof.requestCoverage;
+          requireValue(verifiedProof.status === 'pass' && verifiedProof.replayStatus === 'pass' &&
+            verifiedProof.selfTestStatus === 'pass' && verifiedProof.traceName === selection.traceName &&
+            verifiedProof.nativeCaseKey === selection.nativeCaseKey &&
+            verifiedProof.traceSha256 === actualTraceSha256,
+          'native domain report did not include a passing source-bound trace replay and mutation self-test');
+          requireValue(Number.isInteger(requestCoverage?.observed) &&
+            requestCoverage.modeled === requestCoverage.observed &&
+            requestCoverage.unmapped === 0 && requestCoverage.duplicates === 0 &&
+            Object.keys(verifiedProof.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
+            Object.keys(verifiedProof.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
+            verifiedProof.unmodeledEvents?.unclassified?.total === 0,
+          'native formal receipt has incomplete request, action-count, or read-only support coverage');
+          requireValue(Array.isArray(verifiedProof.mutationControls) && verifiedProof.mutationControls.length > 0 &&
+            verifiedProof.mutationControls.every((control) => typeof control.name === 'string' &&
+              control.name.length > 0 && control.status === 'pass'),
+          'native formal receipt is missing passing mutation controls');
+          formalTraceProof = Object.freeze(verifiedProof);
         } catch (error) {
-          issues.push('native formal receipt mutation controls do not match the contract inventory: ' + String(error?.message ?? error));
+          issues.push('native formal proof assertion or retained receipt is invalid: ' + String(error?.message ?? error));
         }
       }
     } catch (error) {
@@ -645,11 +698,11 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
     requiredCheckCount: lifecycle.requiredCheckCount ?? null,
     passedCheckCount: lifecycle.passedCheckCount ?? null,
     lifecycleDimensions: lifecycle.dimensions ?? null,
-    formalTraceProof: domainReport?.target?.builderJourneyTrace ?? null,
+    formalTraceProof,
   };
 };
 
-const validateNativeBracketEnvelope = (envelope, selection, targetPath) => {
+const validateNativeBracketEnvelope = (envelope, selection, targetPath, tracePaths = null) => {
   const issues = [];
   const requireValue = (condition, message) => { if (!condition) issues.push(message); };
   requireValue(envelope && typeof envelope === 'object', 'native bracket output envelope is missing');
@@ -684,7 +737,7 @@ const validateNativeBracketEnvelope = (envelope, selection, targetPath) => {
   if (resolve(summary?.evidence?.domainReport ?? '') !== resolve(ROOT, envelope.report)) {
     issues.push('native bracket output domain-report path differs from the path retained in the full summary');
   }
-  const validated = validateNativeBracketSummary(summary, selection, targetPath);
+  const validated = validateNativeBracketSummary(summary, selection, targetPath, tracePaths);
   issues.push(...validated.issues);
   return {
     ...validated,
@@ -694,6 +747,34 @@ const validateNativeBracketEnvelope = (envelope, selection, targetPath) => {
     envelopeScenario: envelope.scenario,
     envelopeCase: envelope.case,
   };
+};
+
+export const validateNativeJourneyTraceBinding = (nativeBracket, selection, tracePath, actionLabels) => {
+  const issues = [];
+  const proof = nativeBracket?.formalTraceProof;
+  if (!proof || typeof proof.tracePath !== 'string') {
+    issues.push('native report formal trace path is missing');
+  } else {
+    try {
+      const retainedTracePath = resolveNativeBuilderJourneyArtifactPath(proof.tracePath, ROOT);
+      const selectedTracePath = resolveNativeBuilderJourneyArtifactPath(tracePath, ROOT);
+      if (retainedTracePath !== selectedTracePath) {
+        issues.push('native report formal trace path differs from the selected registered trace output');
+      }
+    } catch (error) {
+      issues.push('native report formal trace path is invalid: ' + String(error?.message ?? error));
+    }
+  }
+  if (proof?.traceName !== selection.traceName) {
+    issues.push('native report formal traceName differs from the registered trace binding');
+  }
+  if (proof?.nativeCaseKey !== selection.nativeCaseKey) {
+    issues.push('native report formal nativeCaseKey differs from the selected native bracket case');
+  }
+  if (!Array.isArray(proof?.actionLabels) || canonicalJson(proof.actionLabels) !== canonicalJson(actionLabels)) {
+    issues.push('native report formal action labels differ from the captured trace');
+  }
+  return { status: issues.length === 0 ? 'passed' : 'failed', issues };
 };
 
 const validateNativeTlaReceipt = ({ tracePath, tla, sourceCommit, sourceFingerprint, contractSourceCommit, selection }) => {
@@ -1026,7 +1107,12 @@ const main = async () => {
     : runPlaywright(env, selectedJourney?.specPath);
   if (nativeSelection?.traceKind === 'native-lifecycle') {
     nativeBracket = validateNativeBracketEnvelope(nativeRun?.summaryEnvelope, nativeSelection,
-      options.target ? resolve(ROOT, options.target) : null);
+      options.target ? resolve(ROOT, options.target) : null,
+      {
+        tracePath,
+        replayReportPath: nativeProofOutputPaths?.replayReportPath,
+        selfTestReportPath: nativeProofOutputPaths?.selfTestReportPath,
+      });
     if (nativeBracket.summaryPath && nativeBracket.domainReportPath) {
       try {
         retainedNativeReport = retainNativeDomainReportArtifact({
@@ -1090,20 +1176,8 @@ const main = async () => {
     selectedJourney?.nativeSelection ?? {},
   );
   if (nativeSelection?.traceKind === 'native-lifecycle') {
-    const proof = nativeBracket?.formalTraceProof;
-    const addProofIssue = (message) => nativeBracket?.issues.push(message);
-    if (!proof || typeof proof.tracePath !== 'string' || resolve(ROOT, proof.tracePath) !== tracePath) {
-      addProofIssue('native report formal trace path differs from the selected registered trace output');
-    }
-    if (proof?.traceName !== nativeSelection.traceName) {
-      addProofIssue('native report formal traceName differs from the registered trace binding');
-    }
-    if (proof?.nativeCaseKey !== `${nativeSelection.scenarioID}/${nativeSelection.caseName}`) {
-      addProofIssue('native report formal nativeCaseKey differs from the selected native bracket case');
-    }
-    if (!Array.isArray(proof?.actionLabels) || canonicalJson(proof.actionLabels) !== canonicalJson(journey.actions)) {
-      addProofIssue('native report formal action labels differ from the captured trace');
-    }
+    const proofBinding = validateNativeJourneyTraceBinding(nativeBracket, nativeSelection, tracePath, journey.actions);
+    nativeBracket?.issues.push(...proofBinding.issues);
     if (nativeBracket && nativeBracket.issues.length > 0) nativeBracket.status = 'failed';
   }
   const tlaReportPath = nativeTlaReportPath ?? reportPath.replace(/\.json$/, '.tla.json');
