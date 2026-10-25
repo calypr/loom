@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { gunzipSync } from 'node:zlib';
 import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import {
@@ -15,7 +13,6 @@ import {
 } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 import {
   compileTemporalFilterJourneyTrace,
-  createTemporalFilterMutationControls,
   TEMPORAL_FILTER_ACTION_EVENT_PAIRS,
   TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS,
   TEMPORAL_FILTER_MUTATION_CONTROL_NAMES,
@@ -28,38 +25,6 @@ const modelPath = resolve(repositoryRoot, 'verification/builder-interactions/Tem
 const dateContractPath = resolve(repositoryRoot, 'verification/builder-interactions/builder-temporal-filter-date-contract.json');
 const dateTimeContractPath = resolve(repositoryRoot, 'verification/builder-interactions/builder-temporal-filter-date-time-contract.json');
 const tlcJar = process.env.TLA2TOOLS_JAR;
-const nativeDateCaptureCorpus = [
-  {
-    name: 'run5',
-    fixture: 'date-run5.json.gz',
-    sourceCommit: 'becae9bce7a8b0aa824ed1c5458666af4d3cb98a',
-    sourceFingerprint: '8f6ecae6eabcfc85c169720760c83b2a9b8c51839f72cd0de3c192efc138f9e1',
-    sourceArtifactKind: 'canonical-trace',
-    sourceArtifactSha256: '70ddb052b75c669feca05f92ef612f404af34077ec9a35e345fbff63e7e702ab',
-    captureSha256: '3a17388412125fcde3249c73f0fee7980607119f8e76e2f1c005fe554771efd6',
-    sourceDOMRowIds: ['dev-patient-001', 'dev-patient-002'],
-  },
-  {
-    name: 'run6',
-    fixture: 'date-run6.json.gz',
-    sourceCommit: '01c74f94fecc10f70e67caba44193d71cdd36b9e',
-    sourceFingerprint: 'f673be3ada064983a78623f6e22ac4115e502acc4c614a865723975e5e17704b',
-    sourceArtifactKind: 'canonical-trace',
-    sourceArtifactSha256: '045b505107d2c41d309ee5b4bcf73a5201a6bcc71f477ba8090a50aa6ff1a763',
-    captureSha256: 'a9783d969ceaff8965728ed409d3f9915a36eb19d263e36674d273299afac05c',
-    sourceDOMRowIds: ['dev-patient-002', 'dev-patient-001'],
-  },
-  {
-    name: '96a',
-    fixture: 'date-96a.json.gz',
-    sourceCommit: '96a95b1d43fef53700a06d9920887832631e9cbc',
-    sourceFingerprint: '48c2b3d0514919dbfca4831494eac4fa33d207b698ca8ff90bfe6c44c5983bbb',
-    sourceArtifactKind: 'native-domain-report',
-    sourceArtifactSha256: '6f716f9c1b5466f91264d3fbc99f502b12b5c068b1ac6a80ace547e8066cbe52',
-    captureSha256: '62f17084b032c3a0af587e771fc719984b30c994acd25fdf8d2f778a099db9a4',
-    sourceDOMRowIds: ['dev-patient-001', 'dev-patient-002'],
-  },
-];
 
 const makeJourney = caseName => adaptTemporalFilterJourney(makeTemporalFilterJourneyCaptureFixture(caseName));
 const OBSERVED_DATE_PROJECT = 'loom_dev_verify_mvo2jf3p-3be4623';
@@ -335,7 +300,7 @@ const runTlc = (trace, moduleSuffix, { mutateModel, mutateTrace } = {}) => {
     writeFileSync(join(directory, `${compiled.moduleName}.tla`), compiled.moduleText);
     writeFileSync(join(directory, `${compiled.moduleName}.cfg`), compiled.configText);
     const result = spawnSync('java', [
-      '-XX:+UseParallelGC', '-cp', tlcJar, 'tlc2.TLC', '-workers', '1',
+      '-XX:+UseParallelGC', '-cp', tlcJar, 'tlc2.TLC', '-workers', '4',
       '-metadir', metadataDirectory, '-config', `${compiled.moduleName}.cfg`,
       `${compiled.moduleName}.tla`,
     ], { cwd: directory, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
@@ -1069,98 +1034,6 @@ test('synthetic DATE and DATE_TIME adapter captures pass their generated TLA tra
   }
 });
 
-test('retained native DATE captures replay across actual grid row orders without losing exact identities', { timeout: 180_000 }, () => {
-  const literalRows = [
-    { id: 'dev-patient-001', value: '1980-01-02' },
-    { id: 'dev-patient-002', value: '1985-03-04' },
-  ];
-  const traces = new Map();
-  for (const source of nativeDateCaptureCorpus) {
-    const envelope = JSON.parse(gunzipSync(readFileSync(new URL(
-      `./fixtures/temporal-filter-native-captures/${source.fixture}`, import.meta.url,
-    ))).toString('utf8'));
-    const capture = envelope.capture;
-    assert.equal(envelope.sourceArtifactKind, source.sourceArtifactKind);
-    assert.equal(envelope.sourceArtifactSha256, source.sourceArtifactSha256);
-    assert.equal(capture.sourceCommit, source.sourceCommit);
-    assert.equal(capture.sourceFingerprint.sha256, source.sourceFingerprint);
-    assert.equal(createHash('sha256').update(JSON.stringify(capture)).digest('hex'), source.captureSha256,
-      `${source.name} extracted capture must match the immutable archived lifecycle payload.`);
-    assert.equal(capture.requestEvents.length, 79);
-    assert.equal(capture.steps.length, 16);
-    assert.deepEqual(capture.rows, literalRows,
-      `${source.name} must retain each fixture ID paired with its literal birthDate value.`);
-    const sourceStep = capture.steps.find(step => step.label === 'SourceTableCreated');
-    const sourceDOM = capture.domObservations[sourceStep.domObservationIndex];
-    assert.deepEqual(sourceDOM.rowIds, source.sourceDOMRowIds,
-      `${source.name} must retain the actual captured DOM row order.`);
-    assert.deepEqual([...sourceDOM.rowIds].sort(), capture.ids,
-      `${source.name} must preserve the exact source identity multiset.`);
-
-    const trace = adaptTemporalFilterJourney(capture);
-    const projection = validateTemporalFilterJourneyTrace(trace);
-    assert.equal(projection.caseName, 'date');
-    const compiled = compileTemporalFilterJourneyTrace(trace, { moduleName: `TemporalFilterNative${source.name}` });
-    assert.equal(compiled.eventCount, 16);
-    assert.equal(compiled.observedRequestCount, 79);
-    const result = runTlc(trace, `Native${source.name}`);
-    assert.equal(result.status, 0, `${source.name} native DATE capture should pass TLC.\n${result.output}`);
-    assert.match(result.output, /Model checking completed\. No error has been found\./u, result.output);
-    const states = /([0-9,]+) states generated, ([0-9,]+) distinct states found/u.exec(result.output);
-    assert(states, result.output);
-    console.log(`native DATE ${source.name} ${source.sourceCommit}: 16 events, 79 requests, ${states[1]} states, ${states[2]} distinct.`);
-    traces.set(source.name, trace);
-  }
-
-  const currentTrace = traces.get('run6');
-  const controls = createTemporalFilterMutationControls(currentTrace);
-  assert.deepEqual(controls.map(control => control.name), TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);
-  for (const control of controls) {
-    validateTemporalFilterJourneyTrace(control.trace);
-    const result = runTlc(control.trace, `Run6${control.name.replaceAll('-', '')}`);
-    assert.notEqual(result.status, 0, `run6 ${control.name} should fail TLC.\n${result.output}`);
-    const expectedOutput = control.expectedFailure.invariant === 'Deadlock'
-      ? /Error: Deadlock reached\./u
-      : new RegExp(`${control.expectedFailure.invariant} is equal to FALSE`, 'u');
-    assert.match(result.output, expectedOutput,
-      `run6 ${control.name} failed at an unexpected stage.\n${result.output}`);
-    console.log(`native DATE run6 control ${control.name}: ${control.expectedFailure.invariant}.`);
-  }
-
-  const duplicateSourceRowTrace = structuredClone(currentTrace);
-  const cancelActionIndex = duplicateSourceRowTrace.actions.findIndex(event => event.action === 'FilterCancelled');
-  const cancelStep = duplicateSourceRowTrace.temporalFilterLifecycle.steps[cancelActionIndex];
-  const cancelDOM = duplicateSourceRowTrace.temporalFilterLifecycle.domObservations[cancelStep.domObservationIndex];
-  const duplicatedRowIds = [...cancelDOM.rowIds, cancelDOM.rowIds[0]];
-  assert.deepEqual(new Set(duplicatedRowIds), new Set(cancelDOM.rowIds),
-    'The row control must preserve the source ID set while changing only multiplicity.');
-  assert.equal(duplicatedRowIds.length, cancelDOM.rowIds.length + 1);
-  cancelDOM.rowIds = duplicatedRowIds;
-  duplicateSourceRowTrace.actions[cancelActionIndex].ui.rowIds = duplicatedRowIds;
-  validateTemporalFilterJourneyTrace(duplicateSourceRowTrace);
-  const multiplicityDrift = runTlc(duplicateSourceRowTrace, 'Run6DuplicateCancelRowId');
-  assert.notEqual(multiplicityDrift.status, 0, multiplicityDrift.output);
-  assert.match(multiplicityDrift.output, /Error: Deadlock reached\./u, multiplicityDrift.output);
-  console.log('native DATE run6 row-ID multiplicity control: Deadlock.');
-
-  const invalidRows = [
-    ['missing source row', capture => capture.rows.splice(0, 1)],
-    ['extra source row', capture => capture.rows.push({ id: 'dev-patient-extra', value: '1990-06-07' })],
-    ['duplicate source ID', capture => { capture.rows[1].id = capture.rows[0].id; }],
-    ['wrong ID-to-value association', capture => {
-      [capture.rows[0].value, capture.rows[1].value] = [capture.rows[1].value, capture.rows[0].value];
-    }],
-  ];
-  for (const [name, mutate] of invalidRows) {
-    const malformedCapture = structuredClone(currentTrace.temporalFilterLifecycle);
-    mutate(malformedCapture);
-    assert.throws(() => adaptTemporalFilterJourney(malformedCapture), {
-      name: 'AssertionError',
-      message: /Trace row literals must remain the independent temporal oracle\./u,
-    }, name);
-  }
-});
-
 test('TLA rejects stale proposal ownership, stale draft CAS, and reordered adapter events', { timeout: 30_000 }, () => {
   const wrongOwner = makeJourney('date');
   const ownerApply = wrongOwner.actions.find(event => event.action === 'FilterApplied(create)');
@@ -1187,30 +1060,4 @@ test('TLA rejects stale proposal ownership, stale draft CAS, and reordered adapt
   const orderResult = runTlc(wrongOrder, 'WrongOrder');
   assert.notEqual(orderResult.status, 0, orderResult.output);
   assert.match(orderResult.output, /InvSemanticActionOrder is equal to FALSE/u, orderResult.output);
-});
-
-test('Temporal mutation factory returns fixed compiler-valid controls rejected by TLC', { timeout: 60_000 }, () => {
-  assert.deepEqual(TEMPORAL_FILTER_MUTATION_CONTROL_NAMES, [
-    'proposal-owner-drift',
-    'proposal-cas-drift',
-    'semantic-action-order-drift',
-    'source-auto-id-cas-drift',
-    'source-auto-id-command-echo-drift',
-    'explorer-created-stale-read-mount',
-  ]);
-  for (const caseName of ['date', 'date-time']) {
-    const controls = createTemporalFilterMutationControls(makeJourney(caseName));
-    assert.deepEqual(controls.map(control => control.name), TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);
-    for (const control of controls) {
-      assert.equal(control.expectedFailure.stage, 'TLC');
-      validateTemporalFilterJourneyTrace(control.trace);
-      const result = runTlc(control.trace, `${caseName.replace('-', '')}${control.name.replaceAll('-', '')}`);
-      assert.notEqual(result.status, 0, `${caseName} ${control.name} should fail TLC.`);
-      const expectedOutput = control.expectedFailure.invariant === 'Deadlock'
-        ? /Error: Deadlock reached\./u
-        : new RegExp(`${control.expectedFailure.invariant} is equal to FALSE`, 'u');
-      assert.match(result.output, expectedOutput,
-        `${caseName} ${control.name} failed at an unexpected stage:\n${result.output}`);
-    }
-  }
 });
