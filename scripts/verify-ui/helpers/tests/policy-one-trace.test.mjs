@@ -288,6 +288,8 @@ test('a valid ONE rejection and same-choice ALL Apply persist distinct input and
 
   assert.equal(trace.name, 'builder-authoring:patient-one-disagreement');
   assert.equal(trace.model, 'PolicyOneDisagreement');
+  assert.deepEqual(trace.unmodeledEvents, [],
+    'the producer must explicitly inventory that the exact modeled action and transport ledgers leave no unmodeled events');
   assert.deepEqual(trace.actions.map(({ label }) => label), [
     'GroupPreviewReady', 'GroupApplied', ...eventNames, 'ReloadedAll', 'RemovalCancelled',
   ]);
@@ -316,6 +318,26 @@ test('a valid ONE rejection and same-choice ALL Apply persist distinct input and
     'the model trace must not retain raw browser request objects');
   assert.deepEqual(JSON.parse(JSON.stringify(trace)), trace,
     'the model trace must contain only finite JSON values');
+});
+
+test('the Policy One adapter rejects missing or unexpected unmodeled events', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  assert.deepEqual(trace.unmodeledEvents, []);
+
+  const missingInventory = structuredClone(trace);
+  delete missingInventory.unmodeledEvents;
+  assert.throws(() => validatePolicyOneJourneyTrace(missingInventory),
+    /must include its unmodeled-event inventory/);
+
+  const unexpectedEvent = structuredClone(trace);
+  unexpectedEvent.unmodeledEvents.push({
+    kind: 'unregistered-event',
+    note: 'An event with no Policy One model transition was observed.',
+    classification: 'unsupported',
+    reason: 'The Policy One exact action inventory covers the supported workflow events.',
+  });
+  assert.throws(() => validatePolicyOneJourneyTrace(unexpectedEvent),
+    /must represent every observed workflow event in its exact modeled action inventory/);
 });
 
 test('the response observation preserves an absent response request ID', () => {

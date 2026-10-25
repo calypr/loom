@@ -1683,11 +1683,5 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   requireCheck(workflow, 'correctness',
     'Captured Patient.id ONE/ALL browser journey replays through PolicyOneDisagreement TLC and passes all registered mutation controls',
     formalProof.status === 'pass' && formalProof.replayStatus === 'pass' && formalProof.selfTestStatus === 'pass',
-    {
-      tracePath: formalProof.tracePath,
-      actionCount: journeyTrace.actions.length,
-      replayStatus: formalProof.replayStatus,
-      selfTestStatus: formalProof.selfTestStatus,
-      mutationControlCount: formalProof.mutationControls?.length ?? 0,
-    });
+    formalProof);
 };

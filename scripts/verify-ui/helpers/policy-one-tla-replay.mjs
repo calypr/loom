@@ -414,6 +414,9 @@ function validateTraceShape(trace) {
   assert(Array.isArray(trace.actions), 'journey trace actions must be an array');
   assert.equal(trace.actions.length, EXPECTED_LABELS.length,
     `journey trace must contain ${EXPECTED_LABELS.length} observed actions`);
+  assert(Array.isArray(trace.unmodeledEvents), 'journey trace must include its unmodeled-event inventory');
+  assert.equal(trace.unmodeledEvents.length, 0,
+    'Policy One trace must represent every observed workflow event in its exact modeled action inventory');
   assert(Array.isArray(trace.transportLedger), 'journey trace must include its raw transport ledger');
   assert(trace.transportLedger.length > 0, 'raw transport ledger must not be empty');
   const formalEntry = requireRecord(trace.formalEntry, 'formal entry boundary');
