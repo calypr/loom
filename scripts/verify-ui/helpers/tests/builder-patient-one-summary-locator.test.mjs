@@ -5,6 +5,7 @@ import { chromium } from '@playwright/test';
 import { findRenderedBuilderHeaderIndex } from '../builder-rendered-grid.mjs';
 import {
   capturePatientOnePreOneState,
+  isNativeGroupProposalReady,
   readNativeGroupProposal,
   readPatientOneChoiceEditor,
   readNativeGroupSummary,
@@ -14,9 +15,12 @@ import {
 
 const requireFromLoomUI = createRequire(new URL('../../../../ui/packages/loom-ui/package.json', import.meta.url));
 const { JSDOM } = requireFromLoomUI('jsdom');
-const siblingProposalHTML = `
+const rowIntentProposalHTML = `
   <main>
-    <section aria-label="Change editor">
+    <section aria-label="Current table preview" data-testid="construction-preview">
+      <div data-testid="preview-table-scroll"><table><tbody><tr><td>source rows</td></tr></tbody></table></div>
+    </section>
+    <dialog aria-label="Row definition settings" open>
       <section aria-label="Reshape editor" data-testid="construction-reshape-editor">
         <section aria-label="Summarize into groups" data-testid="construction-reshape-group">
           <input type="checkbox" aria-label="Group by Patient ID" />
@@ -31,16 +35,12 @@ const siblingProposalHTML = `
           </label>
         </div>
       </section>
-      <section aria-label="Proposed change">
-        <div data-testid="construction-proposal-panel" data-proposal-status="ready">
-          <div data-testid="construction-proposal-ready">
-            <h3>Proposal preview</h3>
-            <p>1 row and 2 columns · checked in 80 ms.</p>
-          </div>
+      <section aria-label="Proposed change" data-testid="construction-proposal-panel" data-proposal-status="ready">
+        <div data-testid="construction-proposal-ready">
+          <h3>Proposal preview</h3>
+          <p>1 row and 2 columns · checked in 80 ms.</p>
         </div>
       </section>
-    </section>
-    <section aria-label="Table result" data-testid="construction-preview">
       <div data-testid="construction-proposal-preview" data-preview-status="ready">
         <table>
           <thead><tr>
@@ -54,7 +54,7 @@ const siblingProposalHTML = `
         </table>
         <p>Showing all 1 row in this proposal.</p>
       </div>
-    </section>
+    </dialog>
   </main>
 `;
 
@@ -62,14 +62,18 @@ test('Patient ONE reads Summary 1 from the sibling Reshape editor', async () => 
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const page = await browser.newPage();
-    await page.setContent(siblingProposalHTML);
+    await page.setContent(rowIntentProposalHTML);
+    await page.waitForFunction(isNativeGroupProposalReady, { expectedCount: '2' }, { timeout: 1000 });
 
     assert.equal(await page.getByTestId('construction-proposal-panel')
       .locator('select[aria-label="Summary 1"]').count(), 0,
     'retained DOM shape places Summary 1 outside the proposal panel');
     assert.equal(await readNativeGroupSummary(page), 'COUNT_ROWS');
+    assert.equal(await page.getByTestId('construction-preview')
+      .getByTestId('construction-proposal-preview').count(), 0,
+    'row-intent proposal preview is outside the current table preview container');
     assert.equal(await page.getByTestId('construction-proposal-panel').locator('table').count(), 0,
-      'the proposal summary contains no table; its preview renders in the sibling result region');
+      'the proposal summary contains no table; its preview is a separate row-intent sibling');
     const proposal = await page.evaluate(readNativeGroupProposal);
     assert.equal(proposal.proposalSummary, '1 row and 2 columns · checked in 80 ms.');
     assert.deepEqual(proposal.groupKeys, []);
@@ -85,11 +89,15 @@ test('Patient ONE reads Summary 1 from the sibling Reshape editor', async () => 
   }
 });
 
-test('Patient ONE proposal reader gets raw IDs and count from the sibling rendered table', () => {
-  const { window } = new JSDOM(siblingProposalHTML);
+test('Patient ONE proposal reader and ready wait observe the row-intent preview outside the current table preview', () => {
+  const { window } = new JSDOM(rowIntentProposalHTML);
   const proposalPanel = window.document.querySelector('[data-testid="construction-proposal-panel"]');
   assert.equal(proposalPanel.querySelector('table'), null,
     'the proposal summary is separate from the rendered preview table');
+  assert.equal(window.document.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]'), null,
+    'row-intent candidate preview is not nested under the current table preview');
+  assert.equal(isNativeGroupProposalReady({ expectedCount: '2' }, window.document), true,
+    'the ready predicate must observe the exact empty-key COUNT_ROWS candidate');
   const proposal = readNativeGroupProposal(window.document);
   assert.equal(proposal.proposalSummary, '1 row and 2 columns · checked in 80 ms.');
   assert.deepEqual(proposal.groupKeys, []);

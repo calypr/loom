@@ -14,6 +14,26 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../.
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
 
+export const isNativeGroupProposalReady = ({ expectedCount }, doc = globalThis.document) => {
+  const panel = doc.querySelector('[data-testid="construction-proposal-panel"]');
+  const preview = doc.querySelector('[data-testid="construction-proposal-preview"]');
+  const summary = doc.querySelector('select[aria-label="Summary 1"]');
+  const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
+    .map(cell => (cell.querySelector('span')?.innerText ?? cell.querySelector('span')?.textContent
+      ?? cell.innerText ?? cell.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase());
+  const rows = [...(preview?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])];
+  const cells = [...(rows[0]?.querySelectorAll('td') ?? [])]
+    .map(cell => (cell.innerText ?? cell.textContent ?? '').replace(/\s+/g, ' ').trim());
+  const countIndex = headers.findIndex(header => header === 'row count');
+  return Boolean(panel?.dataset.proposalStatus === 'ready'
+    && preview?.dataset.previewStatus === 'ready'
+    && summary?.value === 'COUNT_ROWS'
+    && countIndex >= 0
+    && cells.length === headers.length
+    && cells[countIndex] === expectedCount
+    && rows.length === 1);
+};
+
 export const readNativeGroupSummary = page =>
   page.getByRole('combobox', { name: 'Summary 1', exact: true }).inputValue();
 
@@ -21,7 +41,7 @@ export const readNativeGroupProposal = (doc = globalThis.document) => {
   const panel = doc.querySelector('[data-testid="construction-proposal-panel"]');
   const ready = panel?.querySelector('[data-testid="construction-proposal-ready"]');
   const editor = doc.querySelector('[data-testid="construction-reshape-editor"]');
-  const preview = doc.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]');
+  const preview = doc.querySelector('[data-testid="construction-proposal-preview"]');
   const table = preview?.querySelector('table');
   const text = element => (element?.innerText ?? element?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const headers = [...(table?.querySelectorAll('thead th') ?? [])]
@@ -423,8 +443,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     owner: { kind: 'policy-one-group-preview', attempt: 'empty-key' }, timeout: 5000,
   });
   await workflow.action('open native empty-key Group proposal', groupAction, () => groupAction.click(), {
-    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
-      && document.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready'),
+    after: () => page.waitForFunction(isNativeGroupProposalReady,
+      { expectedCount: String(fixtureIDs.length) }, { timeout: 5000 }),
   });
   const groupPreviewStarted = await groupPreviewAttempt.started;
   const groupPreviewExchange = await groupPreviewAttempt.settled;
