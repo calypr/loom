@@ -1013,6 +1013,7 @@ const registryRows = [
             sourceFiles: [
               'scripts/verify-ui/helpers/policy-one-trace.mjs',
               'scripts/verify-ui/helpers/policy-one-transport-observer.mjs',
+              'scripts/verify-ui/helpers/transport-terminal.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs',
               'scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs',
               'scripts/verify-ui/workflows/builder-group-entry.mjs',
@@ -2289,6 +2290,7 @@ const registryRows = [
               'node-test',
               'scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs',
               'scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs',
+              'scripts/verify-ui/helpers/tests/transport-terminal.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
@@ -2296,6 +2298,7 @@ const registryRows = [
               'scripts/verify-ui/helpers/fixture-context.mjs',
               'scripts/verify-ui/helpers/temporal-filter-capture.mjs',
               'scripts/verify-ui/helpers/temporal-filter-pending-read.mjs',
+              'scripts/verify-ui/helpers/transport-terminal.mjs',
               'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs',
               'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
@@ -2312,6 +2315,7 @@ const registryRows = [
             sourceFiles: [
               'scripts/verify-ui/helpers/fixture-context.mjs',
               'scripts/verify-ui/helpers/temporal-filter-pending-read.mjs',
+              'scripts/verify-ui/helpers/transport-terminal.mjs',
               'scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs',
               'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/basic-temporal-filter-run4-pending-capability.json',
@@ -2383,6 +2387,7 @@ const registryRows = [
               'scripts/verify-ui/helpers/fixture-context.mjs',
               'scripts/verify-ui/helpers/temporal-filter-capture.mjs',
               'scripts/verify-ui/helpers/temporal-filter-pending-read.mjs',
+              'scripts/verify-ui/helpers/transport-terminal.mjs',
               'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs',
               'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
@@ -2399,6 +2404,7 @@ const registryRows = [
             sourceFiles: [
               'scripts/verify-ui/helpers/fixture-context.mjs',
               'scripts/verify-ui/helpers/temporal-filter-pending-read.mjs',
+              'scripts/verify-ui/helpers/transport-terminal.mjs',
               'scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs',
               'scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/basic-temporal-filter-run4-pending-capability.json',
