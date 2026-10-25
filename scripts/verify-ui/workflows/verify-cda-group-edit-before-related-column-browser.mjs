@@ -678,7 +678,18 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
         `Proposal ${entry.browserRequestId} settlement evidence must retain the same actual document timeOrigin.`);
     }
     const pageObservation = settlementObservationAvailable ? settlementEvidence.observation : null;
-    const renderedObservation = settlementObservationAvailable ? settlementEvidence.renderedObservation : null;
+    const panelId = settlementObservationAvailable ? settlementEvidence.proposalPanel?.id ?? null : null;
+    const currentPanelOwners = panelId ? nativeCapture.requests.filter(candidate =>
+      candidate.path === `${base}/construction-proposals` &&
+      candidate.response?.proposalId === panelId) : [];
+    const currentPanelOwner = currentPanelOwners.length === 1 ? currentPanelOwners[0] : null;
+    const renderedObservation = settlementObservationAvailable
+      ? {
+          ...settlementEvidence.renderedObservation,
+          proposalPanelObservedAt: settlementEvidence.proposalPanelObservedAt,
+          ...(currentPanelOwner ? { proposalPanelBrowserRequestId: currentPanelOwner.browserRequestId } : {}),
+        }
+      : null;
     const savedBefore = savedBuilderProjection(entryState);
     const savedAfter = settlementObservationAvailable ? settlementEvidence.savedAfter : null;
     const savedAfterBuilder = settlementObservationAvailable ? settlementEvidence.savedAfterBuilder : null;
@@ -714,7 +725,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
         response,
         settlement,
         settlementObservedEpoch: settlementMount.mountEpoch,
-        renderedObservation: selectedCandidateReady ?? renderedObservation,
+        renderedObservation: selectedCandidateReady ?? null,
         ...(selectedCandidateReadyMount ? { renderedObservationMount: selectedCandidateReadyMount } : {}),
         eventTimeSnapshot,
         savedGroupInput: groupProjection(entryState),
@@ -731,6 +742,8 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
           observedEpoch: settlementMount.mountEpoch,
           observation: pageObservation,
           responseEventObservation: renderedObservation,
+          renderedObservation: selectedCandidateReady ?? null,
+          ...(selectedCandidateReadyMount ? { renderedObservationMount: selectedCandidateReadyMount } : {}),
           eventTimeSnapshot,
           relatedSourceLifecycle: capture.relatedSourceLifecycle,
         },
@@ -813,11 +826,6 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
     const aborted = entry.failure?.errorText === 'net::ERR_ABORTED';
     const ready = entry.status >= 200 && entry.status < 300 &&
       entry.response?.previewStatus === 'READY' && entry.response?.proposalId;
-    const panelId = settlementEvidence?.proposalPanel?.id ?? null;
-    const currentPanelOwners = panelId ? nativeCapture.requests.filter(candidate =>
-      candidate.path === `${base}/construction-proposals` &&
-      candidate.response?.proposalId === panelId) : [];
-    const currentPanelOwner = currentPanelOwners.length === 1 ? currentPanelOwners[0] : null;
     const panelObservedAfterSettlement = settlementEvidence &&
       Number.isFinite(settlementEvidence.proposalPanelObservedAt) &&
       Number.isFinite(entry.completedAt) && settlementEvidence.proposalPanelObservedAt >= entry.completedAt;
@@ -839,9 +847,38 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
           ownerStartedAt: currentPanelOwner.startedAt,
           ownerCompletedAt: currentPanelOwner.completedAt,
           renderedPanelProposalId: panelId,
-          observedAt: settlementEvidence.proposalPanelObservedAt,
+          proposalPanelObservedAt: settlementEvidence.proposalPanelObservedAt,
+          proposalPanelBrowserRequestId: currentPanelOwner.browserRequestId,
         }
-      : { available: false, reason: 'current-newer-candidate-owner-not-proven' };
+      : {
+          available: false,
+          reason: !settlementObservationAvailable
+            ? 'event-time-snapshot-unavailable'
+            : currentPanelOwners.length > 1
+              ? 'current-proposal-owner-ambiguous'
+              : currentPanelOwners.length === 0
+                ? 'current-proposal-owner-unavailable'
+                : 'current-newer-candidate-owner-not-proven',
+          ...(settlementEvidence?.proposalPanelObservedAt
+            ? { proposalPanelObservedAt: settlementEvidence.proposalPanelObservedAt } : {}),
+          ...(currentPanelOwner
+            ? { proposalPanelBrowserRequestId: currentPanelOwner.browserRequestId } : {}),
+        };
+    if (lateClassification.available) {
+      assert.equal(renderedObservation?.proposalPanel?.id, lateClassification.renderedPanelProposalId,
+        'Late-preview classification must match the separately captured current panel DOM.');
+      assert.equal(renderedObservation?.proposalPanelObservedAt, lateClassification.proposalPanelObservedAt,
+        'Late-preview panel timestamp must come from the same event-time DOM observation.');
+      assert.equal(renderedObservation?.proposalPanelBrowserRequestId, lateClassification.proposalPanelBrowserRequestId,
+        'Late-preview panel owner must match the unique actual current candidate request.');
+    }
+    const actionRenderedObservation = selectedCandidateReady ?? (lateClassification.available
+      ? {
+          ...renderedObservation,
+          proposalPanelObservedAt: lateClassification.proposalPanelObservedAt,
+          proposalPanelBrowserRequestId: lateClassification.proposalPanelBrowserRequestId,
+        }
+      : renderedObservation);
     const settlementLabel = aborted ? 'PreviewRequestCancelled'
       : lateIgnored && ready ? 'LatePreviewCompleteIgnored'
         : lateIgnored && entry.failure ? 'LatePreviewErrorIgnored'
@@ -856,7 +893,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       observedEpoch: settlementMount.mountEpoch,
       observation: pageObservation,
       responseEventObservation: renderedObservation,
-      renderedObservation: selectedCandidateReady ?? renderedObservation,
+      renderedObservation: actionRenderedObservation,
       ...(selectedCandidateReadyMount ? { renderedObservationMount: selectedCandidateReadyMount } : {}),
       eventTimeSnapshot,
       lateClassification,
