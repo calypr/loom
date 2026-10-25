@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,14 +16,16 @@ const tlcJar = process.env.TLA2TOOLS_JAR;
 
 const makeJourney = caseName => adaptTemporalFilterJourney(makeTemporalFilterJourneyCaptureFixture(caseName));
 
-const runTlc = (trace, moduleSuffix) => {
+const runTlc = (trace, moduleSuffix, { mutateModel } = {}) => {
   assert(tlcJar, 'Set TLA2TOOLS_JAR to the verified TLC 1.7.4 jar for this focused check.');
   const compiled = compileTemporalFilterJourneyTrace(trace, { moduleName: `TemporalFilter${moduleSuffix}` });
   const directory = mkdtempSync(join(tmpdir(), 'loom-temporal-filter-tla-'));
   const metadataDirectory = join(directory, 'states');
   mkdirSync(metadataDirectory);
   try {
-    copyFileSync(modelPath, join(directory, 'TemporalFilterJourney.tla'));
+    const modelText = readFileSync(modelPath, 'utf8');
+    writeFileSync(join(directory, 'TemporalFilterJourney.tla'),
+      mutateModel ? mutateModel(modelText) : modelText);
     writeFileSync(join(directory, `${compiled.moduleName}.tla`), compiled.moduleText);
     writeFileSync(join(directory, `${compiled.moduleName}.cfg`), compiled.configText);
     const result = spawnSync('java', [
@@ -331,6 +333,17 @@ test('reconcile transport ledger proves owner invalidation, stale retry refresh,
     .possibleReconcileProducerCaptureIds, []);
   const invalidatedResult = runTlc(invalidatedTrace, 'OwnerInvalidatedReconcile');
   assert.equal(invalidatedResult.status, 0, invalidatedResult.output);
+  const missingOwnerGuard = runTlc(invalidatedTrace, 'OwnerInvalidationGuardRemoved', {
+    mutateModel: source => {
+      const guard = '    /\\ ~ReconcileInvalidatedBefore(request, preview.startedAt)}';
+      assert.equal(source.split(guard).length - 1, 1,
+        'the owner-invalidation producer guard must remain a unique mutation-control target');
+      return source.replace(guard, '    /\\ TRUE}');
+    },
+  });
+  assert.notEqual(missingOwnerGuard.status, 0, missingOwnerGuard.output);
+  assert.match(missingOwnerGuard.output,
+    /InvReconcilePossibleProducerRelations is equal to FALSE/u, missingOwnerGuard.output);
 
   const retryCapture = makeTemporalFilterJourneyCaptureFixture('date');
   const staleId = appendObservedRequest(retryCapture, {
