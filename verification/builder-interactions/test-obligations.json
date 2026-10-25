@@ -47513,6 +47513,15 @@
           "column": 78
         },
         {
+          "kind": "literal-import-candidate",
+          "evidence": "static-only-candidate",
+          "sourcePath": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/helpers/focused-check-groups.mjs",
+          "specifier": "./helpers/focused-check-groups.mjs",
+          "line": 9113,
+          "column": 41
+        },
+        {
           "kind": "source-file-pinned-only",
           "caseId": "cda-upstream-related-edit-cascade:upstream-edit-cascade",
           "checkId": "upstream-related-edit-cascade-raw-and-native-contract",
@@ -149955,16 +149964,16 @@
       "path": "scripts/verify-ui/registry.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "f4d7980d1e3517ce2f046f23a98b0d742cce7a3142ee13f9d42efa360de2be07",
+      "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "f4d7980d1e3517ce2f046f23a98b0d742cce7a3142ee13f9d42efa360de2be07",
+      "currentSha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43",
       "purpose": "Defines registered native verification cases, Group lifecycle action counts/checks, focused prerequisites, and fixture setup consumed by the native runner.",
       "role": "config",
       "testLayer": "configuration",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "d0190cde7dcaddaa9324ca551939ef252a6f71ca",
+        "reviewedCommit": "5ba0e945e336e650555b3216e089b48ccd889f6e",
         "evidence": [
           {
             "path": "scripts/verify-ui/registry.mjs",
@@ -149988,17 +149997,17 @@
           },
           {
             "path": "scripts/verify-ui/registry.mjs",
-            "line": 9110,
+            "line": 9182,
             "kind": "scenario-lookup-export"
           },
           {
             "path": "scripts/verify-ui/registry.mjs",
-            "line": 9122,
+            "line": 9194,
             "kind": "case-required-check-resolution"
           },
           {
             "path": "scripts/verify-ui/registry.mjs",
-            "line": 9227,
+            "line": 9299,
             "kind": "coverage-drift-export"
           },
           {
@@ -150065,13 +150074,23 @@
             "path": "scripts/verify-ui/registry.mjs",
             "line": 6464,
             "kind": "complete-population oracle source input registration"
+          },
+          {
+            "path": "scripts/verify-ui/registry.mjs",
+            "line": 9116,
+            "kind": "loads generated focused-check attachment data"
+          },
+          {
+            "path": "scripts/verify-ui/registry.mjs",
+            "line": 9131,
+            "kind": "validates generated checks with the canonical focused-check planner"
           }
         ],
         "confidence": "high"
       },
       "sourceRevision": {
-        "commit": "d0190cde7dcaddaa9324ca551939ef252a6f71ca",
-        "sha256": "f4d7980d1e3517ce2f046f23a98b0d742cce7a3142ee13f9d42efa360de2be07"
+        "commit": "5ba0e945e336e650555b3216e089b48ccd889f6e",
+        "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43"
       },
       "executionDiscovery": {
         "status": "static-path-found",
