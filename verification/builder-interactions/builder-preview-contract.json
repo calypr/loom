@@ -554,7 +554,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "a0e3817482991f5f41b49229d98c1ad60687975d0a87b89b74da867099712365",
+      "sha256": "e63a4a3933c560b650d65bae63d5b21b00c8fb9b7e7492ba2c175c3a4880eaba",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "6c9af9c508293ba28963bf02bcb5d3d233a5eeb636d5ce4f944cc42742226d23",
+      "sha256": "ed3af52444b34e42ac547c7906e03271a7b151681406394b68795fe54848452c",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
