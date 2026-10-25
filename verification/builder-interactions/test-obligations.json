@@ -13613,9 +13613,36 @@
       "assertions": [],
       "semanticClaimIds": [],
       "journeyMappings": [],
-      "connections": [],
-      "action": "independent-tool-or-module",
-      "exception": "No focused command or literal import edge was found for this independent tool/module.",
+      "connections": [
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "checkId": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/migrate-mjs-focused-checks.mjs"
+        },
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "checkId": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/migrate-mjs-focused-checks.mjs"
+        }
+      ],
+      "action": "review-source-files-only",
+      "exception": "sourceFiles pins this file as an input, not an invocation.",
       "oracle": null,
       "formalApplicability": {
         "kind": "not-applicable",
@@ -13642,7 +13669,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "No matching passed focused command evidence was joined."
+        "reason": "Registry sourceFiles pins this path as an input; it does not prove the file was executed."
       }
     },
     {
@@ -31191,10 +31218,23 @@
           "specifier": "../helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
           "line": 12,
           "column": 9
+        },
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "checkId": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs"
         }
       ],
-      "action": "review-static-import-only",
-      "exception": "Literal imports describe static links only.",
+      "action": "review-source-files-only",
+      "exception": "sourceFiles pins this file as an input, not an invocation.",
       "oracle": {
         "kind": "independent fixture/data oracle",
         "dataScope": "Bounded scoped DiagnosticReport rows, scalar status field presence/value, disjoint selected statuses, appended grouped rows, and exact reread.",
@@ -31231,7 +31271,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "A literal import is static-only evidence and does not prove runtime execution."
+        "reason": "Registry sourceFiles pins this path as an input; it does not prove the file was executed."
       }
     },
     {
@@ -34699,6 +34739,19 @@
             "scripts/verify-ui/helpers/tests/cda-group-numeric-filter-oracle.test.mjs",
             "scripts/verify-ui/helpers/tests/cda-authored-expand-filter-removal.test.mjs",
             "scripts/verify-ui/helpers/tests/saved-preview-binding.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs"
+        },
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "checkId": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
           ],
           "registry": "scripts/verify-ui/registry.mjs",
           "targetPath": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs"
@@ -85736,6 +85789,11 @@
             "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
             "line": 14,
             "kind": "native workflow imports corresponding oracle"
+          },
+          {
+            "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "line": 36,
+            "kind": "generated focused node-test command"
           }
         ],
         "unresolvedFacts": []
@@ -85957,7 +86015,9 @@
               "requiredChecks": [
                 "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
               ],
-              "focusedCheckIds": []
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
             },
             {
               "id": "oracle.diagnostic-report-append.rejects-out-of-scope-duplicate-and-overlimit-rows",
@@ -85965,7 +86025,9 @@
               "requiredChecks": [
                 "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
               ],
-              "focusedCheckIds": []
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
             },
             {
               "id": "oracle.diagnostic-report-append.reports-bounded-witness-unavailability",
@@ -85973,7 +86035,9 @@
               "requiredChecks": [
                 "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
               ],
-              "focusedCheckIds": []
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
             },
             {
               "id": "oracle.diagnostic-report-append.selects-disjoint-duplicate-status-populations",
@@ -85981,7 +86045,9 @@
               "requiredChecks": [
                 "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
               ],
-              "focusedCheckIds": []
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
             },
             {
               "id": "test.diagnostic-report-append.scan-query-is-bounded-and-exactly-scoped",
@@ -85989,14 +86055,31 @@
               "requiredChecks": [
                 "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
               ],
-              "focusedCheckIds": []
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
             }
           ]
         }
       ],
-      "connections": [],
-      "action": "review-unconnected-file",
-      "exception": "No configured focused command or literal import edge was found.",
+      "connections": [
+        {
+          "kind": "configured-command",
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "checkId": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+          "testFile": true
+        }
+      ],
+      "action": "run-configured-focused-test",
+      "exception": "Configured command metadata does not prove execution.",
       "oracle": null,
       "formalApplicability": {
         "kind": "candidate",
@@ -86038,7 +86121,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "No matching passed focused command evidence was joined."
+        "reason": "A focused command is configured, but no matching passed per-case summary was joined."
       }
     },
     {
@@ -90432,7 +90515,7 @@
         "sha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb"
       },
       "executionDiscovery": {
-        "status": "no-static-path-found",
+        "status": "static-path-found",
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -90520,14 +90603,12 @@
             "kind": "test assertions exercise the stated contract"
           },
           {
-            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
-            "line": 1,
-            "kind": "imports node:test; no registry focused-check command names this test file"
+            "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "line": 13,
+            "kind": "generated focused node-test command"
           }
         ],
-        "unresolvedFacts": [
-          "No checked-in runner or test command was found in the source tree. A direct/manual `node --test` invocation or external harness use remains possible and is not established here."
-        ]
+        "unresolvedFacts": []
       },
       "assertions": [
         {
@@ -90642,10 +90723,87 @@
         "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
         "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members"
       ],
-      "journeyMappings": [],
-      "connections": [],
-      "action": "review-unconnected-file",
-      "exception": "No configured focused command or literal import edge was found.",
+      "journeyMappings": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "claims": [
+            {
+              "id": "helper.bounded-selector-and-witness-reject-malformed-code-arrays-duplicate-ids-and-scope-mismatches",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.bounded-witness-absence-remains-unverified-instead-of-widening-or-inventing-a-category",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.bounded-witness-uses-the-first-raw-code-and-yields-exact-overlapping-observation-populations",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.exact-scoped-reread-preserves-every-selected-raw-document-and-coding-array",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.oracle-computes-group-counts-coding-code-pivot-multiplicity-and-left-inner-null-semantics",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            }
+          ]
+        }
+      ],
+      "connections": [
+        {
+          "kind": "configured-command",
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "checkId": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+          "testFile": true
+        }
+      ],
+      "action": "run-configured-focused-test",
+      "exception": "Configured command metadata does not prove execution.",
       "oracle": null,
       "formalApplicability": {
         "kind": "not-applicable",
@@ -90672,7 +90830,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "No matching passed focused command evidence was joined."
+        "reason": "A focused command is configured, but no matching passed per-case summary was joined."
       }
     },
     {
@@ -110682,33 +110840,33 @@
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L305:tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L330:tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
           "semanticClaimId": "tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
           "sourceLines": [
-            305,
-            306
+            330,
+            331
           ],
           "evidenceKind": "test-assertion",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L343:tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L368:tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
           "semanticClaimId": "tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
           "sourceLines": [
-            343,
-            344
+            368,
+            369
           ],
           "evidenceKind": "test-assertion",
           "independence": "independent"
         },
         {
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L358:tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L383:tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
           "semanticClaimId": "tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
           "sourceLines": [
-            358,
-            359,
-            397,
-            398
+            383,
+            384,
+            422,
+            423
           ],
           "evidenceKind": "test-assertion",
           "independence": "independent"
@@ -151455,6 +151613,19 @@
         },
         {
           "kind": "source-file-pinned-only",
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "checkId": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/registry.mjs"
+        },
+        {
+          "kind": "source-file-pinned-only",
           "caseId": "cda-current-draft-upstream-append:patient-membership-handoff",
           "checkId": "patient-membership-panel-replacement",
           "runner": "vitest",
@@ -151861,6 +152032,19 @@
             "node-test",
             "scripts/verify-ui/helpers/tests/cda-compound-coded-group-oracle.test.mjs",
             "scripts/verify-ui/helpers/tests/cda-compound-coded-group-request-view.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/registry.mjs"
+        },
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "checkId": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
           ],
           "registry": "scripts/verify-ui/registry.mjs",
           "targetPath": "scripts/verify-ui/registry.mjs"
@@ -188210,9 +188394,23 @@
           ]
         }
       ],
-      "connections": [],
-      "action": "review-unconnected-file",
-      "exception": "No configured focused command or literal import edge was found.",
+      "connections": [
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "checkId": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs"
+        }
+      ],
+      "action": "review-source-files-only",
+      "exception": "sourceFiles pins this file as an input, not an invocation.",
       "oracle": null,
       "formalApplicability": {
         "kind": "not-applicable",
@@ -188239,7 +188437,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "No matching passed focused command evidence was joined."
+        "reason": "Registry sourceFiles pins this path as an input; it does not prove the file was executed."
       }
     },
     {
@@ -188774,9 +188972,23 @@
           ]
         }
       ],
-      "connections": [],
-      "action": "review-unconnected-file",
-      "exception": "No configured focused command or literal import edge was found.",
+      "connections": [
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "checkId": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs"
+        }
+      ],
+      "action": "review-source-files-only",
+      "exception": "sourceFiles pins this file as an input, not an invocation.",
       "oracle": null,
       "formalApplicability": {
         "kind": "candidate",
@@ -188813,7 +189025,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "No matching passed focused command evidence was joined."
+        "reason": "Registry sourceFiles pins this path as an input; it does not prove the file was executed."
       }
     },
     {
@@ -287734,10 +287946,23 @@
           "specifier": "../workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
           "line": 3,
           "column": 64
+        },
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "checkId": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs"
         }
       ],
-      "action": "review-static-import-only",
-      "exception": "Literal imports describe static links only.",
+      "action": "review-source-files-only",
+      "exception": "sourceFiles pins this file as an input, not an invocation.",
       "oracle": {
         "kind": "raw-fixture-or-owned-database",
         "dataScope": "Appends a current-draft DiagnosticReport source and checks scoped proposal data, saved state, reload, and restoration.",
@@ -287779,7 +288004,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "A literal import is static-only evidence and does not prove runtime execution."
+        "reason": "Registry sourceFiles pins this path as an input; it does not prove the file was executed."
       }
     },
     {
@@ -290367,10 +290592,23 @@
           "specifier": "../workflows/cda-current-draft-group-pivot-join-workflow.mjs",
           "line": 3,
           "column": 56
+        },
+        {
+          "kind": "source-file-pinned-only",
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "checkId": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+          ],
+          "registry": "scripts/verify-ui/registry.mjs",
+          "targetPath": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs"
         }
       ],
-      "action": "review-static-import-only",
-      "exception": "Literal imports describe static links only.",
+      "action": "review-source-files-only",
+      "exception": "sourceFiles pins this file as an input, not an invocation.",
       "oracle": {
         "kind": "source/fixture oracle used alongside native UI checks",
         "dataScope": "Exact resource membership and field-value scope are determined by the cited bounded query or literal fixture code.",
@@ -290433,7 +290671,7 @@
       "duplicateCandidates": [],
       "runtimeEvidence": {
         "status": "unverified",
-        "reason": "A literal import is static-only evidence and does not prove runtime execution."
+        "reason": "Registry sourceFiles pins this path as an input; it does not prove the file was executed."
       }
     },
     {
@@ -490121,7 +490359,7 @@
     "sourceAssertions": 9257,
     "nonAssertionOccurrences": 9746,
     "claimsWithoutSourceAssertions": 5430,
-    "claimsWithoutJourneyMappings": 5331,
+    "claimsWithoutJourneyMappings": 5324,
     "assertionEvidenceKindCounts": {
       "call-through": 3538,
       "fixture-fact": 159,
@@ -563574,7 +563812,28 @@
       "id": "helper.bounded-selector-and-witness-reject-malformed-code-arrays-duplicate-ids-and-scope-mismatches",
       "statement": "The Node test checks the contract stated by its case: bounded selector and witness reject malformed code arrays, duplicate IDs, and scope mismatches.",
       "category": "oracle",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -563599,7 +563858,28 @@
       "id": "helper.bounded-witness-absence-remains-unverified-instead-of-widening-or-inventing-a-category",
       "statement": "The Node test checks the contract stated by its case: bounded witness absence remains unverified instead of widening or inventing a category.",
       "category": "oracle",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -563622,7 +563902,28 @@
       "id": "helper.bounded-witness-uses-the-first-raw-code-and-yields-exact-overlapping-observation-populations",
       "statement": "The Node test checks the contract stated by its case: bounded witness uses the first raw code and yields exact overlapping Observation populations.",
       "category": "oracle",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -574334,7 +574635,28 @@
       "id": "helper.exact-scoped-reread-preserves-every-selected-raw-document-and-coding-array",
       "statement": "The Node test checks the contract stated by its case: exact scoped reread preserves every selected raw document and coding array.",
       "category": "oracle",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -578659,7 +578981,28 @@
       "id": "helper.oracle-computes-group-counts-coding-code-pivot-multiplicity-and-left-inner-null-semantics",
       "statement": "The Node test checks the contract stated by its case: oracle computes Group counts, coding-code Pivot multiplicity, and LEFT/INNER null semantics.",
       "category": "oracle",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -593451,7 +593794,28 @@
       "id": "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
       "statement": "The Node test checks the contract stated by its case: subject selector ranks counts deterministically and returns at most ten scoped subjects.",
       "category": "invariant",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -593471,7 +593835,28 @@
       "id": "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members",
       "statement": "The Node test checks the contract stated by its case: subjects with an empty or blank first code are not eligible witness members.",
       "category": "oracle",
-      "journeys": [],
+      "journeys": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
       "sourceAssertions": [
         {
           "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
@@ -894080,7 +894465,9 @@
           "requiredChecks": [
             "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
           ],
-          "focusedCheckIds": [],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
           "evidence": [
             {
               "path": "scripts/verify-ui/registry.mjs",
@@ -894131,7 +894518,9 @@
           "requiredChecks": [
             "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
           ],
-          "focusedCheckIds": [],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
           "evidence": [
             {
               "path": "scripts/verify-ui/registry.mjs",
@@ -894200,7 +894589,9 @@
           "requiredChecks": [
             "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
           ],
-          "focusedCheckIds": [],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
           "evidence": [
             {
               "path": "scripts/verify-ui/registry.mjs",
@@ -894278,7 +894669,9 @@
           "requiredChecks": [
             "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
           ],
-          "focusedCheckIds": [],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
           "evidence": [
             {
               "path": "scripts/verify-ui/registry.mjs",
@@ -916676,7 +917069,9 @@
           "requiredChecks": [
             "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
           ],
-          "focusedCheckIds": [],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
           "evidence": [
             {
               "path": "scripts/verify-ui/registry.mjs",
@@ -1082216,11 +1082611,11 @@
         {
           "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L305:tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L330:tool-contract.mjs-migration-check-rejects-disconnected-registry-loader",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            305,
-            306
+            330,
+            331
           ]
         }
       ]
@@ -1082234,11 +1082629,11 @@
         {
           "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L343:tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L368:tool-contract.mjs-migration-discovers-new-test-without-editing-family-rules",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            343,
-            344
+            368,
+            369
           ]
         }
       ]
@@ -1082252,13 +1082647,13 @@
         {
           "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
           "lifecycle": "active",
-          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L358:tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
+          "sourceAssertionId": "source:scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs:L383:tool-contract.mjs-migration-rejects-ambiguous-destinations-and-family-matches",
           "evidenceKind": "test-assertion",
           "sourceLines": [
-            358,
-            359,
-            397,
-            398
+            383,
+            384,
+            422,
+            423
           ]
         }
       ]
@@ -1093503,7 +1093898,9 @@
         "all native DiagnosticReport current-draft APPEND lifecycle actions complete within five seconds",
         "CDA watched source and API build stayed unchanged"
       ],
-      "focusedChecks": [],
+      "focusedChecks": [
+        "diagnostic-report-append-raw-oracle"
+      ],
       "semanticClaimIds": [
         "browser-spec.dispatches.cda-current-draft-diagnostic-report-append-workflow",
         "browser.route.remains-in-builder-mode",
@@ -1096920,7 +1097317,9 @@
         "all native lifecycle actions complete within five seconds",
         "CDA watched source and API build stayed unchanged"
       ],
-      "focusedChecks": [],
+      "focusedChecks": [
+        "group-pivot-join-raw-oracle"
+      ],
       "semanticClaimIds": [
         "behavior.arango-query-returned-no-json-array-selected-value",
         "behavior.bounded-owned-arango-query-failed-selected-value",
@@ -1096952,7 +1097351,14 @@
         "behavior.the-native-multi-form-chooser-is-only-configured-for-the-cda-coding-path-selected-value",
         "behavior.the-native-source-switch-must-expose-distinct-saved-left-and-right-selection-identities",
         "behavior.the-replacement-get-must-return-the-exact-right-source-selection-in-the-owned-scope",
+        "helper.bounded-selector-and-witness-reject-malformed-code-arrays-duplicate-ids-and-scope-mismatches",
+        "helper.bounded-witness-absence-remains-unverified-instead-of-widening-or-inventing-a-category",
+        "helper.bounded-witness-uses-the-first-raw-code-and-yields-exact-overlapping-observation-populations",
         "helper.builder-combine-draft-helpers-3",
+        "helper.exact-scoped-reread-preserves-every-selected-raw-document-and-coding-array",
+        "helper.oracle-computes-group-counts-coding-code-pivot-multiplicity-and-left-inner-null-semantics",
+        "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
+        "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members",
         "invariant.count-rows-proposal-must-expose-its-exact-row-count-column-selected-value",
         "invariant.expected-exact-stable-column-selected-value-in-selected-value-selected-value",
         "invariant.expected-exactly-one-document-selected-value",

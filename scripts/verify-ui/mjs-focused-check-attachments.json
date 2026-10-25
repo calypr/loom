@@ -1,4 +1,51 @@
 {
   "schemaVersion": 1,
-  "attachments": []
+  "attachments": [
+    {
+      "scenarioId": "cda-workspace-combine",
+      "caseId": "group-pivot-join",
+      "focusedChecks": [
+        {
+          "id": "group-pivot-join-raw-oracle",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+          ],
+          "sourceFiles": [
+            "scripts/migrate-mjs-focused-checks.mjs",
+            "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+            "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "scripts/verify-ui/registry.mjs",
+            "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+            "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+            "verification/builder-interactions/mjs-focused-check-families.json"
+          ]
+        }
+      ]
+    },
+    {
+      "scenarioId": "cda-current-draft-diagnostic-report-append",
+      "caseId": "diagnostic-report-append",
+      "focusedChecks": [
+        {
+          "id": "diagnostic-report-append-raw-oracle",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "sourceFiles": [
+            "scripts/migrate-mjs-focused-checks.mjs",
+            "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+            "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "scripts/verify-ui/registry.mjs",
+            "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+            "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+            "verification/builder-interactions/mjs-focused-check-families.json"
+          ]
+        }
+      ]
+    }
+  ]
 }

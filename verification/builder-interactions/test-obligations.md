@@ -9,7 +9,7 @@ Status: generated from the TLA models and existing test metadata.
 13186 semantic claims are defined once; 9257 source occurrences are direct test assertions, out of 19003 total labeled occurrences.
 9746 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 680 catalog records have source-review evidence; 680 MJS records remain runtime-unverified.
-69 files are classified as independent tool/module purposes; 294 MJS files and 5331 semantic claims have no canonical journey mapping.
+69 files are classified as independent tool/module purposes; 293 MJS files and 5324 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
@@ -85,7 +85,7 @@ Status: generated from the TLA models and existing test metadata.
 | `cda-collection-repair-partial:partial-long-route-repair-and-reload` | 8 | 0 | 0 | 152 | 13 | BuilderOperations, BuilderPreview |
 | `cda-contributor-equals:contributor-equals` | 28 | 14 | 51 | 6 | 15 | BuilderPreview |
 | `cda-contributor-exists:contributor-exists` | 31 | 16 | 6 | 95 | 17 | BuilderPreview |
-| `cda-current-draft-diagnostic-report-append:diagnostic-report-append` | 27 | 43 | 0 | 14 | 37 | — |
+| `cda-current-draft-diagnostic-report-append:diagnostic-report-append` | 27 | 43 | 0 | 14 | 38 | — |
 | `cda-current-draft-membership:membership` | 17 | 58 | 48 | 44 | 51 | BuilderOperations, BuilderPreview |
 | `cda-current-draft-upstream-append:patient-membership-handoff` | 15 | 9 | 0 | 16 | 13 | BuilderPreview |
 | `cda-current-draft-upstream-append:upstream-append` | 25 | 13 | 0 | 6 | 26 | BuilderPreview |
@@ -123,7 +123,7 @@ Status: generated from the TLA models and existing test metadata.
 | `cda-workspace-combine:compound-coded-group-native` | 34 | 53 | 0 | 15 | 11 | — |
 | `cda-workspace-combine:compound-coded-group-single` | 10 | 0 | 0 | 2 | 13 | — |
 | `cda-workspace-combine:group-join` | 24 | 11 | 0 | 10 | 17 | BuilderPreview |
-| `cda-workspace-combine:group-pivot-join` | 22 | 1 | 1 | 48 | 30 | BuilderPreview |
+| `cda-workspace-combine:group-pivot-join` | 23 | 1 | 1 | 55 | 31 | BuilderPreview |
 | `cda-workspace-combine:group-pivot-published` | 19 | 0 | 58 | 10 | 19 | BuilderPreview |
 | `cda-workspace-combine:nullable-code-join` | 27 | 15 | 32 | 24 | 38 | BuilderPreview |
 | `cda-workspace-combine:saved-cda-related-route-edit-epoch126` | 14 | 16 | 54 | 22 | 19 | BuilderOperations, BuilderPreview |
@@ -173,8 +173,8 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files | 69 |
 | Tool/module files with a canonical case mapping | 7 |
 | Tool/module files without a canonical case mapping | 62 |
-| All MJS files without a canonical case mapping | 294 |
-| Semantic claims without a canonical case mapping | 5331 |
+| All MJS files without a canonical case mapping | 293 |
+| Semantic claims without a canonical case mapping | 5324 |
 
 ### Explicit formal links
 
