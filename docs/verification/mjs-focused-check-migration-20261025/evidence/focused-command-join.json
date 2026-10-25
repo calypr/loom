@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "focused-command-passed",
+  "summaries": [
+    {
+      "caseId": "cda-workspace-combine:group-pivot-join",
+      "path": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/summary.json",
+      "sha256": "1cc0ddbdc3ab9a725aa035e6c5d50faba85b9fd85ba6c6549c1ab8b53a9c0d70",
+      "mode": "checks-only"
+    },
+    {
+      "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+      "path": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/summary.json",
+      "sha256": "31361a6529863d8d8a35e568087ad78a427406d68a95945128d947979e67e3e1",
+      "mode": "checks-only"
+    }
+  ],
+  "executedTests": [
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+      "currentSha256": "01704c2ef34b86463dbac9896ccae9d49a7d13e1c4af4c6de9ceff43ea66cc8e",
+      "role": "test",
+      "intendedCases": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "claims": [
+            {
+              "id": "oracle.diagnostic-report-append.exact-reread-rejects-changed-or-cross-generation-rows",
+              "relation": "supporting",
+              "requiredChecks": [
+                "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
+            },
+            {
+              "id": "oracle.diagnostic-report-append.rejects-out-of-scope-duplicate-and-overlimit-rows",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
+            },
+            {
+              "id": "oracle.diagnostic-report-append.reports-bounded-witness-unavailability",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
+            },
+            {
+              "id": "oracle.diagnostic-report-append.selects-disjoint-duplicate-status-populations",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
+            },
+            {
+              "id": "test.diagnostic-report-append.scan-query-is-bounded-and-exactly-scoped",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ]
+            }
+          ]
+        }
+      ],
+      "evidence": {
+        "kind": "focused-command-passed",
+        "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+        "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+        "checkId": "diagnostic-report-append-raw-oracle",
+        "runner": "node-test",
+        "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+        "arguments": [
+          "--test",
+          "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+        ],
+        "cwd": "/private/tmp/loom-migration-final-apply",
+        "currentSha256": "01704c2ef34b86463dbac9896ccae9d49a7d13e1c4af4c6de9ceff43ea66cc8e",
+        "summaryPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/summary.json",
+        "summarySha256": "31361a6529863d8d8a35e568087ad78a427406d68a95945128d947979e67e3e1"
+      }
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+      "currentSha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb",
+      "role": "test",
+      "intendedCases": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "claims": [
+            {
+              "id": "helper.bounded-selector-and-witness-reject-malformed-code-arrays-duplicate-ids-and-scope-mismatches",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.bounded-witness-absence-remains-unverified-instead-of-widening-or-inventing-a-category",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.bounded-witness-uses-the-first-raw-code-and-yields-exact-overlapping-observation-populations",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.exact-scoped-reread-preserves-every-selected-raw-document-and-coding-array",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.oracle-computes-group-counts-coding-code-pivot-multiplicity-and-left-inner-null-semantics",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            },
+            {
+              "id": "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ]
+            }
+          ]
+        }
+      ],
+      "evidence": {
+        "kind": "focused-command-passed",
+        "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+        "caseId": "cda-workspace-combine:group-pivot-join",
+        "checkId": "group-pivot-join-raw-oracle",
+        "runner": "node-test",
+        "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+        "arguments": [
+          "--test",
+          "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+        ],
+        "cwd": "/private/tmp/loom-migration-final-apply",
+        "currentSha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb",
+        "summaryPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/summary.json",
+        "summarySha256": "1cc0ddbdc3ab9a725aa035e6c5d50faba85b9fd85ba6c6549c1ab8b53a9c0d70"
+      }
+    }
+  ],
+  "rejectedGroups": [],
+  "scope": "Focused command execution only; no case, journey, browser, or formal-model pass is claimed."
+}

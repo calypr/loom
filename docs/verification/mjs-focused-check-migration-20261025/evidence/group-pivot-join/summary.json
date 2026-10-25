@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "status": "checks-passed",
+  "startedAt": "2026-10-25T04:28:46.221Z",
+  "scenario": "cda-workspace-combine",
+  "case": "group-pivot-join",
+  "nativeSpec": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+  "explicitGrep": null,
+  "resolvedGrep": null,
+  "mode": "checks-only",
+  "targetIdentity": null,
+  "targetConfigPath": null,
+  "targetValidation": {
+    "scope": "checks-only",
+    "registryBinding": "unbound",
+    "runtimeDatasetIdentity": "not-checked",
+    "configPath": null,
+    "project": null,
+    "generation": null
+  },
+  "registryValidation": {
+    "status": "valid",
+    "unmappedLifecycleCount": 1,
+    "rows": [
+      {
+        "scenario": "builder-authoring",
+        "feature": "coded Pivot",
+        "reason": "The integer and string coded Pivot lifecycles are registered separately. Other source resource types, coding systems, value families, and coded GROUP remain outside those exact mode contracts."
+      }
+    ]
+  },
+  "runDirectory": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL",
+  "commands": {
+    "focused-group-pivot-join-raw-oracle": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "--test",
+        "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+      ],
+      "cwd": "/private/tmp/loom-migration-final-apply",
+      "timeoutMs": 60000,
+      "exitCode": 0,
+      "durationMs": 120,
+      "stdoutPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/logs/focused-group-pivot-join-raw-oracle.stdout.log",
+      "stderrPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/logs/focused-group-pivot-join-raw-oracle.stderr.log"
+    }
+  },
+  "evidence": {
+    "summary": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/summary.json",
+    "playwrightReport": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/playwright-report.json",
+    "domainReport": null,
+    "sourceBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/source-before.json",
+    "docsBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/docs-before.json",
+    "apiBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/api-identity-before.json",
+    "mountsBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/owned-mounts-before.json",
+    "sourceAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/source-after.json",
+    "docsAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/docs-after.json",
+    "apiAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/api-identity-after.json",
+    "mountsAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/owned-mounts-after.json",
+    "precheck": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/api-build-precheck.json",
+    "healthBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/health-before.json",
+    "healthAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/health-after.json"
+  },
+  "selection": null,
+  "focusedCheckCoverage": "registered",
+  "focusedChecks": {
+    "status": "passed",
+    "groups": [
+      {
+        "id": "group-pivot-join-raw-oracle",
+        "runner": "node-test",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 120,
+        "timeoutMs": 60000,
+        "timedOut": false,
+        "declaredInputsHash": "72c416bcb4d253354891ab0dc04022157f5094f7c942fdc6dae6c2faba693458",
+        "inputs": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "sha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb"
+          },
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+            "sha256": "9da3bafb24bb5851ee26a14c1b9730b28c3a1fc5ea596ecbe93af37a6a3d5eb7"
+          },
+          {
+            "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "sha256": "096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624"
+          },
+          {
+            "path": "scripts/verify-ui/registry.mjs",
+            "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43"
+          },
+          {
+            "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+            "sha256": "f91956162b8fac0d255a7ff3a04bfe24f6348fd6fff56a794ab6ef5e4930b24a"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+            "sha256": "9a38ab17c9e8fa9bf4cb519327bdc827893be95f3316fae10b2111890d12b900"
+          },
+          {
+            "path": "verification/builder-interactions/mjs-focused-check-families.json",
+            "sha256": "204e15ec3d9aa0889680269d5624929a0054fe1504c2721eda44e765f8b2b076"
+          }
+        ],
+        "inputsUnchanged": true,
+        "evidence": {
+          "stdout": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/logs/focused-group-pivot-join-raw-oracle.stdout.log",
+          "stderr": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/logs/focused-group-pivot-join-raw-oracle.stderr.log"
+        }
+      }
+    ]
+  },
+  "integrity": {
+    "status": "UNVERIFIED",
+    "dimensions": {}
+  },
+  "lifecycle": {
+    "reportStatus": null,
+    "reason": "Browser case has not produced a domain report."
+  },
+  "failureCategory": null,
+  "notes": [],
+  "finishedAt": "2026-10-25T04:28:46.470Z",
+  "durationMs": 249,
+  "workflowError": null,
+  "reviewPacket": {
+    "status": "checks-passed",
+    "scenario": "cda-workspace-combine",
+    "case": "group-pivot-join",
+    "focusedCheckCoverage": "registered",
+    "focusedChecks": {
+      "status": "passed",
+      "groups": [
+        {
+          "id": "group-pivot-join-raw-oracle",
+          "runner": "node-test",
+          "status": "passed",
+          "exitCode": 0,
+          "durationMs": 120,
+          "timeoutMs": 60000,
+          "timedOut": false,
+          "declaredInputsHash": "72c416bcb4d253354891ab0dc04022157f5094f7c942fdc6dae6c2faba693458",
+          "inputs": [
+            {
+              "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+              "sha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb"
+            },
+            {
+              "path": "scripts/migrate-mjs-focused-checks.mjs",
+              "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+              "sha256": "9da3bafb24bb5851ee26a14c1b9730b28c3a1fc5ea596ecbe93af37a6a3d5eb7"
+            },
+            {
+              "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+              "sha256": "096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624"
+            },
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "sha256": "f91956162b8fac0d255a7ff3a04bfe24f6348fd6fff56a794ab6ef5e4930b24a"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "sha256": "9a38ab17c9e8fa9bf4cb519327bdc827893be95f3316fae10b2111890d12b900"
+            },
+            {
+              "path": "verification/builder-interactions/mjs-focused-check-families.json",
+              "sha256": "204e15ec3d9aa0889680269d5624929a0054fe1504c2721eda44e765f8b2b076"
+            }
+          ],
+          "inputsUnchanged": true,
+          "evidence": {
+            "stdout": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/logs/focused-group-pivot-join-raw-oracle.stdout.log",
+            "stderr": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/logs/focused-group-pivot-join-raw-oracle.stderr.log"
+          }
+        }
+      ]
+    },
+    "firstFailureReason": null,
+    "pendingOwnedRequests": [],
+    "report": null,
+    "playwrightJson": null,
+    "summary": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-workspace-combine-group-pivot-join-U4BerL/summary.json"
+  },
+  "nativeStatus": "not-run",
+  "durationScope": "checks-only-preparation"
+}

@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: bounded raw scan and exact reread bind the DiagnosticReport.status scope
+ok 1 - bounded raw scan and exact reread bind the DiagnosticReport.status scope
+  ---
+  duration_ms: 1.65775
+  type: 'test'
+  ...
+# Subtest: oracle picks deterministic disjoint status populations and preserves duplicate GROUP rows in APPEND
+ok 2 - oracle picks deterministic disjoint status populations and preserves duplicate GROUP rows in APPEND
+  ---
+  duration_ms: 9.443375
+  type: 'test'
+  ...
+# Subtest: oracle reports bounded unavailability when no DiagnosticReport status category has four rows
+ok 3 - oracle reports bounded unavailability when no DiagnosticReport status category has four rows
+  ---
+  duration_ms: 0.23925
+  type: 'test'
+  ...
+# Subtest: oracle rejects out-of-scope, repeated, and over-limit raw scan evidence
+ok 4 - oracle rejects out-of-scope, repeated, and over-limit raw scan evidence
+  ---
+  duration_ms: 1.235792
+  type: 'test'
+  ...
+# Subtest: exact raw reread rejects changed or cross-generation DiagnosticReport fields
+ok 5 - exact raw reread rejects changed or cross-generation DiagnosticReport fields
+  ---
+  duration_ms: 1.267417
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 71.692791
