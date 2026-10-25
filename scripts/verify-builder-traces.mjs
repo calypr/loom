@@ -610,7 +610,7 @@ function relatedSourceProjectionFromSteps(steps, columns, group, where, journeyC
       choiceId: related.choiceId,
       form: related.form,
       contributorPolicy: related.contributorRule.policy,
-      rowValuePolicy: related.rowValuePolicy ?? 'ALL',
+      rowValuePolicy: related.rowValuePolicy ?? null,
       outputColumnId: related.outputColumnId,
       output: structuredClone(output),
     },
@@ -1093,6 +1093,7 @@ function mountedRelatedSourceProblem(mounted, savedRelatedSource, where, journey
       typeof mounted.outputColumnId !== 'string' || mounted.outputColumnId !== savedRelatedSource.outputColumnId ||
       mounted.source?.resourceType !== journeyCase.relatedSource.resourceType ||
       mounted.source?.path !== journeyCase.relatedSource.fieldPath ||
+      mounted.sourceEvidence !== 'construction-history-button-title-attribute' ||
       !Array.isArray(mounted.route) ||
       canonicalJson(mounted.route) !== canonicalJson(savedRelatedSource.route) ||
       mounted.routeEvidence !== 'saved-builder-projection' ||

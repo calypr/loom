@@ -148,6 +148,13 @@ const cdaRelatedOutputProjectionTest = () => {
   const projection = relatedSourceProjectionFromSteps(
     steps, sourceColumnsOnly, group, 'fixture', journeyCase,
   );
+  const omittedRowPolicySteps = structuredClone(steps);
+  delete omittedRowPolicySteps[1].operation.relatedSource.rowValuePolicy;
+  const omittedRowPolicyProjection = relatedSourceProjectionFromSteps(
+    omittedRowPolicySteps, sourceColumnsOnly, group, 'fixture', journeyCase,
+  );
+  const omittedRowPolicyRetainedAsNull = !omittedRowPolicyProjection.problem &&
+    omittedRowPolicyProjection.relatedSource?.rowValuePolicy === null;
   const constructedOutputAccepted = !projection.problem &&
     projection.relatedSource?.outputColumnId === relatedOutput.id &&
     projection.relatedSource.output.id === relatedOutput.id;
@@ -192,6 +199,22 @@ const cdaRelatedOutputProjectionTest = () => {
     draftDigest: 'digest-fixture',
   };
   const savedSnapshotAccepted = relatedSourceSnapshotProblem(saved, 'fixture', journeyCase).problem === undefined;
+  const candidateIdentityTamper = structuredClone(saved);
+  candidateIdentityTamper.relatedSource.source.candidateId = 'candidate-tampered';
+  const candidateIdentityTamperRejected = Boolean(
+    relatedSourceSnapshotProblem(candidateIdentityTamper, 'fixture', journeyCase).problem,
+  );
+  const nodeIdentityTamper = structuredClone(saved);
+  nodeIdentityTamper.relatedSource.source.nodeId = 'node-tampered';
+  const nodeIdentityTamperRejected = Boolean(
+    relatedSourceSnapshotProblem(nodeIdentityTamper, 'fixture', journeyCase).problem,
+  );
+  const omittedRowPolicySnapshot = structuredClone(saved);
+  omittedRowPolicySnapshot.workspace.documents[0].construction.steps = omittedRowPolicySteps;
+  omittedRowPolicySnapshot.relatedSource = omittedRowPolicyProjection.relatedSource;
+  const omittedRowPolicySnapshotAccepted = relatedSourceSnapshotProblem(
+    omittedRowPolicySnapshot, 'fixture', journeyCase,
+  ).problem === undefined;
   const missingDocumentColumns = structuredClone(saved);
   delete missingDocumentColumns.workspace.documents[0].columns;
   const missingDocumentColumnsRejected = Boolean(
@@ -200,7 +223,9 @@ const cdaRelatedOutputProjectionTest = () => {
   return constructedOutputAccepted && matchingDocumentColumnAccepted && conflictingDocumentOutputLabelRejected &&
     missingStepOutputRejected &&
     duplicateConstructionOutputRejected && ambiguousDocumentColumnsRejected &&
-    savedSnapshotAccepted && missingDocumentColumnsRejected;
+    savedSnapshotAccepted && candidateIdentityTamperRejected && nodeIdentityTamperRejected &&
+    omittedRowPolicyRetainedAsNull && omittedRowPolicySnapshotAccepted &&
+    missingDocumentColumnsRejected;
 };
 const cdaMountedGroupOutputLabelTest = () => {
   const outputId = 'related_record_fixture';
@@ -372,6 +397,7 @@ const cdaMountedRelatedRouteLabelTest = () => {
     stepId: 'related-step',
     inputStepId: 'group-step',
     source: { resourceType: 'Observation', path: 'status' },
+    sourceEvidence: 'construction-history-button-title-attribute',
     outputColumnId: 'related-output',
     route,
     routeEvidence: 'saved-builder-projection',
@@ -394,6 +420,14 @@ const cdaMountedRelatedRouteLabelTest = () => {
     delete changed.routeEvidence;
     return Boolean(mountedRelatedSourceProblem(changed, savedRelatedSource, 'fixture', journeyCase));
   })();
+  const missingSourceEvidenceRejected = (() => {
+    const changed = structuredClone(mounted);
+    delete changed.sourceEvidence;
+    return Boolean(mountedRelatedSourceProblem(changed, savedRelatedSource, 'fixture', journeyCase));
+  })();
+  const wrongSourceEvidenceRejected = mountedRelatedSourceProblem({
+    ...mounted, sourceEvidence: 'saved-builder-projection',
+  }, savedRelatedSource, 'fixture', journeyCase) !== null;
   const wrongRouteEvidenceRejected = mountedRelatedSourceProblem({
     ...mounted, routeEvidence: 'inferred-from-title',
   }, savedRelatedSource, 'fixture', journeyCase) !== null;
@@ -407,6 +441,7 @@ const cdaMountedRelatedRouteLabelTest = () => {
   })();
   return validAccepted && missingLabelRejected && wrongLabelRejected &&
     missingRouteEvidenceRejected && wrongRouteEvidenceRejected &&
+    missingSourceEvidenceRejected && wrongSourceEvidenceRejected &&
     wrongDisplayedEvidenceRejected && alteredRawRouteRejected;
 };
 const cdaProposalObserverFlagTest = () => {
