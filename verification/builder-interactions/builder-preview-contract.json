@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "4c9abf104082dfbfd5709c07d767793924cb83e6ead814ae7e81da81f7934004",
+      "sha256": "35e236878da0bf73f3abafdce4645d0ca6aaf42f0edf8a6f4eadb747213394f6",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "f08d97ee2d8f9f3045d41d12ebc9a839ffd0212f2f92c205174be968252ac173",
+      "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {
@@ -404,17 +404,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "8a7a4ba2e4bc69faaad64e8753a761a26fc334341c5104ba12c8816276cd92ea",
+      "sha256": "24438ad00a269232fe3edfd5fc752309b779270e7157061c61a1541c3d5e7575",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
-      "sha256": "12fff312f33070320ae904c3162839299007486fc59a711f9858833c98b40338",
+      "sha256": "8e36748f3ee1d1a7a896a2af4a3351fdd16da97e36e1dab7e3d1825f933f4e93",
       "contract": "Focused tests for native Builder trace capture and request-owner evidence."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "8200149f3c58f90d9d318dec250cb01cb3a247553cb86459b13f3b2df253f7ac",
+      "sha256": "48bb0476c1799ca26309d44736106cdcfa9c41293d92afbc90ce17751bc998e7",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -509,7 +509,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-formal-adapters.mjs",
-      "sha256": "322433dbef4990318135ede009b630b71f8d0b6f615a4ae00d975cd6e9bd3aa7",
+      "sha256": "e9c46e9dd439580dee66500113af15184d9139de2a43119c146112a64faa418d",
       "contract": "Static registered adapters for the native Builder formal journey verifier."
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "acce20ba649eac97a97b6def94b2a086dc3b21ccef23032ec4be539aa371da28",
+      "sha256": "0e76437404fba33b5e9f20d2b8a38b17968e59459eb120c95aeecc29a7649449",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {

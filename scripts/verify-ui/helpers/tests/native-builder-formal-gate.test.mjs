@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { currentFormalJourneyEvidence } from '../../../generate-builder-browser-evidence.mjs';
+import {
+  currentFormalJourneyEvidence,
+  nativeJourneyRequestCoverageProblem,
+} from '../../../generate-builder-browser-evidence.mjs';
 import {
   bracketSummaryFromOutput,
   nativeEnvironmentTargetProblems,
@@ -33,6 +36,37 @@ const canonicalJson = (value) => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const copy = (value) => structuredClone(value);
+
+test('native request coverage accounts for setup mutations without action credit or double counting', () => {
+  const valid = {
+    observed: 7,
+    modeled: 7,
+    unmapped: 0,
+    duplicates: 0,
+    modeledActions: 2,
+    reconcileReads: 2,
+    supportedReadOnly: 2,
+    setupMutations: 1,
+  };
+  const policyFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'];
+  assert.equal(nativeJourneyRequestCoverageProblem(valid, policyFields), null);
+  assert.match(nativeJourneyRequestCoverageProblem({
+    ...valid,
+    setupMutations: undefined,
+  }, policyFields), /registered row class/u);
+  assert.match(nativeJourneyRequestCoverageProblem({
+    ...valid,
+    setupMutations: 2,
+  }, policyFields), /exactly once/u);
+  assert.match(nativeJourneyRequestCoverageProblem({
+    ...valid,
+    setupMutations: -1,
+  }, policyFields), /registered row class/u);
+  assert.equal(nativeJourneyRequestCoverageProblem({
+    observed: 4, modeled: 4, unmapped: 0, duplicates: 0,
+    modeledActions: 1, reconcileReads: 1, supportedReadOnly: 2,
+  }), null, 'other registered adapters keep their existing three-class coverage receipt');
+});
 const retainedBasicTargetFixture = {
   kind: 'isolated',
   project: 'loom_dev_verify_mvnpkod5-d7536dd',

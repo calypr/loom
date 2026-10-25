@@ -912,6 +912,7 @@ const registryRows = [
           requiredMutationControlNames: [
             'wrong-owner', 'stale-cas', 'out-of-order-repair', 'stale-restoration',
             'request-body-ledger-drift', 'wrong-row-value-output', 'non-array-row-value-output',
+            'setup-command-response-owner',
           ],
         },
         focusedChecks: [
@@ -933,11 +934,15 @@ const registryRows = [
           {
             id: 'patient-one-formal-adapter-binding',
             cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs'],
+            command: ['node-test',
+              'scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
               'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-builder-traces.mjs',
+              'scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
               'scripts/verify-ui/helpers/policy-one-trace.mjs',
               'scripts/verify-ui/helpers/policy-one-tla-replay.mjs',
               'scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs',
@@ -990,6 +995,7 @@ const registryRows = [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
+              'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs',
             ],
           },
         ],

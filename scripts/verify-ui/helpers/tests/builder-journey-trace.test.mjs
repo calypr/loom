@@ -209,6 +209,7 @@ test('native replay and mutation receipts preserve verifier coverage and require
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
     actionLabels: ['Preview', 'RelatedSourcePreview', 'Reload'],
     tracePath: fixture.tracePath,
+    requestCoverageFields: ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'],
   };
   const replayReceipt = {
     ...identity,
@@ -218,12 +219,31 @@ test('native replay and mutation receipts preserve verifier coverage and require
     status: 'pending-self-test',
     replayStatus: 'pass',
     selfTestStatus: 'not-run',
-    requestCoverage: { observed: 11, modeled: 11, unmapped: 0, duplicates: 0 },
+    requestCoverage: {
+      observed: 11, modeled: 11, unmapped: 0, duplicates: 0,
+      modeledActions: 4, reconcileReads: 3, supportedReadOnly: 3, setupMutations: 1,
+    },
+    requestCoverageBasis: 'unit fixture separates modeled requests, reconciliation reads, supported reads, and setup mutations',
     requiredActionCountsByTrace: { mismatches: {} },
     requiredActionMinimumsByTrace: { mismatches: {} },
     unmodeledEvents: { total: 3, unclassified: { total: 0 } },
   };
   assert.strictEqual(assertNativeBuilderJourneyReplayReceipt(replayReceipt, identity), replayReceipt);
+  assert.throws(() => assertNativeBuilderJourneyReplayReceipt({
+    ...replayReceipt,
+    requestCoverage: { ...replayReceipt.requestCoverage, setupMutations: undefined },
+  }, identity), /setupMutations/u);
+  const temporalReceipt = {
+    ...replayReceipt,
+    requestCoverage: {
+      observed: 10, modeled: 10, unmapped: 0, duplicates: 0,
+      modeledActions: 4, reconcileReads: 3, supportedReadOnly: 3,
+    },
+  };
+  const temporalIdentity = { ...identity };
+  delete temporalIdentity.requestCoverageFields;
+  assert.strictEqual(assertNativeBuilderJourneyReplayReceipt(temporalReceipt, temporalIdentity), temporalReceipt,
+    'Three-class native coverage remains valid for adapters without setup mutations.');
   const selfTestReportPath = fixture.selfTestReportPath;
   const selfTestReceipt = {
     traceName: identity.traceName,

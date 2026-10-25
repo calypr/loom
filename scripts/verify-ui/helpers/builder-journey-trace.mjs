@@ -368,6 +368,7 @@ export const assertNativeBuilderJourneyReplayReceipt = (receipt, {
   nativeCaseKey,
   actionLabels,
   tracePath,
+  requestCoverageFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly'],
 }) => {
   assertNativeReceiptIdentity(receipt, traceName, nativeCaseKey, 'Verifier output');
   assertNativeReceiptTraceDigest(receipt, tracePath, 'Verifier output');
@@ -390,9 +391,9 @@ export const assertNativeBuilderJourneyReplayReceipt = (receipt, {
   if (Object.hasOwn(receipt, 'requestCoverageBasis')) {
     assert(typeof receipt.requestCoverageBasis === 'string' && receipt.requestCoverageBasis.trim().length > 0,
       'Verifier requestCoverageBasis must state the adapter coverage claim.');
-    const detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly'];
+    const detailFields = requestCoverageFields;
     assert(detailFields.every(field => Number.isInteger(coverage[field]) && coverage[field] >= 0),
-      'Adapter request coverage must retain semantic-action, reconcile-read, and read-only counts.');
+      `Adapter request coverage must retain non-negative counts for ${detailFields.join(', ')}.`);
     assert.equal(detailFields.reduce((sum, field) => sum + coverage[field], 0), coverage.observed,
       'Adapter request coverage detail counts must account for every retained transport row.');
   }
@@ -585,19 +586,22 @@ export const writeAndReplayBuilderJourneyTrace = ({
   let verifierReceipt;
   if (isNativeLifecycle) {
     const replayReport = JSON.parse(readFileSync(replayReportPath, 'utf8'));
+    const nativeJourneyAdapter = selectedContract?.nativeJourney
+      ? builderFormalAdapterForBinding(binding)
+      : null;
     verifierReceipt = assertNativeBuilderJourneyReplayReceipt(replayReport.builderJourneyTrace, {
       traceName: journeyTrace.name,
       nativeCaseKey,
       actionLabels: labels,
       tracePath,
+      requestCoverageFields: nativeJourneyAdapter?.requestCoverageFields,
     });
     if (selectedContract.nativeJourney) {
-      const adapter = builderFormalAdapterForBinding(binding);
       assert.equal(verifierReceipt.nativeCaseKey, selectedContract.nativeJourney.nativeCaseKey,
         'Native replay receipt case key must match the static nativeJourney contract.');
       assert.equal(verifierReceipt.requestCoverageBasis, selectedContract.nativeJourney.coverageBasis,
         'Native replay receipt must retain the contract coverage basis.');
-      assert.deepEqual(verifierReceipt.requestCoverage, adapter.requestCoverage(journeyTrace),
+      assert.deepEqual(verifierReceipt.requestCoverage, nativeJourneyAdapter.requestCoverage(journeyTrace),
         'Native replay request coverage must be derived from the captured transport ledger.');
     }
     report.target.builderJourneyTrace = { ...verifierReceipt };
