@@ -179,8 +179,10 @@ let journeyTraceStarted = false;
 const capturedProposalBrowserRequestIds = new Set();
 const capturedApplyBrowserRequestIds = new Set();
 const proposalMounts = new Map();
+const proposalRequestEvidence = new Map();
 const applyMounts = new Map();
 const proposalSettlementMounts = new Map();
+const proposalSettlementEvidence = new Map();
 const documentEpochByTimeOrigin = new Map();
 const settlementMountWaiters = new Map();
 const oracleQueries = [];
@@ -334,6 +336,16 @@ const awaitSettlementMount = async browserRequestId => {
   if (result.error) throw result.error;
   return result.mount;
 };
+const awaitProposalSettlementEvidence = async browserRequestId => {
+  const captured = proposalSettlementEvidence.get(browserRequestId);
+  if (!captured) return { error: 'event-time response observation was not captured' };
+  return captured;
+};
+const awaitProposalRequestEvidence = async browserRequestId => {
+  const captured = proposalRequestEvidence.get(browserRequestId);
+  if (!captured) return { error: 'request-start observation was not captured' };
+  return captured;
+};
 const readRenderedSourceTable = async () => browserEval(page, () => {
   const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
   const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
@@ -450,6 +462,7 @@ const nativeRequestRecord = entry => {
     method: entry.method,
     path: requestPath,
     index: entry.index,
+    isMutation: entry.isMutation,
     requestId: entry.requestId ?? null,
     browserRequestId: entry.browserRequestId,
     startedAt: entry.startedAt,
@@ -493,17 +506,21 @@ const nativeResponseRecord = entry => {
     body,
   };
 };
-const nativeSettlementRecord = entry => ({
-  kind: Number.isInteger(entry.status) ? 'http-response' : 'request-failed',
-  browserRequestId: entry.browserRequestId,
-  requestId: entry.requestId ?? null,
-  ...(typeof entry.request?.captureId === 'string' ? { captureId: entry.request.captureId } : {}),
-  ...(Number.isInteger(entry.status) ? { status: entry.status } : {}),
-  ...(entry.failure?.errorText ? { errorText: entry.failure.errorText } : {}),
-  startedAt: entry.startedAt,
-  ...(entry.responseReceivedAt === undefined ? {} : { responseReceivedAt: entry.responseReceivedAt }),
-  ...(entry.completedAt === undefined ? {} : { completedAt: entry.completedAt }),
-});
+const nativeSettlementRecord = entry => {
+  assert(Number.isFinite(entry.startedAt), `Native request ${entry.browserRequestId} must retain its actual start time.`);
+  assert(Number.isFinite(entry.completedAt), `Native request ${entry.browserRequestId} must retain its actual settlement time.`);
+  return {
+    kind: Number.isInteger(entry.status) ? 'http-response' : 'request-failed',
+    browserRequestId: entry.browserRequestId,
+    requestId: entry.requestId ?? null,
+    ...(typeof entry.request?.captureId === 'string' ? { captureId: entry.request.captureId } : {}),
+    ...(Number.isInteger(entry.status) ? { status: entry.status } : {}),
+    ...(entry.failure?.errorText ? { errorText: entry.failure.errorText } : {}),
+    startedAt: entry.startedAt,
+    ...(entry.responseReceivedAt === undefined ? {} : { responseReceivedAt: entry.responseReceivedAt }),
+    completedAt: entry.completedAt,
+  };
+};
 const ownerForProposal = (entry, attempt, mount, kind = 'proposal') => ({
   kind,
   attempt,
@@ -576,7 +593,7 @@ const waitForNativeProposalApply = async (fromIndex, proposalId) => {
   return waitForNativeSettlement(candidates.at(-1));
 };
 const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chosen, state, captureKind,
-  attempt = 'P1', renderedProposal, label }) => {
+  attempt = 'P1', label }) => {
   const entries = observedEntries ?? nativeCapture.requests.slice(requestStart).filter(entry =>
     entry.path === `${base}/construction-proposals` && entry.method === 'POST' &&
     entry.request?.outputId === outputId);
@@ -587,11 +604,6 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
   for (const entry of entries) await waitForNativeSettlement(entry);
   const unrecorded = entries.filter(entry => !capturedProposalBrowserRequestIds.has(entry.browserRequestId));
   assert(unrecorded.length > 0, `${label} actual proposal requests must not be recorded twice.`);
-  const pageObservation = await captureBuilderObservation(page);
-  const renderedObservation = {
-    builder: pageObservation,
-    proposalPanel: structuredClone(renderedProposal),
-  };
   const events = [];
   const captures = new Map();
   for (const [index, entry] of unrecorded.entries()) {
@@ -601,23 +613,50 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
     assert(Number.isInteger(mount.mountEpoch) && Number.isFinite(mount.documentTimeOrigin),
       `Observed proposal ${entry.browserRequestId} must retain its actual page mount and timeOrigin.`);
     const owner = ownerForProposal(entry, ownerAttempt, mount);
+    const requestEvidenceResult = await awaitProposalRequestEvidence(entry.browserRequestId);
+    const requestEvidence = requestEvidenceResult.evidence ?? null;
+    const requestEventTimeSnapshot = requestEvidence
+      ? { available: true, observedAt: requestEvidence.observedAt }
+      : { available: false, reason: 'event-time-snapshot-unavailable' };
+    if (requestEvidence) {
+      assert.equal(requestEvidence.mount.mountEpoch, mount.mountEpoch,
+        `Proposal ${entry.browserRequestId} request evidence must retain its actual owner mount.`);
+      assert.equal(requestEvidence.mount.documentTimeOrigin, mount.documentTimeOrigin,
+        `Proposal ${entry.browserRequestId} request evidence must retain its actual owner timeOrigin.`);
+    }
+    const requestObservation = requestEvidence?.observation ?? null;
+    const requestRenderedObservation = requestEvidence?.renderedObservation ?? null;
     const request = nativeRequestRecord(entry);
     const response = Number.isInteger(entry.status) ? nativeResponseRecord(entry) : null;
     const settlement = nativeSettlementRecord(entry);
     const settlementMount = await awaitSettlementMount(entry.browserRequestId);
-    const capture = { owner, request, response, settlement, renderedObservation };
+    const settlementEvidenceResult = await awaitProposalSettlementEvidence(entry.browserRequestId);
+    const settlementEvidence = settlementEvidenceResult.evidence ?? null;
     const entryState = builderStateForProposal(entry, state);
+    const eventTimeSnapshot = settlementEvidence
+      ? { available: true, observedAt: settlementEvidence.observedAt }
+      : { available: false, reason: 'event-time-snapshot-unavailable' };
+    if (settlementEvidence) {
+      assert.equal(settlementEvidence.mount.mountEpoch, settlementMount.mountEpoch,
+        `Proposal ${entry.browserRequestId} settlement evidence must retain the same actual mount observation.`);
+      assert.equal(settlementEvidence.mount.documentTimeOrigin, settlementMount.documentTimeOrigin,
+        `Proposal ${entry.browserRequestId} settlement evidence must retain the same actual document timeOrigin.`);
+    }
+    const pageObservation = settlementEvidence?.observation ?? null;
+    const renderedObservation = settlementEvidence?.renderedObservation ?? null;
+    const savedBefore = savedBuilderProjection(entryState);
+    const savedAfter = settlementEvidence?.savedAfter ?? null;
+    const savedAfterBuilder = settlementEvidence?.savedAfterBuilder ?? null;
+    const requestBody = entry.request ?? {};
+    const currentDraftMatches = savedAfterBuilder &&
+      String(savedAfterBuilder.draftVersion) ===
+        String(requestBody.expectedDraftVersion ?? requestBody.draftVersion) &&
+      savedAfterBuilder.draftDigest === (requestBody.expectedDraftDigest ?? requestBody.draftDigest);
+    if (currentDraftMatches) assert.deepEqual(savedAfter, savedBefore,
+      `${label} current proposal must leave the actual saved Builder projection unchanged before Apply or Cancel.`);
+    const capture = { owner, request, response, settlement, renderedObservation, eventTimeSnapshot };
     const entryCaptureKind = proposalCaptureKind(entry, entryState);
     if (entryCaptureKind === 'relatedSource') {
-      const requestBody = entry.request ?? {};
-      const requestStillCurrent = String(builder.draftVersion) ===
-        String(requestBody.expectedDraftVersion ?? requestBody.draftVersion) &&
-        builder.draftDigest === (requestBody.expectedDraftDigest ?? requestBody.draftDigest);
-      const before = savedBuilderProjection(requestStillCurrent ? entryState : builder);
-      const afterState = await api(base + '/builder');
-      const after = savedBuilderProjection(afterState);
-      assert.deepEqual(after, before,
-        `${label} proposal response must leave the actual saved Builder projection unchanged.`);
       capture.relatedSourceLifecycle = {
         ...mount,
         owner,
@@ -627,9 +666,10 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
         settlement,
         settlementObservedEpoch: settlementMount.mountEpoch,
         renderedObservation,
+        eventTimeSnapshot,
         savedGroupInput: groupProjection(entryState),
-        savedBefore: before,
-        savedAfter: after,
+        savedBefore,
+        savedAfter,
       };
       events.push({
         sequence: entry.completedAt ?? entry.startedAt,
@@ -640,6 +680,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
           ...capture,
           observedEpoch: settlementMount.mountEpoch,
           observation: pageObservation,
+          eventTimeSnapshot,
           relatedSourceLifecycle: capture.relatedSourceLifecycle,
         },
       });
@@ -649,21 +690,31 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
 
     const candidateIntent = entryCaptureKind === 'group' ? groupCandidateIntent(entry, entryState) : null;
     if (entryCaptureKind === 'group') {
-      const savedSnapshot = savedBuilderProjection(entryState);
       capture.groupLifecycle = {
         ...mount,
         owner: { ...mount, ...owner },
         candidateIntent,
         savedGroupInput: groupProjection(entryState),
-        savedBefore: savedSnapshot,
-        savedAfter: savedSnapshot,
+        savedBefore,
+        savedAfter,
+        eventTimeSnapshot,
       };
     } else {
-      const expandedStep = entry.response?.candidateConstruction?.steps?.find(step =>
-        ['EXPAND', 'RELATED_EXPAND'].includes(step.operation?.kind))
-        ?? entry.request?.candidateConstruction?.steps?.find(step =>
-          ['EXPAND', 'RELATED_EXPAND'].includes(step.operation?.kind));
-      assert(expandedStep, `${label} row-expansion proposal must retain its actual candidate step.`);
+      const candidateSteps = entry.response?.candidateConstruction?.steps
+        ?? entry.request?.candidateConstruction?.steps;
+      assert(Array.isArray(candidateSteps), `${label} row-expansion proposal must retain its actual candidate construction.`);
+      const priorStepsById = new Map(constructionSteps(entryState).map(step => [step.id, step]));
+      const changedOperationSteps = candidateSteps.filter(step => {
+        const priorStep = priorStepsById.get(step.id);
+        return !priorStep || JSON.stringify(priorStep.operation) !== JSON.stringify(step.operation);
+      });
+      assert.equal(changedOperationSteps.length, 1,
+        `${label} candidate must contain exactly one actual changed operation.`);
+      const expandedStep = changedOperationSteps[0];
+      assert(['EXPAND', 'RELATED_EXPAND'].includes(expandedStep.operation?.kind),
+        `${label} actual changed operation must be a row expansion.`);
+      if (requestBody.changedStepId) assert.equal(expandedStep.id, requestBody.changedStepId,
+        `${label} changedStepId must identify the actual changed expansion operation.`);
       const currentSteps = constructionSteps(entryState);
       const sourceResourceType = currentSteps.at(-1)?.operation?.relatedExpand?.targetResourceType
         ?? doc(entryState).rootResourceType;
@@ -671,17 +722,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       const stageToken = `${sourceResourceType}${targetResourceType}`;
       assert(['SpecimenPatient', 'PatientObservation'].includes(stageToken),
         `${label} actual source and target resource identities must bind a registered row-expansion stage.`);
-      const before = savedBuilderProjection(entryState);
-      const beforeTable = await readRenderedSourceTable();
-      const afterState = await api(base + '/builder');
-      const after = savedBuilderProjection(afterState);
-      const requestBody = entry.request ?? {};
-      const currentDraftMatches = String(afterState.draftVersion) ===
-        String(requestBody.expectedDraftVersion ?? requestBody.draftVersion) &&
-        afterState.draftDigest === (requestBody.expectedDraftDigest ?? requestBody.draftDigest);
-      if (currentDraftMatches) assert.deepEqual(after, before,
-        `${label} current proposal must leave the actual saved Builder projection unchanged before Apply or Cancel.`);
-      capture.savedBeforeTable = beforeTable;
+      capture.savedBeforeTable = settlementEvidence?.sourceTable ?? null;
       capture.mountEpoch = mount.mountEpoch;
       capture.expandRowsLifecycle = {
         ...mount,
@@ -693,8 +734,9 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
         request,
         response,
         renderedObservation,
-        savedBefore: savedBuilderProjection(entryState),
-        savedAfter: after,
+        eventTimeSnapshot,
+        savedBefore,
+        savedAfter,
       };
     }
     const previewAction = {
@@ -703,23 +745,56 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       owner,
       request,
       observedEpoch: mount.mountEpoch,
-      observation: pageObservation,
-      renderedObservation,
-      ...(capture.groupLifecycle ? { groupLifecycle: capture.groupLifecycle } : {}),
-      ...(capture.expandRowsLifecycle ? { rowExpansionLifecycle: capture.expandRowsLifecycle } : {}),
+      observation: requestObservation,
+      renderedObservation: requestRenderedObservation,
+      eventTimeSnapshot: requestEventTimeSnapshot,
+      ...(capture.groupLifecycle ? {
+        groupLifecycle: { ...capture.groupLifecycle, eventTimeSnapshot: requestEventTimeSnapshot },
+      } : {}),
+      ...(capture.expandRowsLifecycle ? {
+        rowExpansionLifecycle: {
+          ...capture.expandRowsLifecycle,
+          renderedObservation: requestRenderedObservation,
+          eventTimeSnapshot: requestEventTimeSnapshot,
+        },
+      } : {}),
     };
     const aborted = entry.failure?.errorText === 'net::ERR_ABORTED';
     const ready = entry.status >= 200 && entry.status < 300 &&
       entry.response?.previewStatus === 'READY' && entry.response?.proposalId;
-    const newerRequestCompletedFirst = entries.some(other => other.startedAt > entry.startedAt &&
-      other.startedAt < (entry.completedAt ?? entry.startedAt));
-    const stalePanel = ready && pageObservation.proposalId !== entry.response.proposalId;
+    const panelId = settlementEvidence?.proposalPanel?.id ?? null;
+    const currentPanelOwners = panelId ? nativeCapture.requests.filter(candidate =>
+      candidate.path === `${base}/construction-proposals` &&
+      candidate.response?.proposalId === panelId) : [];
+    const currentPanelOwner = currentPanelOwners.length === 1 ? currentPanelOwners[0] : null;
+    const panelObservedAfterSettlement = settlementEvidence &&
+      Number.isFinite(settlementEvidence.proposalPanelObservedAt) &&
+      Number.isFinite(entry.completedAt) && settlementEvidence.proposalPanelObservedAt >= entry.completedAt;
+    const newerCandidateOwner = currentPanelOwner && panelObservedAfterSettlement &&
+      currentPanelOwner.browserRequestId !== entry.browserRequestId &&
+      Number.isFinite(currentPanelOwner.startedAt) && currentPanelOwner.startedAt > entry.startedAt &&
+      currentPanelOwner.startedAt < entry.completedAt &&
+      Number.isFinite(currentPanelOwner.completedAt) &&
+      currentPanelOwner.completedAt <= settlementEvidence.proposalPanelObservedAt &&
+      currentPanelOwner.response?.previewStatus === 'READY';
+    const oldResultIsNotCurrent = ready
+      ? Boolean(panelId && panelId !== entry.response.proposalId)
+      : Boolean(entry.failure);
+    const lateIgnored = Boolean(newerCandidateOwner && oldResultIsNotCurrent);
+    const lateClassification = lateIgnored
+      ? {
+          available: true,
+          ownerBrowserRequestId: currentPanelOwner.browserRequestId,
+          ownerStartedAt: currentPanelOwner.startedAt,
+          ownerCompletedAt: currentPanelOwner.completedAt,
+          renderedPanelProposalId: panelId,
+          observedAt: settlementEvidence.proposalPanelObservedAt,
+        }
+      : { available: false, reason: 'current-newer-candidate-owner-not-proven' };
     const settlementLabel = aborted ? 'PreviewRequestCancelled'
-      : ready
-        ? (newerRequestCompletedFirst || stalePanel ? 'LatePreviewCompleteIgnored' : 'PreviewComplete')
-        : entry.failure && (newerRequestCompletedFirst || stalePanel)
-          ? 'LatePreviewErrorIgnored'
-          : 'PreviewError';
+      : lateIgnored && ready ? 'LatePreviewCompleteIgnored'
+        : lateIgnored && entry.failure ? 'LatePreviewErrorIgnored'
+          : ready ? 'PreviewComplete' : 'PreviewError';
     const settlementAction = {
       label: settlementLabel,
       event: aborted ? 'preview-request-cancelled' : 'preview-response',
@@ -730,6 +805,8 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       observedEpoch: settlementMount.mountEpoch,
       observation: pageObservation,
       renderedObservation,
+      eventTimeSnapshot,
+      lateClassification,
       ...(capture.groupLifecycle ? { groupLifecycle: capture.groupLifecycle } : {}),
       ...(capture.expandRowsLifecycle ? { rowExpansionLifecycle: capture.expandRowsLifecycle } : {}),
     };
@@ -936,7 +1013,28 @@ const installBrowserCapture = async () => {
     const entry = nativeCapture.observer.byRequest.get(request);
     if (!entry) return;
     if (entry.path === `${base}/construction-proposals`) {
-      proposalMounts.set(entry.browserRequestId, captureCurrentMount());
+      const mountCapture = captureCurrentMount();
+      proposalMounts.set(entry.browserRequestId, mountCapture);
+      const evidence = mountCapture.then(async result => {
+        if (result.error) throw result.error;
+        const [observation, proposalPanel] = await Promise.all([
+          captureBuilderObservation(page),
+          readRenderedProposalPanel(),
+        ]);
+        const observedAt = Date.now();
+        return {
+          observedAt,
+          proposalPanelObservedAt: observedAt,
+          mount: result.mount,
+          observation,
+          proposalPanel,
+          renderedObservation: {
+            builder: observation,
+            proposalPanel: structuredClone(proposalPanel),
+          },
+        };
+      }).then(value => ({ evidence: value }), error => ({ error }));
+      proposalRequestEvidence.set(entry.browserRequestId, evidence);
     }
     if (entry.path === `${base}/commands` && entry.request?.commands?.some(command =>
       command.type === 'APPLY_CONSTRUCTION_PROPOSAL')) {
@@ -950,6 +1048,33 @@ const installBrowserCapture = async () => {
         command.type === 'APPLY_CONSTRUCTION_PROPOSAL')))) return;
     const captured = captureCurrentMount();
     proposalSettlementMounts.set(entry.browserRequestId, captured);
+    if (entry.path === `${base}/construction-proposals`) {
+      const evidence = captured.then(async result => {
+        if (result.error) throw result.error;
+        const [observation, proposalPanel, sourceTable, savedAfterBuilder] = await Promise.all([
+          captureBuilderObservation(page),
+          readRenderedProposalPanel(),
+          readRenderedSourceTable(),
+          api(base + '/builder'),
+        ]);
+        const observedAt = Date.now();
+        return {
+          observedAt,
+          proposalPanelObservedAt: observedAt,
+          mount: result.mount,
+          observation,
+          proposalPanel,
+          renderedObservation: {
+            builder: observation,
+            proposalPanel: structuredClone(proposalPanel),
+          },
+          sourceTable,
+          savedAfterBuilder,
+          savedAfter: savedBuilderProjection(savedAfterBuilder),
+        };
+      }).then(value => ({ evidence: value }), error => ({ error }));
+      proposalSettlementEvidence.set(entry.browserRequestId, evidence);
+    }
     void captured.then(result => {
       const waiter = settlementMountWaiters.get(entry.browserRequestId);
       if (waiter) {
@@ -1009,7 +1134,6 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
     state,
     captureKind,
     attempt,
-    renderedProposal: panel,
     label,
   });
   assert.equal(panel.status, 'ready', panel.text);
@@ -1886,7 +2010,6 @@ FOR s IN (
       state,
       captureKind,
       attempt: priorOwners.size === 0 ? 'P1' : 'P2',
-      renderedProposal: await readRenderedProposalPanel(),
       label: `late-${captureKind}-proposal`,
     });
   }
@@ -1957,7 +2080,8 @@ FOR s IN (
     const support = cdaJourneyReadOnlyRoutes.get(`${entry.method} ${route}`);
     if (!support || entry.isMutation !== false) {
       unclassifiedRequests.push({ method: entry.method, path: entry.path,
-        index: entry.index, browserRequestId: entry.browserRequestId, isMutation: entry.isMutation });
+        index: entry.index, browserRequestId: entry.browserRequestId, startedAt: entry.startedAt,
+        isMutation: entry.isMutation });
       continue;
     }
     const events = readOnlySupport.get(support.kind) ?? { ...support, requests: [] };
@@ -1967,6 +2091,7 @@ FOR s IN (
       index: entry.index,
       browserRequestId: entry.browserRequestId,
       requestId: entry.requestId ?? null,
+      startedAt: entry.startedAt,
       isMutation: entry.isMutation,
     });
     readOnlySupport.set(support.kind, events);

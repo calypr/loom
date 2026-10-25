@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { scenarioCaseFor } from '../registry.mjs';
 
@@ -61,6 +61,91 @@ export const builderJourneyTraceReceiptIdentity = (binding, traceName, scenarioI
     return { traceName, nativeCaseKey: `${scenarioID}/${caseName}` };
   }
   throw new Error(`Unknown Builder journey receipt captureKind: ${String(binding.captureKind)}`);
+};
+
+const assertNativeReceiptIdentity = (receipt, traceName, nativeCaseKey, stage) => {
+  assert(receipt && typeof receipt === 'object' && !Array.isArray(receipt),
+    `${stage} must contain a Builder journey receipt object.`);
+  assert.equal(receipt.traceName, traceName, `${stage} traceName must match the registered trace.`);
+  assert.equal(receipt.nativeCaseKey, nativeCaseKey,
+    `${stage} nativeCaseKey must match the selected registered case.`);
+  assert(!Object.hasOwn(receipt, 'caseKey'), `${stage} must not include a legacy caseKey alias.`);
+};
+
+export const assertNativeBuilderJourneyReplayReceipt = (receipt, { traceName, nativeCaseKey, actionLabels }) => {
+  assertNativeReceiptIdentity(receipt, traceName, nativeCaseKey, 'Verifier output');
+  assert.equal(receipt.status, 'pending-self-test', 'Verifier receipt must await the mutation self-test.');
+  assert.equal(receipt.replayStatus, 'pass', 'Verifier receipt must record a passing replay.');
+  assert.equal(receipt.selfTestStatus, 'not-run', 'Verifier receipt must record that the self-test has not run.');
+  assert.equal(receipt.selfTestReportPath, null, 'Verifier receipt must not claim a self-test report before it runs.');
+  assert.deepEqual(receipt.actionLabels, actionLabels, 'Verifier receipt must retain the captured action chronology.');
+  const coverage = receipt.requestCoverage;
+  assert(coverage && typeof coverage === 'object' && !Array.isArray(coverage),
+    'Verifier receipt must include requestCoverage.');
+  for (const field of ['observed', 'modeled', 'unmapped', 'duplicates']) {
+    assert(Number.isInteger(coverage[field]) && coverage[field] >= 0,
+      `Verifier requestCoverage.${field} must be a non-negative integer.`);
+  }
+  assert.equal(coverage.modeled, coverage.observed,
+    'Verifier request coverage must model every observed request.');
+  assert.equal(coverage.unmapped, 0, 'Verifier request coverage must have no unmapped requests.');
+  assert.equal(coverage.duplicates, 0, 'Verifier request coverage must have no duplicate bindings.');
+  for (const field of ['requiredActionCountsByTrace', 'requiredActionMinimumsByTrace']) {
+    assert(receipt[field] && typeof receipt[field] === 'object' && !Array.isArray(receipt[field]) &&
+      receipt[field].mismatches && typeof receipt[field].mismatches === 'object' &&
+      !Array.isArray(receipt[field].mismatches),
+    `Verifier receipt must include ${field}.mismatches.`);
+    assert.equal(Object.keys(receipt[field].mismatches).length, 0,
+      `Verifier receipt must have no ${field} mismatches.`);
+  }
+  assert(receipt.unmodeledEvents && typeof receipt.unmodeledEvents === 'object' &&
+    Number.isInteger(receipt.unmodeledEvents.total) && receipt.unmodeledEvents.total >= 0 &&
+    receipt.unmodeledEvents.unclassified &&
+    Number.isInteger(receipt.unmodeledEvents.unclassified.total) && receipt.unmodeledEvents.unclassified.total >= 0,
+  'Verifier receipt must include unmodeled event totals.');
+  assert.equal(receipt.unmodeledEvents.unclassified.total, 0,
+    'Verifier receipt must have no unclassified unmodeled events.');
+  return receipt;
+};
+
+export const assertNativeBuilderJourneySelfTestReceipt = (receipt, verifierReceipt, {
+  traceName,
+  nativeCaseKey,
+  actionLabels,
+  selfTestReportPath,
+}) => {
+  assertNativeReceiptIdentity(receipt, traceName, nativeCaseKey, 'Self-test output');
+  assert.equal(receipt.status, 'pass', 'Self-test receipt status must be pass.');
+  assert.equal(receipt.replayStatus, 'pass', 'Self-test receipt must preserve the passing replay.');
+  assert.equal(receipt.selfTestStatus, 'pass', 'Self-test receipt status must be pass.');
+  assert.equal(receipt.selfTestReportPath, selfTestReportPath,
+    'Self-test receipt must identify its actual output path.');
+  assert.deepEqual(receipt.actionLabels, actionLabels, 'Self-test receipt must retain the captured action chronology.');
+  for (const field of ['tracePath', 'replayReportPath', 'requestCoverage', 'requiredActionCountsByTrace',
+    'requiredActionMinimumsByTrace', 'unmodeledEvents']) {
+    assert.deepEqual(receipt[field], verifierReceipt[field],
+      `Self-test receipt must preserve verifier field ${field}.`);
+  }
+  assert(Array.isArray(receipt.mutationControls) && receipt.mutationControls.length > 0,
+    'Self-test receipt must include mutation control results.');
+  for (const [index, control] of receipt.mutationControls.entries()) {
+    assert(control && typeof control.name === 'string' && control.name.length > 0 && control.status === 'pass',
+      `Self-test mutation control ${index} must have a name and pass status.`);
+  }
+  return receipt;
+};
+
+export const finalizeNativeBuilderJourneyReceipt = (verifierReceipt, selfTestReceipt, identity) => {
+  assertNativeBuilderJourneyReplayReceipt(verifierReceipt, identity);
+  assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, verifierReceipt, identity);
+  return {
+    ...verifierReceipt,
+    mutationControls: selfTestReceipt.mutationControls,
+    status: 'pass',
+    replayStatus: 'pass',
+    selfTestStatus: 'pass',
+    selfTestReportPath: identity.selfTestReportPath,
+  };
 };
 
 export const captureBuilderJourneyTraceProvenance = ({
@@ -150,6 +235,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
     '--output', replayReportPath,
     '--quiet',
   ];
+  rmSync(replayReportPath, { force: true });
   const replay = spawnSync(process.execPath, replayArgs, {
     cwd: repositoryRoot,
     env: process.env,
@@ -157,16 +243,36 @@ export const writeAndReplayBuilderJourneyTrace = ({
     maxBuffer: 32 * 1024 * 1024,
   });
   if (replay.error) throw replay.error;
+  const isNativeLifecycle = binding.captureKind === 'builder-cda-native-lifecycle';
+  const nativeCaseKey = `${scenarioID}/${caseName}`;
   report.target.builderJourneyTrace = {
     ...receiptIdentity,
     tracePath,
     replayReportPath,
     actionLabels: labels,
-    status: replay.status === 0 ? 'pass' : 'fail',
+    status: 'fail',
+    ...(isNativeLifecycle ? { replayStatus: 'fail', selfTestStatus: 'not-run', selfTestReportPath: null } : {}),
   };
   if (replay.status !== 0) {
     const output = `${replay.stdout ?? ''}${replay.stderr ?? ''}`.trim();
     throw new Error(`Builder journey trace replay failed for ${journeyTrace.name}: ${output.split('\n').slice(-20).join('\n')}`);
+  }
+
+  let verifierReceipt;
+  if (isNativeLifecycle) {
+    const replayReport = JSON.parse(readFileSync(replayReportPath, 'utf8'));
+    verifierReceipt = assertNativeBuilderJourneyReplayReceipt(replayReport.builderJourneyTrace, {
+      traceName: journeyTrace.name,
+      nativeCaseKey,
+      actionLabels: labels,
+    });
+    report.target.builderJourneyTrace = { ...verifierReceipt };
+  } else {
+    report.target.builderJourneyTrace = {
+      ...report.target.builderJourneyTrace,
+      status: 'pass',
+      replayStatus: 'pass',
+    };
   }
 
   const selfTestReportPath = join(report.evidenceDirectory, `${artifactStem}-self-test.json`);
@@ -176,6 +282,8 @@ export const writeAndReplayBuilderJourneyTrace = ({
     '--traces', tracePath,
     '--contract', contractPath,
   ];
+  if (isNativeLifecycle) selfTestArgs.push('--output', selfTestReportPath);
+  if (isNativeLifecycle) rmSync(selfTestReportPath, { force: true });
   const selfTest = spawnSync(process.execPath, selfTestArgs, {
     cwd: repositoryRoot,
     env: process.env,
@@ -183,26 +291,65 @@ export const writeAndReplayBuilderJourneyTrace = ({
     maxBuffer: 32 * 1024 * 1024,
   });
   const selfTestOutput = `${selfTest.stdout ?? ''}${selfTest.stderr ?? ''}`.trim();
-  const selfTestStatus = !selfTest.error && selfTest.status === 0 ? 'pass' : 'fail';
-  writeFileSync(selfTestReportPath, `${JSON.stringify({
-    ...receiptIdentity,
-    tracePath,
-    contractPath,
-    command: [process.execPath, ...selfTestArgs],
-    status: selfTestStatus,
-    exitCode: selfTest.status,
-    error: selfTest.error?.message ?? null,
-    output: selfTestOutput,
-  }, null, 2)}\n`);
-  report.target.builderJourneyTrace = {
-    ...report.target.builderJourneyTrace,
-    replayStatus: 'pass',
-    status: selfTestStatus === 'pass' ? 'pass' : 'fail',
-    selfTestStatus,
-    selfTestReportPath,
-  };
+  let selfTestReceipt;
+  let selfTestValidationError;
+  if (isNativeLifecycle && existsSync(selfTestReportPath)) {
+    try {
+      selfTestReceipt = JSON.parse(readFileSync(selfTestReportPath, 'utf8'));
+      assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, verifierReceipt, {
+        traceName: journeyTrace.name,
+        nativeCaseKey,
+        actionLabels: labels,
+        selfTestReportPath,
+      });
+    } catch (error) {
+      selfTestValidationError = error;
+    }
+  }
+  const selfTestStatus = !selfTest.error && selfTest.status === 0 &&
+    (!isNativeLifecycle || (selfTestReceipt && !selfTestValidationError)) ? 'pass' : 'fail';
+  if (!isNativeLifecycle) {
+    writeFileSync(selfTestReportPath, `${JSON.stringify({
+      ...receiptIdentity,
+      tracePath,
+      contractPath,
+      command: [process.execPath, ...selfTestArgs],
+      status: selfTestStatus,
+      exitCode: selfTest.status,
+      error: selfTest.error?.message ?? null,
+      output: selfTestOutput,
+    }, null, 2)}\n`);
+  }
+  if (isNativeLifecycle) {
+    report.target.builderJourneyTrace = selfTestStatus === 'pass'
+      ? finalizeNativeBuilderJourneyReceipt(verifierReceipt, selfTestReceipt, {
+          traceName: journeyTrace.name,
+          nativeCaseKey,
+          actionLabels: labels,
+          selfTestReportPath,
+        })
+      : {
+          ...verifierReceipt,
+          ...(Array.isArray(selfTestReceipt?.mutationControls)
+            ? { mutationControls: selfTestReceipt.mutationControls }
+            : {}),
+          status: selfTestStatus,
+          replayStatus: 'pass',
+          selfTestStatus,
+          selfTestReportPath,
+        };
+  } else {
+    report.target.builderJourneyTrace = {
+      ...report.target.builderJourneyTrace,
+      replayStatus: 'pass',
+      status: selfTestStatus,
+      selfTestStatus,
+      selfTestReportPath,
+    };
+  }
   if (selfTestStatus !== 'pass') {
-    throw new Error(`Builder journey trace self-test failed for ${journeyTrace.name}: ${selfTestOutput.split('\n').slice(-30).join('\n')}`);
+    const validationDetail = selfTestValidationError ? `\n${selfTestValidationError.message}` : '';
+    throw new Error(`Builder journey trace self-test failed for ${journeyTrace.name}: ${selfTestOutput.split('\n').slice(-30).join('\n')}${validationDetail}`);
   }
   return report.target.builderJourneyTrace;
 };
