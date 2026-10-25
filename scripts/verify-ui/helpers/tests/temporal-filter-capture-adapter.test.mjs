@@ -298,7 +298,9 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
     isMutation: request.isMutation,
   })), 'The common request ledger must retain the actual observer identity and order.');
   assert.deepEqual(journeyTrace.temporalFilterLifecycle, rawCapture);
-  assert.equal(journeyTrace.initialObservation.snapshotToken, 'snapshot-1');
+  assert.equal(journeyTrace.initialObservation.snapshotToken, 'snapshot-0');
+  assert.equal(rawCapture.builderReads[0].requestPath,
+    '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/builder');
   assert(rawCapture.builderReads.every(read => read.snapshotToken === `snapshot-${read.draftVersion}`));
   const proposal = journeyTrace.actions.find(event => event.action === 'FilterProposed(create)');
   assert.deepEqual(proposal.filter, {
@@ -346,8 +348,19 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
   assert.equal(Object.hasOwn(choiceApply, 'columnId'), false);
   const sourceCreate = rawCapture.requestEvents.find(event => event.browserRequestId ===
     'schema-fixture-browser-request-source-table');
-  assert.equal(sourceCreate.request.expectedDraftVersion, 1);
-  assert.equal(sourceCreate.request.expectedDraftDigest, 'draft-1');
+  assert.equal(sourceCreate.request.expectedDraftVersion, 0);
+  assert.equal(sourceCreate.request.expectedDraftDigest, 'draft-0');
+  assert.equal(sourceCreate.response.draftVersion, 1);
+  assert.equal(sourceCreate.response.draftDigest, 'draft-1');
+  const sourceIDColumn = rawCapture.requestEvents.find(event => event.browserRequestId ===
+    'schema-fixture-browser-request-source-id-column');
+  assert.equal(sourceIDColumn.request.commands[0].type, 'ADD_COLUMN');
+  assert.equal(sourceIDColumn.request.expectedDraftVersion, sourceCreate.response.draftVersion);
+  assert.equal(sourceIDColumn.request.expectedDraftDigest, sourceCreate.response.draftDigest);
+  assert.equal(sourceIDColumn.response.draftVersion, 2);
+  assert.equal(sourceIDColumn.response.draftDigest, 'draft-2');
+  assert.deepEqual(journeyTrace.actions.find(event => event.action === 'SourceTableCreated')
+    .request.relatedMutationCaptureIds, [sourceIDColumn.browserRequestId]);
   const ordinaryProposalRequests = rawCapture.requestEvents.filter(request =>
     request.method === 'POST' && request.path.endsWith('/construction-proposals'));
   const ownerActions = journeyTrace.actions.filter(action => action.owner?.kind === 'proposal');
@@ -358,6 +371,18 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
     const request = ordinaryProposalRequests.find(candidate => candidate.browserRequestId === action.owner.browserRequestId);
     assert.equal(action.owner.mountEpoch, request.mountEpoch);
   }
+});
+
+test('adapter rejects a Builder GET whose captured project or Explorer target differs from the created Explorer', () => {
+  const wrongProject = makeTemporalFilterJourneyCaptureFixture('date');
+  wrongProject.builderReads[0].requestPath =
+    '/api/v1/projects/loom_dev_verify_foreign/explorers/explorer-temporal/authoring/v2/builder';
+  assert.throws(() => adaptTemporalFilterJourney(wrongProject), /must target the created Explorer route/u);
+
+  const wrongExplorer = makeTemporalFilterJourneyCaptureFixture('date');
+  wrongExplorer.builderReads[0].requestPath =
+    '/api/v1/projects/loom_dev_verify_temporal/explorers/unowned-explorer/authoring/v2/builder';
+  assert.throws(() => adaptTemporalFilterJourney(wrongExplorer), /must target the created Explorer route/u);
 });
 
 test('adapter keeps repeated wire request IDs distinct by observer index and browser request ID', () => {

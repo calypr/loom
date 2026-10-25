@@ -42,6 +42,7 @@ const findFilter = step => step?.operation?.filter ?? null;
 const filterValue = filter => Array.isArray(filter?.values) && filter.values.length === 1 ? filter.values[0] : null;
 const commandList = body => Array.isArray(body?.commands) ? body.commands : [];
 const commandTypes = body => commandList(body).map(command => command.type);
+const safeArray = value => Array.isArray(value) ? value : [];
 const hasCommand = (body, type) => commandTypes(body).includes(type);
 const requestPathIs = (event, suffix) => event.method === 'POST' && event.path.endsWith(suffix);
 const isNativeProposalRequest = request => requestPathIs(request, '/construction-proposals');
@@ -88,6 +89,7 @@ const rawRequestFor = (capture, captureId) => {
 const requestRecord = event => event === null ? null : ({
   captureId: event.browserRequestId,
   requestId: event.requestId ?? null,
+  observerIndex: event.index,
   method: event.method,
   path: event.path,
   status: event.status,
@@ -136,15 +138,18 @@ const proposalAssociation = (event, requests) => {
 
 const buildModelEvents = capture => capture.steps.map(step => {
   const rawRequest = rawRequestFor(capture, step.requestCaptureId);
+  const relatedMutationCaptureIds = step.relatedMutationCaptureIds ?? [];
   const before = readAt(capture, step.beforeReadIndex);
   const after = readAt(capture, step.afterReadIndex);
   const ui = domAt(capture, step.domObservationIndex);
+  const request = requestRecord(rawRequest);
+  if (request) request.relatedMutationCaptureIds = [...relatedMutationCaptureIds];
   const event = {
     action: step.label,
     atMonotonicMs: step.atMonotonicMs,
     atEpochMs: step.atEpochMs,
     mountEpoch: step.mountEpoch,
-    request: requestRecord(rawRequest),
+    request,
     before,
     after,
     ui,
@@ -255,7 +260,15 @@ const assertCaptureShape = capture => {
   const readIds = capture.builderReads.map(read => read.readId);
   assert(readIds.every(id => typeof id === 'string' && id.length > 0), 'Each Builder GET must have a unique capture ID.');
   assert.equal(new Set(readIds).size, readIds.length, 'Builder read capture IDs must be unique.');
+  const directAPIExplorerRoot = `/api/v1/projects/${encodeURIComponent(capture.project)}/explorers/${encodeURIComponent(capture.explorerId)}`;
   for (const read of capture.builderReads) {
+    assert.equal(read.requestMethod, 'GET', `Builder read ${read.readId} must retain its actual HTTP method.`);
+    assert.equal(read.requestPath, `${directAPIExplorerRoot}/authoring/v2/builder`,
+      `Builder read ${read.readId} must target the created Explorer route.`);
+    assert.equal(read.requestProject, capture.project,
+      `Builder read ${read.readId} must retain the exact fixture project.`);
+    assert.equal(read.requestExplorerId, capture.explorerId,
+      `Builder read ${read.readId} must retain the actual created Explorer identity.`);
     assert(Number.isFinite(read.requestStartedAtMonotonicMs));
     assert(Number.isFinite(read.requestStartedAtEpochMs));
     assert(Number.isInteger(read.requestMountEpoch));
@@ -271,6 +284,9 @@ const assertCaptureShape = capture => {
     assert(Number.isFinite(step.atMonotonicMs) && Number.isFinite(step.atEpochMs));
     assert(Number.isInteger(step.mountEpoch));
     assert(Array.isArray(step.reconcileCaptureIds), `${step.label} must retain its reconcile capture ID list.`);
+    const relatedMutationCaptureIds = safeArray(step.relatedMutationCaptureIds);
+    assert.equal(new Set(relatedMutationCaptureIds).size, relatedMutationCaptureIds.length,
+      `${step.label} related mutation capture IDs must identify distinct physical requests.`);
     for (const index of [step.beforeReadIndex, step.afterReadIndex]) {
       assert(index === null || (Number.isInteger(index) && index >= 0 && index < capture.builderReads.length));
     }
@@ -329,8 +345,71 @@ const assertRequestBindings = (capture, events) => {
     assert(raw.status >= 200 && raw.status < 300, `${label} mutation must have a successful captured response.`);
     assert(matches(event), `${label} request body must carry its expected native operation.`);
     consumedMutations.push(raw.browserRequestId);
+    const relatedMutationCaptureIds = event.request.relatedMutationCaptureIds ?? [];
+    if (label === 'SourceTableCreated') {
+      assert.equal(relatedMutationCaptureIds.length, 1,
+        'SourceTableCreated must retain the separate default root-ID provisioning request.');
+      const setup = rawRequestFor(capture, relatedMutationCaptureIds[0]);
+      assert(setup?.isMutation, 'Default root-ID provisioning must resolve to its actual observer-classified write.');
+      assert.equal(setup.method, 'POST');
+      assert.equal(setup.path, raw.path);
+      assert(Number.isInteger(setup.status) && setup.status >= 200 && setup.status < 300,
+        'Default root-ID provisioning must retain its successful actual response.');
+      const commands = commandList(setup.request);
+      assert.equal(commands.length, 1, 'Default root-ID provisioning must retain one actual ADD_COLUMN command.');
+      assert.equal(commands[0].type, 'ADD_COLUMN');
+      assert.equal(commands[0].outputId, event.after.outputId);
+      assert.equal(commands[0].title, `${capture.resourceType} ID`);
+      assert(typeof commands[0].candidateId === 'string' && commands[0].candidateId.length > 0,
+        'Default root-ID provisioning must retain its actual candidate ID.');
+      assert.equal(commands[0].projectionMode, 'VALUE');
+      assert.equal(commands[0].initialPresentation, 'TABLE');
+      assert(typeof setup.request.commandId === 'string' && setup.request.commandId.length > 0,
+        'Default root-ID provisioning must retain its actual command ID.');
+      assert.equal(setup.response.commandId, setup.request.commandId,
+        'Default root-ID provisioning response must echo its actual command ID.');
+      assert(typeof raw.request.commandId === 'string' && raw.request.commandId.length > 0,
+        'CREATE_TABLE must retain its actual command ID.');
+      assert.equal(raw.response.commandId, raw.request.commandId,
+        'CREATE_TABLE response must echo its actual command ID.');
+      assert.equal(setup.request.expectedDraftVersion, raw.response.draftVersion,
+        'Default root-ID provisioning request must continue the CREATE_TABLE response draft version.');
+      assert.equal(setup.request.expectedDraftDigest, raw.response.draftDigest,
+        'Default root-ID provisioning request must continue the CREATE_TABLE response draft digest.');
+      assert.equal(setup.response.draftVersion, event.after.draftVersion,
+        'The actual root-ID command response must match the post-settlement Builder draft version.');
+      assert.equal(setup.response.draftDigest, event.after.draftDigest,
+        'The actual root-ID command response must match the post-settlement Builder draft digest.');
+      assert(safeArray(setup.response.workspace?.documents)
+        .some(document => document.output?.id === event.after.outputId),
+      'The actual root-ID command response must retain the saved output identity.');
+      const savedIDColumns = safeArray(event.after.columns).filter(column =>
+        column.source?.kind === 'field' && column.source.field?.path === 'id');
+      assert.equal(savedIDColumns.length, 1,
+        'The post-settlement Builder read must retain the provisioned direct ID field.');
+      const afterRead = capture.builderReads[capture.steps.find(step => step.label === label).afterReadIndex];
+      assert(Number.isFinite(raw.responseReceivedAt) && setup.startedAt >= raw.responseReceivedAt,
+        'The ADD_COLUMN request must start after the CREATE_TABLE response arrives.');
+      assert(Number.isFinite(setup.responseReceivedAt) &&
+        afterRead.requestStartedAtEpochMs >= setup.responseReceivedAt,
+      'The post-settlement Builder GET must start after the ADD_COLUMN response arrives.');
+      assert.equal(setup.index > raw.index, true,
+        'The ADD_COLUMN write must retain a distinct later observer index.');
+    } else {
+      assert.deepEqual(relatedMutationCaptureIds, [],
+        `${label} must not claim an unrelated physical mutation request.`);
+    }
+    for (const captureId of relatedMutationCaptureIds) {
+      const related = rawRequestFor(capture, captureId);
+      assert(related?.isMutation, `${label} related request ${captureId} must be an actual mutation.`);
+      assert(Number.isInteger(related.status) && related.status >= 200 && related.status < 300,
+        `${label} related mutation ${captureId} must retain its successful response.`);
+      consumedMutations.push(captureId);
+    }
   }
   const mutations = capture.requestEvents.filter(request => request.isMutation).map(request => request.browserRequestId);
+  assert.equal(new Set(consumedMutations).size, consumedMutations.length,
+    'Every physical mutation link must be consumed by exactly one semantic action.');
   assertJSONEqual(consumedMutations.sort(), mutations.sort(), 'Every observer-classified write must be consumed exactly once.');
 
   const proposalCaptureIDs = capture.steps.flatMap(step => step.proposalCaptureIds ?? []);

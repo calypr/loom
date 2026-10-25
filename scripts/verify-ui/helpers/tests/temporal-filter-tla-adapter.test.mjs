@@ -60,6 +60,12 @@ const rebaseCaptureToObservedDateProject = capture => {
       `Synthetic request ${request.browserRequestId} must start on the original fixture project route.`);
     return { ...request, path: `${browserRoot}${request.path.slice(sourceRoot.length)}` };
   });
+  const builderPath = `/api/v1/projects/${encodeURIComponent(OBSERVED_DATE_PROJECT)}/explorers/${encodeURIComponent(capture.explorerId)}/authoring/v2/builder`;
+  capture.builderReads = capture.builderReads.map(read => ({
+    ...read,
+    requestPath: builderPath,
+    requestProject: OBSERVED_DATE_PROJECT,
+  }));
   refreshCaptureExit(capture);
   return browserRoot;
 };
@@ -276,9 +282,12 @@ test('compiler rejects read-only POST capability paths outside the recorded proj
   assert.throws(() => compileTemporalFilterJourneyTrace(wrongObservedExplorer), /no temporal-filter path allowlist entry/u);
 });
 
-const runTlc = (trace, moduleSuffix, { mutateModel } = {}) => {
+const runTlc = (trace, moduleSuffix, { mutateModel, mutateTrace } = {}) => {
   assert(tlcJar, 'Set TLA2TOOLS_JAR to the verified TLC 1.7.4 jar for this focused check.');
-  const compiled = compileTemporalFilterJourneyTrace(trace, { moduleName: `TemporalFilter${moduleSuffix}` });
+  const compiledTrace = compileTemporalFilterJourneyTrace(trace, { moduleName: `TemporalFilter${moduleSuffix}` });
+  const compiled = mutateTrace
+    ? { ...compiledTrace, moduleText: mutateTrace(compiledTrace.moduleText) }
+    : compiledTrace;
   const directory = mkdtempSync(join(tmpdir(), 'loom-temporal-filter-tla-'));
   const metadataDirectory = join(directory, 'states');
   mkdirSync(metadataDirectory);
@@ -376,7 +385,7 @@ test('compiler binds synthetic adapter-produced DATE events, snapshots, DOM refe
   const validated = validateTemporalFilterJourneyTrace(trace);
   const compiled = compileTemporalFilterJourneyTrace(trace);
   assert.equal(validated.eventCount, 16);
-  assert.equal(validated.mutationCount, 6);
+  assert.equal(validated.mutationCount, 7);
   assert.equal(validated.proposalCount, 6);
   assert.equal(validated.initialMountEpoch, 1);
   assert.equal(compiled.moduleName, 'TemporalFilterJourneyDateTrace');
@@ -388,6 +397,8 @@ test('compiler binds synthetic adapter-produced DATE events, snapshots, DOM refe
   assert.match(compiled.configText, /CONSTANT ObservedDOM <- TraceObservedDOM/u);
   assert.match(compiled.configText, /CONSTANT ObservedBuilderReads <- TraceObservedBuilderReads/u);
   assert.match(compiled.configText, /INVARIANT InvObservedMutationsConsumed/u);
+  assert.match(compiled.configText, /INVARIANT InvSourceTableSetupMutationSequence/u);
+  assert.match(compiled.configText, /INVARIANT InvExplorerCreatedReadOwned/u);
   assert.match(compiled.configText, /INVARIANT InvReconcileEvidenceLinked/u);
   assert.match(compiled.configText, /INVARIANT InvReconcilePossibleProducerRelations/u);
   assert.match(compiled.configText, /INVARIANT InvReconcileTransportSemantics/u);
@@ -411,6 +422,25 @@ test('compiler binds synthetic DATE_TIME typed instants and the adapter-captured
   assert.deepEqual(input.caseValue.editedRowIds, [
     'dev-observation-001', 'dev-observation-002', 'dev-observation-003',
   ]);
+});
+
+test('adapter and compiler bind the observed default root-ID write to SourceTableCreated', () => {
+  const capture = makeTemporalFilterJourneyCaptureFixture('date');
+  const rootIDCaptureId = capture.steps.find(step => step.label === 'SourceTableCreated')
+    .relatedMutationCaptureIds[0];
+  const trace = adaptTemporalFilterJourney(capture);
+
+  const sourceTable = trace.actions.find(event => event.action === 'SourceTableCreated');
+  assert.deepEqual(sourceTable.request.relatedMutationCaptureIds, [rootIDCaptureId]);
+  const input = validateTemporalFilterJourneyTrace(trace);
+  const tableEvent = input.modelEvents.find(event => event.action === 'SourceTableCreated');
+  assert.deepEqual(tableEvent.request.relatedMutationCaptureIds, [rootIDCaptureId]);
+  const setupRequest = input.observedRequests.find(request => request.captureId === rootIDCaptureId);
+  assert.equal(setupRequest.isMutation, true);
+  assert.deepEqual(setupRequest.requestCommandTypes, ['ADD_COLUMN']);
+  assert.deepEqual(setupRequest.requestCommandOutputIds, [capture.outputId]);
+  assert.equal(setupRequest.requestExpectedDraftVersion, 1);
+  assert.equal(setupRequest.responseDraftVersion, capture.builderReads[2].draftVersion);
 });
 
 test('compiler rejects missing actions, unlinked mutations, unknown read-only POSTs, and raw-reference tampering', () => {
@@ -489,12 +519,12 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
   assert.throws(() => compileTemporalFilterJourneyTrace(rawDOMTamper), /DOM observation must resolve from its actual raw DOM index/u);
 
   const builderReadBeforeCommandResponse = makeTemporalFilterJourneyCaptureFixture('date');
-  const sourceCommand = builderReadBeforeCommandResponse.requestEvents.find(request =>
-    request.browserRequestId === 'schema-fixture-browser-request-source-table');
-  sourceCommand.responseReceivedAt = builderReadBeforeCommandResponse.builderReads[2].requestStartedAtEpochMs + 1;
-  sourceCommand.completedAt = sourceCommand.responseReceivedAt + 1;
-  const beforeReadTrace = adaptTemporalFilterJourney(builderReadBeforeCommandResponse);
-  assert.throws(() => compileTemporalFilterJourneyTrace(beforeReadTrace), /post-settlement Builder GET must start after/u);
+  const sourceIDCommand = builderReadBeforeCommandResponse.requestEvents.find(request =>
+    request.browserRequestId === 'schema-fixture-browser-request-source-id-column');
+  sourceIDCommand.responseReceivedAt = builderReadBeforeCommandResponse.builderReads[2].requestStartedAtEpochMs + 1;
+  sourceIDCommand.completedAt = sourceIDCommand.responseReceivedAt + 1;
+  assert.throws(() => adaptTemporalFilterJourney(builderReadBeforeCommandResponse),
+    /post-settlement Builder GET must start after the ADD_COLUMN response arrives/u);
 
   const readyDOMBeforeProposalResponse = makeTemporalFilterJourneyCaptureFixture('date');
   const firstProposal = readyDOMBeforeProposalResponse.requestEvents.find(request =>
@@ -563,6 +593,37 @@ test('compiler binds reload DOM and Builder state to each actual reconcile reque
     rawStep.afterReadIndex].requestStartedAtEpochMs + 1;
   raw.completedAt = raw.responseReceivedAt + 1;
   assert.throws(() => compileTemporalFilterJourneyTrace(responseAfterReloadRead), /Reload post-settlement Builder GET must start/u);
+});
+
+test('compiler and TLA reject a Builder route whose raw project path disagrees with its captured owner metadata', { timeout: 30_000 }, () => {
+  const rawPathTamper = makeJourney('date');
+  const createdReadId = rawPathTamper.actions.find(event => event.action === 'ExplorerCreated').after.readId;
+  const rawRead = rawPathTamper.temporalFilterLifecycle.builderReads.find(read => read.readId === createdReadId);
+  assert(rawRead, 'ExplorerCreated must bind its actual Builder read.');
+  rawRead.requestPath = `${fixtureProjectExplorerCollectionPath('loom_dev_verify_foreign')}/${encodeURIComponent(rawRead.requestExplorerId)}/authoring/v2/builder`;
+  assert.throws(() => compileTemporalFilterJourneyTrace(rawPathTamper),
+    /exact encoded project and Explorer route/u);
+
+  const validTrace = makeJourney('date');
+  const createdReadTraceId = validTrace.actions.find(event => event.action === 'ExplorerCreated').after.readId;
+  const read = validTrace.temporalFilterLifecycle.builderReads.find(candidate => candidate.readId === createdReadTraceId);
+  assert(read, 'ExplorerCreated must bind its actual Builder read.');
+  const expectedPath = read.requestPath;
+  const wrongPath = `${fixtureProjectExplorerCollectionPath('loom_dev_verify_foreign')}/${encodeURIComponent(read.requestExplorerId)}/authoring/v2/builder`;
+  const result = runTlc(validTrace, 'WrongBuilderPath', {
+    mutateTrace(moduleText) {
+      const readRecordStart = moduleText.indexOf(`readId |-> ${JSON.stringify(read.readId)}`);
+      assert(readRecordStart >= 0, 'Generated TLA must retain the ExplorerCreated Builder read ID.');
+      const actualField = `requestPath |-> ${JSON.stringify(expectedPath)}`;
+      const actualFieldStart = moduleText.indexOf(actualField, readRecordStart);
+      assert(actualFieldStart >= readRecordStart, 'Generated TLA must retain the created Builder read path.');
+      return moduleText.slice(0, actualFieldStart) +
+        `requestPath |-> ${JSON.stringify(wrongPath)}` +
+        moduleText.slice(actualFieldStart + actualField.length);
+    },
+  });
+  assert.notEqual(result.status, 0, result.output);
+  assert.match(result.output, /InvExplorerCreatedReadOwned is equal to FALSE/u, result.output);
 });
 
 test('same-owner reconcile responses with equal receipts remain ambiguous possible producers', { timeout: 30_000 }, () => {
@@ -955,6 +1016,9 @@ test('Temporal mutation factory returns fixed compiler-valid controls rejected b
     'proposal-owner-drift',
     'proposal-cas-drift',
     'semantic-action-order-drift',
+    'source-auto-id-cas-drift',
+    'source-auto-id-command-echo-drift',
+    'explorer-created-stale-read-mount',
   ]);
   for (const caseName of ['date', 'date-time']) {
     const controls = createTemporalFilterMutationControls(makeJourney(caseName));

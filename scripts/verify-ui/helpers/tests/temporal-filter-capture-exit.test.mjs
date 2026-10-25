@@ -69,6 +69,10 @@ test('capture checkpoints raw state before its one bounded drain and retains onl
     draftVersion: entry.request.expectedDraftVersion,
     draftDigest: entry.request.expectedDraftDigest,
     workspace: { documents: [{ output: { id: outputId } }] },
+  }, {
+    path: `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`,
+    project,
+    explorerId,
   });
   capture.recordStep({ label: 'capture-checkpoint-test-step', beforeReadIndex: 0 });
   const metadata = { pendingReadScope: scope, resourceType: 'Patient' };
@@ -78,6 +82,11 @@ test('capture checkpoints raw state before its one bounded drain and retains onl
   assert.deepEqual(reportRoundTrip.temporalFilterCaptureCheckpoint.pendingObserverIndexes, [70]);
   assert.deepEqual(reportRoundTrip.temporalFilterCaptureCheckpoint.pendingBrowserRequestIds, ['playwright-71']);
   assert.equal(reportRoundTrip.temporalFilterCaptureCheckpoint.builderReads[0].draftVersion, 6);
+  assert.equal(reportRoundTrip.temporalFilterCaptureCheckpoint.builderReads[0].requestMethod, 'GET');
+  assert.equal(reportRoundTrip.temporalFilterCaptureCheckpoint.builderReads[0].requestProject, project);
+  assert.equal(reportRoundTrip.temporalFilterCaptureCheckpoint.builderReads[0].requestExplorerId, explorerId);
+  assert.equal(reportRoundTrip.temporalFilterCaptureCheckpoint.builderReads[0].requestPath,
+    `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`);
   assert.equal(reportRoundTrip.temporalFilterCaptureCheckpoint.steps[0].label, 'capture-checkpoint-test-step');
 
   const raw = await capture.finish({ ...metadata, checkpointId: checkpoint.checkpointId });

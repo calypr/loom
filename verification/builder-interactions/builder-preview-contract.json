@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "5ae8d1b6d836a329c635d120357167da06a05235328e36988bbe3ce6d1a80c88",
+      "sha256": "699badfd8fb9b23abd81882aae9fee4b864e12dde46f90a778983b1f293208f3",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -589,17 +589,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/temporal-filter-capture.mjs",
-      "sha256": "7281618ceddcf5ff28780d89a99497c88cc0e3db41dd7b4d48cb47c7c4008e23",
+      "sha256": "d6874aab3b2b55256e1c22100dbc661ab2e64f3e60975c5d6f00e011166c5575",
       "contract": "Captures browser-observed Temporal filter requests, Builder reads, and mounted DOM state."
     },
     {
       "path": "scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs",
-      "sha256": "a8a7da92412f9368c95adf6e9b60fe31dcdef82d54a1ea61be32961e492db079",
+      "sha256": "84cc698bd816d357e9a4f563f9d2dd75638c800c9b788a2eabb2414021bbad10",
       "contract": "Projects retained DATE and DATE_TIME observations into the canonical native journey trace."
     },
     {
       "path": "scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs",
-      "sha256": "5ae779d46d2fb4d36a8e58b318e3a4603ab3a4c8d08ca1f20e9e5708d0288438",
+      "sha256": "6d0ac216f49d8a88bbe462f7525612d5bbf1ad3da7e230d4ce308d1b5c0bf650",
       "contract": "Validates and compiles the observed Temporal lifecycle into the bounded TLA+ replay and mutation controls."
     },
     {
@@ -614,17 +614,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs",
-      "sha256": "973604a21bf4cd60c2f98f240aff908ce399f0008fa1507476d120e22a6d7686",
+      "sha256": "f6a1fb34034f8fc3f1c6e91abb9cf0fb9422ba5ebd2d792c140976d245f0837c",
       "contract": "Synthetic unit fixture for Temporal trace adapter and TLC tests; not browser evidence."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs",
-      "sha256": "34838aef930c0f312d353d09e75c68664dc132b4a2b441251e63ff19117d5816",
+      "sha256": "ff288c7fbf5e510fdb981e681fe2113c14314770375c8397820f1a4c1d3501f4",
       "contract": "Focused tests for Temporal browser capture ownership and chronology."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs",
-      "sha256": "a8346b52f8d0171b7c31883490ed7b099b45b354a468a2f4981a1db0a140dd09",
+      "sha256": "cee9cc133a827270d472d10ec85bf07ebef9bcfd1192552520666521d1da60db",
       "contract": "Focused Temporal contract, TLA replay, and mutation-control tests."
     },
     {
@@ -649,32 +649,32 @@
     },
     {
       "path": "verification/builder-interactions/TemporalFilterJourney.tla",
-      "sha256": "320f7ac705ce08e37362762ecd57931a3bdb1b2ada1f80bb4d5b9ee863828e48",
+      "sha256": "ab8d844a8738245c8710168ee9ae246d01e00fb3b90875107a228c7bfe1eae89",
       "contract": "Bounded state machine and invariants for the observed Temporal filter lifecycle."
     },
     {
       "path": "verification/builder-interactions/TemporalFilterJourneyDate.cfg",
-      "sha256": "c113943bc7e1fa5fec88f4cccf7ea60c817c2ec3bb0601008de73fce453936df",
+      "sha256": "19f5611787c3cb99d38a335af21f1a0c4f79211f91618cd83c6e21323fbfe8a3",
       "contract": "DATE profile safety configuration for TemporalFilterJourney."
     },
     {
       "path": "verification/builder-interactions/TemporalFilterJourneyDateTime.cfg",
-      "sha256": "d2d162cd72ad9f08996fd470fad15d596bd2dfc850ee927dab2234f5965b351b",
+      "sha256": "5997bb2a2bb2dac4caa6a64367e8ec17e333d18e0a07ccf829071985a39ccd15",
       "contract": "DATE_TIME profile safety configuration for TemporalFilterJourney."
     },
     {
       "path": "verification/builder-interactions/builder-temporal-filter-date-contract.json",
-      "sha256": "22c42d7aa9a08e85a18bbb20c655637bc1cf2409ce5891e90893f910173b8149",
+      "sha256": "908f29fa4f9b17141afd1585cd8226e12d315c90186b3c2cf9a98721cf1f0c27",
       "contract": "Static contract for the native DATE filter journey."
     },
     {
       "path": "verification/builder-interactions/builder-temporal-filter-date-time-contract.json",
-      "sha256": "262dc3e377c191f15dc4d107dd25b7fc04c234705fc59be4de9631361747d88a",
+      "sha256": "8c8325c2435047f26f5ce27450d0d1716650ce775607eaf9bd6c28a73900dd97",
       "contract": "Static contract for the native DATE_TIME filter journey."
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "d5fb97af9d023e946ed5f6f6086e3d87510ac89afbc58fc6da94aa3d3d7a6fd3",
+      "sha256": "5f9c97918c8043247c9ca8fc23fd4fa622c06a1dd67a7218b5b53b6fe21b0f83",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
@@ -694,7 +694,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs",
-      "sha256": "83b15a591b708ad29ce02f41b7e2d7db775bb7ffcf8db416d5c61ff1cae60481",
+      "sha256": "fe30d3de65d04d6281fa95a2e758070003db6a1ebb2ab4de6464101626d8bf98",
       "contract": "Tests bounded capture checkpoints and truthful pending settlement evidence."
     },
     {

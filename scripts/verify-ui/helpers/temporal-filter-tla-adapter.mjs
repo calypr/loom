@@ -57,6 +57,7 @@ const MISSING_REQUEST = Object.freeze({
   status: NO,
   body: NO,
   responseBody: NO,
+  relatedMutationCaptureIds: [],
 });
 const MISSING_SNAPSHOT = Object.freeze({
   readId: NO,
@@ -225,6 +226,7 @@ const projectBody = body => {
   if (!body || typeof body !== 'object') return NO;
   const candidate = body.candidateConstruction;
   return {
+    commandId: noIfAbsent(body.commandId),
     expectedDraftVersion: noIfAbsent(body.expectedDraftVersion),
     expectedDraftDigest: noIfAbsent(body.expectedDraftDigest),
     outputId: noIfAbsent(body.outputId),
@@ -233,7 +235,7 @@ const projectBody = body => {
       : NO,
     commands: safeArray(body.commands).map(projectCommand),
     evidence: opaqueJSON(without(body, new Set([
-      'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'candidateConstruction', 'commands',
+      'commandId', 'expectedDraftVersion', 'expectedDraftDigest', 'outputId', 'candidateConstruction', 'commands',
     ]))),
   };
 };
@@ -243,6 +245,7 @@ const projectResponseBody = body => {
   const candidate = body.candidateConstruction;
   const preview = body.preview;
   return {
+    commandId: noIfAbsent(body.commandId),
     explorerId: noIfAbsent(body.explorerId),
     proposalId: noIfAbsent(body.proposalId),
     outputId: noIfAbsent(body.outputId),
@@ -260,7 +263,7 @@ const projectResponseBody = body => {
         }
       : NO,
     evidence: opaqueJSON(without(body, new Set([
-      'explorerId', 'proposalId', 'outputId', 'draftVersion', 'draftDigest',
+      'commandId', 'explorerId', 'proposalId', 'outputId', 'draftVersion', 'draftDigest',
       'accepted', 'candidateConstruction', 'preview',
     ]))),
   };
@@ -278,6 +281,7 @@ const projectRequest = request => {
     method: request.method,
     path: request.path,
     status: request.status,
+    relatedMutationCaptureIds: safeArray(request.relatedMutationCaptureIds),
     body: projectBody(request.body),
     responseBody: projectResponseBody(request.responseBody),
   };
@@ -447,6 +451,8 @@ const explorerIdFrom = capture => {
     event.path.endsWith('/explorers') && typeof event.response?.explorerId === 'string');
   return created?.response.explorerId ?? null;
 };
+const directAPIBuilderPath = (project, explorerId) =>
+  `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`;
 
 const supportedPureRead = (capture, request) => {
   const path = request.path;
@@ -822,6 +828,16 @@ export const validateTemporalFilterJourneyTrace = trace => {
     isMutation: request.isMutation,
   })), 'Common nativeRequests must preserve each actual observer index, browser ID, request ID, and start event.');
   const captureExit = lifecycle.captureExit;
+  const createdExplorerId = explorerIdFrom(lifecycle);
+  assert(typeof createdExplorerId === 'string' && createdExplorerId.length > 0,
+    'Raw temporal evidence must retain the Explorer creation response ID.');
+  assert.equal(captureExit.scope.project, lifecycle.project,
+    'Capture-exit ownership must retain the fixture project recorded by the raw lifecycle.');
+  assert.equal(captureExit.scope.explorerId, createdExplorerId,
+    'Capture-exit ownership must use the actual created Explorer ID.');
+  const createdExplorerRoot = `${fixtureProjectExplorerCollectionPath(lifecycle.project)}/${encodeURIComponent(createdExplorerId)}`;
+  assert.equal(captureExit.scope.browserExplorerRoot, createdExplorerRoot,
+    'Capture-exit browser root must be the exact encoded project and created Explorer route.');
   assert(typeof captureExit.checkpointId === 'string' && captureExit.checkpointId.length > 0,
     'Capture exit must link the pre-drain JSON-safe checkpoint identity.');
   assert.equal(captureExit.checkpointId, lifecycle.checkpointId,
@@ -885,6 +901,15 @@ export const validateTemporalFilterJourneyTrace = trace => {
   assert(observerIndexes.every((index, position) => position === 0 || index > observerIndexes[position - 1]),
     'Captured observer requests must remain in their actual ledger order.');
   for (const read of lifecycle.builderReads) {
+    assert.equal(read.requestMethod, 'GET', `Builder read ${read.readId} must retain its actual HTTP method.`);
+    assert.equal(read.requestProject, lifecycle.project,
+      `Builder read ${read.readId} must retain the exact captured fixture project.`);
+    assert(typeof read.requestExplorerId === 'string' && read.requestExplorerId.length > 0);
+    assert.equal(read.requestExplorerId, createdExplorerId,
+      `Builder read ${read.readId} must retain the actual created Explorer identity.`);
+    const expectedRequestPath = directAPIBuilderPath(lifecycle.project, read.requestExplorerId);
+    assert.equal(read.requestPath, expectedRequestPath,
+      `Builder read ${read.readId} must retain the exact encoded project and Explorer route.`);
     assert(Number.isFinite(read.requestStartedAtEpochMs) && Number.isFinite(read.capturedAtEpochMs),
       `Builder read ${read.readId} must retain request-start and body-observation epoch times.`);
     assert(typeof read.snapshotToken === 'string' && read.snapshotToken.length > 0,
@@ -975,6 +1000,9 @@ export const validateTemporalFilterJourneyTrace = trace => {
       `Canonical action ${index} event must equal its exact TLA transition label.`);
     assert.deepEqual(event.reconcileCaptureIds, rawStep.reconcileCaptureIds,
       `${event.action} reconcile request links must remain equal to their raw step references.`);
+    const relatedMutationCaptureIds = safeArray(rawStep.relatedMutationCaptureIds);
+    assert.deepEqual(event.request?.relatedMutationCaptureIds ?? [], relatedMutationCaptureIds,
+      `${event.action} related mutation links must remain equal to their raw step references.`);
     assert(Number.isFinite(event.atMonotonicMs) && Number.isFinite(event.atEpochMs),
       `${event.action} must retain its observed timestamp.`);
     assert(Number.isInteger(event.mountEpoch), `${event.action} must retain its mount epoch.`);
@@ -998,6 +1026,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
       ? null : lifecycle.domObservations[rawStep.domObservationIndex];
     if (requestCaptureId === null) {
       assert.equal(event.request, null, `${event.action} without a captured request must remain request-free.`);
+      assert.equal(relatedMutationCaptureIds.length, 0,
+        `${event.action} without a primary request cannot claim related physical mutations.`);
       if (rawStep.domObservationIndex !== null && rawStep.domObservationIndex !== undefined) {
         const observation = domObservation;
         assert.equal(event.atMonotonicMs, observation.capturedAtMonotonicMs,
@@ -1056,6 +1086,20 @@ export const validateTemporalFilterJourneyTrace = trace => {
           `${event.action} DOM observation must follow its actual post-settlement Builder response.`);
       }
       actionRequestIds.push(requestCaptureId);
+    }
+    for (const captureId of relatedMutationCaptureIds) {
+      assert(!actionRequestIds.includes(captureId),
+        `${event.action} related mutation ${captureId} cannot repeat a prior semantic request reference.`);
+      const raw = rawRequestById.get(captureId);
+      assert(raw, `${event.action} related mutation ${captureId} must resolve to one raw observer request.`);
+      assert.equal(raw.isMutation, true,
+        `${event.action} related request ${captureId} must preserve observer mutation classification.`);
+      assert(Number.isInteger(raw.status) && raw.status >= 200 && raw.status < 300,
+        `${event.action} related mutation ${captureId} must preserve its successful actual response.`);
+      assert.equal(raw.method, 'POST');
+      assert.equal(raw.path, event.request.path,
+        `${event.action} related mutation must remain on the same actual command route.`);
+      actionRequestIds.push(captureId);
     }
     assert.equal(event.request?.isMutation ?? false, MUTATION_ACTIONS.has(event.action),
       `${event.action} must have the mutation class defined by its semantic transition.`);
@@ -1149,8 +1193,12 @@ export const validateTemporalFilterJourneyTrace = trace => {
   assert.equal(new Set(actionRequestIds).size, actionRequestIds.length,
     'Each semantic request must be consumed by one action only.');
   const expectedMutations = rawRequests.filter(request => request.isMutation).map(request => request.browserRequestId).sort();
-  const consumedMutations = trace.actions.filter(event => event.request?.isMutation)
-    .map(event => event.request.captureId).sort();
+  const consumedMutations = trace.actions.flatMap(event => [
+    ...(event.request?.isMutation ? [event.request.captureId] : []),
+    ...safeArray(event.request?.relatedMutationCaptureIds),
+  ]).sort();
+  assert.equal(new Set(consumedMutations).size, consumedMutations.length,
+    'Each physical mutation request must be linked to one semantic action only.');
   assert.deepEqual(consumedMutations, expectedMutations,
     'Every observed mutation must be bound to exactly one semantic action.');
   const expectedProposals = rawRequests.filter(isProposalRequest)
@@ -1221,6 +1269,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
     observerIndex: request.index,
     captureId: request.browserRequestId,
     requestId: noIfAbsent(request.requestId),
+    requestCommandId: noIfAbsent(request.request?.commandId),
+    responseCommandId: noIfAbsent(request.response?.commandId),
     isMutation: Boolean(request.isMutation),
     method: request.method,
     origin: request.origin,
@@ -1249,6 +1299,10 @@ export const validateTemporalFilterJourneyTrace = trace => {
     requestReceiptId: noIfAbsent(request.request?.receiptId),
     requestOutputId: noIfAbsent(request.request?.outputId),
     requestLimit: noIfAbsent(request.request?.limit),
+    requestCommandTypes: safeArray(request.request?.commands).map(command => noIfAbsent(command?.type)),
+    requestCommandOutputIds: safeArray(request.request?.commands).map(command => noIfAbsent(command?.outputId)),
+    requestExpectedDraftVersion: noIfAbsent(request.request?.expectedDraftVersion),
+    requestExpectedDraftDigest: noIfAbsent(request.request?.expectedDraftDigest),
     outputId: noIfAbsent(request.response?.outputId),
     receiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
     responseReceiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
@@ -1315,6 +1369,11 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const observedBuilderReads = lifecycle.builderReads.map(read => ({
     readId: read.readId,
     requestId: noIfAbsent(read.requestId),
+    requestMethod: read.requestMethod,
+    requestPath: read.requestPath,
+    expectedRequestPath: directAPIBuilderPath(lifecycle.project, read.requestExplorerId),
+    requestProject: read.requestProject,
+    requestExplorerId: read.requestExplorerId,
     status: read.status,
     requestStartedAt: Math.round(read.requestStartedAtEpochMs - timeOrigin.epochMs),
     requestStartedAtExact: String(read.requestStartedAtEpochMs),
@@ -1362,6 +1421,8 @@ const invariantNames = Object.freeze([
   'InvSemanticActionOrder',
   'InvAllWritesConsumed',
   'InvObservedMutationsConsumed',
+  'InvSourceTableSetupMutationSequence',
+  'InvExplorerCreatedReadOwned',
   'InvProposalEvidenceLinked',
   'InvMountOwnsProposal',
   'InvMountedStateMatchesSaved',
@@ -1451,6 +1512,9 @@ export const TEMPORAL_FILTER_MUTATION_CONTROL_NAMES = Object.freeze([
   'proposal-owner-drift',
   'proposal-cas-drift',
   'semantic-action-order-drift',
+  'source-auto-id-cas-drift',
+  'source-auto-id-command-echo-drift',
+  'explorer-created-stale-read-mount',
 ]);
 
 export const TEMPORAL_FILTER_FORMAL_PROOF_ASSERTIONS = Object.freeze({
@@ -1494,6 +1558,34 @@ export const createTemporalFilterMutationControls = trace => {
     [semanticActionOrderDrift.temporalFilterLifecycle.steps[4], semanticActionOrderDrift.temporalFilterLifecycle.steps[3]];
   validateTemporalFilterJourneyTrace(semanticActionOrderDrift);
 
+  const sourceAutoIDCasDrift = structuredClone(trace);
+  const sourceAction = sourceAutoIDCasDrift.actions.find(event => event.action === 'SourceTableCreated');
+  const sourceIDCaptureId = sourceAction?.request?.relatedMutationCaptureIds?.[0];
+  assert(sourceIDCaptureId, 'Source-table CAS control requires the observed default root-ID write.');
+  const sourceIDRequest = sourceAutoIDCasDrift.temporalFilterLifecycle.requestEvents.find(request =>
+    request.browserRequestId === sourceIDCaptureId);
+  assert(sourceIDRequest && Number.isInteger(sourceIDRequest.request.expectedDraftVersion),
+    'Source-table CAS control requires the actual root-ID command expected draft version.');
+  sourceIDRequest.request.expectedDraftVersion += 1;
+  validateTemporalFilterJourneyTrace(sourceAutoIDCasDrift);
+
+  const sourceAutoIDCommandEchoDrift = structuredClone(trace);
+  const sourceEchoAction = sourceAutoIDCommandEchoDrift.actions.find(event => event.action === 'SourceTableCreated');
+  const sourceEchoCaptureId = sourceEchoAction?.request?.relatedMutationCaptureIds?.[0];
+  assert(sourceEchoCaptureId, 'Source-table command echo control requires the observed default root-ID write.');
+  const sourceEchoRequest = sourceAutoIDCommandEchoDrift.temporalFilterLifecycle.requestEvents.find(request =>
+    request.browserRequestId === sourceEchoCaptureId);
+  assert(sourceEchoRequest?.request?.commandId, 'Source-table command echo control requires the actual command ID.');
+  sourceEchoRequest.response.commandId = `wrong-${sourceEchoRequest.request.commandId}`;
+  validateTemporalFilterJourneyTrace(sourceAutoIDCommandEchoDrift);
+
+  const explorerCreatedStaleReadMount = structuredClone(trace);
+  const explorerStep = explorerCreatedStaleReadMount.temporalFilterLifecycle.steps.find(step =>
+    step.label === 'ExplorerCreated');
+  const explorerRead = explorerCreatedStaleReadMount.temporalFilterLifecycle.builderReads[explorerStep.afterReadIndex];
+  explorerRead.requestMountEpoch -= 1;
+  validateTemporalFilterJourneyTrace(explorerCreatedStaleReadMount);
+
   const controls = [
     {
       name: 'proposal-owner-drift',
@@ -1509,6 +1601,21 @@ export const createTemporalFilterMutationControls = trace => {
       name: 'semantic-action-order-drift',
       trace: semanticActionOrderDrift,
       expectedFailure: { stage: 'TLC', invariant: 'InvSemanticActionOrder' },
+    },
+    {
+      name: 'source-auto-id-cas-drift',
+      trace: sourceAutoIDCasDrift,
+      expectedFailure: { stage: 'TLC', invariant: 'InvSourceTableSetupMutationSequence' },
+    },
+    {
+      name: 'source-auto-id-command-echo-drift',
+      trace: sourceAutoIDCommandEchoDrift,
+      expectedFailure: { stage: 'TLC', invariant: 'InvSourceTableSetupMutationSequence' },
+    },
+    {
+      name: 'explorer-created-stale-read-mount',
+      trace: explorerCreatedStaleReadMount,
+      expectedFailure: { stage: 'TLC', invariant: 'InvExplorerCreatedReadOwned' },
     },
   ];
   assert.deepEqual(controls.map(control => control.name), TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);

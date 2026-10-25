@@ -49,6 +49,7 @@ const temporalFilterJourneyTraceBinding = (caseName, { valueKind, resourceType, 
   optionalActions: [],
   requiredMutationControlNames: [
     'proposal-owner-drift', 'proposal-cas-drift', 'semantic-action-order-drift',
+    'source-auto-id-cas-drift', 'source-auto-id-command-echo-drift', 'explorer-created-stale-read-mount',
   ],
 });
 

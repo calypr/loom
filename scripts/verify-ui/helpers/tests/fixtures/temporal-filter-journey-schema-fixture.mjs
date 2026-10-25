@@ -88,8 +88,8 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
     removed: [makeDocument(spec, true)],
   };
   const builderStates = [
-    ['blank', 1, 'draft-1', 1, 1005, 1010],
-    ['blank', 1, 'draft-1', 1, 1015, 1020],
+    ['blank', 0, 'draft-0', 1, 1005, 1010],
+    ['blank', 0, 'draft-0', 1, 1015, 1020],
     ['root', 2, 'draft-2', 1, 1035, 1040],
     ['root', 2, 'draft-2', 1, 1055, 1060],
     ['temporal', 3, 'draft-3', 1, 1085, 1090],
@@ -110,6 +110,10 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
   const builderReads = builderStates.map(([state, draftVersion, draftDigest, epoch, requestAt, capturedAt], index) => ({
     readId: `schema-fixture-builder-read-${index}`,
     requestId: `schema-fixture-api-read-${index}`,
+    requestMethod: 'GET',
+    requestPath: '/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal/authoring/v2/builder',
+    requestProject: 'loom_dev_verify_temporal',
+    requestExplorerId: 'explorer-temporal',
     status: 200,
     requestStartedAtMonotonicMs: requestAt,
     requestStartedAtEpochMs: epochOffset + requestAt,
@@ -178,8 +182,18 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
   });
   const sourceRequestId = addRequest({ name: 'source-table', path: commandPath,
     body: { commandId: 'source-table-command', snapshotToken: 'source-table-snapshot',
-      expectedDraftVersion: 1, expectedDraftDigest: 'draft-1', commands: [{ type: 'CREATE_TABLE' }] },
-    response: { accepted: true }, isMutation: true, atMonotonicMs: 1030 });
+      expectedDraftVersion: 0, expectedDraftDigest: 'draft-0', commands: [{ type: 'CREATE_TABLE' }] },
+    response: { commandId: 'source-table-command', accepted: true, draftVersion: 1, draftDigest: 'draft-1' },
+    isMutation: true, atMonotonicMs: 1030 });
+  const sourceIDColumnRequestId = addRequest({ name: 'source-id-column', path: commandPath,
+    body: { commandId: 'source-id-column-command', snapshotToken: 'source-table-snapshot',
+      expectedDraftVersion: 1, expectedDraftDigest: 'draft-1', commands: [{
+        type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: 'root-id-candidate',
+        projectionMode: 'VALUE', initialPresentation: 'TABLE', title: `${spec.resourceType} ID`,
+      }] },
+    response: { commandId: 'source-id-column-command', draftVersion: 2, draftDigest: 'draft-2',
+      workspace: { documents: [{ output: { id: outputId } }] } },
+    isMutation: true, atMonotonicMs: 1033, responseReceivedAt: epochOffset + 1034 });
   const choiceProposalId = addRequest({ name: 'choice-proposal', path: choiceProposalPath,
     body: { commandId: choiceCommandId, snapshotToken: choiceSnapshotToken,
       expectedDraftVersion: 2, expectedDraftDigest: 'draft-2', outputId, constructionChoices: [choiceSelection] },
@@ -310,7 +324,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
     reloadRemove: addDOM({ epoch: 5, receiptId: 'reconcile-receipt-remove', rowIds: allIDs, atMonotonicMs: 1460 }),
   };
 
-  const step = (label, { requestCaptureId = null, proposalCaptureIds = [], reconcileCaptureIds = [], beforeReadIndex = null,
+  const step = (label, { requestCaptureId = null, relatedMutationCaptureIds = [], proposalCaptureIds = [], reconcileCaptureIds = [], beforeReadIndex = null,
     afterReadIndex = null, domObservationIndex = null, mountEpoch = 1 }) => {
     const request = requestEvents.find(event => event.browserRequestId === requestCaptureId);
     const dom = domObservationIndex === null ? null : domObservations[domObservationIndex];
@@ -323,6 +337,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
       atEpochMs: epochTimestamp,
       mountEpoch: capturedMountEpoch,
       requestCaptureId,
+      relatedMutationCaptureIds,
       proposalCaptureIds,
       reconcileCaptureIds,
       beforeReadIndex,
@@ -333,6 +348,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date', { pen
   const steps = [
     step('ExplorerCreated', { requestCaptureId: explorerRequestId, afterReadIndex: 0, mountEpoch: 1 }),
     step('SourceTableCreated', { requestCaptureId: sourceRequestId, beforeReadIndex: 1, afterReadIndex: 2,
+      relatedMutationCaptureIds: [sourceIDColumnRequestId],
       domObservationIndex: domIndexes.source, mountEpoch: 1 }),
     step('TemporalColumnApplied', { requestCaptureId: choiceApplyId, proposalCaptureIds: [choiceProposalId],
       beforeReadIndex: 3, afterReadIndex: 4, domObservationIndex: domIndexes.column, mountEpoch: 1 }),

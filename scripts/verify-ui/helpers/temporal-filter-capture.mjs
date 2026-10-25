@@ -145,11 +145,19 @@ export const createTemporalFilterCapture = ({
 
   const beginBuilderRead = () => ({ readId: randomUUID(), ...eventStamp(mountEpoch) });
 
-  const finishBuilderRead = (started, response, body) => {
+  const finishBuilderRead = (started, response, body, target) => {
+    assert(target && typeof target.path === 'string' && target.path.length > 0 &&
+      typeof target.project === 'string' && target.project.length > 0 &&
+      typeof target.explorerId === 'string' && target.explorerId.length > 0,
+    'A Builder read must retain the exact requested path, project, and Explorer identity.');
     const observed = eventStamp(mountEpoch);
     const requestId = response.headers.get('x-request-id');
     const read = {
       readId: started.readId,
+      requestMethod: 'GET',
+      requestPath: target.path,
+      requestProject: target.project,
+      requestExplorerId: target.explorerId,
       requestStartedAtMonotonicMs: started.atMonotonicMs,
       requestStartedAtEpochMs: started.atEpochMs,
       requestMountEpoch: started.mountEpoch,
@@ -229,6 +237,7 @@ export const createTemporalFilterCapture = ({
   const recordStep = ({
     label,
     requestEntry = null,
+    relatedMutationCaptureIds = [],
     proposalCaptureIds = [],
     reconcileCaptureIds = [],
     beforeReadIndex = null,
@@ -244,6 +253,19 @@ export const createTemporalFilterCapture = ({
       domObservationIndex >= 0 && domObservationIndex < domObservations.length),
     `${label} must reference an existing DOM observation or null.`);
     if (requestEntry) assert(requestStamps.has(requestEntry), `${label} request must have a request-event timestamp.`);
+    assert(Array.isArray(relatedMutationCaptureIds), `${label} related mutation links must be an array.`);
+    assert.equal(new Set(relatedMutationCaptureIds).size, relatedMutationCaptureIds.length,
+      `${label} related mutation links must not repeat a physical request.`);
+    if (requestEntry) assert(!relatedMutationCaptureIds.includes(requestEntry.browserRequestId),
+      `${label} related mutation links cannot repeat its primary request.`);
+    for (const captureId of relatedMutationCaptureIds) {
+      const matches = networkObserver.requests.slice(requestStartIndex)
+        .filter(entry => entry.browserRequestId === captureId);
+      assert.equal(matches.length, 1, `${label} related mutation ${captureId} must identify one actual observer request.`);
+      assert(requestStamps.has(matches[0]), `${label} related mutation ${captureId} must have an actual request-event timestamp.`);
+      assert.equal(Boolean(matches[0].isMutation), true,
+        `${label} related request ${captureId} must be observer-classified as a mutation.`);
+    }
     const stamp = requestEntry
       ? requestStamps.get(requestEntry)
       : domObservationIndex === null
@@ -259,6 +281,7 @@ export const createTemporalFilterCapture = ({
       atEpochMs: stamp.atEpochMs,
       mountEpoch: stamp.mountEpoch,
       requestCaptureId: requestEntry?.browserRequestId ?? null,
+      relatedMutationCaptureIds: [...relatedMutationCaptureIds],
       proposalCaptureIds: [...proposalCaptureIds],
       reconcileCaptureIds: [...reconcileCaptureIds],
       beforeReadIndex,

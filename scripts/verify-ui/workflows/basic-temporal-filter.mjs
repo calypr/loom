@@ -151,7 +151,11 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     let body;
     try { body = await response.json(); }
     catch (error) { throw new Error(`Builder read returned non-JSON HTTP ${response.status}: ${error.message}`); }
-    capture.finishBuilderRead(started, response, body);
+    capture.finishBuilderRead(started, response, body, {
+      path: builderPath,
+      project,
+      explorerId: explorer,
+    });
     assert(response.ok, `Builder read returned HTTP ${response.status}: ${JSON.stringify(body).slice(0, 600)}`);
     assert.equal(body.catalog?.generation, target.fixtureGeneration, 'Builder read must retain the exact isolated generation.');
     return body;
@@ -175,7 +179,11 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     return { entries, endIndex: cursor };
   };
 
-  const recordStep = async (step, { reconcileFromIndex = reconcileCursor, waitForReconcile = false } = {}) => {
+  const recordStep = async (step, {
+    reconcileFromIndex = reconcileCursor,
+    waitForReconcile = false,
+    relatedMutationEntries = [],
+  } = {}) => {
     const collected = await collectReconcileEntries(reconcileFromIndex, {
       waitForFirst: waitForReconcile,
       settle: waitForReconcile,
@@ -193,6 +201,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
       };
     }
     const recorded = capture.recordStep({ ...recordedStep,
+      relatedMutationCaptureIds: relatedMutationEntries.map(entry => entry.browserRequestId),
       reconcileCaptureIds: reconcileEntries.map(entry => entry.browserRequestId) });
     reconcileCursor = collected.endIndex;
     return recorded;
@@ -264,9 +273,15 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   const rootCommand = await capture.waitForRequest(entry => entry.method === 'POST' && entry.path === commandPath &&
     entry.request?.commands?.some(command => command.type === 'CREATE_TABLE'),
   { fromIndex: rootCommandFromIndex });
+  const rootIDCommand = await capture.waitForRequest(entry => entry.method === 'POST' && entry.path === commandPath &&
+    entry.request?.commands?.some(command => command.type === 'ADD_COLUMN' &&
+      command.outputId === outputId && command.title === `${contract.resourceType} ID`),
+  { fromIndex: rootCommand.index + 1 });
+  assert(rootIDCommand.index > rootCommand.index,
+    'Default root ID provisioning must be a distinct physical request after CREATE_TABLE.');
   await recordStep({ label: 'SourceTableCreated', requestEntry: rootCommand,
     beforeReadIndex: builderBeforeRootReadIndex, afterReadIndex: builderAfterRootReadIndex,
-    domObservationIndex: rootDomObservationIndex });
+    domObservationIndex: rootDomObservationIndex }, { relatedMutationEntries: [rootIDCommand] });
   assert.equal(rootGrid.rows.length, expectedAllIDs.length, 'Root table must render every literal source row.');
   check('correctness', `native ${contract.resourceType} root Preview renders every exact source ID`, true,
     { outputId, rootColumnId: rootIDColumn.columnId, headers: rootGrid.headers, ids: rootGrid.ids });

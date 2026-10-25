@@ -7,7 +7,8 @@ CONSTANTS Profile, Case, ModelEvents, ObservedRequests, CaptureExit, ObservedDOM
 The public transition operators consume normalized events with action,
 atMonotonicMs, atEpochMs, mountEpoch, request, before, after, ui, and filter
 fields. Request evidence retains captureId, optional requestId, mutation
-classification, method, path, status, body, and responseBody.
+classification, method, path, status, body, responseBody, and the physical
+relatedMutationCaptureIds grouped under the semantic action.
 Saved snapshots retain complete workspaceDocuments, workspaceDigest,
 catalogGeneration, snapshotToken, draftVersion, draftDigest, outputId, columnId,
 columns, and steps. The exported event actions require these actual snapshot bindings:
@@ -17,8 +18,10 @@ read; FilterCancelled.before/after; FilterApplied(kind) or FilterRemoved
 before/after; Reload.before/after; and FilterEditOpened.before. Mutation
 requests carry `isMutation = TRUE`; proposal reads carry `FALSE`; UI-only
 actions use NoRequest. ObservedRequests retains request capture/mutation/method/path/status,
-choice candidateColumnIds, reconcile request snapshotToken/draftVersion/draftDigest/outputId,
-and reconcile response snapshotToken/receiptId/output IDs. Builder snapshots retain
+command echo IDs, command types/output IDs and expected CAS, choice candidateColumnIds,
+reconcile request snapshotToken/draftVersion/draftDigest/outputId, and reconcile response
+snapshotToken/receiptId/output IDs. Builder reads retain their exact requested method,
+URL, project and Explorer. Builder snapshots retain
 snapshotToken for reconciliation binding. The first observed mount epoch comes
 from InitialMountEpoch. The event list and profile case are supplied through
 the public ModelEvents and Case constants, so a static adapter can bind the
@@ -49,7 +52,8 @@ NoEditor ==
    inputValue |-> No, operator |-> No, value |-> No]
 NoRequest == [captureId |-> No, requestId |-> No, isMutation |-> FALSE,
                method |-> No, path |-> No, status |-> No,
-               body |-> No, responseBody |-> No]
+               body |-> No, responseBody |-> No,
+               relatedMutationCaptureIds |-> <<>>]
 NoObservedRequest ==
   [observerIndex |-> 0, captureId |-> No, isMutation |-> FALSE, method |-> No,
    origin |-> No, path |-> No, requestId |-> No, settlement |-> No,
@@ -61,7 +65,10 @@ NoObservedRequest ==
    requestMountEpoch |-> InitialMountEpoch,
    responseMountEpoch |-> No, failureMountEpoch |-> No,
    failureCanceled |-> FALSE,
+   requestCommandId |-> No, responseCommandId |-> No,
    requestReceiptId |-> No, requestOutputId |-> No, requestLimit |-> No,
+   requestCommandTypes |-> <<>>, requestCommandOutputIds |-> <<>>,
+   requestExpectedDraftVersion |-> No, requestExpectedDraftDigest |-> No,
    outputId |-> No, receiptId |-> No,
    responseReceiptId |-> No, responseOutputId |-> No,
    candidateColumnIds |-> No,
@@ -206,12 +213,12 @@ SavedFromSnapshot(snapshot) ==
    workspaceDocuments |-> snapshot.workspaceDocuments]
 AbstractTableSnapshot ==
   AbstractSnapshot("read-table", "raw-read-table", Mount(0),
-    AbstractTableDocuments, 1,
-    "draft-table", "workspace-table", AbstractOutputId, No,
+    AbstractTableDocuments, 2,
+    "draft-source", "workspace-source", AbstractOutputId, No,
     RootColumns, OtherSteps)
 AbstractSourceSnapshot ==
-  AbstractSnapshot("read-source", "raw-read-source", Mount(0), AbstractSourceDocuments, 2,
-    "draft-source", "workspace-source", AbstractOutputId,
+  AbstractSnapshot("read-source", "raw-read-source", Mount(0), AbstractSourceDocuments, 3,
+    "draft-temporal", "workspace-temporal", AbstractOutputId,
     AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 AbstractBlankSnapshot ==
@@ -224,41 +231,42 @@ AbstractBeforeTableSnapshot ==
     No, No, <<>>, <<>>)
 AbstractSourceSnapshotMount1 ==
   AbstractSnapshot("read-source-mount-1", "raw-read-source-mount-1", Mount(1),
-    AbstractSourceDocuments, 2, "draft-source", "workspace-source",
+    AbstractSourceDocuments, 3, "draft-temporal", "workspace-temporal",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 AbstractCreateBefore ==
   AbstractSnapshot("read-before-create", "raw-read-before-create", Mount(1),
-    AbstractSourceDocuments, 2, "draft-source", "workspace-source",
+    AbstractSourceDocuments, 3, "draft-temporal", "workspace-temporal",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 AbstractCreateAfter ==
   AbstractSnapshot("read-after-create", "raw-read-after-create", Mount(1),
-    AbstractCreatedDocuments, 3, "draft-create", "workspace-create",
+    AbstractCreatedDocuments, 4, "draft-create", "workspace-create",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractCreatedSteps)
 AbstractEditBefore ==
   AbstractSnapshot("read-before-edit", "raw-read-before-edit", Mount(2),
-    AbstractCreatedDocuments, 3, "draft-create", "workspace-create",
+    AbstractCreatedDocuments, 4, "draft-create", "workspace-create",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractCreatedSteps)
 AbstractEditAfter ==
   AbstractSnapshot("read-after-edit", "raw-read-after-edit", Mount(2),
-    AbstractEditedDocuments, 4, "draft-edit", "workspace-edit",
+    AbstractEditedDocuments, 5, "draft-edit", "workspace-edit",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractEditedSteps)
 AbstractRemoveBefore ==
   AbstractSnapshot("read-before-remove", "raw-read-before-remove", Mount(3),
-    AbstractEditedDocuments, 4, "draft-edit", "workspace-edit",
+    AbstractEditedDocuments, 5, "draft-edit", "workspace-edit",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), AbstractEditedSteps)
 AbstractRemoveAfter ==
   AbstractSnapshot("read-after-remove", "raw-read-after-remove", Mount(3),
-    AbstractRemovedDocuments, 5, "draft-remove", "workspace-remove",
+    AbstractRemovedDocuments, 6, "draft-remove", "workspace-remove",
     AbstractOutputId, AbstractTemporalColumnId,
     Append(RootColumns, [columnId |-> AbstractTemporalColumnId]), OtherSteps)
 
-Request(captureId, requestId, isMutation, method, path, status, body, responseBody) ==
+Request(captureId, requestId, isMutation, method, path, status, body, responseBody,
+        relatedMutationCaptureIds) ==
   [captureId |-> captureId,
    requestId |-> requestId,
    isMutation |-> isMutation,
@@ -266,7 +274,8 @@ Request(captureId, requestId, isMutation, method, path, status, body, responseBo
    path |-> path,
    status |-> status,
    body |-> body,
-   responseBody |-> responseBody]
+   responseBody |-> responseBody,
+   relatedMutationCaptureIds |-> relatedMutationCaptureIds]
 
 UI(ordinal, mount, status, proposalId, receiptId, outputId, columnId,
    inputType, inputValue, operator, rowIds) ==
@@ -334,7 +343,10 @@ AbstractObservedRequest(observerIndex, captureId, isMutation, method, path, stat
    requestMountEpoch |-> InitialMountEpoch,
    responseMountEpoch |-> InitialMountEpoch, failureMountEpoch |-> No,
    failureCanceled |-> FALSE,
+   requestCommandId |-> No, responseCommandId |-> No,
    requestReceiptId |-> No, requestOutputId |-> No, requestLimit |-> No,
+   requestCommandTypes |-> <<>>, requestCommandOutputIds |-> <<>>,
+   requestExpectedDraftVersion |-> No, requestExpectedDraftDigest |-> No,
    responseReceiptId |-> receiptId, responseOutputId |-> outputId,
    candidateColumnIds |-> candidateColumnIds,
    requestSnapshotToken |-> No, requestDraftVersion |-> No,
@@ -355,6 +367,29 @@ AbstractObservedRequest(observerIndex, captureId, isMutation, method, path, stat
    reconcileDOMObservationIndexes |-> <<>>,
    reconcileOwnerChangeCaptureIds |-> <<>>,
    reconcileRetryFollowupCaptureIds |-> <<>>]
+AbstractCreateTableRequest ==
+  [AbstractObservedRequest(1, "capture-table", TRUE, "POST",
+    "/authoring/v2/commands", 200, No, No, No)
+    EXCEPT !.requestCommandId = "create-table-command",
+           !.responseCommandId = "create-table-command"]
+AbstractRootIDProvisioningRequest ==
+  [AbstractObservedRequest(2, "capture-root-id", TRUE, "POST",
+    "/authoring/v2/commands", 200, No, No, AbstractOutputId)
+    EXCEPT !.startedAt = 2,
+           !.startedAtExact = "2",
+           !.responseReceivedAt = 3,
+           !.responseReceivedAtExact = "3",
+           !.completedAt = 4,
+           !.completedAtExact = "4",
+           !.requestCommandTypes = <<"ADD_COLUMN">>,
+           !.requestCommandOutputIds = <<AbstractOutputId>>,
+           !.requestCommandId = "root-id-command",
+           !.responseCommandId = "root-id-command",
+           !.requestExpectedDraftVersion = 1,
+           !.requestExpectedDraftDigest = "draft-table",
+           !.responseDraftVersion = 2,
+           !.responseDraftDigest = "draft-source",
+           !.responseOutputIds = <<AbstractOutputId>>]
 AbstractReconcileRequest(observerIndex, captureId, snapshotToken, draftVersion, draftDigest,
                          outputId, receiptId, mount, ordinal, domIndex) ==
   [observerIndex |-> observerIndex, captureId |-> captureId, requestId |-> No,
@@ -367,7 +402,10 @@ AbstractReconcileRequest(observerIndex, captureId, snapshotToken, draftVersion, 
    completedAt |-> ordinal * 1000 - 1, completedAtExact |-> ToString(ordinal * 1000 - 1),
    requestMountEpoch |-> mount, responseMountEpoch |-> mount, failureMountEpoch |-> No,
    failureCanceled |-> FALSE,
+   requestCommandId |-> No, responseCommandId |-> No,
    requestReceiptId |-> No, requestOutputId |-> outputId, requestLimit |-> No,
+   requestCommandTypes |-> <<>>, requestCommandOutputIds |-> <<>>,
+   requestExpectedDraftVersion |-> No, requestExpectedDraftDigest |-> No,
    responseReceiptId |-> receiptId, responseOutputId |-> No,
    candidateColumnIds |-> No,
    requestSnapshotToken |-> snapshotToken,
@@ -401,31 +439,32 @@ AbstractObservedDOM ==
      outputId |-> AbstractOutputId, rowIds |-> Case.sourceRowIds]>>
 AbstractObservedRequests ==
   <<AbstractObservedRequest(0, "capture-explorer", TRUE, "POST", "/explorers", 201, No, No, No),
-    AbstractObservedRequest(1, "capture-table", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest(2, "capture-column", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest(3, "capture-choice-column", FALSE, "POST",
+    AbstractCreateTableRequest,
+    AbstractRootIDProvisioningRequest,
+    AbstractObservedRequest(3, "capture-column", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(4, "capture-choice-column", FALSE, "POST",
       "/authoring/v2/construction-choice-proposals", 200,
       <<AbstractTemporalColumnId>>, "Receipt-column", AbstractOutputId),
-    AbstractObservedRequest(4, "capture-proposal-P-cancel", FALSE, "POST",
+    AbstractObservedRequest(5, "capture-proposal-P-cancel", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-cancel", AbstractOutputId),
-    AbstractObservedRequest(5, "capture-apply-create", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest(6, "capture-proposal-P-create", FALSE, "POST",
+    AbstractObservedRequest(6, "capture-apply-create", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(7, "capture-proposal-P-create", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-create", AbstractOutputId),
-    AbstractObservedRequest(7, "capture-apply-edit", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
-    AbstractObservedRequest(8, "capture-proposal-P-edit", FALSE, "POST",
+    AbstractObservedRequest(8, "capture-apply-edit", TRUE, "POST", "/authoring/v2/commands", 200, No, No, No),
+    AbstractObservedRequest(9, "capture-proposal-P-edit", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-edit", AbstractOutputId),
-    AbstractObservedRequest(9, "capture-proposal-P-remove", FALSE, "POST",
+    AbstractObservedRequest(10, "capture-proposal-P-remove", FALSE, "POST",
       "/authoring/v2/construction-proposals", 200, No, "P-remove", AbstractOutputId),
-    AbstractObservedRequest(10, "capture-remove-filter", TRUE, "POST",
+    AbstractObservedRequest(11, "capture-remove-filter", TRUE, "POST",
       "/authoring/v2/commands", 200, No, No, No),
-    AbstractReconcileRequest(11, "capture-reconcile-source", "Fixture-snapshot-token",
-      2, "draft-source", AbstractOutputId, "Receipt-reconcile-source", Mount(1), 6, 0),
-    AbstractReconcileRequest(12, "capture-reconcile-create", "Fixture-snapshot-token",
-      3, "draft-create", AbstractOutputId, "Receipt-reconcile-create", Mount(2), 9, 1),
-    AbstractReconcileRequest(13, "capture-reconcile-edit", "Fixture-snapshot-token",
-      4, "draft-edit", AbstractOutputId, "Receipt-reconcile-edit", Mount(3), 13, 2),
-    AbstractReconcileRequest(14, "capture-reconcile-remove", "Fixture-snapshot-token",
-      5, "draft-remove", AbstractOutputId, "Receipt-reconcile-remove", Mount(4), 16, 3)>>
+    AbstractReconcileRequest(12, "capture-reconcile-source", "Fixture-snapshot-token",
+      3, "draft-temporal", AbstractOutputId, "Receipt-reconcile-source", Mount(1), 6, 0),
+    AbstractReconcileRequest(13, "capture-reconcile-create", "Fixture-snapshot-token",
+      4, "draft-create", AbstractOutputId, "Receipt-reconcile-create", Mount(2), 9, 1),
+    AbstractReconcileRequest(14, "capture-reconcile-edit", "Fixture-snapshot-token",
+      5, "draft-edit", AbstractOutputId, "Receipt-reconcile-edit", Mount(3), 13, 2),
+    AbstractReconcileRequest(15, "capture-reconcile-remove", "Fixture-snapshot-token",
+      6, "draft-remove", AbstractOutputId, "Receipt-reconcile-remove", Mount(4), 16, 3)>>
 AbstractCaptureExit ==
   [checkpointId |-> "abstract-capture-exit",
    drainStartedAt |-> 17000, drainStartedAtExact |-> "17000",
@@ -433,14 +472,32 @@ AbstractCaptureExit ==
    drainStartedMonotonic |-> 17000, observedAtMonotonic |-> 5022000,
    drainTimeoutMonotonicTicks |-> 5000000,
    drainTimeoutMs |-> 5000, deadlineReached |-> FALSE,
-   afterObserverIndex |-> 14, requestCount |-> 15,
+   afterObserverIndex |-> 15, requestCount |-> 16,
    pendingObserverIndexes |-> <<>>, pendingCaptureIds |-> <<>>,
    pendingResponseReadObserverIndexes |-> <<>>,
    uiOrigin |-> "http://127.0.0.1:30000",
-   project |-> "loom_dev_verify_temporal", explorerId |-> "explorer-temporal",
-   browserExplorerRoot |-> "/api/v1/projects/loom_dev_verify_temporal/explorers/explorer-temporal",
+   project |-> "loom_dev_verify_temporal", explorerId |-> "Explorer-1",
+   browserExplorerRoot |-> "/api/v1/projects/loom_dev_verify_temporal/explorers/Explorer-1",
    outputId |-> AbstractOutputId]
-AbstractObservedBuilderReads == <<>>
+AbstractObservedBuilderReads ==
+  <<[readId |-> "read-explorer-created",
+     requestId |-> "raw-read-explorer-created",
+     requestMethod |-> "GET",
+     requestPath |-> "/api/v1/projects/loom_dev_verify_temporal/explorers/Explorer-1/authoring/v2/builder",
+     expectedRequestPath |-> "/api/v1/projects/loom_dev_verify_temporal/explorers/Explorer-1/authoring/v2/builder",
+     requestProject |-> "loom_dev_verify_temporal",
+     requestExplorerId |-> "Explorer-1",
+     status |-> 200,
+     requestStartedAt |-> 998,
+     requestStartedAtExact |-> "998",
+     capturedAt |-> 999,
+     capturedAtExact |-> "999",
+     requestMountEpoch |-> Mount(0),
+     mountEpoch |-> Mount(0),
+     snapshotToken |-> "Fixture-snapshot-token",
+     draftVersion |-> 0,
+     draftDigest |-> "draft-blank",
+     outputIds |-> <<>>]>>
 
 ProposalBody(saved, outputId, candidateSteps) ==
   [outputId |-> outputId,
@@ -464,7 +521,7 @@ ProposalEvidence(ordinal, mount, proposalId, kind, targetStepId,
                      ProposalBody(SavedFromSnapshot(savedSnapshot), AbstractOutputId,
                        requestSteps),
                      ProposalResponse(proposalId, SavedFromSnapshot(savedSnapshot),
-                       AbstractOutputId, responseSteps))
+                       AbstractOutputId, responseSteps), <<>>)
       selectedStep == IF kind = "create"
         THEN requestSteps[CHOOSE i \in 1..Len(requestSteps):
           requestSteps[i].operation.kind = "FILTER"].id
@@ -484,22 +541,25 @@ ExplorerRequest ==
   Request("capture-explorer", "raw-explorer", TRUE,
           "POST", "/api/v1/projects/{project}/explorers", 201,
           [intent |-> "CREATE_BLANK", title |-> "Temporal filter"],
-          [explorerId |-> "Explorer-1"])
+          [explorerId |-> "Explorer-1"], <<>>)
 TableRequest ==
   Request("capture-table", "raw-table", TRUE,
           "POST", "/authoring/v2/commands", 200,
           [expectedDraftVersion |-> 0,
            expectedDraftDigest |-> "draft-blank",
+           commandId |-> "create-table-command",
            commands |-> <<[type |-> "CREATE_TABLE"]>>],
-          [accepted |-> TRUE])
+          [commandId |-> "create-table-command",
+           draftVersion |-> 1, draftDigest |-> "draft-table"],
+          <<"capture-root-id">>)
 ColumnRequest ==
   Request("capture-column", "raw-column", TRUE,
           "POST", "/authoring/v2/commands", 200,
-          [expectedDraftVersion |-> 1,
-           expectedDraftDigest |-> "draft-table",
+          [expectedDraftVersion |-> 2,
+           expectedDraftDigest |-> "draft-source",
            commands |-> <<[type |-> "APPLY_CONSTRUCTION_CHOICE",
                            outputId |-> AbstractOutputId]>>],
-          [accepted |-> TRUE])
+          [draftVersion |-> 3, draftDigest |-> "draft-temporal"], <<>>)
 
 ProposalOne == ProposalEvidence(4, Mount(0), "P-cancel", "create", No,
   SnapshotAt(AbstractSourceSnapshot, "read-proposal-cancel-before", "raw-proposal-cancel-before", Mount(0)),
@@ -529,7 +589,7 @@ ApplyRequest(captureId, proposalId, saved) ==
      commands |-> <<[type |-> "APPLY_CONSTRUCTION_PROPOSAL",
                       outputId |-> AbstractOutputId,
                       proposalId |-> proposalId]>>],
-    [accepted |-> TRUE])
+    [accepted |-> TRUE], <<>>)
 
 ApplyEvent(ordinal, action, mount, captureId, proposalId, intent,
            saved, before, after, operator, requestValue, responseValue,
@@ -583,7 +643,7 @@ AbstractModelEvents ==
       Case.sourceRowIds, "Receipt-reconcile-source", "capture-reconcile-source"),
     ProposalTwo,
     ApplyEvent(8, "FilterApplied(create)", Mount(1), "capture-apply-create", "P-create", "create",
-      [draftVersion |-> 2, draftDigest |-> "draft-source"],
+      [draftVersion |-> 3, draftDigest |-> "draft-temporal"],
       AbstractCreateBefore, AbstractCreateAfter,
       Case.initialOperator, Case.initialRequestValue,
       Case.initialResponseValue, Case.initialSavedValue,
@@ -595,7 +655,7 @@ AbstractModelEvents ==
     EditOpenedEvent,
     ProposalEdit,
     ApplyEvent(12, "FilterApplied(edit)", Mount(2), "capture-apply-edit", "P-edit", "edit",
-      [draftVersion |-> 3, draftDigest |-> "draft-create"],
+      [draftVersion |-> 4, draftDigest |-> "draft-create"],
       AbstractEditBefore, AbstractEditAfter,
       Case.editedOperator, Case.editedRequestValue,
       Case.editedResponseValue, Case.editedSavedValue,
@@ -606,7 +666,7 @@ AbstractModelEvents ==
       Case.editedRowIds, "Receipt-reconcile-edit", "capture-reconcile-edit"),
     ProposalRemove,
     ApplyEvent(15, "FilterRemoved", Mount(3), "capture-remove-filter", "P-remove", "remove",
-      [draftVersion |-> 4, draftDigest |-> "draft-edit"],
+      [draftVersion |-> 5, draftDigest |-> "draft-edit"],
       AbstractRemoveBefore, AbstractRemoveAfter,
       Case.editedOperator, No, No, No,
       Case.sourceRowIds),
@@ -820,7 +880,8 @@ ExplorerCreated(event) ==
   /\ journey.phase = "empty"
   /\ EventFits(event, "ExplorerCreated", InitialMountEpoch, TRUE, TRUE)
   /\ event.before = NoSnapshot
-  /\ SnapshotReadAt(event.after, journey.mountEpoch)
+  /\ SnapshotReadAt(event.after, event.after.mountEpoch)
+  /\ event.after.mountEpoch >= event.mountEpoch
   /\ event.after.outputId = No
   /\ event.after.columnId = No
   /\ event.after.columns = <<>>
@@ -830,6 +891,7 @@ ExplorerCreated(event) ==
   /\ event.request.status = 201
   /\ event.request.responseBody.explorerId # No
   /\ Commit(event, [journey EXCEPT
+       !.mountEpoch = event.after.mountEpoch,
        !.phase = "explorer-created",
        !.savedKind = "empty",
        !.explorerId = event.request.responseBody.explorerId,
@@ -1322,23 +1384,24 @@ InvSemanticActionOrder ==
   \A i \in 1..Len(JourneyActions): ModelEvents[i].action = JourneyActions[i]
 ObservedMutationIds ==
   {request.captureId : request \in ObservedMutationRequests}
-EventRequests ==
-  SequenceSet([i \in 1..Len(ModelEvents) |-> ModelEvents[i].request])
 EventRequestIds ==
   {ModelEvents[i].request.captureId : i \in 1..Len(ModelEvents)}
+    \cup UNION {SequenceSet(ModelEvents[i].request.relatedMutationCaptureIds)
+      : i \in 1..Len(ModelEvents)}
     \cup UNION {SequenceSet(ModelEvents[i].proposalCaptureIds) : i \in 1..Len(ModelEvents)}
 NoSemanticRequestBetween(start, end) ==
   \A request \in SequenceSet(ObservedRequests):
     request.captureId \in EventRequestIds =>
       ~(start < request.startedAt /\ request.startedAt < end)
 EventMutationRequests ==
-  {request \in EventRequests: request.isMutation = TRUE}
+  {request \in ObservedMutationRequests: request.captureId \in EventRequestIds}
 EventMutationIds ==
   {request.captureId : request \in EventMutationRequests}
 ObservedMutationCount ==
   Cardinality({i \in 1..Len(ObservedRequests): ObservedRequests[i].isMutation = TRUE})
 EventMutationCount ==
   Cardinality({i \in 1..Len(ModelEvents): ModelEvents[i].request.isMutation = TRUE})
+    + Cardinality({i \in 1..Len(ModelEvents): ModelEvents[i].action = "SourceTableCreated"})
 InvObservedRequestIDsUnique ==
   \A i, j \in 1..Len(ObservedRequests):
     i # j => ObservedRequests[i].captureId # ObservedRequests[j].captureId
@@ -1349,6 +1412,49 @@ InvObservedMutationsConsumed ==
   /\ ObservedMutationIds = EventMutationIds
   /\ Cardinality(ObservedMutationIds) = ObservedMutationCount
   /\ Cardinality(EventMutationIds) = EventMutationCount
+InvSourceTableSetupMutationSequence ==
+  /\ Cardinality({i \in 1..Len(ModelEvents): ModelEvents[i].action = "SourceTableCreated"}) = 1
+  /\ \A i \in 1..Len(ModelEvents):
+       IF ModelEvents[i].action = "SourceTableCreated"
+       THEN
+         LET event == ModelEvents[i]
+             setupIds == event.request.relatedMutationCaptureIds
+         IN
+           /\ Len(setupIds) = 1
+           /\ setupIds[1] # event.request.captureId
+           /\ \E primary, setup \in SequenceSet(ObservedRequests):
+                /\ primary.captureId = event.request.captureId
+                /\ setup.captureId = setupIds[1]
+                /\ primary.isMutation = TRUE
+                /\ setup.isMutation = TRUE
+                /\ primary.method = "POST"
+                /\ setup.method = "POST"
+                /\ setup.path = primary.path
+                /\ primary.status = 200
+                /\ setup.status = 200
+                /\ primary.requestCommandId # No
+                /\ primary.requestCommandId = primary.responseCommandId
+                /\ setup.requestCommandId # No
+                /\ setup.requestCommandId = setup.responseCommandId
+                /\ event.request.body.commandId = primary.requestCommandId
+                /\ event.request.responseBody.commandId = primary.responseCommandId
+                /\ primary.observerIndex < setup.observerIndex
+                /\ setup.startedAt >= primary.responseReceivedAt
+                /\ setup.requestCommandTypes = <<"ADD_COLUMN">>
+                /\ setup.requestCommandOutputIds = <<event.after.outputId>>
+                /\ setup.requestExpectedDraftVersion = event.request.responseBody.draftVersion
+                /\ setup.requestExpectedDraftDigest = event.request.responseBody.draftDigest
+                /\ setup.requestExpectedDraftVersion > 0
+                /\ setup.responseDraftVersion = event.after.draftVersion
+                /\ setup.responseDraftDigest = event.after.draftDigest
+                /\ setup.responseDraftVersion > setup.requestExpectedDraftVersion
+                /\ event.after.outputId \in SequenceSet(setup.responseOutputIds)
+                /\ setup.responseReceivedAt <= event.afterReadRequestStartedAt
+                /\ setup.responseReceivedAt <= event.afterReadCapturedAt
+                /\ IF event.ui = NoUI
+                     THEN TRUE
+                     ELSE setup.responseReceivedAt <= event.ui.capturedAtEpochMs
+       ELSE ModelEvents[i].request.relatedMutationCaptureIds = <<>>
 LinkedReconcileIds ==
   UNION {SequenceSet(ModelEvents[i].reconcileCaptureIds)
     : i \in 1..Len(ModelEvents)}
@@ -1454,6 +1560,12 @@ InvObservedBuilderReadChronology ==
   \A read \in SequenceSet(ObservedBuilderReads):
     /\ read.readId # No
     /\ read.status = 200
+    /\ read.requestMethod = "GET"
+    /\ read.requestPath # No
+    /\ read.expectedRequestPath # No
+    /\ read.requestPath = read.expectedRequestPath
+    /\ read.requestProject = CaptureExit.project
+    /\ read.requestExplorerId = CaptureExit.explorerId
     /\ read.requestStartedAt \in Int
     /\ read.capturedAt \in Int
     /\ read.requestStartedAt <= read.capturedAt
@@ -1462,6 +1574,29 @@ InvObservedBuilderReadChronology ==
     /\ read.snapshotToken # No
     /\ read.draftVersion \in Nat
     /\ read.draftDigest # No
+InvExplorerCreatedReadOwned ==
+  /\ Cardinality({i \in 1..Len(ModelEvents): ModelEvents[i].action = "ExplorerCreated"}) = 1
+  /\ \A i \in 1..Len(ModelEvents):
+       IF ModelEvents[i].action = "ExplorerCreated"
+       THEN
+         LET event == ModelEvents[i]
+         IN
+           /\ event.request.responseBody.explorerId = CaptureExit.explorerId
+           /\ event.after.mountEpoch >= event.mountEpoch
+           /\ \E read \in SequenceSet(ObservedBuilderReads):
+                /\ read.readId = event.after.readId
+                /\ read.requestId = event.after.requestId
+                /\ read.requestMethod = "GET"
+                /\ read.requestProject = CaptureExit.project
+                /\ read.requestExplorerId = event.request.responseBody.explorerId
+                /\ read.requestPath = read.expectedRequestPath
+                /\ read.requestMountEpoch = read.mountEpoch
+                /\ read.mountEpoch = event.after.mountEpoch
+                /\ read.status = event.after.status
+                /\ read.snapshotToken = event.after.snapshotToken
+                /\ read.draftVersion = event.after.draftVersion
+                /\ read.draftDigest = event.after.draftDigest
+       ELSE TRUE
 ChangesReconcileOwner(request, mutation) ==
   /\ mutation.responseReceivedAt \in Int
   /\ request.startedAt < mutation.responseReceivedAt
