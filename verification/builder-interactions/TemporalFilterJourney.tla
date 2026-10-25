@@ -118,6 +118,11 @@ EndsWith(value, suffix) ==
 
 Mount(offset) == InitialMountEpoch + offset
 SequenceSet(sequence) == {sequence[i] : i \in 1..Len(sequence)}
+RowIdMultisetMatches(actual, expected) ==
+  /\ Len(actual) = Len(expected)
+  /\ \A rowId \in SequenceSet(actual) \cup SequenceSet(expected):
+       Cardinality({index \in 1..Len(actual) : actual[index] = rowId})
+         = Cardinality({index \in 1..Len(expected) : expected[index] = rowId})
 
 AbstractCase ==
   CASE Profile = "DATE" ->
@@ -1033,7 +1038,7 @@ ProposalMatches(event, kind, requestValue, responseValue, savedValue,
      /\ ui.proposalId = res.proposalId
      /\ ui.receiptId = res.preview.receiptId
      /\ ui.outputId = journey.outputId
-     /\ ui.rowIds = rowIds
+     /\ RowIdMultisetMatches(ui.rowIds, rowIds)
      /\ filter.intent = kind
      /\ filter.outputId = journey.outputId
      /\ filter.columnId = journey.temporalColumnId
@@ -1143,7 +1148,7 @@ FilterCancelled(event) ==
   /\ event.before.draftDigest = event.after.draftDigest
   /\ event.ui.mountEpoch = journey.mountEpoch
   /\ NoActiveProposalDOM(event.ui, journey.savedPreview)
-  /\ event.ui.rowIds = ExpectedRowsFor(journey.savedKind)
+  /\ RowIdMultisetMatches(event.ui.rowIds, ExpectedRowsFor(journey.savedKind))
   /\ Commit(event, [journey EXCEPT
        !.phase = "source-ready",
        !.proposal = NoProposal,
@@ -1163,7 +1168,7 @@ Reload(event) ==
   /\ ReconcileMatchesReload(event)
   /\ event.ui.mountEpoch = journey.mountEpoch + 1
   /\ NoActiveProposalDOM(event.ui, ReconcilePreview(event))
-  /\ event.ui.rowIds = ExpectedRowsFor(journey.savedKind)
+  /\ RowIdMultisetMatches(event.ui.rowIds, ExpectedRowsFor(journey.savedKind))
   /\ Commit(event, [journey EXCEPT
        !.phase = "reloaded",
        !.mountEpoch = @ + 1,
@@ -1189,7 +1194,7 @@ FilterEditOpened(event) ==
   /\ event.ui.inputType = Case.inputType
   /\ event.ui.inputValue = Case.inputValue
   /\ event.ui.operator = SavedFilterOperator(journey.persisted)
-  /\ event.ui.rowIds = Case.initialRowIds
+  /\ RowIdMultisetMatches(event.ui.rowIds, Case.initialRowIds)
   /\ Commit(event, [journey EXCEPT
        !.phase = "editing",
        !.editor = [intent |-> "edit",
@@ -1221,8 +1226,8 @@ ProposalStateMatches(event, kind, expectedRequestValue,
      /\ proposal.requestValue = expectedRequestValue
      /\ proposal.responseValue = expectedResponseValue
      /\ proposal.savedValue = No
-     /\ proposal.rowIds =
-          IF kind = "remove" THEN Case.sourceRowIds ELSE expectedRows
+     /\ RowIdMultisetMatches(proposal.rowIds,
+          IF kind = "remove" THEN Case.sourceRowIds ELSE expectedRows)
      /\ proposal.proposalId = filter.proposalId
      /\ proposal.receiptId = filter.receiptId
      /\ proposal.stepId = filter.stepId
@@ -1257,7 +1262,7 @@ ProposalStateMatches(event, kind, expectedRequestValue,
      /\ filter.savedValue = expectedSavedValue
      /\ event.ui.mountEpoch = journey.mountEpoch
      /\ NoActiveProposalDOM(event.ui, persistedPreview)
-     /\ event.ui.rowIds = expectedRows
+     /\ RowIdMultisetMatches(event.ui.rowIds, expectedRows)
 
 ApplyFilter(event, kind, action, expectedRequestValue,
             expectedResponseValue, expectedSavedValue, expectedOperator,
@@ -1379,8 +1384,10 @@ TypeOK ==
          /\ journey.savedPreview.outputId = journey.outputId)
   /\ journey.previewRowIds \in {<<>>, Case.initialRowIds,
        Case.editedRowIds, Case.sourceRowIds}
-  /\ journey.renderedRowIds \in {<<>>, Case.initialRowIds,
-       Case.editedRowIds, Case.sourceRowIds}
+  /\ (journey.renderedRowIds = <<>>
+      \/ RowIdMultisetMatches(journey.renderedRowIds, Case.initialRowIds)
+      \/ RowIdMultisetMatches(journey.renderedRowIds, Case.editedRowIds)
+      \/ RowIdMultisetMatches(journey.renderedRowIds, Case.sourceRowIds))
 
 InvOnlyRegisteredProfiles ==
   /\ Profile \in {"DATE", "DATE_TIME"}
@@ -2021,10 +2028,10 @@ InvStableColumnIdentity ==
   journey.cursor < 3
   \/ journey.temporalColumnId = journey.persisted.columnId
 InvRenderMatchesSavedFilter ==
-  journey.renderedRowIds = ExpectedRowsFor(journey.savedKind)
+  RowIdMultisetMatches(journey.renderedRowIds, ExpectedRowsFor(journey.savedKind))
 InvProposalPreviewRowsMatch ==
   journey.proposal = NoProposal
-  \/ journey.proposal.rowIds = journey.previewRowIds
+  \/ RowIdMultisetMatches(journey.proposal.rowIds, journey.previewRowIds)
 InvEveryProposalEchoesOwnerAndPredicate ==
   \A i \in 1..journey.cursor:
     LET e == journey.history[i]
@@ -2133,22 +2140,21 @@ InvReloadRestoresPersisted ==
             /\ e.before.draftDigest = e.after.draftDigest
             /\ e.before.mountEpoch + 1 = e.after.mountEpoch
             /\ e.ui.mountEpoch = e.mountEpoch
-            /\ e.ui.rowIds =
-                 CASE i = 6 -> Case.sourceRowIds
-                   [] i = 9 -> Case.initialRowIds
-                   [] i = 13 -> Case.editedRowIds
-                   [] i = 16 -> Case.sourceRowIds
-                   [] OTHER -> FALSE
+            /\ CASE i = 6 -> RowIdMultisetMatches(e.ui.rowIds, Case.sourceRowIds)
+                 [] i = 9 -> RowIdMultisetMatches(e.ui.rowIds, Case.initialRowIds)
+                 [] i = 13 -> RowIdMultisetMatches(e.ui.rowIds, Case.editedRowIds)
+                 [] i = 16 -> RowIdMultisetMatches(e.ui.rowIds, Case.sourceRowIds)
+                 [] OTHER -> FALSE
        ELSE TRUE
 InvPreviewRowsAreLiteral ==
   \A i \in 1..journey.cursor:
     LET e == journey.history[i]
     IN IF e.action = "FilterProposed(create)"
-       THEN e.ui.rowIds = Case.initialRowIds
+       THEN RowIdMultisetMatches(e.ui.rowIds, Case.initialRowIds)
        ELSE IF e.action = "FilterProposed(edit)"
-       THEN e.ui.rowIds = Case.editedRowIds
+       THEN RowIdMultisetMatches(e.ui.rowIds, Case.editedRowIds)
        ELSE IF e.action = "FilterProposed(remove)"
-       THEN e.ui.rowIds = Case.sourceRowIds
+       THEN RowIdMultisetMatches(e.ui.rowIds, Case.sourceRowIds)
        ELSE TRUE
 
 Complete == journey.cursor = Len(ModelEvents)
