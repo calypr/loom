@@ -90,7 +90,7 @@ export const capturePatientOnePreOneState = ({ builder, previewBinding, rendered
   });
 };
 
-const patientOneSavedState = (builder, outputId) => {
+export const patientOneSavedState = (builder, outputId) => {
   const document = builder?.workspace?.documents?.find(item => item.output?.id === outputId);
   assert(document, `Builder state omitted saved output ${outputId}`);
   const groupStep = document.construction?.steps?.find(step => step.operation?.kind === 'GROUP');
@@ -111,7 +111,7 @@ const patientOneSavedState = (builder, outputId) => {
       stepId: groupStep.id,
       keys: groupStep.operation.group?.keys?.map(key => key.inputColumnId) ?? [],
       aggregate: groupStep.operation.group?.aggregates?.[0]?.operation ?? null,
-      rowValues: groupStep.operation.group?.rowValues ?? [],
+      rowValues: groupStep.rowValues ?? [],
     } : null,
   });
 };
@@ -148,7 +148,7 @@ const policyGroupProjection = (savedState, { inputColumnId, renderedRows }) => {
   };
 };
 
-const policyWorkspaceProjection = ({ savedState, renderedRows, sourceState, fixtureIDs, addedColumnId }) => {
+export const policyWorkspaceProjection = ({ savedState, renderedRows, sourceState, fixtureIDs, addedColumnId }) => {
   const rows = renderedRows.rows ?? renderedRows.cells ?? [];
   const sourceColumns = sourceState.sourceColumns.filter(column => column.sourcePath !== null);
   const sourceColumnIds = sourceColumns.map(column => column.id);
@@ -267,7 +267,7 @@ const requireCheck = (workflow, dimension, name, passed, evidence = {}) =>
 const sorted = values => [...values].sort((left, right) => left.localeCompare(right));
 const normalizeResponseHeader = value => String(value ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
 
-const policySnapshot = ({ builder, outputId, sourceState, fixtureIDs, renderedRows,
+export const policySnapshot = ({ builder, outputId, sourceState, fixtureIDs, renderedRows,
   addedColumnId = null, choiceId = null }) => {
   const state = patientOneSavedState(builder, outputId);
   const group = policyGroupProjection(state, { inputColumnId: addedColumnId, renderedRows });

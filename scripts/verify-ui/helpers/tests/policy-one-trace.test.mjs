@@ -52,6 +52,9 @@ test('a valid ONE rejection and same-choice ALL Apply persist the added input bi
   const input = makePolicyOneTraceInput();
   Object.freeze(input.expected);
   const { journeyTrace: trace } = buildPolicyOneTrace(input);
+  assert.equal(Object.hasOwn(input.requests.apply.body, 'outputId'), false,
+    'the commands API carries outputId on its command, not on the body root');
+  assert.equal(input.requests.apply.body.commands[0].outputId, input.expected.outputId);
 
   assert.equal(trace.name, 'builder-authoring:patient-one-disagreement');
   assert.equal(trace.model, 'PolicyOneDisagreement');
@@ -103,4 +106,10 @@ test('the adapter rejects an Apply command that is not linked to the ALL proposa
   const input = makePolicyOneTraceInput();
   input.requests.apply.body.commands[0].constructionChoice.choiceId = 'other-choice';
   assert.throws(() => buildPolicyOneTrace(input), /exact selected field choice/);
+});
+
+test('the adapter rejects an Apply command targeting another output', () => {
+  const input = makePolicyOneTraceInput();
+  input.requests.apply.body.commands[0].outputId = 'other-output';
+  assert.throws(() => buildPolicyOneTrace(input), /Apply command must target the expected output/);
 });

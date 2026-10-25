@@ -1,4 +1,10 @@
+import assert from 'node:assert/strict';
 import { buildPolicyOneTrace } from '../../policy-one-trace.mjs';
+import {
+  patientOneSavedState,
+  policySnapshot,
+  policyWorkspaceProjection,
+} from '../../../workflows/builder-patient-one-disagreement.mjs';
 
 export const makePolicyOneTraceInput = () => {
   const oneRequestObject = {};
@@ -119,7 +125,7 @@ export const makePolicyOneTraceInput = () => {
         commandId: 'command-all',
         body: {
           commandId: 'command-all',
-          outputId: 'output-1',
+          semanticsVersion: 10,
           snapshotToken: 'snapshot-1',
           expectedDraftVersion: 3,
           expectedDraftDigest: 'draft-before',
@@ -278,47 +284,108 @@ export const makePolicyOneTraceInput = () => {
 }
 
 
-const makeWorkspace = ({ group, additionalBindings = [], renderedRows }) => ({
-  documentId: 'output-1',
-  rootResourceType: 'Patient',
-  sourceColumnIds: ['patient-id', 'patient-family', 'patient-gender'],
-  sourceBindings: [
-    'patient-id|Patient.id',
-    'patient-family|Patient.name[].family',
-    'patient-gender|Patient.gender',
-  ],
-  sourceRows: { patientIds: ['dev-patient-001', 'dev-patient-002'], count: 2 },
-  additionalBindings,
-  group,
-  renderedRows,
-});
+const fixtureIDs = ['dev-patient-001', 'dev-patient-002'];
+const sourceColumns = [
+  { columnId: 'patient-id', column: 'patient-id', label: 'Patient ID', occurrenceId: 'base',
+    logicalType: 'string', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
+  { columnId: 'patient-family', column: 'patient-family', label: 'Family name', occurrenceId: 'base',
+    logicalType: 'string', source: { kind: 'field', field: { path: 'name[].family', projectionMode: 'ALL' } } },
+  { columnId: 'patient-gender', column: 'patient-gender', label: 'Gender', occurrenceId: 'base',
+    logicalType: 'string', source: { kind: 'field', field: { path: 'gender', projectionMode: 'VALUE' } } },
+];
 
-const noGroup = {
-  present: false, keys: [], aggregate: 'NO_AGGREGATE', count: 0,
-  rowValuePolicy: 'NONE', inputColumnId: 'NoColumn',
+const makeBuilderState = ({ draftVersion, draftDigest, hasGroup = false, rowValues = [], hasAddedPatientID = false }) => {
+  const columns = [
+    ...structuredClone(sourceColumns),
+    ...(hasAddedPatientID ? [{
+      columnId: 'patient-id-values',
+      column: 'patient_id_values',
+      label: 'Patient ID',
+      occurrenceId: 'base',
+      logicalType: 'string',
+      source: { kind: 'field', field: { path: 'id', projectionMode: 'ALL' } },
+    }] : []),
+  ];
+  const steps = hasGroup ? [{
+    id: 'group-step',
+    inputs: [{ kind: 'SOURCE_PROJECTION' }],
+    operation: {
+      kind: 'GROUP',
+      group: {
+        constructionId: 'group-step',
+        keys: [],
+        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: 'row-count' }],
+      },
+    },
+    outputs: [{ id: 'row-count', name: 'count', label: 'Row count', type: 'integer' }],
+    ...(rowValues.length ? { rowValues: structuredClone(rowValues) } : {}),
+  }] : [];
+  return {
+    workspace: {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderWorkspace',
+      semanticsVersion: 10,
+      explorer: { title: 'Patient rows' },
+      documents: [{
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'output-1', title: 'Patient rows' },
+        rootResourceType: 'Patient',
+        route: { occurrenceId: 'base', resourceType: 'Patient' },
+        rows: { kind: 'RECORDS', records: {} },
+        columns,
+        construction: { version: 1, steps },
+      }],
+      tabs: [{ id: 'patients', title: 'Patient rows', outputId: 'output-1', order: 0, visible: true }],
+    },
+    draftVersion,
+    draftDigest,
+    catalog: { snapshotToken: 'snapshot-1', generation: 'patient-one-fixture' },
+  };
 };
-const countGroup = {
-  present: true, keys: [], aggregate: 'COUNT_ROWS', count: 2,
-  rowValuePolicy: 'NONE', inputColumnId: 'NoColumn',
-};
-const allGroup = {
-  present: true, keys: [], aggregate: 'COUNT_ROWS', count: 2,
-  rowValuePolicy: 'ALL', inputColumnId: 'patient-id-values',
-};
-const sourceWorkspace = makeWorkspace({
-  group: noGroup,
-  renderedRows: { patientIds: ['dev-patient-001', 'dev-patient-002'], count: 2 },
+
+const sourceBuilder = makeBuilderState({ draftVersion: 1, draftDigest: 'draft-root' });
+const sourceState = patientOneSavedState(sourceBuilder, 'output-1');
+const groupBuilder = makeBuilderState({
+  draftVersion: 3, draftDigest: 'draft-before', hasGroup: true,
 });
-const groupWorkspace = makeWorkspace({ group: countGroup, renderedRows: [{ count: 2 }] });
-const allWorkspace = makeWorkspace({
-  group: allGroup,
-  additionalBindings: ['patient-id-values|Patient.id'],
-  renderedRows: [{ patientIds: ['dev-patient-001', 'dev-patient-002'], count: 2 }],
+const groupState = patientOneSavedState(groupBuilder, 'output-1');
+const allBuilder = makeBuilderState({
+  draftVersion: 4,
+  draftDigest: 'draft-after',
+  hasGroup: true,
+  hasAddedPatientID: true,
+  rowValues: [{ inputColumnId: 'patient-id-values', outputColumnId: 'patient-id-values', policy: 'ALL' }],
 });
-const restoredWorkspace = makeWorkspace({
-  group: noGroup,
-  additionalBindings: ['patient-id-values|Patient.id'],
-  renderedRows: { patientIds: ['dev-patient-001', 'dev-patient-002'], count: 2 },
+const allState = patientOneSavedState(allBuilder, 'output-1');
+const restoredBuilder = makeBuilderState({
+  draftVersion: 5, draftDigest: 'draft-restored', hasAddedPatientID: true,
+});
+const restoredState = patientOneSavedState(restoredBuilder, 'output-1');
+
+const sourceGrid = {
+  headers: sourceColumns.map(column => column.label),
+  cells: fixtureIDs.map((patientID, index) => [
+    { text: patientID },
+    { text: index === 0 ? 'Able' : 'Baker' },
+    { text: index === 0 ? 'female' : 'male' },
+  ]),
+};
+const groupedGrid = { headers: ['Row count'], cells: [[{ text: '2' }]] };
+const allGrid = {
+  headers: ['Patient ID', 'Row count'],
+  cells: [[{ text: '', raw: JSON.stringify(fixtureIDs) }, { text: '2' }]],
+};
+const sourceWorkspace = policyWorkspaceProjection({
+  savedState: sourceState, renderedRows: sourceGrid, sourceState, fixtureIDs,
+});
+const groupWorkspace = policyWorkspaceProjection({
+  savedState: groupState, renderedRows: groupedGrid, sourceState, fixtureIDs,
+});
+const allWorkspace = policyWorkspaceProjection({
+  savedState: allState, renderedRows: allGrid, sourceState, fixtureIDs, addedColumnId: 'patient-id-values',
+});
+const restoredWorkspace = policyWorkspaceProjection({
+  savedState: restoredState, renderedRows: sourceGrid, sourceState, fixtureIDs, addedColumnId: 'patient-id-values',
 });
 
 const capturedRequest = ({ requestId, captureId, commandId, body }) => ({
@@ -375,16 +442,27 @@ const twoSourceRowsPreview = ({ outputId = 'output-1', receiptId, rowCount = 2 }
 
 export const makeSyntheticPolicyOneJourneyTrace = () => {
   const input = makePolicyOneTraceInput();
-  input.saved.before.projection = groupWorkspace;
-  input.saved.afterOne.projection = groupWorkspace;
-  input.saved.afterApply.projection = allWorkspace;
-  input.saved.before.group = { ...countGroup, rowCount: 1, inputColumnBinding: null };
-  input.saved.afterOne.group = { ...countGroup, rowCount: 1, inputColumnBinding: null };
-  input.saved.afterApply.group = {
-    ...allGroup,
-    rowCount: 1,
-    inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
+  assert.deepEqual(allState.group.rowValues, [
+    { inputColumnId: 'patient-id-values', outputColumnId: 'patient-id-values', policy: 'ALL' },
+  ], 'the saved Builder DTO exposes grouped-row values at ConstructionStep.rowValues');
+  assert.equal(allWorkspace.group.rowValuePolicy, 'ALL',
+    'the production workspace projection must read the saved top-level rowValues');
+  input.saved = {
+    before: policySnapshot({
+      builder: groupBuilder, outputId: 'output-1', sourceState, fixtureIDs, renderedRows: groupedGrid,
+    }),
+    afterApply: policySnapshot({
+      builder: allBuilder,
+      outputId: 'output-1',
+      sourceState,
+      fixtureIDs,
+      renderedRows: allGrid,
+      addedColumnId: 'patient-id-values',
+      choiceId: input.expected.choiceId,
+    }),
   };
+  input.saved.afterOne = structuredClone(input.saved.before);
+  input.responses.apply.body.workspace = allBuilder.workspace;
   const rootDraft = { version: 1, digest: 'draft-root' };
   const groupDraft = { version: 3, digest: 'draft-before' };
   const allDraft = { version: 4, digest: 'draft-after' };
@@ -413,7 +491,7 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     requestId: 'header-group-apply', captureId: 'capture-group-apply', commandId: groupApplyCommandId,
     body: {
       commandId: groupApplyCommandId,
-      outputId: 'output-1',
+      semanticsVersion: 10,
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: rootDraft.version,
       expectedDraftDigest: rootDraft.digest,
@@ -442,7 +520,7 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     requestId: 'header-removal-apply', captureId: 'capture-removal-apply', commandId: removalApplyCommandId,
     body: {
       commandId: removalApplyCommandId,
-      outputId: 'output-1',
+      semanticsVersion: 10,
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: allDraft.version,
       expectedDraftDigest: allDraft.digest,
@@ -459,7 +537,15 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     workspace: sourceWorkspace, draftVersion: rootDraft.version, draftDigest: rootDraft.digest,
   };
   input.context.initialPreview = {
-    outputId: 'output-1', rowCount: 2, patientIds: ['dev-patient-001', 'dev-patient-002'],
+    outputId: 'output-1',
+    binding: {
+      status: 'ready', receiptId: 'receipt-source', outputId: 'output-1',
+      draftVersion: rootDraft.version, draftDigest: rootDraft.digest,
+    },
+    headers: sourceGrid.headers,
+    cells: sourceGrid.cells,
+    rowCount: 2,
+    patientIds: fixtureIDs,
   };
   input.context.actions = [
     {
@@ -469,6 +555,8 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     {
       label: 'GroupPreviewReady', event: 'preview-response', response: groupPreviewResponse,
       settlement: { kind: 'http-response', captureId: groupPreviewRequest.captureId },
+      savedBefore: sourceState,
+      savedAfter: sourceState,
       observation: { workspace: sourceWorkspace, preview: { rowCount: 1, keys: [], aggregate: 'COUNT_ROWS', count: 2 } },
     },
     {
@@ -479,10 +567,14 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     {
       label: 'GroupApplied', event: 'finish-apply', response: groupApplyResponse,
       settlement: { kind: 'http-response', captureId: groupApplyRequest.captureId },
+      savedBefore: sourceState,
+      savedAfter: groupState,
       observation: { workspace: groupWorkspace, draftVersion: groupDraft.version, draftDigest: groupDraft.digest },
     },
     {
       label: 'ReloadedAll', event: 'reload',
+      savedBefore: allState,
+      savedAfter: allState,
       observation: { workspace: allWorkspace, draftVersion: allDraft.version, draftDigest: allDraft.digest },
     },
     {
@@ -494,14 +586,17 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
       label: 'RemovalPreviewReady', event: 'preview-response',
       response: removalResponse('header-removal-one', 'capture-removal-one'),
       settlement: { kind: 'http-response', captureId: 'capture-removal-one' },
+      savedBefore: allState,
       observation: { workspace: allWorkspace, candidateId: removalCandidateID,
         previewRows: [{ patientId: 'dev-patient-001' }, { patientId: 'dev-patient-002' }] },
     },
     {
       label: 'RemovalCancelled', event: 'cancel',
+      savedBefore: allState,
+      savedAfter: allState,
       observation: { workspace: allWorkspace, draftVersion: allDraft.version, draftDigest: allDraft.digest,
-        savedBefore: { workspace: allWorkspace, draftVersion: allDraft.version, draftDigest: allDraft.digest },
-        savedAfter: { workspace: allWorkspace, draftVersion: allDraft.version, draftDigest: allDraft.digest } },
+        savedBefore: allState,
+        savedAfter: allState },
     },
     {
       label: 'RemovalPreviewSubmitted', event: 'preview',
@@ -512,6 +607,7 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
       label: 'RemovalPreviewReady', event: 'preview-response',
       response: removalResponse('header-removal-two', 'capture-removal-two'),
       settlement: { kind: 'http-response', captureId: 'capture-removal-two' },
+      savedBefore: allState,
       observation: { workspace: allWorkspace, candidateId: removalCandidateID,
         previewRows: [{ patientId: 'dev-patient-001' }, { patientId: 'dev-patient-002' }] },
     },
@@ -523,10 +619,14 @@ export const makeSyntheticPolicyOneJourneyTrace = () => {
     {
       label: 'RemovalApplied', event: 'finish-apply', response: removalApplyResponse,
       settlement: { kind: 'http-response', captureId: removalApplyRequest.captureId },
+      savedBefore: allState,
+      savedAfter: restoredState,
       observation: { workspace: restoredWorkspace, draftVersion: restoredDraft.version, draftDigest: restoredDraft.digest },
     },
     {
       label: 'ReloadedSource', event: 'reload',
+      savedBefore: restoredState,
+      savedAfter: restoredState,
       observation: { workspace: restoredWorkspace, draftVersion: restoredDraft.version, draftDigest: restoredDraft.digest },
     },
   ];

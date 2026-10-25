@@ -19,7 +19,7 @@ const TLC_JAR = process.env.LOOM_TLA_TOOLS_JAR ?? DEFAULT_TLC_JAR;
 const STANDALONE_CFG = fileURLToPath(new URL('../../../../verification/builder-interactions/PolicyOneDisagreement.cfg', import.meta.url));
 
 function summary(output) {
-  return output.split('\n').filter(line => /Error:|Invariant .*violated|Model checking completed|states generated|complete state graph/.test(line))
+  return output.split('\n').filter(line => /Error:|Invariant .*violated|Parse Error|Encountered|Was expecting|Attempted|nonexistent field|Semantic processing|Could not parse|Model checking completed|states generated|complete state graph/.test(line))
     .slice(0, 12).join('\n');
 }
 
@@ -66,7 +66,21 @@ test('compiler specializes the base witness to actual trace constants and emits 
   const trace = makeSyntheticPolicyOneJourneyTrace();
   assert.equal(validatePolicyOneJourneyTrace(trace), trace);
   const compiled = compilePolicyOneJourneyTrace(trace);
-  assert.match(compiled.modelText, /ObservationMatches\(traceIndex \+ 1, model'\)/);
+  const groupApply = trace.actions.find(entry => entry.label === 'GroupApplySubmitted');
+  const groupApplied = trace.actions.find(entry => entry.label === 'GroupApplied');
+  const removalApplied = trace.actions.find(entry => entry.label === 'RemovalApplied');
+  assert.equal(Object.hasOwn(groupApply.request.body, 'outputId'), false,
+    'commands API outputId belongs on the command DTO');
+  assert.equal(groupApply.request.body.commands[0].outputId, 'output-1');
+  assert.equal(groupApplied.savedBefore.draftDigest, 'draft-root');
+  assert.equal(groupApplied.savedAfter.draftDigest, 'draft-before');
+  assert.deepEqual(groupApplied.savedAfter.group.rowValues, [],
+    'saved Group row values come from the top-level ConstructionStep.rowValues DTO');
+  assert.equal(removalApplied.savedBefore.group.rowValues[0].policy, 'ALL');
+  assert.equal(removalApplied.savedAfter.group, null,
+    'removal mutates the saved Group while retaining the added source column');
+  assert(removalApplied.savedAfter.sourceColumns.some(column => column.id === 'patient-id-values'));
+  assert.match(compiled.modelText, /ObservationMatches\(traceIndex \+ 1, model, model'\)/);
   assert.match(compiled.modelText, /ObservedResponseOwnership/);
   assert.match(compiled.modelText, /ObservedPolicyCAS/);
   assert.match(compiled.configText, /OneCaptureId = "capture-one-random"/);
@@ -127,4 +141,16 @@ test('TLC rejects an out-of-order repair response', t => {
   assert.equal(result.error, undefined, result.error?.message);
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, /ObservedChronology|TraceProgress/);
+});
+
+test('TLC rejects a post-removal saved snapshot that disagrees with the observed terminal workspace', t => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  trace.actions.find(entry => entry.label === 'RemovalApplied').savedAfter.draftDigest = 'wrong-restored-draft';
+  assert.equal(validatePolicyOneJourneyTrace(trace), trace,
+    'semantic saved-state mutations must reach TLC instead of being rejected by the shape validator');
+  const result = checkWithTLC(trace, 'PolicyOneReplayWrongSavedAfter');
+  t.diagnostic(summary(result.output));
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.notEqual(result.status, 0, result.output);
+  assert.match(result.output, /TraceProgress/);
 });

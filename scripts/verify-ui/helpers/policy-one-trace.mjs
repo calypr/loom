@@ -149,12 +149,13 @@ function inspectRequest(request, label, expectedPath, expected, policy, { linked
   const requestId = optionalString(request.requestId, `${label} requestId`);
   finiteJSON(request.body, `${label} full request body`);
   const input = choiceProposalInput(request.body, label);
-  for (const [field, value] of Object.entries({
-    outputId: expected.outputId,
+  const expectedRequestFields = {
     snapshotToken: expected.snapshotToken,
     expectedDraftVersion: expected.draftVersion,
     expectedDraftDigest: expected.draftDigest,
-  })) {
+  };
+  if (label !== 'Apply') expectedRequestFields.outputId = expected.outputId;
+  for (const [field, value] of Object.entries(expectedRequestFields)) {
     assert.deepEqual(input[field], value, `${label} request must carry the current ${field}`);
   }
   const capturedCommandId = request.commandId ?? undefined;
