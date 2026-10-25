@@ -155,7 +155,6 @@ test('native replay and mutation receipts preserve verifier coverage and require
     tracePath: fixture.tracePath,
     traceSha256: fixture.traceSha256,
     status: 'pass',
-    selfTestStatus: 'pass',
     selfTestReportPath,
     mutationControls: fixture.mutationControls,
   };
@@ -182,6 +181,7 @@ test('native replay and mutation receipts preserve verifier coverage and require
   assert.equal(finalReceipt.status, 'pass');
   assert.equal(finalReceipt.traceSha256, fixture.traceSha256);
   assert.equal(Object.hasOwn(finalReceipt, 'caseKey'), false);
+  assert.equal(Object.hasOwn(selfTestReceipt, 'selfTestStatus'), false);
   assert.equal(Object.hasOwn(selfTestReceipt, 'replayStatus'), false);
   assert.equal(Object.hasOwn(selfTestReceipt, 'replayReportPath'), false);
   assert.equal(Object.hasOwn(selfTestReceipt, 'requestCoverage'), false);
@@ -189,6 +189,10 @@ test('native replay and mutation receipts preserve verifier coverage and require
     ...selfTestReceipt,
     replayReportPath: replayReceipt.replayReportPath,
   }, selfTestIdentity), /must not echo verifier field replayReportPath/);
+  assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
+    ...selfTestReceipt,
+    selfTestReportPath: join(fixture.directory, 'other-self-test.json'),
+  }, selfTestIdentity), /actual output path/);
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
     ...selfTestReceipt,
     traceSha256: '0'.repeat(64),
@@ -246,7 +250,6 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
     tracePath: fixture.tracePath,
     traceSha256: fixture.traceSha256,
     status: 'fail',
-    selfTestStatus: 'fail',
     selfTestReportPath: fixture.selfTestReportPath,
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'fail' }],
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
@@ -259,7 +262,6 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
     tracePath: fixture.tracePath,
     traceSha256: fixture.traceSha256,
     status: 'pass',
-    selfTestStatus: 'pass',
     selfTestReportPath: fixture.selfTestReportPath,
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'fail' }],
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
@@ -273,7 +275,6 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
     tracePath: fixture.tracePath,
     traceSha256: fixture.traceSha256,
     status: 'pass',
-    selfTestStatus: 'pass',
     selfTestReportPath: fixture.selfTestReportPath,
     mutationControls: [],
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
@@ -281,6 +282,20 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
     selfTestReportPath: fixture.selfTestReportPath,
     contract: fixture.contract, traceDocument: fixture.traceDocument }),
   /must contain mutation control results/);
+  assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
+    traceName: identity.traceName,
+    nativeCaseKey: identity.nativeCaseKey,
+    tracePath: fixture.tracePath,
+    traceSha256: fixture.traceSha256,
+    status: 'pass',
+    selfTestStatus: 'pass',
+    selfTestReportPath: fixture.selfTestReportPath,
+    mutationControls: fixture.mutationControls,
+  }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
+    tracePath: fixture.tracePath, traceSha256: fixture.traceSha256,
+    selfTestReportPath: fixture.selfTestReportPath,
+    contract: fixture.contract, traceDocument: fixture.traceDocument }),
+  /one authoritative status field/);
   const controlOptions = { contract: fixture.contract, traceDocument: fixture.traceDocument };
   assert.deepEqual(assertNativeBuilderJourneyMutationControls(fixture.mutationControls, controlOptions),
     fixture.mutationControls);

@@ -247,8 +247,9 @@ export const assertNativeBuilderJourneySelfTestReceipt = (receipt, {
   const actualTraceSha256 = assertNativeReceiptTraceDigest(receipt, tracePath, 'Self-test output');
   assert.equal(actualTraceSha256, traceSha256, 'Verifier and self-test must bind the same exact trace bytes.');
   assert.equal(receipt.status, 'pass', 'Self-test receipt status must be pass.');
-  assert.equal(receipt.selfTestStatus, 'pass', 'Self-test receipt status must be pass.');
-  assert.equal(receipt.selfTestReportPath, selfTestReportPath,
+  assert(!Object.hasOwn(receipt, 'selfTestStatus'), 'Self-test receipt must use one authoritative status field.');
+  assert.equal(typeof receipt.selfTestReportPath, 'string', 'Self-test receipt must retain its output path.');
+  assert.equal(resolve(receipt.selfTestReportPath), resolve(selfTestReportPath),
     'Self-test receipt must identify its actual output path.');
   for (const field of ['replayStatus', 'replayReportPath', 'requestCoverage']) {
     assert(!Object.hasOwn(receipt, field), `Self-test receipt must not echo verifier field ${field}.`);
@@ -412,7 +413,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
     };
   }
 
-  const selfTestReportPath = join(report.evidenceDirectory, `${artifactStem}-self-test.json`);
+  const selfTestReportPath = resolve(repositoryRoot, report.evidenceDirectory, `${artifactStem}-self-test.json`);
   const selfTestArgs = [
     repositoryPath(repositoryRoot, 'scripts/self-test-builder-traces.mjs'),
     '--journey-only',
