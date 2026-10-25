@@ -5,11 +5,11 @@ Status: generated from the TLA models and existing test metadata.
 ## Script quality inventory
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
-691 are currently tracked; 2 baseline files have retained tombstones.
+692 are currently tracked; 2 baseline files have retained tombstones.
 13186 semantic claims are defined once; 9257 source occurrences are direct test assertions, out of 18998 total labeled occurrences.
 9741 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
-693 catalog records have source-review evidence; 693 MJS records remain runtime-unverified.
-69 files are classified as independent tool/module purposes; 306 MJS files and 5329 semantic claims have no canonical journey mapping.
+694 catalog records have source-review evidence; 694 MJS records remain runtime-unverified.
+69 files are classified as independent tool/module purposes; 307 MJS files and 5329 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
@@ -17,7 +17,7 @@ Status: generated from the TLA models and existing test metadata.
 | browser-spec | 96 |
 | browser-workflow | 146 |
 | config | 5 |
-| helper-or-oracle | 150 |
+| helper-or-oracle | 151 |
 | test | 227 |
 | tool-or-module | 69 |
 
@@ -173,7 +173,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files | 69 |
 | Tool/module files with a canonical case mapping | 7 |
 | Tool/module files without a canonical case mapping | 62 |
-| All MJS files without a canonical case mapping | 306 |
+| All MJS files without a canonical case mapping | 307 |
 | Semantic claims without a canonical case mapping | 5329 |
 
 ### Explicit formal links
@@ -212,6 +212,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/construction-operation-diff.mjs`: trace-support → BuilderJourney; gap: This helper does not model the expansion transition or prove a browser run; the captured trace and TLC replay remain required.
 - `scripts/verify-ui/helpers/policy-one-tla-replay.mjs`: trace-support → PolicyOneDisagreement; gap: The helper can replay supplied traces, but its unit fixtures do not establish a live browser journey.
 - `scripts/verify-ui/helpers/policy-one-trace.mjs`: trace-support → PolicyOneDisagreement; gap: The adapter preserves observed trace facts; only the native workflow plus retained replay receipt establishes runtime conformance.
+- `scripts/verify-ui/helpers/policy-one-transport-observer.mjs`: trace-support → PolicyOneDisagreement; gap: The observer retains transport evidence; the native workflow and replay receipt establish whether a browser lifecycle conforms.
 - `scripts/verify-ui/helpers/proposal-reopen-binding.mjs`: candidate; gap: Source review only; no runtime, test, browser, or model result is represented as passing.
 - `scripts/verify-ui/helpers/related-choice-stage-context.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
 - `scripts/verify-ui/helpers/related-one-all-lifecycle-contract.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
@@ -257,8 +258,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs`: trace-support → BuilderJourney; gap: These tests validate evidence gates and do not themselves run the captured UI trace through TLC.
 - `scripts/verify-ui/helpers/tests/native-verification-batch.test.mjs`: candidate; gap: There is no current Builder TLA model for test-runner orchestration, scheduler concurrency, cancellation, or cleanup; this remains separate from Builder journey coverage.
 - `scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
-- `scripts/verify-ui/helpers/tests/nested-authored-expand-oracle.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
-- 208 additional formal applicability rows are in the JSON report.
+- 209 additional formal applicability rows are in the JSON report.
 
 These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.
 
@@ -267,7 +267,7 @@ These are source associations, not passing runs. Model actions, invariants, sche
 | Disposition | Files |
 | --- | ---: |
 | integrate | 2 |
-| keep | 690 |
+| keep | 691 |
 | merge-candidate | 1 |
 
 | MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |
@@ -295,11 +295,11 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 | missingCandidate | 70 |
 | missingUnbound | 115 |
 | tests | 908 |
-| testsWithObligations | 11 |
-| testsWithoutObligations | 897 |
+| testsWithObligations | 12 |
+| testsWithoutObligations | 896 |
 | obligationsWithMultipleTests | 24 |
 | duplicateTestNames | 0 |
-| repeatedPlaywrightChecks | 246 |
+| repeatedPlaywrightChecks | 248 |
 | sharedProofs | 3 |
 | candidateRouteBindings | 166 |
 
@@ -389,16 +389,16 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 
 ## Obligations with exact tests
 
-- `BuilderPreview.ApplyAck`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
-- `BuilderPreview.BeginApply`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
+- `BuilderPreview.ApplyAck`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
+- `BuilderPreview.BeginApply`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestBuilderFullUIEmptyRootCreationDispatchUsesRealService`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, vitest `replays ready replacement: ready A; start B; reject beginApply(A); ready B; apply only B`
 - `BuilderPreview.DiscoveryComplete`: go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`
-- `BuilderPreview.PreviewComplete`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
+- `BuilderPreview.PreviewComplete`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
 - `BuilderPreview.ScheduleDiscovery`: go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`
-- `BuilderPreview.StartPreview`: go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
-- `ReconcileLifecycle.LateReconcileIgnored`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
-- `ReconcileLifecycle.ReconcileSuccess`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
-- `ReconcileLifecycle.RequestReconcile`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
-- `ReconcileLifecycle.WorkspaceChangeStartsReconcile`: go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `BuilderPreview.StartPreview`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestAssessAndApplyRowChangeThroughPublicAPI`, go `TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly`, go `TestNativeV2RouteUsesAuthorizedPersistedReceipt`, go `TestOpenAPIDocumentsOperationSpecificFailureStatuses`, vitest `replays fallback preview schedule: ${schedule}`
+- `ReconcileLifecycle.LateReconcileIgnored`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `ReconcileLifecycle.ReconcileSuccess`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `ReconcileLifecycle.RequestReconcile`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
+- `ReconcileLifecycle.WorkspaceChangeStartsReconcile`: playwright `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$`, go `TestBuilderCommandsCreateBackendOwnedDraftAndReconcileIt`, go `TestGeneratedExplorerMutationRoutesForwardAuthResourcePath`, go `TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer`, vitest `formal mounted reconcile race keeps B visible after late A settles`
 
 ## Obligations with multiple tests
 
@@ -436,13 +436,13 @@ No duplicate test names found.
 - `Preview renders both independent fixture Patients`: 3 cases (playwright:builder-controls:recompile, playwright:builder-controls:first-table, playwright:builder-authoring:authoring)
 - `open native Explorer creation action-to-render within budget`: 2 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable)
 - `create the disposable Explorer through the native control action-to-render within budget`: 2 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable)
-- `fixture browser observer reported no unexpected network or runtime errors`: 8 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable, playwright:builder-authoring:authoring, playwright:basic-unpivot-group:unpivot-to-group, playwright:viewer-query:dataset-zip, playwright:viewer-query:runtime-scope-isolation, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
+- `fixture browser observer reported no unexpected network or runtime errors`: 9 cases (playwright:builder-controls:explorer-deletion, playwright:builder-controls:explorer-deletion-unavailable, playwright:builder-authoring:authoring, playwright:builder-authoring:patient-one-disagreement, playwright:basic-unpivot-group:unpivot-to-group, playwright:viewer-query:dataset-zip, playwright:viewer-query:runtime-scope-isolation, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
 - `builder failure is exposed in an alert`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder failure exposes an actionable in-app retry`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder recovered through in-app Retry`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `builder in-app Retry action-to-render within budget`: 2 cases (playwright:builder-load:list, playwright:builder-load:state)
 - `created a fresh Explorer distinct from the bootstrap`: 4 cases (playwright:builder-authoring:suggestions, playwright:builder-published-membership:membership, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-nullable:lifecycle)
-- `basic Patient fixture contains the two independently known records`: 3 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic, playwright:builder-authoring:legacy-v9-rows)
+- `basic Patient fixture contains the two independently known records`: 4 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic, playwright:builder-authoring:legacy-v9-rows, playwright:builder-authoring:patient-one-disagreement)
 - `Direct Group action is actionable`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `direct standard Group entry defaults to empty-key COUNT_ROWS without an edit`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `native Builder automatically proposes the exact empty-key COUNT_ROWS GROUP`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
@@ -460,6 +460,12 @@ No duplicate test names found.
 - `Cancel preserves the saved keyed Group and exact draft`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `removing keyed Group restores the exact source Patient rows after reload`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
 - `direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget`: 2 cases (playwright:builder-authoring:group-entry, playwright:builder-authoring:group-entry-raw-basic)
+- `API build identity stayed unchanged during browser run`: 5 cases (playwright:builder-authoring:patient-one-disagreement, playwright:standalone-misc:semantic-construction-choice-route-fallback, playwright:cda-five-hop-related-expansion:medication-positive-fixture, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
+- `create blank Explorer action-to-render within budget`: 3 cases (playwright:builder-authoring:patient-one-disagreement, playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
+- `create blank Explorer completed`: 2 cases (playwright:builder-authoring:patient-one-disagreement, playwright:builder-published-membership:membership)
+- `open Explorer creation action-to-render within budget`: 3 cases (playwright:builder-authoring:patient-one-disagreement, playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
+- `open Explorer creation completed`: 2 cases (playwright:builder-authoring:patient-one-disagreement, playwright:builder-published-membership:membership)
+- `watched source stayed unchanged during browser run`: 5 cases (playwright:builder-authoring:patient-one-disagreement, playwright:standalone-misc:semantic-construction-choice-route-fallback, playwright:cda-five-hop-related-expansion:medication-positive-fixture, playwright:basic-related-field-after-unpivot:gender-all, playwright:basic-related-field-after-unpivot:gender-missing-all)
 - `independent fixture contains one Patient, four Observations, and three DiagnosticReports`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
 - `draft Combine uses the exact project, generation, Builder snapshot, and authorization scope`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
 - `Observation root Preview contains exact independent fixture IDs`: 6 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
@@ -467,12 +473,6 @@ No duplicate test names found.
 - `DiagnosticReport root Preview contains exact independent fixture IDs`: 6 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
 - `DiagnosticReport native source table establishes a versioned current draft under the exact scope`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 - `native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source`: 3 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:membership)
-- `removing Combine and reloading restores its rooted empty target`: 7 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:join, playwright:builder-combine-draft:append, playwright:builder-combine-draft:append-derived-edit, playwright:builder-combine-draft:group-pivot, playwright:builder-combine-draft:group-pivot-append, playwright:builder-combine-draft:membership)
-- `open Explorer creation action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
-- `create blank Explorer action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-nullable:lifecycle)
-- `create current-draft Observation source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `create current-draft DiagnosticReport source table action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
-- `open native Combine and create a separate empty target action-to-render within budget`: 2 cases (playwright:builder-published-membership:membership, playwright:builder-combine-draft:membership)
 
 ## Tests with no exact obligation
 
@@ -496,7 +496,6 @@ No duplicate test names found.
 - `playwright` `Explorer switching shows distinct tables and restores the selected Explorer after reload$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `Dataframe contract panel shows the exact Patient output and lineage$` in `scripts/verify-ui/specs/builder-authoring.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `legacy semantics v9 preserves the saved Patient digest through native row actions and reload$` in `scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
-- `playwright` `raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$` in `scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, ReconcileLifecycle, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `published MEMBERSHIP uses exact Basic source revisions through INCLUDE, EXCLUDE edit, removal, and reload$` in `scripts/verify-ui/specs/published-membership.spec.mjs`; suspected models: BuilderJourney, BuilderPreview, ConstructionLifecycle, ReconcileLifecycle, WorkspaceLifecycle
 - `playwright` `native cohort Group→Pivot publishes and reloads exact Viewer counts$` in `scripts/verify-ui/specs/cohort-group-pivot-publication.spec.mjs`
 - `playwright` `native coded source column survives edit, reload, removal, and reload$` in `scripts/verify-ui/specs/builder-coded-source-column.spec.mjs`; suspected models: BuilderOperations, BuilderPreview, ConstructionLifecycle, RowDefinitionLifecycle, SupportingSurfaces, WorkspaceLifecycle
@@ -556,7 +555,8 @@ No duplicate test names found.
 - `playwright` `preserves missing-component owners through EXPANDED and GROUP removal Cancel$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `applies source expansion, verifies item values, and restores original Observation rows$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
 - `playwright` `CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$` in `scripts/verify-ui/specs/standalone-cda-rows.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, Population, RowDefinitionLifecycle, WorkspaceLifecycle
-- 817 more in the JSON report.
+- `playwright` `medication-preserve-parent` in `scripts/verify-ui/specs/standalone-cda-other.spec.mjs`; suspected models: BuilderJourney, BuilderOperations, BuilderPreview, ConstructionLifecycle, LifecycleEntry, Population, RowDefinitionLifecycle, WorkspaceLifecycle
+- 816 more in the JSON report.
 
 ## Shared route proof evidence
 
