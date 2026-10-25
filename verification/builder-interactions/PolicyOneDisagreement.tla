@@ -508,7 +508,9 @@ RemovalPreviewSubmitted ==
 RemovalPreviewReadyFirst ==
   /\ phase = "removal-preview-submitted"
   /\ model.removalRequest = RemovalOneRequest
-  /\ model.removalResponse.proposalId = RemovalOneCandidateId
+  /\ RemovalOneResponse.proposalId = RemovalOneCandidateId
+  /\ RemovalOneResponse.captureId = model.removalRequest.captureId
+  /\ RemovalOneResponse.requestObjectId = model.removalRequest.requestObjectId
   /\ LET nextModel == [model EXCEPT
          !.removalCandidate = RemovalOneCandidate,
          !.removalResponse = RemovalOneResponse]
@@ -546,7 +548,9 @@ RemovalPreviewReadyAgain ==
   /\ phase = "removal-preview-submitted-again"
   /\ model.removalRequest = RemovalTwoRequest
   /\ model.cancelledRemovalCandidate = RemovalOneCandidate
-  /\ model.removalResponse.proposalId = RemovalTwoCandidateId
+  /\ RemovalTwoResponse.proposalId = RemovalTwoCandidateId
+  /\ RemovalTwoResponse.captureId = model.removalRequest.captureId
+  /\ RemovalTwoResponse.requestObjectId = model.removalRequest.requestObjectId
   /\ LET nextModel == [model EXCEPT
          !.removalCandidate = RemovalTwoCandidate,
          !.removalResponse = RemovalTwoResponse]
@@ -908,6 +912,7 @@ RemovalRestoresSourceAfterReload ==
     /\ model.reloadedSourceSnapshot.draftVersion = RestoredDraftVersion
     /\ model.reloadedSourceSnapshot.draftDigest = RestoredDraftDigest
 
-Spec == Init /\ [][Next]_vars
+Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
+EventuallyRestored == <> (phase = "reloaded-source")
 
 =============================================================================

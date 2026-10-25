@@ -188,8 +188,8 @@ const policyWorkspaceProjection = ({ savedState, renderedRows, sourceState, fixt
   };
 };
 
-const editorTraceObservation = (state, outputId) => ({
-  documentId: outputId,
+const editorTraceObservation = state => ({
+  documentId: state.editorDocumentId,
   editorId: state.editorMountIdentity,
   documentTimeOrigin: state.documentTimeOrigin,
   mounted: state.editorOpen,
@@ -247,6 +247,7 @@ export const readPatientOneChoiceEditor = (doc = globalThis.document) => {
   return {
     documentTimeOrigin: view?.performance?.timeOrigin ?? null,
     editorMountIdentity,
+    editorDocumentId: editor?.getAttribute('data-output-id') ?? null,
     selectedField: field?.getAttribute('aria-pressed') === 'true'
       ? field.getAttribute('aria-label')?.replace(/^Select\s+/, '') ?? null
       : null,
@@ -1356,12 +1357,13 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
         choiceId: oneChoice.choiceId }),
     },
     dom: {
-      beforeOne: editorTraceObservation(selectedOneState, outputId),
-      afterOne: editorTraceObservation(oneFailureState, outputId),
-      afterSelectAll: editorTraceObservation(recoveryState, outputId),
-      afterAllSubmitted: editorTraceObservation(afterAllSubmittedState, outputId),
-      afterAllReady: editorTraceObservation(allReadyState, outputId),
-      afterApplySubmitted: editorTraceObservation(allApplyEditorAtSubmit, outputId),
+      beforeOne: editorTraceObservation(selectedOneState),
+      afterOne: editorTraceObservation(oneFailureState),
+      afterSelectAll: editorTraceObservation(recoveryState),
+      afterAllSubmitted: editorTraceObservation(afterAllSubmittedState),
+      afterAllReady: editorTraceObservation(allReadyState),
+      afterApplySubmitted: editorTraceObservation(allApplyEditorAtSubmit),
+      afterApply: editorTraceObservation(allAppliedEditor),
     },
     fixtureIDs,
     context: {

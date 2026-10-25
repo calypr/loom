@@ -104,7 +104,7 @@ test('Patient ONE proposal reader gets raw IDs and count from the sibling render
 
 test('Patient ONE recovery observation retains the same editor controls and exact rendered rows', () => {
   const recoveryMarkup = `
-    <section aria-label="Add columns editor">
+    <section aria-label="Add columns editor" data-output-id="out_patients">
       <select aria-label="Values per grouped row">
         <option value="ALL">Keep all distinct values</option>
         <option value="ONE" selected>Require one distinct value</option>
@@ -124,6 +124,7 @@ test('Patient ONE recovery observation retains the same editor controls and exac
 
   const editor = readPatientOneChoiceEditor(window.document);
   assert.equal(typeof editor.documentTimeOrigin, 'number');
+  assert.equal(editor.editorDocumentId, 'out_patients');
   assert.match(editor.editorMountIdentity, /^editor-\d+$/);
   assert.equal(editor.selectedField, 'Patient.id');
   assert.deepEqual(editor.availablePolicies, ['ALL', 'ONE']);

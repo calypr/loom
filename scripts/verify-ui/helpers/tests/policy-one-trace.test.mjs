@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
+import { makePolicyOneTraceInput } from './fixtures/policy-one-journey.mjs';
 
 const eventNames = [
   'OneSubmitted',
@@ -11,275 +12,6 @@ const eventNames = [
   'AllApplySubmitted',
   'AllApplied',
 ];
-
-function makeObservation() {
-  const oneRequestObject = {};
-  const allRequestObject = {};
-  const applyRequestObject = {};
-  const oneResponseObject = {};
-  const allResponseObject = {};
-  const applyResponseObject = {};
-  const beforeWorkspace = {
-    documents: [{
-      id: 'document-1',
-      columns: [{ column: 'patient-id', binding: 'Patient.id' }],
-      construction: { group: { keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 } },
-    }],
-  };
-  const beforeProjection = {
-    documents: [{ id: 'document-1', sourceColumnIds: ['patient-id'], group: { keys: [], aggregate: 'COUNT_ROWS', count: 2 } }],
-  };
-  const afterApplyWorkspace = {
-    documents: [{
-      id: 'document-1',
-      columns: [
-        { column: 'patient-id', binding: 'Patient.id' },
-        { column: 'patient-id-values', binding: 'Patient.id', rowValuePolicy: 'ALL' },
-      ],
-      construction: { group: { keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 } },
-    }],
-  };
-  const afterApplyProjection = {
-    documents: [{ id: 'document-1', sourceColumnIds: ['patient-id'], allColumnId: 'patient-id-values', group: { keys: [], aggregate: 'COUNT_ROWS', count: 2 } }],
-  };
-  const group = { present: true, keys: [], aggregate: 'COUNT_ROWS', rowCount: 1, count: 2 };
-  const before = {
-    workspace: beforeWorkspace,
-    projection: beforeProjection,
-    group,
-    snapshotToken: 'snapshot-1',
-    draftVersion: 3,
-    draftDigest: 'draft-before',
-  };
-  const afterOne = structuredClone(before);
-  const afterApply = {
-    workspace: afterApplyWorkspace,
-    projection: afterApplyProjection,
-    group: {
-      ...structuredClone(group),
-      rowValuePolicy: 'ALL',
-      inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
-    },
-    snapshotToken: 'snapshot-1',
-    draftVersion: 4,
-    draftDigest: 'draft-after',
-    policy: 'ALL',
-    choiceId: 'choice-patient-id',
-    outputId: 'output-1',
-  };
-  const choice = policy => ({
-    choiceId: 'choice-patient-id',
-    form: 'RELATED_SOURCE',
-    rowValuePolicy: policy,
-  });
-  const proposalBody = (policy, commandId) => ({
-    commandId,
-    outputId: 'output-1',
-    snapshotToken: 'snapshot-1',
-    expectedDraftVersion: 3,
-    expectedDraftDigest: 'draft-before',
-    constructionChoices: [choice(policy)],
-  });
-
-  return {
-    expected: {
-      proposalPath: '/authoring/v2/construction-choice-proposals',
-      commandPath: '/authoring/v2/commands',
-      outputId: 'output-1',
-      choiceId: 'choice-patient-id',
-      field: 'Patient.id',
-      form: 'RELATED_SOURCE',
-      snapshotToken: 'snapshot-1',
-      draftVersion: 3,
-      draftDigest: 'draft-before',
-      one: { policy: 'ONE', status: 422, errorCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES' },
-      all: {
-        policy: 'ALL', status: 200, previewStatus: 'READY', rowCount: 1,
-        memberIdsField: 'patient_ids', countField: 'count', count: 2,
-      },
-      apply: {
-        policy: 'ALL', status: 200,
-        inputColumnBinding: { columnId: 'patient-id-values', field: 'Patient.id' },
-      },
-      editorIdentity: { editorId: 'editor-mount-1', documentTimeOrigin: 1730137200000 },
-    },
-    requests: {
-      one: {
-        requestObject: oneRequestObject,
-        method: 'POST',
-        path: '/api/explorers/e/authoring/v2/construction-choice-proposals',
-        requestId: 'header-one',
-        captureId: 'capture-one-random',
-        commandId: 'command-one',
-        body: proposalBody('ONE', 'command-one'),
-      },
-      all: {
-        requestObject: allRequestObject,
-        method: 'POST',
-        path: '/api/explorers/e/authoring/v2/construction-choice-proposals',
-        requestId: 'header-all',
-        captureId: 'capture-all-random',
-        commandId: 'command-all',
-        body: proposalBody('ALL', 'command-all'),
-      },
-      apply: {
-        requestObject: applyRequestObject,
-        method: 'POST',
-        path: '/api/explorers/e/authoring/v2/commands',
-        requestId: 'header-apply',
-        captureId: 'capture-apply-random',
-        commandId: 'command-all',
-        body: {
-          commandId: 'command-all',
-          outputId: 'output-1',
-          snapshotToken: 'snapshot-1',
-          expectedDraftVersion: 3,
-          expectedDraftDigest: 'draft-before',
-          commands: [{
-            type: 'APPLY_CONSTRUCTION_CHOICE',
-            outputId: 'output-1',
-            constructionChoice: choice('ALL'),
-          }],
-        },
-      },
-    },
-    responses: {
-      one: {
-        responseObject: oneResponseObject,
-        requestObject: oneRequestObject,
-        requestId: 'header-one',
-        captureId: 'capture-one-random',
-        status: 422,
-        errorCode: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES',
-      },
-      all: {
-        responseObject: allResponseObject,
-        requestObject: allRequestObject,
-        requestId: 'header-all',
-        captureId: 'capture-all-random',
-        commandId: 'command-all',
-        status: 200,
-        preview: {
-          status: 'READY',
-          receiptId: 'receipt-all',
-          outputId: 'output-1',
-          rowCount: 1,
-          rows: [{ patient_ids: ['dev-patient-002', 'dev-patient-001'], count: 2 }],
-        },
-      },
-      apply: {
-        responseObject: applyResponseObject,
-        requestObject: applyRequestObject,
-        requestId: 'header-apply',
-        captureId: 'capture-apply-random',
-        commandId: 'command-all',
-        status: 200,
-        body: {
-          draftVersion: 4,
-          draftDigest: 'draft-after',
-          workspace: afterApplyWorkspace,
-        },
-      },
-    },
-    saved: { before, afterOne, afterApply },
-    dom: {
-      beforeOne: {
-        mounted: true,
-        documentId: 'output-1',
-        editorId: 'editor-mount-1',
-        documentTimeOrigin: 1730137200000,
-        selectedField: 'Patient.id',
-        fieldSelected: true,
-        form: 'RELATED_SOURCE',
-        policy: 'ONE',
-        availablePolicies: ['ONE', 'ALL'],
-      },
-      afterOne: {
-        mounted: true,
-        documentId: 'output-1',
-        editorId: 'editor-mount-1',
-        documentTimeOrigin: 1730137200000,
-        selectedField: 'Patient.id',
-        fieldSelected: true,
-        form: 'RELATED_SOURCE',
-        policy: 'ONE',
-        availablePolicies: ['ONE', 'ALL'],
-        errorVisible: true,
-      },
-      afterSelectAll: {
-        mounted: true,
-        documentId: 'output-1',
-        editorId: 'editor-mount-1',
-        documentTimeOrigin: 1730137200000,
-        selectedField: 'Patient.id',
-        fieldSelected: true,
-        form: 'RELATED_SOURCE',
-        policy: 'ALL',
-        availablePolicies: ['ONE', 'ALL'],
-        errorVisible: true,
-      },
-      afterAllSubmitted: {
-        mounted: true,
-        documentId: 'output-1',
-        editorId: 'editor-mount-1',
-        documentTimeOrigin: 1730137200000,
-        selectedField: 'Patient.id',
-        fieldSelected: true,
-        form: 'RELATED_SOURCE',
-        policy: 'ALL',
-        availablePolicies: ['ONE', 'ALL'],
-      },
-      afterAllReady: {
-        mounted: true,
-        documentId: 'output-1',
-        editorId: 'editor-mount-1',
-        documentTimeOrigin: 1730137200000,
-        selectedField: 'Patient.id',
-        fieldSelected: true,
-        form: 'RELATED_SOURCE',
-        policy: 'ALL',
-        availablePolicies: ['ONE', 'ALL'],
-      },
-      afterApplySubmitted: {
-        mounted: true,
-        documentId: 'output-1',
-        editorId: 'editor-mount-1',
-        documentTimeOrigin: 1730137200000,
-        selectedField: 'Patient.id',
-        fieldSelected: true,
-        form: 'RELATED_SOURCE',
-        policy: 'ALL',
-        availablePolicies: ['ONE', 'ALL'],
-      },
-    },
-    fixtureIDs: ['dev-patient-001', 'dev-patient-002'],
-    context: {
-      name: 'builder-authoring:patient-one-disagreement',
-      model: 'PolicyOneDisagreement',
-      initialObservation: {
-        savedState: { groupKeys: [], aggregate: 'COUNT_ROWS', count: 2 },
-        rowIds: ['dev-patient-001', 'dev-patient-002'],
-      },
-      initialPreview: {
-        outputId: 'output-1', rowCount: 2, rows: [
-          { patientId: 'dev-patient-001' }, { patientId: 'dev-patient-002' },
-        ],
-      },
-      actions: [
-        { label: 'GroupPreviewReady', event: 'preview-response', observation: { rowCount: 1, count: 2 } },
-        { label: 'GroupApplied', event: 'apply-command-response', observation: { draftVersion: 3 } },
-        { label: 'ReloadedAll', event: 'reload', observation: { policy: 'ALL' } },
-        { label: 'RemovalCancelled', event: 'group-removal-cancel', observation: { unchanged: true } },
-      ],
-      unmodeledEvents: [],
-      backendCalls: [],
-      outcome: {
-        savedState: { sourceColumns: ['patient-id'], group: null },
-        rowIds: ['dev-patient-001', 'dev-patient-002'],
-      },
-    },
-  };
-}
 
 const captureMutations = [
   ['wrong request object ownership', input => { input.responses.one.requestObject = {}; }, /exact captured request object/],
@@ -317,7 +49,7 @@ const captureMutations = [
 ];
 
 test('a valid ONE rejection and same-choice ALL Apply persist the added input binding', () => {
-  const input = makeObservation();
+  const input = makePolicyOneTraceInput();
   Object.freeze(input.expected);
   const { journeyTrace: trace } = buildPolicyOneTrace(input);
 
@@ -355,20 +87,20 @@ test('a valid ONE rejection and same-choice ALL Apply persist the added input bi
 
 for (const [name, mutate, message] of captureMutations) {
   test(`the adapter rejects ${name}`, () => {
-    const input = makeObservation();
+    const input = makePolicyOneTraceInput();
     mutate(input);
     assert.throws(() => buildPolicyOneTrace(input), message);
   });
 }
 
 test('the adapter rejects response requestId mismatches even when captureIds match', () => {
-  const input = makeObservation();
+  const input = makePolicyOneTraceInput();
   input.responses.all.requestId = 'not-the-request-header';
   assert.throws(() => buildPolicyOneTrace(input), /response requestId must match its request header/);
 });
 
 test('the adapter rejects an Apply command that is not linked to the ALL proposal choice', () => {
-  const input = makeObservation();
+  const input = makePolicyOneTraceInput();
   input.requests.apply.body.commands[0].constructionChoice.choiceId = 'other-choice';
   assert.throws(() => buildPolicyOneTrace(input), /exact selected field choice/);
 });

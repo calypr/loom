@@ -260,6 +260,24 @@ function inspectEditor(dom, label, expected, policy, { requireRefusalVisible = f
   };
 }
 
+function inspectClosedEditor(dom, label, expected) {
+  record(dom, `${label} DOM observation`);
+  assert.equal(dom.mounted, false, `${label} must observe the Add Columns editor closed`);
+  assert.equal(dom.documentId, null, `${label} must not claim a mounted output document`);
+  assert.equal(dom.editorId, null, `${label} must not retain a mounted editor identity`);
+  assert.equal(dom.documentTimeOrigin, expected.editorIdentity.documentTimeOrigin,
+    `${label} must remain in the same browser document after Apply`);
+  assert.equal(dom.selectedField, null, `${label} must not claim a selected field after editor closure`);
+  assert.equal(dom.fieldSelected, false, `${label} field control must be absent after editor closure`);
+  return {
+    documentId: POLICY_TRACE_ABSENT,
+    editorId: POLICY_TRACE_ABSENT,
+    documentTimeOrigin: dom.documentTimeOrigin,
+    mounted: false,
+    allAvailable: false,
+  };
+}
+
 function inspectSavedSnapshots(saved, expected) {
   record(saved, 'saved Builder reads');
   const before = draftIdentity(saved.before, 'before ONE');
@@ -356,16 +374,6 @@ function emptyPreview() {
     rowCount: POLICY_TRACE_ABSENT,
     memberIds: POLICY_TRACE_ABSENT,
     count: POLICY_TRACE_ABSENT,
-  };
-}
-
-function emptyEditor() {
-  return {
-    documentId: POLICY_TRACE_ABSENT,
-    editorId: POLICY_TRACE_ABSENT,
-    documentTimeOrigin: POLICY_TRACE_ABSENT,
-    mounted: POLICY_TRACE_ABSENT,
-    allAvailable: POLICY_TRACE_ABSENT,
   };
 }
 
@@ -513,6 +521,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
   const allReadyEditor = inspectEditor(dom.afterAllReady, 'chooser after ALL preview', expected, expected.all.policy);
   const applySubmittedEditor = inspectEditor(dom.afterApplySubmitted, 'chooser after Apply submission', expected,
     expected.all.policy);
+  const appliedEditor = inspectClosedEditor(dom.afterApply, 'chooser after successful Apply', expected);
   const snapshots = inspectSavedSnapshots(saved, expected);
   const applyRequest = inspectRequest(requests.apply, 'Apply', expected.commandPath, expected, expected.apply.policy,
     { linkedCommandId: allResponse.commandId });
@@ -583,7 +592,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
     policyAction({
       label: 'AllApplied', event: 'apply-construction-choice-response', requestCapture: requests.apply,
       requestSummary: applyRequest, responseCapture: responses.apply, responseSummary: applyResponse,
-      choice: allAppliedChoice, saved: afterApplySaved, editor: emptyEditor(), preview,
+      choice: allAppliedChoice, saved: afterApplySaved, editor: appliedEditor, preview,
     }),
   ];
 
