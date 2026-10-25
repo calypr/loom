@@ -151,6 +151,73 @@ test('environment-only formal bracket accepts its unbound scope and binds the is
   assert.equal(validate().status, 'failed');
 });
 
+test('failed focused-check envelope without a domain report preserves its prerequisite failure', (t) => {
+  const root = makeRepositoryArtifactDirectory('native-focused-prerequisite-failure-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const validBracket = makeBracketFixture(root);
+  const tracePaths = {
+    tracePath: validBracket.tracePath,
+    replayReportPath: validBracket.replayReportPath,
+    selfTestReportPath: validBracket.selfTestReportPath,
+  };
+  const validEnvelope = bracketSummaryFromOutput(JSON.stringify(validBracket.outputEnvelope));
+  const valid = validateNativeBracketEnvelope(validEnvelope, validBracket.selection,
+    validBracket.targetPath, tracePaths);
+  assert.equal(valid.status, 'passed', JSON.stringify(valid.issues));
+
+  const prerequisiteFailure = 'Focused check group-pivot-join-raw-oracle exited 1: not ok 1 - intentional copied focused-check failure probe';
+  const summaryPath = join(root, 'failed-focused-check-summary.json');
+  const failedSummary = {
+    schemaVersion: 1,
+    status: 'failed',
+    nativeStatus: 'not-run',
+    scenario: 'cda-workspace-combine',
+    case: 'group-pivot-join',
+    integrity: { status: 'UNVERIFIED', dimensions: {} },
+    targetValidation: {
+      scope: 'environment-only',
+      registryBinding: 'unbound',
+      runtimeDatasetIdentity: 'not-checked',
+      configPath: null,
+      project: null,
+      generation: null,
+    },
+    targetIdentity: null,
+    evidence: { summary: summaryPath, domainReport: null },
+    lifecycle: { reportStatus: null, reason: 'Browser case has not produced a domain report.' },
+    failureCategory: 'focused-check',
+    workflowError: prerequisiteFailure,
+  };
+  writeFileSync(summaryPath, JSON.stringify(failedSummary));
+  const failedEnvelope = bracketSummaryFromOutput(JSON.stringify({
+    status: 'failed',
+    scenario: 'cda-workspace-combine',
+    case: 'group-pivot-join',
+    summary: summaryPath,
+    report: null,
+  }));
+  assert.deepEqual(failedEnvelope, {
+    status: 'failed',
+    scenario: 'cda-workspace-combine',
+    case: 'group-pivot-join',
+    summary: summaryPath,
+    report: null,
+  });
+
+  const rejected = validateNativeBracketEnvelope(failedEnvelope, {
+    scenarioID: 'cda-workspace-combine',
+    caseName: 'group-pivot-join',
+    targetMode: 'environment',
+    requiredChecks: ['focused check prerequisite'],
+  }, null);
+  assert.equal(rejected.status, 'failed');
+  assert(rejected.issues.some(issue => issue.includes(prerequisiteFailure)),
+    'the focused-check prerequisite failure must remain visible');
+  assert(rejected.issues.includes('native domain report artifact is missing'),
+    'a missing domain report must remain a failed requirement');
+});
+
 const makeBracketFixture = (root) => {
   const contract = JSON.parse(readFileSync(new URL('../../../../verification/builder-interactions/builder-cda-group-related-contract.json', import.meta.url), 'utf8'));
   const scenarioID = 'standalone-reshape-group-edit-before-related-column';

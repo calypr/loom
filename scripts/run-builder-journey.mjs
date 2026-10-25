@@ -582,6 +582,10 @@ const validateNativeBracketSummary = (summary, selection, targetPath, tracePaths
   if (!summary || typeof summary !== 'object') return { status: 'failed', issues };
   requireValue(summary.status === 'passed', 'native bracket status is ' + String(summary.status));
   requireValue(summary.nativeStatus === 'passed', 'native status is ' + String(summary.nativeStatus));
+  if (summary.failureCategory === 'focused-check' && summary.evidence?.domainReport == null &&
+      typeof summary.workflowError === 'string' && summary.workflowError.trim()) {
+    issues.push('native focused-check prerequisite failed: ' + summary.workflowError);
+  }
   requireValue(summary.scenario === selection.scenarioID && summary.case === selection.caseName,
     'native bracket identity does not match the registered case');
   requireValue(summary.integrity?.status === 'PASS', 'native bracket integrity status is not PASS');
@@ -800,7 +804,14 @@ const validateNativeBracketEnvelope = (envelope, selection, targetPath, tracePat
   if (resolve(summary?.evidence?.summary ?? '') !== summaryPath) {
     issues.push('native bracket output summary path differs from the path retained in the full summary');
   }
-  if (resolve(summary?.evidence?.domainReport ?? '') !== resolve(ROOT, envelope.report)) {
+  const summaryDomainReportPath = summary?.evidence?.domainReport;
+  const envelopeDomainReportPath = envelope.report;
+  if (typeof envelopeDomainReportPath === 'string' && envelopeDomainReportPath.trim()) {
+    if (typeof summaryDomainReportPath !== 'string' || !summaryDomainReportPath.trim() ||
+        resolve(summaryDomainReportPath) !== resolve(ROOT, envelopeDomainReportPath)) {
+      issues.push('native bracket output domain-report path differs from the path retained in the full summary');
+    }
+  } else if (typeof summaryDomainReportPath === 'string' && summaryDomainReportPath.trim()) {
     issues.push('native bracket output domain-report path differs from the path retained in the full summary');
   }
   const validated = validateNativeBracketSummary(summary, selection, targetPath, tracePaths);
