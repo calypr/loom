@@ -524,12 +524,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "f9cd70eb9d4384a2cf8120b449c10f43f4b6861e43c0447a4756e66e3942d0bd",
+      "sha256": "d84e0db65ebc99b36e2c0e069194c0698aeebae31724e7eaa32e1f0aed82f8a3",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
-      "sha256": "3674686ac1a79cf3688f75d3aea0ea88d312d0795e70bfe194e28ad15b1fb566",
+      "sha256": "e6a3429e6882c5bf3f3c4c8b0ce1e4ad3abefbaeb12f8c61651bdb4a1652ff98",
       "contract": "Policy One captured workflow and transport ledger validation."
     },
     {
@@ -544,17 +544,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs",
-      "sha256": "4cb19fe02230d2776994138655226bc9a06a7fc7625eb9c76b66d9c760d4edef",
+      "sha256": "da0ef478991676d997d58267796323cf25d279d466960a30c841ad1bd9aa4dbe",
       "contract": "Complete synthetic Policy One lifecycle for adapter and TLC unit checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "f11b6a50d44f4524d663063b82496b1d51b143af922eb7fe30ed63c4a622d3f1",
+      "sha256": "236111a4facd628eb5dd819b824d7c97e6b6b68149d27b668b519ef991bcaecf",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "e43071193ac865d963de32ed99c40997a0d0ed1d576b89e3b6799ae6f1f436ac",
+      "sha256": "0c1388e43d205a01e1ff15a1af4572d92d06e2ffd0602a7bf4c05f50daa4b1f9",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "bca6b0cefcfef02d5268355c3338fd5d5043bd5837c939e9581488d7008b7d74",
+      "sha256": "e9d31e2119d68b9db62264984f1b79235f6a8565dc571ba61ae90b698f0d67f5",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -579,7 +579,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-policy-one-contract.json",
-      "sha256": "1a0fb5861d090e8076130fc31b2f24ad3fe7ea37ee1890d75160e382fce5ae92",
+      "sha256": "8e198fb5687bb5e5395a3c529d03fb8e9e0d79f5a1b89e26e2237ce087d49f4b",
       "contract": "Registered Policy One native journey action, event, and mutation-control contract."
     },
     {
@@ -589,7 +589,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-transport-observer.mjs",
-      "sha256": "4013653963049b798fa9b59fac0fd158aca3c8a3411cb2727d8b9bf1ee2cdd46",
+      "sha256": "ac0b7f1d8e5d589cff90690b563a0341bdeacd3881e7b3809d55ecc53b72eea1",
       "contract": "Captures the complete Policy One setup and formal authoring transport span by exact Playwright request identity."
     }
   ]
