@@ -90,7 +90,8 @@ test('adapter rejects an observer write that no semantic action consumes', () =>
     request: {},
     response: {},
     startedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
-    completedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1001,
+    responseReceivedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1001,
+    completedAt: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1002,
     isMutation: true,
     atMonotonicMs: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
     atEpochMs: TEMPORAL_FILTER_FIXTURE_BASE_TIME + 1000,
@@ -108,7 +109,8 @@ test('adapter preserves an absent raw request header as null in normalized evide
 });
 
 test('adapter schema fixture retains failed read-only request diagnostics', () => {
-  const journeyTrace = adaptTemporalFilterJourney(makeTemporalFilterJourneyCaptureFixture('date'));
+  const rawCapture = makeTemporalFilterJourneyCaptureFixture('date');
+  const journeyTrace = adaptTemporalFilterJourney(rawCapture);
   const request = journeyTrace.temporalFilterLifecycle.requestEvents.find(event =>
     event.browserRequestId === 'schema-fixture-browser-request-edit-open-cancellation');
   assert.deepEqual(request.failure, { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true });
@@ -116,6 +118,12 @@ test('adapter schema fixture retains failed read-only request diagnostics', () =
   assert.equal(request.responseCapture, 'not-configured');
   assert.equal(request.responseCaptureComplete, true);
   assert.equal(request.responseBodyCaptured, false);
+  assert.equal(request.responseReceivedAt, null, 'A canceled proposal has no observer response event.');
+  const successful = rawCapture.requestEvents.find(event =>
+    event.browserRequestId === 'schema-fixture-browser-request-first-create');
+  assert(Number.isFinite(successful.responseReceivedAt), 'A successful proposal must retain its observer response event time.');
+  assert(successful.completedAt > successful.responseReceivedAt,
+    'Response-body completion must remain distinct from response receipt.');
 });
 
 test('adapter schema fixture evidence follows the ordered lifecycle timestamps and read indexes', () => {

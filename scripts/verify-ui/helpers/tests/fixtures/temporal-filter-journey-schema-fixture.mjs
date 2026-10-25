@@ -126,10 +126,14 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
   const requestEvents = [];
   const addRequest = ({ name, path, body, response, isMutation, status = 200, mountEpoch = 1,
     atMonotonicMs = baseTime + requestEvents.length * 10,
+    responseReceivedAt,
     failure = null, readCancellationDiagnostic = false, responseCapture = 'captured', responseCaptureComplete = true,
     responseBodyCaptured = true }) => {
     const captureId = `schema-fixture-browser-request-${name}`;
     const atEpochMs = epochOffset + atMonotonicMs;
+    const observedResponseAt = responseReceivedAt === undefined
+      ? status === null ? null : atEpochMs + 1
+      : responseReceivedAt;
     requestEvents.push({
       browserRequestId: captureId,
       requestId: `schema-fixture-raw-request-${name}`,
@@ -139,7 +143,8 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       request: clone(body),
       response: clone(response),
       startedAt: atEpochMs,
-      completedAt: atEpochMs + 1,
+      responseReceivedAt: observedResponseAt,
+      completedAt: atEpochMs + (status === null ? 1 : 3),
       isMutation,
       failure: clone(failure),
       readCancellationDiagnostic,

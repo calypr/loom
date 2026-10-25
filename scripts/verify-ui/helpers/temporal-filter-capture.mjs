@@ -193,6 +193,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
         request: clone(networkObserver.requestBody(entry)),
         response: clone(extraResponseBodies.has(entry) ? extraResponseBodies.get(entry) : networkObserver.responseBody(entry)),
         startedAt: entry.startedAt,
+        responseReceivedAt: entry.responseReceivedAt ?? null,
         completedAt: entry.completedAt ?? null,
         isMutation: Boolean(entry.isMutation),
         failure: clone(entry.failure),

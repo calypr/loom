@@ -180,6 +180,7 @@ const assertCaptureShape = capture => {
     assert(Number.isFinite(request.atMonotonicMs) && Number.isFinite(request.atEpochMs));
     assert(Number.isInteger(request.mountEpoch));
     assert(Number.isFinite(request.startedAt));
+    assert(request.responseReceivedAt === null || Number.isFinite(request.responseReceivedAt));
     assert(request.completedAt === null || Number.isFinite(request.completedAt));
     if (request.requestId !== undefined) assert(typeof request.requestId === 'string' && request.requestId.length > 0);
   }
