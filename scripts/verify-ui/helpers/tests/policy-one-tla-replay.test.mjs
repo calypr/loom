@@ -79,6 +79,8 @@ function makeSyntheticReconcileLedgerTrace() {
     transportIndex,
     requestEventIndex,
     settlementEventIndex,
+    capturePhase: 'FORMAL',
+    setupMutation: false,
     resourcePath: `${ownerScope}/authoring/v2/${path}`,
     ownerScope,
     method,
@@ -150,23 +152,23 @@ function makeSyntheticReconcileLedgerTrace() {
   trace.transportLedger.push(
     addReconcile({
       transportIndex: firstReconcileIndex,
-      requestEventIndex: 17,
-      settlementEventIndex: 20,
+      requestEventIndex: 19,
+      settlementEventIndex: 22,
       generation: 41,
       invalidatedByTransportIndices: [secondReconcileIndex],
       ownerInvalidationObserved: true,
     }),
     addReconcile({
       transportIndex: secondReconcileIndex,
-      requestEventIndex: 18,
-      settlementEventIndex: 19,
+      requestEventIndex: 20,
+      settlementEventIndex: 21,
       generation: 42,
       ownerInvalidationObserved: false,
     }),
     transport({
       transportIndex: previewIndex,
-      requestEventIndex: 21,
-      settlementEventIndex: 22,
+      requestEventIndex: 23,
+      settlementEventIndex: 24,
       method: 'POST',
       path: 'preview',
       requestBody: { receiptId, outputId: 'output-1' },
@@ -178,8 +180,8 @@ function makeSyntheticReconcileLedgerTrace() {
     }),
     transport({
       transportIndex: previewIndex + 1,
-      requestEventIndex: 23,
-      settlementEventIndex: 24,
+      requestEventIndex: 25,
+      settlementEventIndex: 26,
       method: 'GET',
       path: 'builder',
       requestBody: null,
@@ -194,6 +196,16 @@ function makeSyntheticReconcileLedgerTrace() {
 test('compiler specializes the base witness to actual trace constants and emits replay checks', () => {
   const trace = makeSyntheticPolicyOneJourneyTrace();
   assert.equal(validatePolicyOneJourneyTrace(trace), trace);
+  assert.equal(trace.formalEntry.afterTransportIndex, 1);
+  assert.equal(trace.formalEntry.afterEventIndex, 2);
+  assert.equal(trace.transportLedger[0].capturePhase, 'SETUP');
+  assert.equal(trace.transportLedger[0].classification, 'setup');
+  assert.equal(trace.transportLedger[0].setupMutation, true,
+    'the source-table command remains explicit setup evidence outside the formal action bijection');
+  assert.equal(trace.transportLedger.filter(entry => entry.capturePhase === 'SETUP'
+    && entry.classification === 'modeled').length, 0);
+  assert.equal(trace.transportLedger.filter(entry => entry.capturePhase === 'SETUP'
+    && entry.classification === 'read-only' && entry.setupMutation).length, 0);
   const compiled = compilePolicyOneJourneyTrace(trace);
   const groupApply = trace.actions.find(entry => entry.label === 'GroupApplySubmitted');
   const groupApplied = trace.actions.find(entry => entry.label === 'GroupApplied');
@@ -217,6 +229,7 @@ test('compiler specializes the base witness to actual trace constants and emits 
   assert.match(compiled.modelText, /ObservationMatches\(traceIndex \+ 1, model, model'\)/);
   assert.match(compiled.modelText, /ObservedResponseOwnership/);
   assert.match(compiled.modelText, /ObservedPolicyCAS/);
+  assert.match(compiled.modelText, /FormalEntryBoundaryValid/);
   assert.match(compiled.configText, /OneCaptureId = "capture-one-random"/);
   assert.match(compiled.configText, /AllCaptureId = "capture-all-random"/);
   assert.match(compiled.configText, /AddedPatientIdOutputColumnId = "row_value_d953ae59403369dab2d0011c"/);
@@ -376,7 +389,7 @@ test('TLC validates scoped reconcile ownership, receipt sets, and read-only rout
   assert.match(positive.output, /Model checking completed\. No error has been found\./);
 
   const collapsedReceiptParents = structuredClone(trace);
-  collapsedReceiptParents.transportLedger[10].currentReceiptProducerTransportIndices = [10];
+  collapsedReceiptParents.transportLedger[11].currentReceiptProducerTransportIndices = [10];
   const negative = checkWithTLC(collapsedReceiptParents, 'PolicyOneReconcileLedgerCollapsedParents');
   t.diagnostic(summary(negative.output));
   assert.equal(negative.error, undefined, negative.error?.message);
@@ -394,6 +407,7 @@ test('production mutation controls preserve the input and reach each intended TL
     ['out-of-order-repair', 'ObservedChronology'],
     ['stale-restoration', 'TraceProgress'],
     ['request-body-ledger-drift', 'ObservedTransportLedgerInvariant'],
+    ['setup-command-response-owner', 'ObservedTransportLedgerInvariant'],
     ['wrong-row-value-output', 'TraceProgress'],
     ['non-array-row-value-output', 'TraceProgress'],
   ]);
@@ -423,6 +437,12 @@ test('production mutation controls preserve the input and reach each intended TL
     true, 'body-drift control must alter only the actual modeled request copy');
   assert.equal(control('request-body-ledger-drift').transportLedger[0].requestBody.observationProbe,
     undefined, 'body-drift control must leave the independent raw transport row unchanged');
+  const originalSetupMutation = original.transportLedger.find(entry => entry.capturePhase === 'SETUP' && entry.setupMutation);
+  const setupResponseOwnerMutation = control('setup-command-response-owner').transportLedger.find(entry =>
+    entry.transportIndex === originalSetupMutation.transportIndex);
+  assert.equal(setupResponseOwnerMutation.response.commandId,
+    originalAction('GroupApplySubmitted').request.commandId,
+    'setup response owner mutation must reuse a different actual captured commandId');
   const originalGroup = originalAction('RemovalApplied').savedBefore.group;
   const originalRowValue = originalGroup.rowValues.find(value => value.policy === 'ALL');
   const alternateOutput = originalGroup.outputs.find(output => output.id !== originalRowValue.outputColumnId);

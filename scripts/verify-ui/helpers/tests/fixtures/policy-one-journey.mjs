@@ -45,6 +45,7 @@ const testTransportCapture = (transportIndex, request, response, eventOrder = {}
     transportIndex,
     requestEventIndex: eventOrder.requestEventIndex ?? defaultRequestEvent,
     settlementEventIndex: eventOrder.settlementEventIndex ?? defaultSettlementEvent,
+    capturePhase: 'FORMAL',
     method: request.method,
     path: request.path,
     resourcePath,
@@ -58,6 +59,7 @@ const testTransportCapture = (transportIndex, request, response, eventOrder = {}
     response: {
       status: response.status,
       requestId: response.requestId ?? null,
+      commandId: response.commandId ?? response.body?.commandId ?? null,
       receiptId: response.proposalId ?? response.preview?.receiptId ?? response.body?.receiptId ?? response.body?.preview?.receiptId ?? null,
       receiptIds: [...new Set([
         response.proposalId,
@@ -364,8 +366,22 @@ export const makePolicyOneTraceInput = () => {
       name: 'builder-authoring:patient-one-disagreement',
       model: 'PolicyOneDisagreement',
       initialObservation: {
+        workspace: sourceWorkspace,
+        outputId: 'output-1',
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-root',
         savedState: { groupKeys: [], aggregate: 'COUNT_ROWS', count: 2 },
         rowIds: ['dev-patient-001', 'dev-patient-002'],
+      },
+      formalEntry: {
+        afterTransportIndex: 0,
+        afterEventIndex: 0,
+        initialSavedState: {
+          ...sourceState,
+          snapshotToken: 'snapshot-1',
+          workspaceProjection: sourceWorkspace,
+        },
       },
       initialPreview: {
         outputId: 'output-1', rowCount: 2, rows: [
@@ -672,6 +688,7 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
 
   input.context.initialObservation = {
     workspace: sourceWorkspace, draftVersion: rootDraft.version, draftDigest: rootDraft.digest,
+    outputId: 'output-1', snapshotToken: 'snapshot-1',
   };
   input.context.initialPreview = {
     outputId: 'output-1',
@@ -907,5 +924,34 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
       previewCapture,
     ];
   }
+  const setupRequest = {
+    method: 'POST', path: '/api/explorers/e/authoring/v2/commands',
+    requestId: 'setup-command-physical-id', captureId: null, transportIndex: 1,
+    body: { commandId: 'setup-command-physical-id', commands: [{ type: 'CREATE_SOURCE_TABLE' }] },
+  };
+  const setupResponse = {
+    status: 200, requestId: 'setup-command-physical-id',
+    body: { commandId: 'setup-command-physical-id', draftVersion: rootDraft.version, draftDigest: rootDraft.digest },
+  };
+  const setupCapture = testTransportCapture(1, setupRequest, setupResponse);
+  setupCapture.capturePhase = 'SETUP';
+  setupCapture.setupMutation = true;
+  for (const request of [groupPreviewRequest, groupApplyRequest, input.requests.one, input.requests.all,
+    input.requests.apply, removalOneRequest, removalTwoRequest, removalApplyRequest]) {
+    request.transportIndex += 1;
+  }
+  const shiftedCaptures = input.context.transportCaptures.map(capture => ({
+    ...capture,
+    transportIndex: capture.transportIndex + 1,
+    responseOwnerIndex: capture.responseOwnerIndex + 1,
+    requestEventIndex: capture.requestEventIndex + 2,
+    settlementEventIndex: capture.settlementEventIndex + 2,
+  }));
+  input.context.transportCaptures = [setupCapture, ...shiftedCaptures];
+  input.context.formalEntry = {
+    afterTransportIndex: 1,
+    afterEventIndex: 2,
+    initialSavedState: { ...sourceState, snapshotToken: 'snapshot-1', workspaceProjection: sourceWorkspace },
+  };
   return buildPolicyOneTrace(input).journeyTrace;
 };
