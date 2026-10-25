@@ -656866,7 +656866,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "39a24d68a58753aae2a637cdc16fd6519fc70bfa63484460af16b7ad65f3817a",
+      "sha256": "317687f0f86e45c803d63648767a6bf9ae8afbbb82b5efbff9bfebd3c9de9794",
       "lifecycle": "active",
       "role": "test",
       "purpose": "Tests native bracket-summary acceptance, raw trace digest binding, mutation-control inventory, and observer request classification.",
@@ -656876,12 +656876,12 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-            "line": 311,
+            "line": 359,
             "kind": "current source entrypoint and contract reviewed"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "ea29fb070c6dda328991e96d07e2ccf5128a2f04"
+        "reviewedCommit": "25c74f18e071769b1ccf87fda0c579da0903aa48"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -656902,7 +656902,7 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-            "line": 311,
+            "line": 359,
             "kind": "source contract reviewed"
           }
         ],

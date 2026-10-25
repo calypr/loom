@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "39a24d68a58753aae2a637cdc16fd6519fc70bfa63484460af16b7ad65f3817a",
+      "sha256": "317687f0f86e45c803d63648767a6bf9ae8afbbb82b5efbff9bfebd3c9de9794",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
