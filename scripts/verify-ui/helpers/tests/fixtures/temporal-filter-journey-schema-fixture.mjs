@@ -1,3 +1,8 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+
 const CASES = Object.freeze({
   date: Object.freeze({
     resourceType: 'Patient',
@@ -565,4 +570,50 @@ export const makeTemporalResponseBodyAbortFixture = (caseName = 'date') => {
   capture.captureExit.observedAtEpochMs = epochOffset + drainStartedAtMonotonicMs + 1;
   capture.captureExit.scope = structuredClone(capture.pendingReadScope);
   return capture;
+};
+
+export const NATIVE_TEMPORAL_DATE_CAPTURE_NAMES = Object.freeze(['run5', 'run6', '96a']);
+
+const NATIVE_TEMPORAL_DATE_CAPTURE_METADATA = Object.freeze({
+  run5: Object.freeze({
+    file: 'date-run5.json.gz',
+    sourceCommit: 'becae9bce7a8b0aa824ed1c5458666af4d3cb98a',
+    sourceFingerprint: '8f6ecae6eabcfc85c169720760c83b2a9b8c51839f72cd0de3c192efc138f9e1',
+    sourceArtifactKind: 'canonical-trace',
+    sourceArtifactSha256: '70ddb052b75c669feca05f92ef612f404af34077ec9a35e345fbff63e7e702ab',
+    captureSha256: '3a17388412125fcde3249c73f0fee7980607119f8e76e2f1c005fe554771efd6',
+    sourceDOMRowIds: Object.freeze(['dev-patient-001', 'dev-patient-002']),
+  }),
+  run6: Object.freeze({
+    file: 'date-run6.json.gz',
+    sourceCommit: '01c74f94fecc10f70e67caba44193d71cdd36b9e',
+    sourceFingerprint: 'f673be3ada064983a78623f6e22ac4115e502acc4c614a865723975e5e17704b',
+    sourceArtifactKind: 'canonical-trace',
+    sourceArtifactSha256: '045b505107d2c41d309ee5b4bcf73a5201a6bcc71f477ba8090a50aa6ff1a763',
+    captureSha256: 'a9783d969ceaff8965728ed409d3f9915a36eb19d263e36674d273299afac05c',
+    sourceDOMRowIds: Object.freeze(['dev-patient-002', 'dev-patient-001']),
+  }),
+  '96a': Object.freeze({
+    file: 'date-96a.json.gz',
+    sourceCommit: '96a95b1d43fef53700a06d9920887832631e9cbc',
+    sourceFingerprint: '48c2b3d0514919dbfca4831494eac4fa33d207b698ca8ff90bfe6c44c5983bbb',
+    sourceArtifactKind: 'native-domain-report',
+    sourceArtifactSha256: '6f716f9c1b5466f91264d3fbc99f502b12b5c068b1ac6a80ace547e8066cbe52',
+    captureSha256: '62f17084b032c3a0af587e771fc719984b30c994acd25fdf8d2f778a099db9a4',
+    sourceDOMRowIds: Object.freeze(['dev-patient-001', 'dev-patient-002']),
+  }),
+});
+
+export const readNativeTemporalDateCapture = name => {
+  const source = NATIVE_TEMPORAL_DATE_CAPTURE_METADATA[name];
+  assert(source, `Unknown retained native DATE capture ${JSON.stringify(name)}.`);
+  const envelope = JSON.parse(gunzipSync(readFileSync(new URL(
+    `./temporal-filter-native-captures/${source.file}`, import.meta.url,
+  ))).toString('utf8'));
+  assert.equal(envelope.sourceArtifactKind, source.sourceArtifactKind);
+  assert.equal(envelope.sourceArtifactSha256, source.sourceArtifactSha256);
+  assert.equal(envelope.capture.sourceCommit, source.sourceCommit);
+  assert.equal(envelope.capture.sourceFingerprint.sha256, source.sourceFingerprint);
+  assert.equal(createHash('sha256').update(JSON.stringify(envelope.capture)).digest('hex'), source.captureSha256);
+  return { source, capture: structuredClone(envelope.capture) };
 };
