@@ -172,6 +172,23 @@ export const builderJourneyTraceReceiptIdentity = (binding, traceName, scenarioI
   throw new Error(`Unknown Builder journey receipt captureKind: ${String(binding.captureKind)}`);
 };
 
+export const builderJourneyReportPaths = ({ captureKind, tracePath, evidenceDirectory, artifactStem, repositoryRoot }) => {
+  if (captureKind === 'builder-cda-native-lifecycle') {
+    const traceDirectory = dirname(tracePath);
+    return {
+      replayReportPath: join(traceDirectory, `${artifactStem}-tla.json`),
+      selfTestReportPath: join(traceDirectory, `${artifactStem}-self-test.json`),
+    };
+  }
+  if (captureKind === 'builder-group-legacy') {
+    return {
+      replayReportPath: join(evidenceDirectory, `${artifactStem}-tla.json`),
+      selfTestReportPath: resolve(repositoryRoot, evidenceDirectory, `${artifactStem}-self-test.json`),
+    };
+  }
+  throw new Error(`Unknown Builder journey report path captureKind: ${String(captureKind)}`);
+};
+
 const assertNativeReceiptIdentity = (receipt, traceName, nativeCaseKey, stage) => {
   assert(receipt && typeof receipt === 'object' && !Array.isArray(receipt),
     `${stage} must contain a Builder journey receipt object.`);
@@ -348,7 +365,13 @@ export const writeAndReplayBuilderJourneyTrace = ({
   const tracePath = process.env.LOOM_JOURNEY_TRACE
     ? resolve(repositoryRoot, process.env.LOOM_JOURNEY_TRACE)
     : join(report.evidenceDirectory, `${artifactStem}-trace.json`);
-  const replayReportPath = join(report.evidenceDirectory, `${artifactStem}-tla.json`);
+  const { replayReportPath, selfTestReportPath } = builderJourneyReportPaths({
+    captureKind: binding.captureKind,
+    tracePath,
+    evidenceDirectory: report.evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+  });
   const selectedContract = isNativeLifecycle
     ? JSON.parse(readFileSync(repositoryPath(repositoryRoot, contractPath), 'utf8'))
     : null;
@@ -413,7 +436,6 @@ export const writeAndReplayBuilderJourneyTrace = ({
     };
   }
 
-  const selfTestReportPath = resolve(repositoryRoot, report.evidenceDirectory, `${artifactStem}-self-test.json`);
   const selfTestArgs = [
     repositoryPath(repositoryRoot, 'scripts/self-test-builder-traces.mjs'),
     '--journey-only',

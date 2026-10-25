@@ -9,6 +9,7 @@ import {
   assertNativeBuilderJourneyReplayReceipt,
   assertNativeBuilderJourneyMutationControls,
   assertNativeBuilderJourneySelfTestReceipt,
+  builderJourneyReportPaths,
   builderJourneyTraceReceiptIdentity,
   captureBuilderJourneyTraceProvenance,
   createBuilderReadMetadataRegistry,
@@ -122,6 +123,33 @@ test('receipt identity keeps legacy and native lifecycle case identities distinc
     'group-edit-before-related-column'), {
     traceName: 'cda-builder-group-related-source',
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
+  });
+});
+
+test('native replay outputs are siblings of the registered trace while legacy outputs stay in report evidence', () => {
+  const repositoryRoot = '/repo';
+  const evidenceDirectory = '/tmp/run-evidence';
+  const artifactStem = 'cda-builder-group-related-source';
+  const tracePath = '/repo/.artifacts/builder-journey/cda-builder-group-related-source-trace.json';
+  assert.deepEqual(builderJourneyReportPaths({
+    captureKind: 'builder-cda-native-lifecycle',
+    tracePath,
+    evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+  }), {
+    replayReportPath: '/repo/.artifacts/builder-journey/cda-builder-group-related-source-tla.json',
+    selfTestReportPath: '/repo/.artifacts/builder-journey/cda-builder-group-related-source-self-test.json',
+  });
+  assert.deepEqual(builderJourneyReportPaths({
+    captureKind: 'builder-group-legacy',
+    tracePath,
+    evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+  }), {
+    replayReportPath: join(evidenceDirectory, `${artifactStem}-tla.json`),
+    selfTestReportPath: resolve(repositoryRoot, evidenceDirectory, `${artifactStem}-self-test.json`),
   });
 });
 
