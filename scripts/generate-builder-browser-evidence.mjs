@@ -147,8 +147,7 @@ const registryForCommit = async (root, commit) => {
 const currentRegistryForRoot = async (root) => {
   const registryPath = pathWithin(root, REGISTRY, 'current verify-ui registry');
   requireValue(existsSync(registryPath), 'current verify-ui registry is missing');
-  const bytes = readFileSync(registryPath);
-  const registryModule = await import('data:text/javascript;base64,' + bytes.toString('base64'));
+  const registryModule = await import(pathToFileURL(registryPath).href + '?evidence=' + Date.now());
   requireValue(typeof registryModule.scenarioCaseFor === 'function', 'current verify-ui registry does not export scenarioCaseFor');
   return registryModule;
 };
@@ -318,6 +317,149 @@ const nativeRunSourceFreshness = (root, run, historical) => {
   return { status: 'current', reason: 'retained watched-tree and pinned proof-source fingerprints match current source' };
 };
 
+const formalJourneyArtifact = (root, reference, label) => {
+  requireValue(typeof reference === 'string' && reference.length > 0, label + ' path is missing');
+  const absolute = isAbsolute(reference) ? resolve(reference) : pathWithin(root, reference, label);
+  const local = relative(root, absolute);
+  requireValue(local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local), label + ' must be retained under the repository: ' + reference);
+  requireValue(existsSync(absolute), label + ' is missing: ' + reference);
+  const bytes = readFileSync(absolute);
+  return {
+    absolute,
+    path: displayPath(root, absolute),
+    sha256: sha256(bytes),
+    bytes,
+    value: jsonFromBytes(bytes, label),
+  };
+};
+
+const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus, reportPath) => {
+  const binding = registeredCase.journeyTrace;
+  if (binding?.kind !== 'native-lifecycle') return null;
+  const evidence = report.target?.builderJourneyTrace;
+  if (sourceStatus.status !== 'current') {
+    return {
+      name: binding.name,
+      model: binding.model,
+      status: 'historical',
+      sourceStatus: sourceStatus.status,
+      sourceStatusReason: sourceStatus.reason,
+      nativeReport: displayPath(root, isAbsolute(reportPath) ? reportPath : pathWithin(root, reportPath, 'native report')),
+    };
+  }
+  requireValue(evidence && typeof evidence === 'object', 'current native-lifecycle report has no formal journey evidence');
+  const nativeCaseKey = report.scenario + '/' + report.case;
+  requireValue(evidence.traceName === binding.name && evidence.nativeCaseKey === nativeCaseKey && evidence.status === 'pass' &&
+    evidence.replayStatus === 'pass' && evidence.selfTestStatus === 'pass',
+  'current native-lifecycle report does not prove the registered trace, selected browser case, and mutation checks');
+  const nativeReportArtifact = formalJourneyArtifact(root, reportPath, 'native browser report');
+  const traceArtifact = formalJourneyArtifact(root, evidence.tracePath, 'formal journey trace');
+  const tlaArtifact = formalJourneyArtifact(root, evidence.replayReportPath, 'formal journey TLA receipt');
+  const selfTestArtifact = formalJourneyArtifact(root, evidence.selfTestReportPath, 'formal journey mutation report');
+  const traceDocument = traceArtifact.value;
+  const tla = tlaArtifact.value;
+  const selfTest = selfTestArtifact.value;
+  const trace = asArray(traceDocument.traces)[0];
+  const replayReceipt = tla.builderJourneyTrace;
+  const selfTestMutationControls = asArray(selfTest.mutationControls);
+  const contract = readJson(root, binding.contract, 'registered formal journey contract');
+  const proofScope = currentProofScope(root);
+  requireValue(proofScope.status === 'current' && proofScope.declaredMismatches.length === 0,
+    'current formal journey source manifest is not current: ' + proofScope.reason);
+  requireValue(traceDocument.sourceProfile === 'journey' && trace?.name === binding.name && trace?.model === binding.model,
+    'formal journey trace identity differs from its registered case binding');
+  requireValue(traceDocument.sourceFingerprint === proofScope.sha256 && tla.sourceFingerprint === proofScope.sha256,
+    'formal journey trace/TLA fingerprint differs from the current Builder proof source scope');
+  requireValue(traceDocument.contractSourceCommit === contract.sourceCommit &&
+    tla.contractSourceCommit === contract.sourceCommit,
+  'formal journey trace/TLA contract source differs from the registered contract');
+  requireValue(tla.sourceCommit === traceDocument.sourceCommit && tla.sourceProfile === 'journey',
+    'formal journey TLA receipt has a different source identity/profile from the trace');
+  requireValue(tla.traceCount === 1 && tla.uniqueTraceCount === 1 && tla.validatedCount === 1 && tla.invalidCount === 0 &&
+    trace?.status !== 'fail' && tla.traces?.[0]?.status === 'pass' &&
+    tla.traces?.[0]?.actionCount === trace?.actions?.length,
+  'formal journey TLA receipt did not validate every captured transition');
+  requireValue(tla.coverage?.requiredModels?.missing?.length === 0 &&
+    tla.coverage?.requiredActions?.missing?.length === 0 &&
+    Object.keys(tla.coverage?.requiredActionsByTrace?.missing ?? {}).length === 0 &&
+    Array.isArray(tla.coverage?.requiredEvents?.missing) && tla.coverage.requiredEvents.missing.length === 0,
+  'formal journey TLA receipt has missing required coverage');
+  requireValue(tla.unmodeledEvents?.unclassified?.total === 0,
+    'formal journey TLA receipt contains unclassified events');
+  const expectedNativeCaseKey = report.scenario + '/' + report.case;
+  requireValue(replayReceipt?.traceName === binding.name && replayReceipt?.nativeCaseKey === expectedNativeCaseKey &&
+    replayReceipt?.replayStatus === 'pass' && replayReceipt?.status === 'pending-self-test' &&
+    replayReceipt?.tracePath === evidence.tracePath && replayReceipt?.replayReportPath === evidence.replayReportPath &&
+    sameJson(replayReceipt?.actionLabels, asArray(trace?.actions).map((action) => action.label)),
+  'TLA report typed receipt differs from the registered trace, browser case, or captured action order');
+  const requestCoverage = replayReceipt?.requestCoverage;
+  requireValue(Number.isInteger(requestCoverage?.observed) && Number.isInteger(requestCoverage?.modeled) &&
+    requestCoverage.observed === requestCoverage.modeled && requestCoverage.unmapped === 0 && requestCoverage.duplicates === 0,
+  'TLA receipt has incomplete or duplicated native request coverage');
+  requireValue(Object.keys(replayReceipt?.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
+    Object.keys(replayReceipt?.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
+    replayReceipt?.unmodeledEvents?.unclassified?.total === 0,
+  'TLA receipt action counts or event classification are incomplete');
+  requireValue(selfTest.status === 'pass' && evidence.selfTestStatus === 'pass' &&
+    selfTest.traceName === binding.name && selfTest.nativeCaseKey === expectedNativeCaseKey &&
+    selfTest.tracePath === evidence.tracePath && selfTest.selfTestReportPath === evidence.selfTestReportPath &&
+    resolve(evidence.replayReportPath) === tlaArtifact.absolute,
+  'formal journey mutation receipt does not match the registered trace, native case, or self-test output');
+  requireValue(sameJson(evidence.requestCoverage, replayReceipt.requestCoverage) &&
+    sameJson(evidence.requiredActionCountsByTrace, replayReceipt.requiredActionCountsByTrace) &&
+    sameJson(evidence.requiredActionMinimumsByTrace, replayReceipt.requiredActionMinimumsByTrace) &&
+    sameJson(evidence.unmodeledEvents, replayReceipt.unmodeledEvents),
+  'native report final proof receipt differs from the authoritative replay coverage');
+  requireValue(selfTestMutationControls.length > 0 && selfTestMutationControls.every((control) =>
+    typeof control.name === 'string' && control.name.length > 0 && control.status === 'pass'),
+  'formal journey mutation receipt is missing passing negative controls');
+  requireValue(sameJson(evidence.mutationControls, selfTestMutationControls),
+    'native report mutation receipt differs from the authoritative self-test controls');
+  const observedActions = asArray(trace?.actions).map((action) => action.label);
+  const observedCounts = observedActions.reduce((counts, label) => {
+    counts[label] = (counts[label] ?? 0) + 1;
+    return counts;
+  }, {});
+  const actionSpace = new Set([...(binding.requiredActions ?? []), ...Object.keys(binding.requiredActionCounts ?? {}),
+    ...Object.keys(binding.minimumActionCounts ?? {}), ...(binding.optionalActions ?? [])]);
+  requireValue(observedActions.every((label) => actionSpace.has(label)),
+    'formal journey trace contains an action outside its registered action scope');
+  for (const [label, count] of Object.entries(binding.requiredActionCounts ?? {})) {
+    requireValue(observedCounts[label] === count,
+      'formal journey trace action count differs from the exact registry count for ' + label);
+  }
+  for (const [label, minimum] of Object.entries(binding.minimumActionCounts ?? {})) {
+    requireValue((observedCounts[label] ?? 0) >= minimum,
+      'formal journey trace has fewer than the registered minimum for ' + label);
+  }
+  requireValue(sameJson(evidence.actionLabels, observedActions),
+    'native domain report action labels differ from the retained formal trace');
+  return {
+    name: binding.name,
+    model: binding.model,
+    status: 'current',
+    sourceStatus: 'current',
+    sourceCommit: traceDocument.sourceCommit,
+    proofSourceFingerprint: traceDocument.sourceFingerprint,
+    contractSourceCommit: traceDocument.contractSourceCommit,
+    actionCount: observedActions.length,
+    actionCounts: observedCounts,
+    requestCoverage,
+    mutationControlCount: selfTestMutationControls.length,
+    tlc: {
+      generatedStates: tla.traces[0].tlc?.stateCount ?? null,
+      distinctStates: tla.traces[0].tlc?.distinctStateCount ?? null,
+      depth: tla.traces[0].tlc?.depth ?? null,
+    },
+    artifacts: {
+      nativeReport: { path: nativeReportArtifact.path, sha256: nativeReportArtifact.sha256 },
+      trace: { path: traceArtifact.path, sha256: traceArtifact.sha256 },
+      tlaReport: { path: tlaArtifact.path, sha256: tlaArtifact.sha256 },
+      selfTest: { path: selfTestArtifact.path, sha256: selfTestArtifact.sha256 },
+    },
+  };
+};
+
 const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistry) => {
   const cases = [];
   const generatedFrom = [];
@@ -347,14 +489,18 @@ const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistr
       : currentWatched
         ? { status: 'stale', reason: 'report watched-tree fingerprint ' + source.sha256 + ' (' + source.files + ' files) differs from current watched-tree fingerprint ' + currentWatched.sha256 + ' (' + currentWatched.files + ' files)' }
         : { status: 'unavailable', reason: 'current watched-tree fingerprint is unavailable' };
+    let registeredCase = null;
     if (sourceStatus.status === 'current') {
       requireValue(currentRegistry, reportPath + ': current-source report cannot be bound to the current tested registry');
       const readOnlyCustom = report.target?.kind === 'read-only-custom';
-      const registeredCase = currentRegistry.scenarioCaseFor(report.scenario, report.case, readOnlyCustom);
+      registeredCase = currentRegistry.scenarioCaseFor(report.scenario, report.case, readOnlyCustom);
       requireValue(registeredCase, reportPath + ': case is absent from the current registry: ' + report.scenario + ':' + report.case);
       requireValue(Array.isArray(registeredCase.requiredChecks) && registeredCase.requiredChecks.length > 0, reportPath + ': current registry case has no required checks');
       assertReportAssertions(report, registeredCase.requiredChecks, reportPath);
     }
+    const formalJourney = registeredCase
+      ? currentFormalJourneyEvidence(root, report, registeredCase, sourceStatus, reportPath)
+      : null;
     const id = report.scenario + ':' + report.case;
     requireValue(!cases.some((entry) => entry.id === id), 'duplicate browser case id: ' + id);
     cases.push({
@@ -372,6 +518,7 @@ const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistr
       coveredRoutes,
       injectedRoutes,
       assertions,
+      ...(formalJourney ? { formalJourney } : {}),
       report: displayPath(root, absolute),
       reportSha256: sha256(bytes),
     });
@@ -786,6 +933,10 @@ export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [
   const cdaBoundary = validateManualCdaBoundary(repoRoot, journey);
   const legacyRecompile = historicalRecompileRow(repoRoot, audit);
   const cases = [...browser.cases, legacyRecompile].sort((left, right) => left.id.localeCompare(right.id));
+  const formalJourneys = cases
+    .filter((entry) => entry.formalJourney)
+    .map((entry) => ({ case: entry.id, ...entry.formalJourney }))
+    .sort((left, right) => left.case.localeCompare(right.case));
   if (requireCurrent) {
     const stale = [...cases, ...retainedJourneys].filter((entry) => entry.status !== 'current' || entry.sourceStatus !== 'current');
     requireValue(stale.length === 0, '--require-current rejected evidence row(s): ' + stale.map((entry) => entry.id + ' (' + entry.status + '/' + entry.sourceStatus + ': ' + entry.sourceStatusReason + ')').join('; '));
@@ -799,6 +950,7 @@ export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [
     generatedFrom: browser.generatedFrom,
     retainedGeneratedFrom: [...new Set(retainedGeneratedFrom)].sort(),
     cases,
+    formalJourneys,
     retainedJourneys: retainedJourneys.sort((left, right) => left.id.localeCompare(right.id)),
     boundaries: {
       groupCancelAndReload: 'Native assertions only. BuilderJourney reports these exact events as unsupported.',
@@ -807,6 +959,8 @@ export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [
     },
   };
 }
+
+export { currentFormalJourneyEvidence };
 
 const parseArgs = (argv) => {
   const reportPaths = [];

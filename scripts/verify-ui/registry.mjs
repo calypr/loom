@@ -636,7 +636,10 @@ const registryRows = [
         playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'standard Group entry proposes an empty-key COUNT_ROWS preview$',
         journeyTrace: {
+          captureKind: 'builder-group-legacy',
           name: 'builder-authoring:group-entry',
+          model: 'BuilderJourney',
+          contract: 'verification/builder-interactions/builder-edit-remove-contract.json',
           requiredActions: ['EditGroupAgain', 'GroupEditCancel', 'GroupRemovalCancel', 'Reload'],
         },
         focusedChecks: [
@@ -677,7 +680,10 @@ const registryRows = [
         playwrightGrep: 'Group edit and removal preserve the raw five-column Basic Patient table$',
         populateBootstrap: true,
         journeyTrace: {
+          captureKind: 'builder-group-legacy',
           name: 'builder-authoring:group-entry-raw-basic',
+          model: 'BuilderJourney',
+          contract: 'verification/builder-interactions/builder-edit-remove-contract.json',
           requiredActions: ['EditGroupAgain', 'GroupEditCancel', 'GroupRemovalCancel', 'Reload'],
         },
         focusedChecks: [
@@ -6440,6 +6446,52 @@ const registryRows = [
       'group-edit-before-related-column': {
         playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'group-edit-before-related-column',
+        journeyTrace: {
+          kind: 'native-lifecycle',
+          captureKind: 'builder-cda-native-lifecycle',
+          captureAdapter: 'builder-native-journey-v1',
+          captureSources: [
+            'scripts/verify-ui/helpers/builder-journey-trace.mjs',
+            'scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs',
+          ],
+          name: 'cda-builder-group-related-source',
+          model: 'BuilderJourney',
+          contract: 'verification/builder-interactions/builder-cda-group-related-contract.json',
+          requiredActions: [
+            'Preview',
+            'PreviewComplete',
+            'ExpandRows',
+            'Group',
+            'EditGroup',
+            'EditGroupAgain',
+            'GroupEditCancel',
+            'RelatedSourcePreview',
+            'RelatedSourceApply',
+            'RelatedSourceCancel',
+            'Reload',
+          ],
+          requiredActionCounts: {
+            ExpandRows: 2,
+            Group: 1,
+            EditGroup: 1,
+            EditGroupAgain: 1,
+            GroupEditCancel: 2,
+            RelatedSourceCancel: 2,
+            RelatedSourceApply: 2,
+            Reload: 5,
+          },
+          minimumActionCounts: {
+            Preview: 7,
+            PreviewComplete: 7,
+            RelatedSourcePreview: 4,
+          },
+          optionalActions: [
+            'PreviewError',
+            'LatePreviewCompleteIgnored',
+            'LatePreviewErrorIgnored',
+            'PreviewRequestCancelled',
+          ],
+        },
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: { source: 'owned-target-config' } },
         focusedChecks: [
           {
@@ -6453,6 +6505,8 @@ const registryRows = [
               'scripts/verify-ui/helpers/tests/group-edit-raw-fields-summary.test.mjs',
               'scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs',
               'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
+              'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/created-explorer-scope.mjs',
@@ -6462,7 +6516,11 @@ const registryRows = [
               'scripts/loom-dev.mjs',
               'scripts/verify-ui/helpers/cda-fixtures.mjs',
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
+              'scripts/verify-ui/helpers/source-fingerprint.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
+              'scripts/generate-builder-browser-evidence.mjs',
+              'scripts/run-builder-journey.mjs',
+              'scripts/verify-ui/registry.mjs',
               'ui/apps/demo/src/main.tsx',
             ],
           },
@@ -6484,6 +6542,7 @@ const registryRows = [
           'Applying related-source removal and reloading restores the exact original Group workspace',
           'All Group edit action-to-render checkpoints complete within five seconds',
           'No unexpected browser, authoring, transport, or native HTTP errors occur',
+          'Captured Group and RELATED_SOURCE browser transitions replay through BuilderJourney TLC with the registered action contract',
         ],
       },
     },

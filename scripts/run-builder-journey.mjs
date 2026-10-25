@@ -2,8 +2,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDevSession, createFreshVerificationFixture } from './loom-dev.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
@@ -20,13 +20,17 @@ const DEFAULT_REPORT = '.artifacts/builder-journey/report.json';
 
 const parseArgs = () => {
   const args = process.argv.slice(2);
-  const options = { trace: null, report: null, journey: null, manifest: null, project: null, generation: null, explorer: null, uiUrl: null, apiUrl: null, bootstrap: false };
+  const options = { trace: null, report: null, journey: null, nativeCase: null, manifest: null, project: null, generation: null, explorer: null, uiUrl: null, apiUrl: null, target: null, evidenceParent: null, bootstrap: false, checkBinding: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--trace') options.trace = args[++index];
     else if (arg === '--report') options.report = args[++index];
     else if (arg === '--journey') options.journey = args[++index];
+    else if (arg === '--native-case') options.nativeCase = args[++index];
+    else if (arg === '--check-binding') options.checkBinding = true;
     else if (arg === '--manifest') options.manifest = args[++index];
+    else if (arg === '--target') options.target = args[++index];
+    else if (arg === '--evidence-parent') options.evidenceParent = args[++index];
     else if (arg === '--project') options.project = args[++index];
     else if (arg === '--generation') options.generation = args[++index];
     else if (arg === '--explorer') options.explorer = args[++index];
@@ -34,11 +38,23 @@ const parseArgs = () => {
     else if (arg === '--api-url') options.apiUrl = args[++index];
     else if (arg === '--bootstrap') options.bootstrap = true;
     else if (arg === '--help' || arg === '-h') {
-      console.log('usage: node scripts/run-builder-journey.mjs [--manifest <manifest.json>] [--journey <id>] [--trace <trace.json>] [--report <report.json>] [--project <dataset> --generation <generation> [--explorer <id>] [--ui-url <url>] [--api-url <url>] [--bootstrap]]');
+      console.log('usage: node scripts/run-builder-journey.mjs [--manifest <manifest.json>] [--journey <id> | --native-case <scenario>/<case>] [--check-binding] [--trace <trace.json>] [--report <report.json>] [--target <owned-target.json>] [--evidence-parent <directory>] [--project <dataset> --generation <generation> [--explorer <id>] [--ui-url <url>] [--api-url <url>] [--bootstrap]]');
       process.exit(0);
     } else {
       throw new Error('unknown argument ' + arg + '; use --help for usage');
     }
+  }
+  if (options.journey && options.nativeCase) throw new Error('Choose either --journey or --native-case, not both.');
+  if (options.checkBinding && !options.nativeCase) throw new Error('--check-binding requires --native-case.');
+  if (options.checkBinding && (options.trace || options.report || options.target || options.evidenceParent || options.project || options.generation || options.explorer || options.uiUrl || options.apiUrl || options.bootstrap)) {
+    throw new Error('--check-binding accepts only the registered native case selection.');
+  }
+  if (options.nativeCase && options.manifest) throw new Error('--manifest selects legacy audit journeys and cannot be combined with --native-case.');
+  if (!options.nativeCase && (options.target || options.evidenceParent)) {
+    throw new Error('--target and --evidence-parent are only valid with --native-case.');
+  }
+  if (options.nativeCase && (options.project || options.generation || options.explorer || options.uiUrl || options.apiUrl || options.bootstrap)) {
+    throw new Error('--native-case uses the registered native fixture; pass --target for its owned target configuration.');
   }
   return options;
 };
@@ -91,13 +107,209 @@ const selectJourney = (journeyId, manifestPath = MANIFEST) => {
     nativeSelection = {
       scenarioID,
       caseName,
+      nativeCaseKey: `${scenarioID}/${caseName}`,
       playwrightTest: registeredCase.playwrightTest,
       playwrightGrep: registeredCase.playwrightGrep,
       traceName: registeredCase.journeyTrace?.name ?? null,
+      model: registeredCase.journeyTrace?.model ?? entry.model ?? null,
+      contract: registeredCase.journeyTrace?.contract ?? entry.contract ?? CONTRACT,
       requiredTraceActions: registeredCase.journeyTrace?.requiredActions ?? [],
+      requiredActionCounts: registeredCase.journeyTrace?.requiredActionCounts ?? null,
+      minimumActionCounts: registeredCase.journeyTrace?.minimumActionCounts ?? null,
+      optionalActions: registeredCase.journeyTrace?.optionalActions ?? [],
     };
+    if (registeredCase.journeyTrace?.contract && entry.contract && registeredCase.journeyTrace.contract !== entry.contract) {
+      throw new Error('journey ' + journeyId + ' contract differs from the registered native journeyTrace binding');
+    }
   }
-  return { entry, specPath, contract: entry.contract ?? CONTRACT, nativeSelection };
+  return { entry, specPath, contract: nativeSelection?.contract ?? entry.contract ?? CONTRACT, nativeSelection };
+};
+
+const parseNativeCaseId = (value) => {
+  if (typeof value !== 'string' || value.trim() !== value) {
+    throw new Error('--native-case must be an exact registered <scenario>/<case> value.');
+  }
+  const separator = value.indexOf('/');
+  if (separator <= 0 || separator !== value.lastIndexOf('/') || separator === value.length - 1) {
+    throw new Error('--native-case must be an exact registered <scenario>/<case> value.');
+  }
+  return { scenarioID: value.slice(0, separator), caseName: value.slice(separator + 1) };
+};
+
+const insideRepository = (path) => {
+  const local = relative(ROOT, path);
+  return local !== '' && local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local);
+};
+
+const isWithin = (parent, candidate) => {
+  const local = relative(parent, candidate);
+  return local === '' || (local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local));
+};
+
+const registeredNativeJourney = (nativeCaseId) => {
+  const { scenarioID, caseName } = parseNativeCaseId(nativeCaseId);
+  const scenario = registry.find((candidate) => candidate.id === scenarioID);
+  if (!scenario) throw new Error('unknown registered native scenario: ' + scenarioID);
+  const registeredCase = scenarioCaseFor(scenario, caseName);
+  const binding = registeredCase.journeyTrace;
+  if (!binding || binding.kind !== 'native-lifecycle') {
+    throw new Error('registered case ' + scenarioID + '/' + caseName + ' has no native-lifecycle journeyTrace binding');
+  }
+  if (binding.captureKind !== 'builder-cda-native-lifecycle') {
+    throw new Error('registered native journeyTrace has an unsupported captureKind: ' + String(binding.captureKind));
+  }
+  if (binding.captureAdapter !== 'builder-native-journey-v1') {
+    throw new Error('registered native journeyTrace has an unsupported capture adapter: ' + String(binding.captureAdapter));
+  }
+  if (typeof binding.name !== 'string' || !binding.name.trim() || binding.name.trim() !== binding.name) {
+    throw new Error('registered journeyTrace name must be a non-empty exact string');
+  }
+  if (typeof binding.model !== 'string' || !binding.model.trim()) {
+    throw new Error('registered journeyTrace model must be a non-empty string');
+  }
+  if (typeof binding.contract !== 'string' || !binding.contract.trim() || isAbsolute(binding.contract)) {
+    throw new Error('registered journeyTrace contract must be a repository-relative path');
+  }
+  if (!Array.isArray(binding.requiredActions) || binding.requiredActions.length === 0 ||
+      binding.requiredActions.some((action) => typeof action !== 'string' || !action.trim()) ||
+      new Set(binding.requiredActions).size !== binding.requiredActions.length) {
+    throw new Error('registered journeyTrace requiredActions must be a non-empty unique action list');
+  }
+  if (!binding.requiredActionCounts || typeof binding.requiredActionCounts !== 'object' || Array.isArray(binding.requiredActionCounts)) {
+    throw new Error('registered native-lifecycle journeyTrace requires exact requiredActionCounts');
+  }
+  if (!binding.minimumActionCounts || typeof binding.minimumActionCounts !== 'object' || Array.isArray(binding.minimumActionCounts)) {
+    throw new Error('registered native-lifecycle journeyTrace requires minimumActionCounts for observed proposal events');
+  }
+  if (!Array.isArray(binding.optionalActions) ||
+      binding.optionalActions.some((action) => typeof action !== 'string' || !action.trim()) ||
+      new Set(binding.optionalActions).size !== binding.optionalActions.length ||
+      binding.optionalActions.some((action) => binding.requiredActions.includes(action))) {
+    throw new Error('registered native-lifecycle journeyTrace requires a unique optionalActions list disjoint from requiredActions');
+  }
+  const exactActions = Object.entries(binding.requiredActionCounts)
+    .filter(([, count]) => Number.isInteger(count) && count > 0)
+    .map(([action]) => action)
+    .sort();
+  const minimumActions = Object.entries(binding.minimumActionCounts)
+    .filter(([, count]) => Number.isInteger(count) && count > 0)
+    .map(([action]) => action)
+    .sort();
+  if (Object.values(binding.requiredActionCounts).some((count) => !Number.isInteger(count) || count < 0) ||
+      Object.values(binding.minimumActionCounts).some((count) => !Number.isInteger(count) || count < 1) ||
+      canonicalJson([...exactActions, ...minimumActions].sort()) !== canonicalJson([...binding.requiredActions].sort()) ||
+      exactActions.some((action) => minimumActions.includes(action))) {
+    throw new Error('registered journeyTrace requiredActions must equal its unique exact-count and minimum-count action keys');
+  }
+
+  const contractPath = resolve(ROOT, binding.contract);
+  if (!insideRepository(contractPath) || !existsSync(contractPath)) {
+    throw new Error('registered journeyTrace contract is missing or escapes the repository: ' + binding.contract);
+  }
+  const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+  if (contract.sourceProfile !== 'journey') throw new Error('registered native journey contract must declare sourceProfile "journey"');
+  const model = contract.models?.[binding.model];
+  if (!model || !Array.isArray(model.actions) || !model.actions.length) {
+    throw new Error('registered journeyTrace model is absent from its contract: ' + binding.model);
+  }
+  const missingModelActions = [...binding.requiredActions, ...binding.optionalActions]
+    .filter((action) => !model.actions.includes(action));
+  if (missingModelActions.length > 0) {
+    throw new Error('registered journeyTrace actions are absent from its model contract: ' + missingModelActions.join(', '));
+  }
+  const actionCounts = contract.phase1?.requiredActionCountsByTrace?.[binding.name];
+  if (!actionCounts || typeof actionCounts !== 'object' || Array.isArray(actionCounts)) {
+    throw new Error('registered journeyTrace name has no exact action-count contract: ' + binding.name);
+  }
+  const nonzeroContractActions = Object.entries(actionCounts)
+    .filter(([, count]) => Number.isInteger(count) && count > 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  const nonzeroBindingActions = Object.entries(binding.requiredActionCounts)
+    .filter(([, count]) => count > 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (canonicalJson(nonzeroContractActions) !== canonicalJson(nonzeroBindingActions)) {
+    throw new Error('registered journeyTrace action counts differ from its contract for ' + binding.name);
+  }
+  const actionMinimums = contract.phase1?.requiredActionMinimumsByTrace?.[binding.name];
+  if (!actionMinimums || typeof actionMinimums !== 'object' || Array.isArray(actionMinimums)) {
+    throw new Error('registered journeyTrace name has no action-minimum contract: ' + binding.name);
+  }
+  const contractMinimums = Object.entries(actionMinimums).sort(([left], [right]) => left.localeCompare(right));
+  const bindingMinimums = Object.entries(binding.minimumActionCounts).sort(([left], [right]) => left.localeCompare(right));
+  if (canonicalJson(contractMinimums) !== canonicalJson(bindingMinimums)) {
+    throw new Error('registered journeyTrace action minimums differ from its contract for ' + binding.name);
+  }
+  const contractOptionalActions = contract.journeyCase?.optionalActions;
+  if (!Array.isArray(contractOptionalActions) ||
+      canonicalJson([...contractOptionalActions].sort()) !== canonicalJson([...binding.optionalActions].sort())) {
+    throw new Error('registered journeyTrace optional actions differ from its contract for ' + binding.name);
+  }
+  const contractActions = contract.phase1?.requiredActionsByTrace?.[binding.name];
+  if (!Array.isArray(contractActions) || canonicalJson([...contractActions].sort()) !==
+      canonicalJson([...binding.requiredActions].sort())) {
+    throw new Error('registered journeyTrace required actions differ from its contract for ' + binding.name);
+  }
+  const manifest = JSON.parse(readFileSync(resolve(ROOT, SOURCE_MANIFEST), 'utf8'));
+  const pinnedPaths = new Set((manifest.sources ?? []).map((source) => source.path));
+  if (!Array.isArray(binding.captureSources) || binding.captureSources.length === 0 ||
+      binding.captureSources.some((path) => typeof path !== 'string' || isAbsolute(path))) {
+    throw new Error('registered native journeyTrace must pin its capture adapter and native workflow sources');
+  }
+  const workflowSource = 'scripts/verify-ui/workflows/' + String(scenario.script ?? '');
+  const requiredPins = [
+    binding.contract,
+    model.module,
+    model.safetyConfig,
+    workflowSource,
+    ...binding.captureSources,
+    'scripts/run-builder-journey.mjs',
+    'scripts/verify-builder-traces.mjs',
+    'scripts/self-test-builder-traces.mjs',
+    'scripts/verify-ui/registry.mjs',
+  ];
+  const missingPins = requiredPins.filter((path) => typeof path !== 'string' || !pinnedPaths.has(path));
+  if (missingPins.length > 0) {
+    throw new Error('registered journeyTrace sources are absent from the Builder source manifest: ' + missingPins.join(', '));
+  }
+  const missingFiles = requiredPins.filter((path) => !existsSync(resolve(ROOT, path)));
+  if (missingFiles.length > 0) {
+    throw new Error('registered journeyTrace source file(s) are missing: ' + missingFiles.join(', '));
+  }
+
+  const nativeSelection = {
+    scenarioID,
+    caseName,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    playwrightTest: registeredCase.playwrightTest,
+    playwrightGrep: registeredCase.playwrightGrep,
+    traceName: binding.name,
+    model: binding.model,
+    contract: binding.contract,
+    traceKind: binding.kind,
+    captureAdapter: binding.captureAdapter,
+    requiredTraceActions: binding.requiredActions,
+    requiredActionCounts: binding.requiredActionCounts,
+    minimumActionCounts: binding.minimumActionCounts,
+    optionalActions: binding.optionalActions,
+    requiredChecks: registeredCase.requiredChecks,
+    expectedIdentity: registeredCase.expectedIdentity ?? null,
+  };
+  return {
+    entry: {
+      id: 'native:' + scenarioID + '/' + caseName,
+      nativeCase: { scenario: scenarioID, case: caseName },
+      spec: registeredCase.playwrightTest,
+      contract: binding.contract,
+      model: binding.model,
+      minBackendCalls: 0,
+      nativeLifecycle: true,
+      journeyTrace: binding,
+    },
+    specPath: String(registeredCase.playwrightTest).replace(/^scripts\//, ''),
+    contract: binding.contract,
+    nativeSelection,
+    registeredCase,
+  };
 };
 
 const runPlaywright = (env, specPath) => {
@@ -116,20 +328,49 @@ const runPlaywright = (env, specPath) => {
   return result.status ?? 1;
 };
 
-const runRegisteredNativeCase = (env, selection) => {
-  const result = spawnSync(process.execPath, [
+const bracketSummaryFromOutput = (output) => {
+  const value = String(output ?? '').trim();
+  for (let start = value.lastIndexOf('{'); start >= 0; start = value.lastIndexOf('{', start - 1)) {
+    try {
+      const candidate = JSON.parse(value.slice(start));
+      if (candidate && typeof candidate === 'object' && typeof candidate.status === 'string' &&
+          typeof candidate.scenario === 'string' && typeof candidate.case === 'string' &&
+          typeof candidate.summary === 'string') return candidate;
+    } catch {}
+  }
+  return null;
+};
+
+const runRegisteredNativeCase = (env, selection, { targetPath = null, evidenceParent = null } = {}) => {
+  const args = [
     join(SCRIPT_DIR, 'run-native-verification-bracket.mjs'),
     '--scenario', selection.scenarioID,
     '--case', selection.caseName,
-    '--target-from-environment',
     '--grep', selection.playwrightGrep,
-  ], {
+  ];
+  if (selection.traceKind === 'native-lifecycle') {
+    if (!targetPath) throw new Error('registered native lifecycle case requires --target <owned-target-config>');
+    args.push('--target', targetPath);
+    if (evidenceParent) args.push('--evidence-parent', evidenceParent);
+  } else {
+    args.push('--target-from-environment');
+  }
+  const result = spawnSync(process.execPath, args, {
     cwd: ROOT,
     env,
-    stdio: 'inherit',
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
   });
   if (result.error) throw result.error;
-  return result.status ?? 1;
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  const summary = bracketSummaryFromOutput(result.stdout);
+  return {
+    exitStatus: result.status ?? 1,
+    summary,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+  };
 };
 
 const validateTrace = (tracePath, reportPath, contractPath, allowPartial) => {
@@ -150,10 +391,74 @@ const validateTrace = (tracePath, reportPath, contractPath, allowPartial) => {
   return result.status ?? 1;
 };
 
+const inspectNativeLifecycleJourney = (trace, traceRequirements) => {
+  const expectedName = traceRequirements.name ?? traceRequirements.traceName;
+  if (trace.name !== expectedName) {
+    throw new Error('native journey trace name must be ' + expectedName + '; found ' + String(trace.name));
+  }
+  if (trace.model !== traceRequirements.model) {
+    throw new Error('native journey trace model must be ' + traceRequirements.model + '; found ' + String(trace.model));
+  }
+  if (!trace.initialObservation || typeof trace.initialObservation !== 'object' || Array.isArray(trace.initialObservation)) {
+    throw new Error('native journey trace must preserve the actual initial Builder observation');
+  }
+  if (!Array.isArray(trace.actions) || trace.actions.length === 0) {
+    throw new Error('native journey trace must preserve actual transition observations');
+  }
+  const observedCounts = {};
+  for (const action of trace.actions) {
+    if (!action || typeof action.label !== 'string' || typeof action.event !== 'string') {
+      throw new Error('native journey actions must preserve an exact label and observed event');
+    }
+    observedCounts[action.label] = (observedCounts[action.label] ?? 0) + 1;
+  }
+  const requiredActionCounts = traceRequirements.requiredActionCounts ?? {};
+  for (const [action, expected] of Object.entries(requiredActionCounts)) {
+    const actual = observedCounts[action] ?? 0;
+    if (actual !== expected) {
+      throw new Error('native journey action count for ' + action + ' must be ' + expected + '; found ' + actual);
+    }
+  }
+  const minimumActionCounts = traceRequirements.minimumActionCounts ?? {};
+  for (const [action, minimum] of Object.entries(minimumActionCounts)) {
+    const actual = observedCounts[action] ?? 0;
+    if (actual < minimum) {
+      throw new Error('native journey action count for ' + action + ' must be at least ' + minimum + '; found ' + actual);
+    }
+  }
+  for (const action of Object.keys(observedCounts)) {
+    if (!Object.hasOwn(requiredActionCounts, action) && !Object.hasOwn(minimumActionCounts, action) &&
+        !(traceRequirements.optionalActions ?? []).includes(action)) {
+      throw new Error('native journey contains an action absent from its registered action contract: ' + action);
+    }
+  }
+  const actionLabels = new Set(Object.keys(observedCounts));
+  const requiredActions = traceRequirements.requiredActions ?? traceRequirements.requiredTraceActions ?? [];
+  const missingActions = requiredActions.filter((action) => !actionLabels.has(action));
+  if (missingActions.length > 0) {
+    throw new Error('native journey trace is missing registered actions: ' + missingActions.join(', '));
+  }
+  if (!Array.isArray(trace.unmodeledEvents)) {
+    throw new Error('native journey trace must retain its unmodeled-event inventory');
+  }
+  return {
+    name: trace.name,
+    model: trace.model,
+    actions: trace.actions.map((action) => action.label),
+    actionCounts: observedCounts,
+    actionCount: trace.actions.length,
+    result: 'captured',
+    initialObservation: trace.initialObservation,
+  };
+};
+
 const inspectJourney = (tracePath, minBackendCalls = 10, traceRequirements = {}) => {
   const payload = JSON.parse(readFileSync(resolve(ROOT, tracePath), 'utf8'));
   const trace = payload.traces?.[0];
   if (!trace) throw new Error('journey trace did not contain a trace');
+  if (traceRequirements.traceKind === 'native-lifecycle') {
+    return inspectNativeLifecycleJourney(trace, traceRequirements);
+  }
   if (traceRequirements.name && trace.name !== traceRequirements.name) {
     throw new Error('journey trace name must be ' + traceRequirements.name + '; found ' + String(trace.name));
   }
@@ -182,6 +487,189 @@ const inspectJourney = (tracePath, minBackendCalls = 10, traceRequirements = {})
     backendCallCount: trace.backendCalls.length,
     result: outcome.status === 'ready' ? 'pass' : 'product-failure',
     outcome,
+  };
+};
+
+const validateNativeBracketSummary = (summary, selection, targetPath) => {
+  const issues = [];
+  const requireValue = (condition, message) => { if (!condition) issues.push(message); };
+  requireValue(summary && typeof summary === 'object', 'native bracket summary is missing');
+  if (!summary || typeof summary !== 'object') return { status: 'failed', issues };
+  requireValue(summary.status === 'passed', 'native bracket status is ' + String(summary.status));
+  requireValue(summary.nativeStatus === 'passed', 'native status is ' + String(summary.nativeStatus));
+  requireValue(summary.scenario === selection.scenarioID && summary.case === selection.caseName,
+    'native bracket identity does not match the registered case');
+  requireValue(summary.integrity?.status === 'PASS', 'native bracket integrity status is not PASS');
+  requireValue(summary.targetValidation?.registryBinding === 'bound', 'native target is not bound to the owned target configuration');
+  if (targetPath) {
+    requireValue(resolve(summary.targetValidation?.configPath ?? '') === resolve(targetPath),
+      'native bracket target config differs from the selected owned target config');
+  }
+  const expectedProject = selection.expectedIdentity?.project;
+  requireValue(typeof expectedProject === 'string' && summary.targetIdentity?.project === expectedProject,
+    'native bracket project identity differs from the registered target');
+  requireValue(typeof summary.targetIdentity?.generation === 'string' && summary.targetIdentity.generation.length > 0,
+    'native bracket has no validated generation identity');
+
+  const dimensions = summary.integrity?.dimensions ?? {};
+  const source = dimensions.source;
+  const docs = dimensions.docs;
+  const api = dimensions.apiBuildIdentity;
+  requireValue(source?.status === 'PASS' && source.before?.sha256 === source.after?.sha256 &&
+    source.before?.files === source.after?.files && Array.isArray(source.changedPaths) && source.changedPaths.length === 0,
+  'native source integrity did not prove identical before/after source');
+  requireValue(docs?.status === 'PASS' && docs.before?.sha256 === docs.after?.sha256 &&
+    docs.before?.files === docs.after?.files && Array.isArray(docs.changedPaths) && docs.changedPaths.length === 0,
+  'native documentation integrity did not prove identical before/after documents');
+  requireValue(api?.status === 'PASS' && typeof api.before === 'string' && api.before === api.after,
+    'native API build identity did not remain unchanged');
+  requireValue(dimensions.ownedMounts?.status === 'PASS' && dimensions.healthBefore?.status === 'PASS' &&
+    dimensions.healthAfter?.status === 'PASS', 'native owned mounts or health checks did not pass');
+
+  const lifecycle = summary.lifecycle ?? {};
+  requireValue(lifecycle.reportStatus === 'passed' && lifecycle.reportIdentityMatchesSelection === true,
+    'native domain report did not pass the exact selected case identity');
+  requireValue(lifecycle.requiredCheckCount > 0 && lifecycle.passedCheckCount === lifecycle.requiredCheckCount &&
+    lifecycle.failedCheckNames?.length === 0 && lifecycle.missingCheckNames?.length === 0,
+  'native required checks did not all pass');
+  requireValue(Array.isArray(selection.requiredChecks) && selection.requiredChecks.length > 0 &&
+    lifecycle.requiredCheckCount === selection.requiredChecks.length,
+  'native bracket required-check count differs from the registered case contract');
+  requireValue(['usability', 'correctness', 'persistence', 'performance'].every((dimension) =>
+    lifecycle.dimensions?.[dimension] === 'passed'), 'native lifecycle dimensions are incomplete or failed');
+
+  let domainReport = null;
+  const domainReportPath = summary.evidence?.domainReport;
+  if (typeof domainReportPath !== 'string' || !existsSync(domainReportPath)) {
+    issues.push('native domain report artifact is missing');
+  } else {
+    try {
+      domainReport = JSON.parse(readFileSync(domainReportPath, 'utf8'));
+      requireValue(domainReport.status === 'passed' && domainReport.scenario === selection.scenarioID &&
+        domainReport.case === selection.caseName, 'native domain report identity or status is invalid');
+      requireValue(domainReport.target?.project === summary.targetIdentity?.project &&
+        domainReport.target?.generation === summary.targetIdentity?.generation,
+      'native domain report project/generation differs from the bracket target identity');
+      requireValue(domainReport.target?.sourceFingerprint?.sha256 === source?.before?.sha256 &&
+        domainReport.target?.sourceFingerprint?.files === source?.before?.files,
+      'native domain report source fingerprint differs from the before/after bracket');
+      requireValue(domainReport.target?.apiBuildIdentity === api?.before,
+        'native domain report API identity differs from the before/after bracket');
+      const requiredChecks = Array.isArray(selection.requiredChecks) ? selection.requiredChecks : [];
+      const assertionNames = Array.isArray(domainReport.assertions)
+        ? domainReport.assertions.map((assertion) => assertion?.name).filter((name) => typeof name === 'string')
+        : [];
+      const duplicateAssertionNames = assertionNames.filter((name, index) => assertionNames.indexOf(name) !== index);
+      requireValue(requiredChecks.length > 0 && new Set(requiredChecks).size === requiredChecks.length,
+        'registered native required checks must be non-empty and uniquely named');
+      requireValue(duplicateAssertionNames.length === 0,
+        'native domain report contains duplicate named assertions');
+      const requiredAssertionProblems = requiredChecks.filter((name) => {
+        const matches = (Array.isArray(domainReport.assertions) ? domainReport.assertions : [])
+          .filter((assertion) => assertion?.name === name);
+        return matches.length !== 1 || matches[0]?.status !== 'passed';
+      });
+      requireValue(requiredAssertionProblems.length === 0,
+        'native domain report is missing exactly one passing assertion for required check(s): ' + requiredAssertionProblems.join(', '));
+      requireValue(Array.isArray(domainReport.requiredChecks) && domainReport.requiredChecks.length === lifecycle.requiredCheckCount &&
+        canonicalJson(domainReport.requiredChecks) === canonicalJson(selection.requiredChecks) &&
+        Array.isArray(domainReport.missingRequiredChecks) && domainReport.missingRequiredChecks.length === 0 &&
+        Array.isArray(domainReport.assertions) &&
+        domainReport.assertions.every((assertion) => assertion.status === 'passed'),
+      'native domain report assertions do not all pass');
+      if (selection.traceKind === 'native-lifecycle') {
+        const traceProof = domainReport.target?.builderJourneyTrace;
+        const requestCoverage = traceProof?.requestCoverage;
+        const mutationControls = traceProof?.mutationControls;
+        requireValue(traceProof?.status === 'pass' && traceProof?.replayStatus === 'pass' &&
+          traceProof?.selfTestStatus === 'pass' &&
+          traceProof?.traceName === selection.traceName &&
+          traceProof?.nativeCaseKey === `${selection.scenarioID}/${selection.caseName}`,
+        'native domain report did not include a passing source-bound trace replay and mutation self-test');
+        requireValue(Number.isInteger(requestCoverage?.observed) &&
+          requestCoverage.modeled === requestCoverage.observed &&
+          requestCoverage.unmapped === 0 && requestCoverage.duplicates === 0 &&
+          Object.keys(traceProof.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
+          Object.keys(traceProof.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
+          traceProof.unmodeledEvents?.unclassified?.total === 0,
+        'native formal receipt has incomplete request, action-count, or read-only support coverage');
+        requireValue(Array.isArray(mutationControls) && mutationControls.length > 0 &&
+          mutationControls.every((control) => typeof control.name === 'string' &&
+            control.name.length > 0 && control.status === 'pass'),
+        'native formal receipt is missing passing mutation controls');
+      }
+    } catch (error) {
+      issues.push('native domain report could not be validated: ' + String(error?.message ?? error));
+    }
+  }
+  return {
+    status: issues.length === 0 ? 'passed' : 'failed',
+    issues,
+    summaryPath: summary.evidence?.summary ?? null,
+    domainReportPath: domainReportPath ?? null,
+    targetIdentity: summary.targetIdentity,
+    sourceFingerprint: source?.before ?? null,
+    apiBuildIdentity: api?.before ?? null,
+    requiredCheckCount: lifecycle.requiredCheckCount ?? null,
+    passedCheckCount: lifecycle.passedCheckCount ?? null,
+    lifecycleDimensions: lifecycle.dimensions ?? null,
+    formalTraceProof: domainReport?.target?.builderJourneyTrace ?? null,
+  };
+};
+
+const validateNativeTlaReceipt = ({ tracePath, tla, sourceCommit, sourceFingerprint, contractSourceCommit, selection }) => {
+  const issues = [];
+  const requireValue = (condition, message) => { if (!condition) issues.push(message); };
+  let traceDocument = null;
+  try { traceDocument = JSON.parse(readFileSync(resolve(ROOT, tracePath), 'utf8')); }
+  catch (error) { issues.push('native trace could not be read: ' + String(error?.message ?? error)); }
+  requireValue(traceDocument?.sourceCommit === sourceCommit && tla?.sourceCommit === sourceCommit,
+    'native trace/TLA source commit differs from the tested commit');
+  requireValue(traceDocument?.sourceFingerprint === sourceFingerprint && tla?.sourceFingerprint === sourceFingerprint,
+    'native trace/TLA source fingerprint differs from the pinned Builder source set');
+  requireValue(traceDocument?.contractSourceCommit === contractSourceCommit && tla?.contractSourceCommit === contractSourceCommit,
+    'native trace/TLA contract source commit differs from the selected static contract');
+  requireValue(traceDocument?.sourceProfile === 'journey' && tla?.sourceProfile === 'journey',
+    'native trace/TLA source profile is not journey');
+  requireValue(tla?.traceCount === 1 && tla?.uniqueTraceCount === 1 && tla?.validatedCount === 1 && tla?.invalidCount === 0,
+    'TLA receipt does not contain exactly one validated trace');
+  requireValue(tla?.coverage?.requiredModels?.missing?.length === 0 &&
+    tla?.coverage?.requiredActions?.missing?.length === 0 &&
+    Object.keys(tla?.coverage?.requiredActionsByTrace?.missing ?? {}).length === 0,
+  'TLA receipt is missing required model or action coverage');
+  requireValue(Array.isArray(tla?.coverage?.requiredEvents?.missing) && tla.coverage.requiredEvents.missing.length === 0,
+    'TLA receipt is missing required events');
+  requireValue(tla?.unmodeledEvents?.unclassified?.total === 0,
+    'TLA receipt contains unclassified events');
+  const trace = traceDocument?.traces?.[0];
+  const receipt = tla?.traces?.[0];
+  const journeyReceipt = tla?.builderJourneyTrace;
+  requireValue(trace?.name === selection.traceName && receipt?.name === selection.traceName,
+    'native trace/TLA journey name differs from the registered binding');
+  requireValue(trace?.model === selection.model && receipt?.model === selection.model,
+    'native trace/TLA model differs from the registered binding');
+  requireValue(receipt?.status === 'pass' && receipt?.actionCount === trace?.actions?.length,
+    'TLA receipt did not replay every observed action successfully');
+  requireValue(journeyReceipt?.traceName === selection.traceName &&
+    journeyReceipt?.nativeCaseKey === selection.nativeCaseKey &&
+    journeyReceipt?.replayStatus === 'pass' && journeyReceipt?.status === 'pending-self-test' &&
+    Number.isInteger(journeyReceipt?.requestCoverage?.observed) &&
+    journeyReceipt.requestCoverage.modeled === journeyReceipt.requestCoverage.observed &&
+    journeyReceipt.requestCoverage.unmapped === 0 && journeyReceipt.requestCoverage.duplicates === 0 &&
+    Object.keys(journeyReceipt.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
+    Object.keys(journeyReceipt.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
+    journeyReceipt.unmodeledEvents?.unclassified?.total === 0,
+  'TLA report typed receipt does not bind the selected native case or complete request/action coverage');
+  return {
+    status: issues.length === 0 ? 'passed' : 'failed',
+    issues,
+    traceName: trace?.name ?? null,
+    model: trace?.model ?? null,
+    actionCount: trace?.actions?.length ?? null,
+    sourceCommit: tla?.sourceCommit ?? null,
+    sourceFingerprint: tla?.sourceFingerprint ?? null,
+    contractSourceCommit: tla?.contractSourceCommit ?? null,
+    tracePath,
   };
 };
 
@@ -271,7 +759,29 @@ const ensureDatasetTable = async ({ apiOrigin, project, explorerId }) => {
 
 const main = async () => {
   const options = parseArgs();
-  const selectedJourney = options.journey ? selectJourney(options.journey, options.manifest ?? MANIFEST) : null;
+  if (options.checkBinding) {
+    const selected = registeredNativeJourney(options.nativeCase);
+    const sourceManifest = JSON.parse(readFileSync(resolve(ROOT, SOURCE_MANIFEST), 'utf8'));
+    const sourceFingerprint = fingerprintPinnedSources(sourceManifest.sources);
+    console.log(JSON.stringify({
+      status: 'binding-consistent',
+      nativeCase: `${selected.nativeSelection.scenarioID}/${selected.nativeSelection.caseName}`,
+      traceName: selected.nativeSelection.traceName,
+      model: selected.nativeSelection.model,
+      contract: selected.nativeSelection.contract,
+      requiredActions: selected.nativeSelection.requiredTraceActions,
+      requiredActionCounts: selected.nativeSelection.requiredActionCounts,
+      minimumActionCounts: selected.nativeSelection.minimumActionCounts,
+      sourceCommit: git(['rev-parse', 'HEAD']),
+      sourceFingerprint,
+      sourceFileCount: sourceManifest.sources.length,
+      nativeLifecycleProofStatus: 'not-run',
+    }, null, 2));
+    return;
+  }
+  const selectedJourney = options.nativeCase
+    ? registeredNativeJourney(options.nativeCase)
+    : options.journey ? selectJourney(options.journey, options.manifest ?? MANIFEST) : null;
   const sourceCommit = git(['rev-parse', 'HEAD']);
   const sourceManifest = JSON.parse(readFileSync(resolve(ROOT, SOURCE_MANIFEST), 'utf8'));
   const sourceFingerprint = fingerprintPinnedSources(sourceManifest.sources);
@@ -284,6 +794,9 @@ const main = async () => {
   }
   const contractSourceCommit = actionContract.sourceCommit;
   const nativeSelection = selectedJourney?.nativeSelection;
+  if (selectedJourney?.entry.nativeLifecycle && selectedJourney.registeredCase.expectedIdentity && !options.target) {
+    throw new Error('--native-case requires --target <owned-target-config> for this registered target-bound case');
+  }
   if (nativeSelection && (options.project || options.generation || options.explorer || options.uiUrl || options.apiUrl || options.bootstrap)) {
     throw new Error('journey ' + selectedJourney.entry.id + ' runs through the registered native fixture; configure its target environment instead of passing legacy dataset options');
   }
@@ -327,14 +840,35 @@ const main = async () => {
     fixtureSource = 'fresh-synthetic-fixture';
   }
 
+  const nativeRunID = nativeSelection?.traceKind === 'native-lifecycle'
+    ? Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7)
+    : null;
+  const nativeArtifactStem = nativeSelection?.traceKind === 'native-lifecycle'
+    ? `${nativeSelection.scenarioID}-${nativeSelection.caseName}-${nativeRunID}`
+    : null;
   const traceRelative = options.trace ?? (selectedJourney
-    ? `.artifacts/builder-journey/${selectedJourney.entry.id}-trace.json`
+    ? `.artifacts/builder-journey/${nativeArtifactStem ?? selectedJourney.entry.id}-trace.json`
     : DEFAULT_TRACE);
   const reportRelative = options.report ?? (selectedJourney
-    ? `.artifacts/builder-journey/${selectedJourney.entry.id}-report.json`
+    ? `.artifacts/builder-journey/${nativeArtifactStem ?? selectedJourney.entry.id}-report.json`
     : DEFAULT_REPORT);
   const tracePath = resolve(ROOT, traceRelative);
   const reportPath = resolve(ROOT, reportRelative);
+  let nativeEvidenceParent = null;
+  if (nativeSelection?.traceKind === 'native-lifecycle') {
+    const artifactRoot = resolve(ROOT, '.artifacts');
+    if (!insideRepository(tracePath) || !insideRepository(reportPath) ||
+        !isWithin(artifactRoot, tracePath) || !isWithin(artifactRoot, reportPath)) {
+      throw new Error('native lifecycle trace and report paths must stay under repository .artifacts during the frozen browser bracket');
+    }
+    if (existsSync(tracePath) || existsSync(reportPath)) {
+      throw new Error('native lifecycle trace/report output already exists; choose fresh --trace and --report paths');
+    }
+    nativeEvidenceParent = resolve(ROOT, options.evidenceParent ?? `.artifacts/builder-journey/${nativeArtifactStem}-bracket`);
+    if (!insideRepository(nativeEvidenceParent) || !isWithin(artifactRoot, nativeEvidenceParent)) {
+      throw new Error('native lifecycle evidence parent must stay under repository .artifacts during the frozen browser bracket');
+    }
+  }
   mkdirSync(dirname(tracePath), { recursive: true });
   mkdirSync(dirname(reportPath), { recursive: true });
 
@@ -353,15 +887,36 @@ const main = async () => {
       LOOM_FAST_API_URL: apiUrl,
     } : {}),
     LOOM_JOURNEY_TRACE: tracePath,
+    LOOM_JOURNEY_CONTRACT: actionContractPath,
+    ...(nativeSelection?.traceKind === 'native-lifecycle' ? {
+      LOOM_JOURNEY_NAME: nativeSelection.traceName,
+      LOOM_JOURNEY_MODEL: nativeSelection.model,
+    } : {}),
     LOOM_JOURNEY_SOURCE_COMMIT: sourceCommit,
     LOOM_JOURNEY_CONTRACT_SOURCE_COMMIT: contractSourceCommit,
     LOOM_JOURNEY_SOURCE_FINGERPRINT: sourceFingerprint,
     LOOM_JOURNEY_MIN_BACKEND_CALLS: String(selectedJourney?.entry.minBackendCalls ?? 10),
   };
 
+  let nativeRun = null;
+  let nativeBracket = null;
   const playwrightStatus = nativeSelection
-    ? runRegisteredNativeCase(env, nativeSelection)
+    ? (nativeRun = runRegisteredNativeCase(env, nativeSelection, {
+      targetPath: options.target ? resolve(ROOT, options.target) : null,
+      evidenceParent: nativeEvidenceParent,
+    }), nativeRun.exitStatus)
     : runPlaywright(env, selectedJourney?.specPath);
+  if (nativeSelection?.traceKind === 'native-lifecycle') {
+    nativeBracket = validateNativeBracketSummary(nativeRun?.summary, nativeSelection,
+      options.target ? resolve(ROOT, options.target) : null);
+  }
+  let sourceFingerprintAfter = sourceFingerprint;
+  let sourceFingerprintAfterError = null;
+  if (nativeSelection?.traceKind === 'native-lifecycle') {
+    try { sourceFingerprintAfter = fingerprintPinnedSources(sourceManifest.sources); }
+    catch (error) { sourceFingerprintAfterError = String(error?.message ?? error); }
+  }
+  const formalSourceFingerprintStable = sourceFingerprintAfterError === null && sourceFingerprintAfter === sourceFingerprint;
   const fixture = checked ? {
     project: checked.project,
     generation: checked.generation,
@@ -379,6 +934,7 @@ const main = async () => {
       fixture,
       journey: selectedJourney ? { id: selectedJourney.entry.id, spec: selectedJourney.entry.spec } : null,
       ...(nativeSelection ? { nativeCase: nativeSelection } : {}),
+      ...(nativeBracket ? { nativeBracket } : {}),
       result: 'harness-failure',
       playwrightStatus,
       ...(nativeSelection ? { nativeRunnerStatus: playwrightStatus } : {}),
@@ -402,6 +958,23 @@ const main = async () => {
     selectedJourney?.entry.minBackendCalls ?? 10,
     selectedJourney?.nativeSelection ?? {},
   );
+  if (nativeSelection?.traceKind === 'native-lifecycle') {
+    const proof = nativeBracket?.formalTraceProof;
+    const addProofIssue = (message) => nativeBracket?.issues.push(message);
+    if (!proof || typeof proof.tracePath !== 'string' || resolve(ROOT, proof.tracePath) !== tracePath) {
+      addProofIssue('native report formal trace path differs from the selected registered trace output');
+    }
+    if (proof?.traceName !== nativeSelection.traceName) {
+      addProofIssue('native report formal traceName differs from the registered trace binding');
+    }
+    if (proof?.nativeCaseKey !== `${nativeSelection.scenarioID}/${nativeSelection.caseName}`) {
+      addProofIssue('native report formal nativeCaseKey differs from the selected native bracket case');
+    }
+    if (!Array.isArray(proof?.actionLabels) || canonicalJson(proof.actionLabels) !== canonicalJson(journey.actions)) {
+      addProofIssue('native report formal action labels differ from the captured trace');
+    }
+    if (nativeBracket && nativeBracket.issues.length > 0) nativeBracket.status = 'failed';
+  }
   const tlaReportPath = reportPath.replace(/\.json$/, '.tla.json');
   const hasDeclaredModel = Boolean(selectedJourney?.entry.model);
   const unmodeled = Boolean(selectedJourney && selectedJourney.entry.contract === null && !hasDeclaredModel);
@@ -411,10 +984,21 @@ const main = async () => {
   const allowPartial = Boolean(selectedJourney && selectedJourney.entry.contract === null && hasDeclaredModel);
   const validationStatus = unmodeled ? 0 : validateTrace(tracePath, tlaReportPath, contractPath, allowPartial);
   const tla = !unmodeled && existsSync(tlaReportPath) ? JSON.parse(readFileSync(tlaReportPath, 'utf8')) : null;
-  const tlaStatus = unmodeled ? 'not-modeled'
+  let tlaStatus = unmodeled ? 'not-modeled'
     : allowPartial ? (validationStatus === 0 ? 'partial' : 'fail')
       : (validationStatus === 0 ? 'pass' : 'fail');
-  const result = journey.result === 'product-failure'
+  const formalTla = nativeSelection?.traceKind === 'native-lifecycle'
+    ? validateNativeTlaReceipt({ tracePath, tla, sourceCommit, sourceFingerprint, contractSourceCommit, selection: nativeSelection })
+    : null;
+  if (formalTla?.status !== undefined && formalTla.status !== 'passed') tlaStatus = 'fail';
+  const nativeBracketFailed = nativeSelection?.traceKind === 'native-lifecycle' && nativeBracket?.status !== 'passed';
+  const nativeFormalProofFailed = nativeSelection?.traceKind === 'native-lifecycle' &&
+    (validationStatus !== 0 || formalTla?.status !== 'passed' || !formalSourceFingerprintStable);
+  const result = nativeBracketFailed
+    ? 'native-runner-failure'
+    : nativeFormalProofFailed
+      ? 'formal-proof-failure'
+      : journey.result === 'product-failure'
     ? 'product-failure'
     : nativeSelection && playwrightStatus !== 0
       ? 'native-runner-failure'
@@ -428,11 +1012,18 @@ const main = async () => {
     fixture,
     journey,
     ...(nativeSelection ? { nativeCase: nativeSelection } : {}),
+    ...(nativeBracket ? { nativeBracket } : {}),
     result,
     playwrightStatus,
     ...(nativeSelection ? { nativeRunnerStatus: playwrightStatus } : {}),
     tlaStatus,
     tla,
+    ...(formalTla ? { formalTla } : {}),
+    ...(nativeSelection?.traceKind === 'native-lifecycle' ? {
+      formalSourceFingerprintAfter: sourceFingerprintAfter,
+      formalSourceFingerprintAfterError: sourceFingerprintAfterError,
+      formalSourceFingerprintStable,
+    } : {}),
   };
   writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
 
@@ -465,6 +1056,22 @@ const main = async () => {
     return;
   }
 
+  if (result === 'formal-proof-failure') {
+    console.error('JOURNEY_FORMAL_PROOF_FAILURE ' + JSON.stringify({
+      journey: selectedJourney.entry.id,
+      nativeCase: `${nativeSelection.scenarioID}/${nativeSelection.caseName}`,
+      nativeBracket: nativeBracket?.status ?? null,
+      nativeBracketIssues: nativeBracket?.issues ?? [],
+      formalTla: formalTla?.status ?? null,
+      formalTlaIssues: formalTla?.issues ?? [],
+      trace: traceRelative,
+      tlaReport: reportPath.replace(/\.json$/, '.tla.json'),
+      report: reportRelative,
+    }));
+    process.exitCode = 1;
+    return;
+  }
+
   if (validationStatus !== 0) {
     process.exitCode = validationStatus;
     return;
@@ -475,15 +1082,24 @@ const main = async () => {
     journey: selectedJourney?.entry.id ?? journey.name,
     nativeCase: nativeSelection ? `${nativeSelection.scenarioID}/${nativeSelection.caseName}` : null,
     actions: journey.actions,
-    backendCallCount: journey.backendCallCount,
-    outcome: journey.outcome,
+    ...(nativeSelection?.traceKind === 'native-lifecycle' ? {
+      actionCounts: journey.actionCounts,
+      actionCount: journey.actionCount,
+      nativeBracket: nativeBracket.status,
+      nativeBracketSummary: nativeBracket.summaryPath,
+      formalTla: formalTla.status,
+    } : { backendCallCount: journey.backendCallCount, outcome: journey.outcome }),
     tlaStatus: report.tlaStatus,
     trace: traceRelative,
     report: reportRelative,
   }));
 };
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export { validateNativeBracketSummary, validateNativeTlaReceipt };
