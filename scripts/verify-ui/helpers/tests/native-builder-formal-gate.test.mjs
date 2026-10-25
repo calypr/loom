@@ -171,6 +171,22 @@ test('native Builder proof gates accept a complete retained receipt and reject l
     report: bracket.domainReportPath,
   };
   assert.equal(validateNativeBracketEnvelope(envelope, bracket.selection, bracket.summary.targetValidation.configPath).status, 'passed');
+  const optionalDuplicateDiagnostics = copy(bracket.domainReport);
+  optionalDuplicateDiagnostics.assertions.push(
+    { name: 'Change starting records for Specimen completed', status: 'passed' },
+    { name: 'Change starting records for Specimen completed', status: 'passed' },
+    { name: 'Make a row for each related record Follow a relationship; make one row for each match. completed', status: 'passed' },
+    { name: 'Make a row for each related record Follow a relationship; make one row for each match. completed', status: 'passed' },
+  );
+  writeFileSync(bracket.domainReportPath, JSON.stringify(optionalDuplicateDiagnostics));
+  assert.equal(validateNativeBracketSummary(bracket.summary, bracket.selection, bracket.summary.targetValidation.configPath).status, 'passed');
+
+  const duplicateRequiredAssertion = copy(optionalDuplicateDiagnostics);
+  duplicateRequiredAssertion.assertions.push({ name: bracket.selection.requiredChecks[0], status: 'passed' });
+  writeFileSync(bracket.domainReportPath, JSON.stringify(duplicateRequiredAssertion));
+  assert.equal(validateNativeBracketSummary(bracket.summary, bracket.selection, bracket.summary.targetValidation.configPath).status, 'failed');
+  writeFileSync(bracket.domainReportPath, JSON.stringify(bracket.domainReport));
+
   assert.equal(validateNativeBracketEnvelope({ ...envelope, summary: join(root, 'missing-summary.json') }, bracket.selection,
     bracket.summary.targetValidation.configPath).status, 'failed');
   assert.equal(validateNativeBracketEnvelope({ ...envelope, scenario: 'wrong-scenario' }, bracket.selection,

@@ -569,14 +569,8 @@ const validateNativeBracketSummary = (summary, selection, targetPath) => {
       requireValue(domainReport.target?.apiBuildIdentity === api?.before,
         'native domain report API identity differs from the before/after bracket');
       const requiredChecks = Array.isArray(selection.requiredChecks) ? selection.requiredChecks : [];
-      const assertionNames = Array.isArray(domainReport.assertions)
-        ? domainReport.assertions.map((assertion) => assertion?.name).filter((name) => typeof name === 'string')
-        : [];
-      const duplicateAssertionNames = assertionNames.filter((name, index) => assertionNames.indexOf(name) !== index);
       requireValue(requiredChecks.length > 0 && new Set(requiredChecks).size === requiredChecks.length,
         'registered native required checks must be non-empty and uniquely named');
-      requireValue(duplicateAssertionNames.length === 0,
-        'native domain report contains duplicate named assertions');
       const requiredAssertionProblems = requiredChecks.filter((name) => {
         const matches = (Array.isArray(domainReport.assertions) ? domainReport.assertions : [])
           .filter((assertion) => assertion?.name === name);
