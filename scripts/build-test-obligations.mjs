@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
+import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MODEL_DIR = 'verification/builder-interactions';
@@ -22,11 +23,34 @@ const OUTPUT_MD = MODEL_DIR + '/test-obligations.md';
 const args = process.argv.slice(2);
 const jsonPath = valueFor('--json') ?? OUTPUT_JSON;
 const markdownPath = valueFor('--markdown') ?? OUTPUT_MD;
+const runtimeSummaryPaths = valuesFor('--runtime-summary');
+const runtimeOutputPath = valueFor('--runtime-output');
 const check = args.includes('--check');
+
+if (runtimeSummaryPaths.length > 0 && !runtimeOutputPath) {
+  fail('--runtime-summary requires an explicit external --runtime-output path');
+}
+if (runtimeSummaryPaths.length > 0 && (args.includes('--json') || args.includes('--markdown'))) {
+  fail('--runtime-summary writes only to --runtime-output; static JSON/Markdown output paths cannot be overridden in runtime mode');
+}
+if (runtimeSummaryPaths.length === 0 && runtimeOutputPath) {
+  fail('--runtime-output requires at least one --runtime-summary');
+}
 
 function valueFor(name) {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
+}
+
+function valuesFor(name) {
+  const values = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] !== name) continue;
+    const value = args[index + 1];
+    if (!value || value.startsWith('--')) fail(name + ' needs a path');
+    values.push(value);
+  }
+  return values;
 }
 
 function fail(message) {
@@ -119,6 +143,10 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function callArgumentsAt(lines, lineNumber, callPattern) {
   const index = lineNumber - 1;
   const startLine = lines[index] ?? '';
@@ -204,13 +232,307 @@ function buildRegistryCaseIndex(registry) {
   };
   for (const scenario of registry) {
     for (const [caseName, caseData] of Object.entries(scenario.cases ?? {})) {
+      const focusedChecks = new Map();
+      const configuredChecks = caseData.focusedChecks ?? [];
+      planFocusedCheckGroups(configuredChecks, ROOT);
+      for (const focusedCheck of configuredChecks) {
+        if (!nonEmptyString(focusedCheck.id)) continue;
+        focusedChecks.set(focusedCheck.id, {
+          id: focusedCheck.id,
+          cwd: focusedCheck.cwd ?? '.',
+          command: Array.isArray(focusedCheck.command) ? [...focusedCheck.command] : [],
+          sourceFiles: Array.isArray(focusedCheck.sourceFiles) ? [...focusedCheck.sourceFiles] : [],
+        });
+      }
       cases.set(scenario.id + ':' + caseName, {
         requiredChecks: new Set(requiredChecks(caseData.requiredChecks)),
         focusedCheckIds: new Set((caseData.focusedChecks ?? []).map((check) => check.id).filter(Boolean)),
+        focusedChecks,
       });
     }
   }
   return cases;
+}
+
+function repoPath(path) {
+  const absolute = resolve(ROOT, path);
+  const fromRoot = relative(ROOT, absolute);
+  if (fromRoot === '..' || fromRoot.startsWith('../') || fromRoot.startsWith('..\\')) return null;
+  return fromRoot.split('\\').join('/');
+}
+
+function externalRuntimeOutput(path) {
+  const absolute = resolve(ROOT, path);
+  if (repoPath(absolute) !== null) throw new Error('--runtime-output must be outside the repository');
+  return absolute;
+}
+
+function configuredCommandMjsPaths(focusedCheck, knownPaths) {
+  const command = focusedCheck.command ?? [];
+  const fileOffset = command[0] === 'node-test' ? 1 : 4;
+  return uniqueSorted(command.slice(fileOffset)
+    .filter((argument) => typeof argument === 'string' && argument.endsWith('.mjs'))
+    .map((argument) => repoPath(argument))
+    .filter((path) => knownPaths.has(path)));
+}
+
+function focusedInputPaths(focusedCheck) {
+  const command = focusedCheck.command ?? [];
+  const fileOffset = command[0] === 'node-test' ? 1 : 4;
+  return [...command.slice(fileOffset), ...(focusedCheck.sourceFiles ?? [])];
+}
+
+function configuredConnectionIndex(registry, knownPaths, planningRoot = ROOT) {
+  const byPath = new Map([...knownPaths].map((path) => [path, []]));
+  for (const scenario of registry) {
+    for (const [caseName, caseData] of Object.entries(scenario.cases ?? {})) {
+      const caseId = scenario.id + ':' + caseName;
+      const configuredChecks = caseData.focusedChecks ?? [];
+      planFocusedCheckGroups(configuredChecks, planningRoot);
+      for (const focusedCheck of configuredChecks) {
+        if (!nonEmptyString(focusedCheck.id)) continue;
+        const command = Array.isArray(focusedCheck.command) ? [...focusedCheck.command] : [];
+        const cwd = focusedCheck.cwd ?? '.';
+        const evidence = {
+          caseId,
+          checkId: focusedCheck.id,
+          runner: command[0] ?? null,
+          cwd,
+          command,
+          registry: REGISTRY,
+        };
+        for (const targetPath of configuredCommandMjsPaths(focusedCheck, knownPaths)) {
+          byPath.get(targetPath).push({
+            kind: 'configured-command',
+            ...evidence,
+            targetPath,
+            testFile: /\.(?:test|spec)\.mjs$/.test(targetPath),
+          });
+        }
+        for (const sourceFile of focusedCheck.sourceFiles ?? []) {
+          const targetPath = repoPath(sourceFile);
+          if (!byPath.has(targetPath)) continue;
+          byPath.get(targetPath).push({
+            kind: 'source-file-pinned-only',
+            ...evidence,
+            targetPath,
+          });
+        }
+      }
+    }
+  }
+  return byPath;
+}
+
+function addLiteralImportCandidates(connectionIndex, sourcePaths, knownPaths) {
+  for (const sourcePath of sourcePaths) {
+    if (!/\.(?:mjs|js|jsx|ts|tsx)$/.test(sourcePath) || !existsSync(resolve(ROOT, sourcePath))) continue;
+    const source = readFileSync(resolve(ROOT, sourcePath), 'utf8');
+    for (const match of source.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"]([^'"]+\.mjs)['"]/g)) {
+      if (!match[1].startsWith('.')) continue;
+      const targetPath = repoPath(resolve(ROOT, sourcePath, '..', match[1]));
+      if (!knownPaths.has(targetPath)) continue;
+      const line = source.slice(0, match.index).split('\n').length;
+      const lastLineStart = source.lastIndexOf('\n', match.index + match[0].lastIndexOf(match[1]) - 1) + 1;
+      connectionIndex.get(targetPath).push({
+        kind: 'literal-import-candidate',
+        evidence: 'static-only-candidate',
+        sourcePath,
+        targetPath,
+        specifier: match[1],
+        line,
+        column: match.index + match[0].lastIndexOf(match[1]) - lastLineStart + 1,
+      });
+    }
+  }
+}
+
+function sortConnections(connections) {
+  const unique = new Map();
+  for (const connection of connections) unique.set(JSON.stringify(connection), connection);
+  return [...unique.values()].sort((left, right) => left.kind.localeCompare(right.kind)
+    || (left.caseId ?? '').localeCompare(right.caseId ?? '')
+    || (left.checkId ?? '').localeCompare(right.checkId ?? '')
+    || (left.sourcePath ?? '').localeCompare(right.sourcePath ?? '')
+    || (left.line ?? 0) - (right.line ?? 0)
+    || (left.specifier ?? '').localeCompare(right.specifier ?? ''));
+}
+
+function currentInputSha256(path) {
+  const absolute = resolve(ROOT, path);
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) return null;
+  return createHash('sha256').update(readFileSync(absolute)).digest('hex');
+}
+
+function planFromRecordedStageCwd(focusedCheck, commandStage) {
+  if (typeof commandStage?.cwd !== 'string' || resolve(commandStage.cwd) !== commandStage.cwd) return null;
+  const cwdParts = focusedCheck.cwd === '.' ? [] : focusedCheck.cwd.split('/');
+  const repoRoot = resolve(commandStage.cwd, ...cwdParts.map(() => '..'));
+  return planFocusedCheckGroups([focusedCheck], repoRoot)[0];
+}
+
+function validateFocusedSummaryCase(summary, caseIndex, suppliedPath = 'runtime summary') {
+  if (summary?.schemaVersion !== 1 || !nonEmptyString(summary.scenario) || !nonEmptyString(summary.case)) {
+    throw new Error('runtime summary needs schemaVersion 1, scenario, and case: ' + suppliedPath);
+  }
+  if (!['checks-only', 'browser'].includes(summary.mode)) {
+    throw new Error('runtime summary mode must be checks-only or browser: ' + suppliedPath);
+  }
+  const caseId = summary.scenario + ':' + summary.case;
+  const registeredCase = caseIndex.get(caseId);
+  if (!registeredCase) throw new Error('runtime summary names an unknown case: ' + caseId);
+  const groups = summary.focusedChecks?.groups;
+  const expectedGroupIds = [...registeredCase.focusedChecks.keys()];
+  if (!Array.isArray(groups) || groups.length !== expectedGroupIds.length
+    || groups.some((group, index) => group?.id !== expectedGroupIds[index])) {
+    throw new Error('runtime summary focused groups do not exactly match the registered case: ' + caseId);
+  }
+  return { caseId, registeredCase, groups };
+}
+
+function validateFocusedGroup(summary, group, focusedCheck, caseId, summaryPath, summaryHash, knownPaths,
+  fileSha256 = currentInputSha256) {
+  const commandStage = summary.commands?.['focused-' + group.id];
+  let plan;
+  try {
+    plan = planFromRecordedStageCwd(focusedCheck, commandStage);
+  } catch {
+    plan = null;
+  }
+  const commandPaths = configuredCommandMjsPaths(focusedCheck, knownPaths)
+    .filter((path) => /\.(?:test|spec)\.mjs$/.test(path));
+  const reject = (reason) => ({
+    evidence: [],
+    exceptions: commandPaths.map((path) => ({ path, reason: caseId + '/' + group.id + ' ' + reason })),
+  });
+  if (group.status !== 'passed' || group.exitCode !== 0 || group.timedOut === true || group.inputsUnchanged !== true) {
+    return reject('did not report a passed focused group with unchanged inputs.');
+  }
+  if (!plan) return reject('command stage cwd cannot form the registered focused-check plan.');
+  if (group.runner !== plan.runner) return reject('runner does not match the registered focused-check plan.');
+  if (!commandStage || commandStage.executable !== plan.executable
+    || JSON.stringify(commandStage.arguments) !== JSON.stringify(plan.args)
+    || commandStage.cwd !== plan.cwd) {
+    return reject('command stage executable, arguments, or cwd differs from the registered focused-check plan.');
+  }
+  if (commandStage.exitCode !== 0 || commandStage.timedOut === true || commandStage.aborted === true) {
+    return reject('command stage failed, timed out, or aborted.');
+  }
+  const inputPaths = focusedInputPaths(focusedCheck);
+  if (!Array.isArray(group.inputs) || group.inputs.length !== inputPaths.length) {
+    return reject('input list does not exactly match configured command and sourceFiles inputs.');
+  }
+  const expectedInputs = [];
+  for (const [index, path] of inputPaths.entries()) {
+    const input = group.inputs[index];
+    if (!isRecord(input) || input.path !== path || !/^[a-f0-9]{64}$/.test(input.sha256 ?? '')) {
+      return reject('input list is missing, reordered, or contains an undeclared input.');
+    }
+    const currentSha256 = fileSha256(path);
+    if (!currentSha256 || input.sha256 !== currentSha256) {
+      return reject('input SHA differs from current file: ' + path + '.');
+    }
+    expectedInputs.push({ path, sha256: currentSha256 });
+  }
+  const declaredInputsHash = createHash('sha256').update(JSON.stringify(expectedInputs)).digest('hex');
+  if (group.declaredInputsHash !== declaredInputsHash) return reject('declared input-set hash does not match current inputs.');
+  return {
+    evidence: commandPaths.map((path) => ({
+      kind: 'focused-command-passed',
+      path,
+      caseId,
+      checkId: group.id,
+      runner: plan.runner,
+      executable: plan.executable,
+      arguments: plan.args,
+      cwd: plan.cwd,
+      currentSha256: expectedInputs.find((input) => input.path === path)?.sha256,
+      summaryPath,
+      summarySha256: summaryHash,
+    })),
+    exceptions: [],
+  };
+}
+
+function loadFocusedTestEvidence(summaryPaths, caseIndex, knownPaths) {
+  const evidenceByPath = new Map();
+  const exceptionsByPath = new Map();
+  const summaries = [];
+  const add = (map, path, value) => {
+    if (!map.has(path)) map.set(path, []);
+    map.get(path).push(value);
+  };
+  for (const suppliedPath of summaryPaths) {
+    const absolutePath = resolve(ROOT, suppliedPath);
+    let summaryText;
+    let summary;
+    try {
+      summaryText = readFileSync(absolutePath, 'utf8');
+      summary = JSON.parse(summaryText);
+    } catch (error) {
+      throw new Error('cannot read runtime summary ' + suppliedPath + ': ' + error.message);
+    }
+    const { caseId, registeredCase, groups } = validateFocusedSummaryCase(summary, caseIndex, suppliedPath);
+    const summaryHash = createHash('sha256').update(summaryText).digest('hex');
+    const summaryDisplayPath = repoPath(absolutePath) ?? suppliedPath;
+    summaries.push({ caseId, path: summaryDisplayPath, sha256: summaryHash, mode: summary.mode });
+    for (const group of groups) {
+      const focusedCheck = registeredCase.focusedChecks.get(group.id);
+      const validation = validateFocusedGroup(
+        summary,
+        group,
+        focusedCheck,
+        caseId,
+        summaryDisplayPath,
+        summaryHash,
+        knownPaths,
+      );
+      for (const evidence of validation.evidence) add(evidenceByPath, evidence.path, evidence);
+      for (const exception of validation.exceptions) add(exceptionsByPath, exception.path, exception.reason);
+    }
+  }
+  for (const [path, evidence] of evidenceByPath) evidenceByPath.set(path, sortConnections(evidence));
+  for (const [path, exceptions] of exceptionsByPath) exceptionsByPath.set(path, uniqueSorted(exceptions));
+  return { evidenceByPath, exceptionsByPath, summaries };
+}
+
+function runtimeEvidenceReason(connections) {
+  if (connections.some((connection) => connection.kind === 'configured-command' && connection.testFile)) {
+    return 'A focused command is configured, but no matching passed per-case summary was joined.';
+  }
+  if (connections.some((connection) => connection.kind === 'source-file-pinned-only')) {
+    return 'Registry sourceFiles pins this path as an input; it does not prove the file was executed.';
+  }
+  if (connections.some((connection) => connection.kind === 'literal-import-candidate')) {
+    return 'A literal import is static-only evidence and does not prove runtime execution.';
+  }
+  return 'No matching passed focused command evidence was joined.';
+}
+
+function connectionException(role, connections) {
+  if (connections.some((connection) => connection.kind === 'source-file-pinned-only')) {
+    return 'sourceFiles pins this file as an input, not an invocation.';
+  }
+  if (connections.some((connection) => connection.kind === 'literal-import-candidate')) {
+    return 'Literal imports describe static links only.';
+  }
+  if (connections.some((connection) => connection.kind === 'configured-command')) {
+    return 'Configured command metadata does not prove execution.';
+  }
+  if (role === 'tool-or-module') return 'No focused command or literal import edge was found for this independent tool/module.';
+  return 'No configured focused command or literal import edge was found.';
+}
+
+function connectionAction(role, lifecycle, connections) {
+  if (lifecycle === 'retired') return 'retain-retired-tombstone';
+  if (connections.some((connection) => connection.kind === 'configured-command' && connection.testFile)) {
+    return 'run-configured-focused-test';
+  }
+  if (connections.some((connection) => connection.kind === 'configured-command')) return 'review-configured-command';
+  if (connections.some((connection) => connection.kind === 'source-file-pinned-only')) return 'review-source-files-only';
+  if (connections.some((connection) => connection.kind === 'literal-import-candidate')) return 'review-static-import-only';
+  if (role === 'tool-or-module') return 'independent-tool-or-module';
+  return 'review-unconnected-file';
 }
 
 function buildJourneyAssemblyRows({ claimMappingsByCase, sourceFilesByClaim, scriptRowsByPath }) {
@@ -605,7 +927,7 @@ function selfTestCatalogValidation() {
           owned: ['shows source rows'],
           custom: ['shows custom rows'],
         },
-        focusedChecks: [{ id: 'row-oracle' }],
+        focusedChecks: [{ id: 'row-oracle', cwd: '.', command: ['node-test', sourcePath], sourceFiles: [] }],
       },
     },
   }]);
@@ -887,7 +1209,128 @@ function selfTestCatalogValidation() {
   console.log('PASS semantic catalog validation self-test: 28 positive and negative fixtures');
 }
 
-function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog) {
+function selfTestFocusedConnections() {
+  const assert = (condition, message) => {
+    if (!condition) throw new Error('focused connection self-test: ' + message);
+  };
+  const commandPath = 'scripts/example.test.mjs';
+  const pinnedMjsPath = 'scripts/example-helper.mjs';
+  const pinnedDataPath = 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx';
+  const check = {
+    id: 'example-check',
+    cwd: '.',
+    command: ['node-test', commandPath],
+    sourceFiles: [pinnedMjsPath, pinnedDataPath],
+  };
+  const plan = planFocusedCheckGroups([check], ROOT)[0];
+  const focusedCheck = { ...check, plan };
+  const caseId = 'builder-example:command-test';
+  const caseIndex = new Map([[caseId, { focusedChecks: new Map([[check.id, focusedCheck]]) }]]);
+  const currentHashes = new Map([
+    [commandPath, 'a'.repeat(64)],
+    [pinnedMjsPath, 'b'.repeat(64)],
+    [pinnedDataPath, 'c'.repeat(64)],
+  ]);
+  const expectedInputs = focusedInputPaths(focusedCheck).map((path) => ({ path, sha256: currentHashes.get(path) }));
+  const group = {
+    id: check.id,
+    runner: plan.runner,
+    status: 'passed',
+    exitCode: 0,
+    timedOut: false,
+    inputs: expectedInputs,
+    declaredInputsHash: createHash('sha256').update(JSON.stringify(expectedInputs)).digest('hex'),
+    inputsUnchanged: true,
+  };
+  const commandStage = {
+    executable: plan.executable,
+    arguments: [...plan.args],
+    cwd: plan.cwd,
+    exitCode: 0,
+  };
+  const browserFailedSummary = {
+    schemaVersion: 1,
+    scenario: 'builder-example',
+    case: 'command-test',
+    mode: 'browser',
+    status: 'failed',
+    nativeStatus: 'failed',
+    focusedChecks: { groups: [group] },
+    commands: { ['focused-' + check.id]: commandStage },
+  };
+  const matchingCase = validateFocusedSummaryCase(browserFailedSummary, caseIndex);
+  assert(matchingCase.caseId === caseId, 'browser failure must not invalidate the per-case identity');
+  const valid = validateFocusedGroup(
+    browserFailedSummary, group, focusedCheck, caseId, 'summary.json', 'd'.repeat(64),
+    new Set([commandPath, pinnedMjsPath]), (path) => currentHashes.get(path),
+  );
+  assert(valid.evidence.length === 1 && valid.evidence[0].kind === 'focused-command-passed'
+    && valid.evidence[0].path === commandPath, 'passed command target alone receives focused-command evidence');
+
+  const registryFixture = [{
+    id: 'builder-example',
+    cases: { 'command-test': { focusedChecks: [check] } },
+  }];
+  const knownPaths = new Set([commandPath, pinnedMjsPath]);
+  const registryConnections = configuredConnectionIndex(registryFixture, knownPaths, ROOT);
+  const clonedConnections = configuredConnectionIndex(registryFixture, knownPaths, resolve(ROOT, '../other-checkout'));
+  const encodedConnections = JSON.stringify([...registryConnections]);
+  assert(encodedConnections === JSON.stringify([...clonedConnections])
+    && !encodedConnections.includes(ROOT) && !encodedConnections.includes(process.execPath),
+  'connection records remain byte-equivalent across checkout roots and contain no absolute plan metadata');
+  assert(registryConnections.get(commandPath).some((edge) => edge.kind === 'configured-command'),
+    'configured command target is represented as an invocation');
+  assert(registryConnections.get(pinnedMjsPath).some((edge) => edge.kind === 'source-file-pinned-only')
+    && !registryConnections.get(pinnedMjsPath).some((edge) => edge.kind === 'configured-command'),
+  'sourceFiles input is pinned-only and not an invocation');
+  assert(connectionAction('helper-or-oracle', 'active', registryConnections.get(pinnedMjsPath)) === 'review-source-files-only',
+    'source-only row asks for review, not execution credit');
+
+  const wrongCase = { ...browserFailedSummary, case: 'another-case' };
+  let wrongCaseRejected = false;
+  try { validateFocusedSummaryCase(wrongCase, caseIndex); } catch { wrongCaseRejected = true; }
+  assert(wrongCaseRejected, 'wrong case is rejected');
+
+  const supersededCommand = {
+    ...browserFailedSummary,
+    commands: { ['focused-' + check.id]: { ...commandStage, arguments: [...plan.args, '--extra'] } },
+  };
+  assert(validateFocusedGroup(supersededCommand, group, focusedCheck, caseId, 'summary.json', 'd'.repeat(64),
+    new Set([commandPath, pinnedMjsPath]), (path) => currentHashes.get(path)).evidence.length === 0,
+  'superset command argv is rejected');
+
+  const missingInputGroup = { ...group, inputs: group.inputs.slice(0, -1) };
+  missingInputGroup.declaredInputsHash = createHash('sha256').update(JSON.stringify(missingInputGroup.inputs)).digest('hex');
+  assert(validateFocusedGroup(browserFailedSummary, missingInputGroup, focusedCheck, caseId, 'summary.json', 'd'.repeat(64),
+    new Set([commandPath, pinnedMjsPath]), (path) => currentHashes.get(path)).evidence.length === 0,
+  'missing declared input is rejected');
+
+  const staleNonMjsInputGroup = { ...group, inputs: group.inputs.map((input) => ({ ...input })) };
+  staleNonMjsInputGroup.inputs[2].sha256 = 'e'.repeat(64);
+  staleNonMjsInputGroup.declaredInputsHash = createHash('sha256').update(JSON.stringify(staleNonMjsInputGroup.inputs)).digest('hex');
+  assert(validateFocusedGroup(browserFailedSummary, staleNonMjsInputGroup, focusedCheck, caseId, 'summary.json', 'd'.repeat(64),
+    new Set([commandPath, pinnedMjsPath]), (path) => currentHashes.get(path)).evidence.length === 0,
+  'stale non-MJS declared input is rejected');
+
+  let defaultOutputRejected = false;
+  try { externalRuntimeOutput(OUTPUT_JSON); } catch { defaultOutputRejected = true; }
+  assert(defaultOutputRejected, 'runtime output cannot replace the canonical JSON artifact');
+  const runtimeOutput = externalRuntimeOutput(resolve(ROOT, '../focused-command-join.json'));
+  const runtimeRows = new Map([[commandPath, valid.evidence]]);
+  const runtimeJoin = {
+    summaries: [{ caseId, path: 'summary.json', sha256: 'd'.repeat(64), mode: 'browser' }],
+    evidenceByPath: runtimeRows,
+    exceptionsByPath: new Map(),
+  };
+  const staticRow = { path: commandPath, currentSha256: currentHashes.get(commandPath), role: 'test', journeyMappings: [] };
+  const firstReport = JSON.stringify(focusedCommandJoinReport([staticRow], runtimeJoin), null, 2) + '\n';
+  const secondReport = JSON.stringify(focusedCommandJoinReport([staticRow], runtimeJoin), null, 2) + '\n';
+  assert(runtimeOutput.endsWith('focused-command-join.json') && firstReport === secondReport,
+    'explicit external report path is accepted and serialization is idempotent');
+  console.log('PASS focused connection and runtime join self-test: exact plan, pinned-only source, and fail-closed negatives');
+}
+
+function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog, runtimeSummaryPaths = []) {
   const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' });
   if (listed.status !== 0) fail('cannot inventory tracked scripts: ' + (listed.stderr || listed.error?.message));
   const tracked = listed.stdout.split('\0').filter(Boolean).sort();
@@ -922,31 +1365,25 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
   if (errors.length) fail('semantic MJS catalog invalid:\n' + errors.map((message) => '- ' + message).join('\n'));
 
   const catalogByPath = new Map(catalog.files.map((file) => [file.path, file]));
+  const knownMjsPaths = new Set([...paths, ...catalogByPath.keys()]);
+  const configuredConnections = configuredConnectionIndex(registry, knownMjsPaths);
+  const importSources = tracked.filter((path) => path !== OUTPUT_JSON && path !== OUTPUT_MD
+    && path !== SEMANTIC_CATALOG
+    && !path.startsWith('generated/') && !path.includes('/runtime/')
+    && /\.(?:mjs|js|jsx|ts|tsx)$/.test(path));
+  addLiteralImportCandidates(configuredConnections, importSources, knownMjsPaths);
+  let runtimeJoin;
+  try {
+    runtimeJoin = loadFocusedTestEvidence(runtimeSummaryPaths, caseIndex, knownMjsPaths);
+  } catch (error) {
+    fail('runtime summary rejected: ' + error.message);
+  }
   const rows = new Map(paths.map((path) => [path, {
     path,
     roleHint: scriptRoleHint(path),
     present: true,
     sha256: currentHashes.get(path),
-    staticReferenceCandidates: [],
   }]));
-  // Do not consume our own generated output: that would make --check recursive.
-  for (const source of tracked.filter((path) => path !== OUTPUT_JSON && path !== OUTPUT_MD
-    && path !== SEMANTIC_CATALOG
-    && !path.startsWith('generated/') && !path.includes('/runtime/')
-    && (/\.(mjs|ts|tsx|py|sh|md|ya?ml)$/.test(path) || path.endsWith('package.json') || path === 'Makefile'))) {
-    if (!existsSync(resolve(ROOT, source))) continue;
-    const text = readFileSync(resolve(ROOT, source), 'utf8');
-    for (const match of text.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)['"]([^'"]+\.mjs)['"]/g)) {
-      if (!match[1].startsWith('.')) continue;
-      const target = relative(ROOT, resolve(ROOT, source, '..', match[1]));
-      if (rows.has(target)) rows.get(target).staticReferenceCandidates.push({ kind: 'literal-import-candidate', source, line: text.slice(0, match.index).split('\n').length });
-    }
-    for (const path of paths) {
-      if (path === source) continue;
-      const index = text.indexOf(path);
-      if (index >= 0) rows.get(path).staticReferenceCandidates.push({ kind: 'path-mention', source, line: text.slice(0, index).split('\n').length });
-    }
-  }
   const catalogRows = [];
   const sourceFilesByClaim = new Map();
   const claimsById = new Map(catalog.claims.map((claim) => [claim.id, claim]));
@@ -977,13 +1414,17 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
           .filter((mapping) => mapping.caseId === caseId)
           .map((mapping) => ({ id: claimId, relation: mapping.relation, requiredChecks: mapping.requiredChecks ?? [], focusedCheckIds: mapping.focusedCheckIds ?? [] }))),
       }));
+    const connections = sortConnections(configuredConnections.get(source.path) ?? []);
+    const runtimeEvidence = { status: 'unverified', reason: runtimeEvidenceReason(connections) };
+    const exception = connectionException(source.role, connections);
     return {
-      ...(row ?? { path: source.path, roleHint: scriptRoleHint(source.path), staticReferenceCandidates: [], staticReferenceCandidateCount: 0 }),
+      ...(row ?? { path: source.path, roleHint: scriptRoleHint(source.path) }),
       path: source.path,
       lifecycle,
       origin: baselinePaths.has(source.path) ? 'baseline' : 'added',
       present: lifecycle === 'active',
       sha256: source.sha256,
+      currentSha256: lifecycle === 'active' ? currentHashes.get(source.path) ?? null : null,
       purpose: source.purpose,
       role: source.role,
       testLayer: source.testLayer,
@@ -999,21 +1440,20 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
       assertions: assertionRows,
       semanticClaimIds,
       journeyMappings,
+      connections,
+      action: connectionAction(source.role, lifecycle, connections),
+      exception,
       oracle: source.oracle ?? null,
       formalApplicability: source.formalApplicability,
       disposition: source.disposition,
       replacementProof: source.replacementProof ?? null,
       duplicateCandidates: source.duplicateCandidates ?? [],
-      runtimeEvidence: { status: 'unverified', reason: 'No exact current run artifact is joined to this MJS SHA-256.' },
+      runtimeEvidence,
     };
   };
   for (const [path, row] of rows) {
     const source = catalogByPath.get(path);
-    catalogRows.push(rowFor(source, 'active', {
-      ...row,
-      staticReferenceCandidateCount: row.staticReferenceCandidates.length,
-      staticReferenceCandidates: row.staticReferenceCandidates.slice(0, 8),
-    }));
+    catalogRows.push(rowFor(source, 'active', row));
   }
   for (const source of catalog.files.filter((file) => file.lifecycle === 'retired')) {
     catalogRows.push(rowFor(source, 'retired'));
@@ -1053,7 +1493,7 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
     formalApplicabilityCounts: countBy(ordered, (file) => file.formalApplicability.kind),
     dispositionCounts: countBy(ordered, (file) => file.disposition.kind),
   };
-  return { rows: ordered, semanticClaims, claimMappingsByCase, sourceFilesByClaim, summary };
+  return { rows: ordered, semanticClaims, claimMappingsByCase, sourceFilesByClaim, summary, runtimeJoin };
 }
 
 function normalizeRoute(value) {
@@ -1260,6 +1700,7 @@ function betterMapping(left, right) {
 if (args.includes('--self-test')) {
   selfTestParser();
   selfTestCatalogValidation();
+  selfTestFocusedConnections();
   if (scriptRoleHint('scripts/a.spec.mjs') !== 'browser-spec'
     || scriptRoleHint('scripts/a.test.mjs') !== 'test'
     || scriptRoleHint('scripts/lib/a.mjs') !== 'helper-or-oracle') fail('script inventory role hint classification failed');
@@ -1408,7 +1849,7 @@ function routeObligations(routes) {
 
 const browserCases = new Map((browserEvidence.cases ?? []).map((entry) => [entry.id, entry]));
 const { registry } = await import(pathToFileURL(resolve(ROOT, REGISTRY)).href);
-const scriptCatalog = scriptInventory(models, registry, traceContract, journeyAudit, semanticCatalog);
+const scriptCatalog = scriptInventory(models, registry, traceContract, journeyAudit, semanticCatalog, runtimeSummaryPaths);
 const scripts = scriptCatalog.rows;
 const scriptRowsByPath = new Map(scripts.map((script) => [script.path, script]));
 const journeyAssemblyRows = buildJourneyAssemblyRows({
@@ -1745,8 +2186,31 @@ const summary = {
   candidateRouteBindings: obligations.filter((obligation) => obligation.routeBinding === 'candidate').length,
 };
 
+function focusedCommandJoinReport(scriptRows, runtimeJoin) {
+  const scriptsByPath = new Map(scriptRows.map((script) => [script.path, script]));
+  const executedTests = [...runtimeJoin.evidenceByPath.entries()].flatMap(([path, evidence]) => evidence.map((entry) => ({
+    path,
+    currentSha256: scriptsByPath.get(path)?.currentSha256 ?? null,
+    role: scriptsByPath.get(path)?.role ?? null,
+    intendedCases: scriptsByPath.get(path)?.journeyMappings ?? [],
+    evidence: entry,
+  }))).sort((left, right) => left.path.localeCompare(right.path)
+    || left.evidence.caseId.localeCompare(right.evidence.caseId)
+    || left.evidence.checkId.localeCompare(right.evidence.checkId));
+  return {
+    schemaVersion: 1,
+    evidenceKind: 'focused-command-passed',
+    summaries: runtimeJoin.summaries,
+    executedTests,
+    rejectedGroups: [...runtimeJoin.exceptionsByPath.entries()]
+      .map(([path, exceptions]) => ({ path, exceptions }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    scope: 'Focused command execution only; no case, journey, browser, or formal-model pass is claimed.',
+  };
+}
+
 const report = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   sources: {
     modelDir: MODEL_DIR,
     routeLedger: LEDGER,
@@ -1762,7 +2226,7 @@ const report = {
   scripts,
   mjsCatalogSummary: scriptCatalog.summary,
   semanticClaims: scriptCatalog.semanticClaims,
-  scriptInventoryBounds: 'The file catalog is source-reviewed and hash-bound to a reviewed source revision. Static import and path mentions remain candidates, not proof of reachability; dynamic and manual invocation uncertainty is recorded separately. Semantic claims, journey mappings, and formal bindings describe intended associations. Every MJS runtime status is unverified unless an exact current artifact is joined to its source SHA; labels do not prove execution or model refinement. Retirement rows preserve their source and replacement references.',
+  scriptInventoryBounds: 'The source catalog is hash-bound to reviewed revisions; currentSha256 records each active file at generation time. Configured focused commands and sourceFiles are separate registry connections; sourceFiles and literal import candidates are not execution evidence. Only an explicit per-case summary with a passed focused group, exact planned command stage, unchanged complete inputs, and matching current input hashes records focused-command-passed for the command test file. This never upgrades a case, journey, or formal-model result. Semantic claims and formal bindings remain intended associations; retired rows preserve their source and replacement references.',
   obligations,
   tests: [...tests.values()].sort((left, right) => left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name)),
   duplicates: {
@@ -1776,7 +2240,26 @@ const report = {
 };
 
 const serialized = JSON.stringify(report, null, 2) + '\n';
-if (check) {
+if (runtimeSummaryPaths.length > 0) {
+  let outputPath;
+  try {
+    outputPath = externalRuntimeOutput(runtimeOutputPath);
+  } catch (error) {
+    fail('runtime output rejected: ' + error.message);
+  }
+  if (runtimeSummaryPaths.some((path) => resolve(ROOT, path) === outputPath)) {
+    fail('--runtime-output cannot replace a supplied summary');
+  }
+  const runtimeSerialized = JSON.stringify(focusedCommandJoinReport(scripts, scriptCatalog.runtimeJoin), null, 2) + '\n';
+  if (check) {
+    if (!existsSync(outputPath)) fail(runtimeOutputPath + ' does not exist');
+    if (readFileSync(outputPath, 'utf8') !== runtimeSerialized) fail(runtimeOutputPath + ' is stale; rerun with the same --runtime-summary inputs');
+    console.log('PASS ' + runtimeOutputPath + ' is current');
+  } else {
+    writeFileSync(outputPath, runtimeSerialized);
+    console.log('wrote explicit focused-command join to ' + runtimeOutputPath);
+  }
+} else if (check) {
   if (!existsSync(resolve(ROOT, jsonPath))) fail(jsonPath + ' does not exist');
   if (readFileSync(resolve(ROOT, jsonPath), 'utf8') !== serialized) {
     fail(jsonPath + ' is stale; run node scripts/build-test-obligations.mjs');
@@ -1799,7 +2282,7 @@ lines.push(scriptCatalog.summary.semanticClaims + ' semantic claims are defined 
 lines.push(scriptCatalog.summary.nonAssertionOccurrences + ' other source-evidence occurrences are labeled by kind and do not count as direct test assertions.');
 lines.push(scriptCatalog.summary.sourceReviewed + ' catalog records have source-review evidence; ' + scriptCatalog.summary.runtimeUnverified + ' MJS records remain runtime-unverified.');
 lines.push(toolModuleFiles.length + ' files are classified as independent tool/module purposes; ' + unmappedJourneyFiles.length + ' MJS files and ' + unmappedJourneyClaims.length + ' semantic claims have no canonical journey mapping.');
-lines.push('`role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.');
+lines.push('`role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.');
 lines.push('');
 lines.push('| Role | Files |');
 lines.push('| --- | ---: |');
@@ -1923,7 +2406,9 @@ lines.push('');
 lines.push('The test index is heuristic. Registry endpoints, Go route strings, and route proofs are strong links. Vitest test names are keyword links. The report marks the mapping on every test.');
 lines.push('');
 
-if (check) {
+if (runtimeSummaryPaths.length > 0) {
+  // Runtime joins are kept in the explicitly selected external artifact.
+} else if (check) {
   if (!existsSync(resolve(ROOT, markdownPath)) || readFileSync(resolve(ROOT, markdownPath), 'utf8') !== lines.join('\n')) {
     fail(markdownPath + ' is stale; run node scripts/build-test-obligations.mjs');
   }
