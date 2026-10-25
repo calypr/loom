@@ -583,6 +583,8 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   previewStatus = 200,
   previewResponseReceiptId,
   setupReceiptCase = 'none',
+  pendingSupportReads = false,
+  reversedSupportCompletionOrder = false,
 } = {}) => {
   assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh',
     'owner-change-before-response'].includes(sourceReceiptCase),
@@ -1068,5 +1070,116 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
         requestEventIndex: nextEventIndex, settlementEventIndex: nextEventIndex + 1,
       }));
   }
+  if (reversedSupportCompletionOrder) {
+    const ownerScope = input.context.transportCaptures.find(capture =>
+      capture.requestCaptureId === 'capture-group-preview')?.ownerScope;
+    assert(ownerScope, 'synthetic read responses require the observed formal actor scope');
+    const transportOffset = Math.max(...input.context.transportCaptures.map(capture => capture.transportIndex));
+    const eventOffset = Math.max(...input.context.transportCaptures.flatMap(capture => [
+      capture.requestEventIndex, capture.settlementEventIndex,
+    ]));
+    const supportRequest = (transportIndex, path, requestId, body) => ({
+      method: 'POST', path, requestId, captureId: null, transportIndex, body,
+    });
+    const inventoryRequest = supportRequest(transportOffset + 1, 'semantic-inventory',
+      'feature-catalog-reverse-completion', {
+        outputId: input.expected.outputId,
+        snapshotToken: input.context.initialObservation.snapshotToken,
+        rowRoot: 'Patient',
+        limit: 50,
+        selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      });
+    const capabilitiesRequest = supportRequest(transportOffset + 2, 'construction-capabilities',
+      'construction-capabilities-reverse-completion', {
+        outputId: input.expected.outputId,
+        snapshotToken: input.context.initialObservation.snapshotToken,
+        expectedDraftVersion: input.context.initialObservation.draftVersion,
+        expectedDraftDigest: input.context.initialObservation.draftDigest,
+        stageId: 'source_projection',
+      });
+    input.context.transportCaptures.push(
+      testTransportCapture(transportOffset + 1, inventoryRequest, {
+        status: 200,
+        requestId: inventoryRequest.requestId,
+        body: { outputId: input.expected.outputId, fields: [] },
+      }, {
+        requestEventIndex: eventOffset + 1,
+        settlementEventIndex: eventOffset + 4,
+      }),
+      testTransportCapture(transportOffset + 2, capabilitiesRequest, {
+        status: 200,
+        requestId: capabilitiesRequest.requestId,
+        body: { outputId: input.expected.outputId, capabilities: [] },
+      }, {
+        requestEventIndex: eventOffset + 2,
+        settlementEventIndex: eventOffset + 3,
+      }),
+    );
+  }
+  if (pendingSupportReads) {
+    const ownerScope = input.context.transportCaptures.find(capture =>
+      capture.requestCaptureId === 'capture-group-preview')?.ownerScope;
+    assert(ownerScope, 'synthetic pending support reads require the observed formal actor scope');
+    const removalApply = input.context.transportCaptures.find(capture =>
+      capture.requestCaptureId === 'capture-removal-apply');
+    assert(removalApply, 'synthetic pending support reads require the captured removal command CAS');
+    const transportOffset = Math.max(...input.context.transportCaptures.map(capture => capture.transportIndex));
+    const eventOffset = Math.max(...input.context.transportCaptures.flatMap(capture => [
+      capture.requestEventIndex, capture.settlementEventIndex,
+    ]));
+    const pendingRequest = (transportIndex, requestEventIndex, path, requestId, requestBody) => ({
+      transportIndex,
+      requestEventIndex,
+      capturePhase: 'FORMAL',
+      origin: 'https://fixture.invalid',
+      resourcePath: `${ownerScope}/authoring/v2/${path}`,
+      ownerScope,
+      method: 'POST',
+      path,
+      requestId,
+      requestBody,
+      settlement: 'pending',
+      status: null,
+      responseOwnerIndex: null,
+      responseHeaders: null,
+      responseReadError: null,
+      responseObservedBeforeFailure: false,
+      response: null,
+    });
+    input.context.transportCaptures.push(
+      pendingRequest(transportOffset + 1, eventOffset + 1, 'semantic-inventory',
+        'feature-catalog-unit-physical-1', {
+          outputId: input.expected.outputId,
+          snapshotToken: input.context.initialObservation.snapshotToken,
+          rowRoot: 'Patient',
+          limit: 50,
+          selectionMode: 'SYSTEM_VERSION_CATEGORY',
+        }),
+      pendingRequest(transportOffset + 2, eventOffset + 2, 'construction-capabilities',
+        'construction-capabilities-unit-physical-2', {
+          outputId: input.expected.outputId,
+          snapshotToken: removalApply.requestBody.snapshotToken,
+          expectedDraftVersion: removalApply.requestBody.expectedDraftVersion,
+          expectedDraftDigest: removalApply.requestBody.expectedDraftDigest,
+          stageId: 'source_projection',
+        }),
+    );
+  }
+  const pendingTransportIndices = input.context.transportCaptures
+    .filter(capture => capture.settlement === 'pending')
+    .map(capture => capture.transportIndex);
+  const eventIndices = input.context.transportCaptures.flatMap(capture => [
+    capture.requestEventIndex,
+    ...(capture.settlement === 'pending' ? [] : [capture.settlementEventIndex]),
+  ]);
+  input.context.formalExit = {
+    afterTransportIndex: Math.max(0, ...input.context.transportCaptures.map(capture => capture.transportIndex)),
+    afterEventIndex: Math.max(0, ...eventIndices),
+    observedAt: Date.now(),
+    drainTimeoutMs: 5000,
+    deadlineReached: pendingTransportIndices.length > 0,
+    pendingTransportIndices,
+    pendingResponseReadTransportIndices: [],
+  };
   return buildPolicyOneTrace(input).journeyTrace;
 };

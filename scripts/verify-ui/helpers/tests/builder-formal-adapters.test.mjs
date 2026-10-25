@@ -146,7 +146,7 @@ test('native journey shape preserves exact action/event pairs while leaving chro
     /label\/event pair exactly/);
 });
 
-test('shared journey writer replays a complete synthetic Policy trace and all registered controls', { timeout: 120000 }, t => {
+test('shared journey writer replays Policy pending support reads, the full lifecycle, and every registered control', { timeout: 120000 }, t => {
   const directory = mkdtempSync(join(tmpdir(), 'policy-one-shared-writer-unit-'));
   const tracePath = join(directory, 'synthetic-policy-one.trace.json');
   const priorTracePath = process.env.LOOM_JOURNEY_TRACE;
@@ -158,7 +158,14 @@ test('shared journey writer replays a complete synthetic Policy trace and all re
     else console.error('Synthetic Policy common-writer diagnostics retained at ' + directory);
   });
   process.env.LOOM_JOURNEY_TRACE = tracePath;
-  const journeyTrace = makeSyntheticPolicyOneJourneyTrace();
+  const journeyTrace = makeSyntheticPolicyOneJourneyTrace({ pendingSupportReads: true });
+  const pendingSupportRows = journeyTrace.transportLedger.filter(row => row.settlement === 'pending');
+  assert.equal(journeyTrace.actions.length, 20);
+  assert.equal(pendingSupportRows.length, 2);
+  assert.deepEqual(pendingSupportRows.map(row => row.path), ['semantic-inventory', 'construction-capabilities']);
+  assert(pendingSupportRows.every(row => row.classification === 'read-only' && row.status === null &&
+    row.responseOwnerIndex === null && row.responseHeaders === null && row.response === null),
+  'pending pure support reads are retained without response, owner, or success credit');
   const report = {
     scenario: 'builder-authoring',
     case: 'patient-one-disagreement',
@@ -198,5 +205,7 @@ test('shared journey writer replays a complete synthetic Policy trace and all re
   assert.equal(receipt.requestCoverage.unmapped, 0);
   assert.equal(receipt.requestCoverage.duplicates, 0);
   assert.equal(receipt.requestCoverageBasis, policyContract.nativeJourney.coverageBasis);
+  assert.equal(receipt.requestCoverage.supportedReadOnly,
+    journeyTrace.transportLedger.filter(row => row.classification === 'read-only').length);
   passed = true;
 });

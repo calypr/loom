@@ -212,6 +212,19 @@ function makeSyntheticReconcileLedgerTrace() {
       failure: 'net::ERR_ABORTED',
     }),
   );
+  const eventIndices = trace.transportLedger.flatMap(entry => [
+    entry.requestEventIndex,
+    ...(entry.settlement === 'pending' ? [] : [entry.settlementEventIndex]),
+  ]);
+  trace.formalExit = {
+    afterTransportIndex: trace.transportLedger.length,
+    afterEventIndex: Math.max(...eventIndices),
+    observedAt: Date.now(),
+    drainTimeoutMs: 5000,
+    deadlineReached: false,
+    pendingTransportIndices: [],
+    pendingResponseReadTransportIndices: [],
+  };
   return trace;
 }
 
@@ -273,6 +286,139 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, summary(result.output));
   assert.match(result.output, /Model checking completed\. No error has been found\./);
+});
+
+test('TLC accepts actual support responses that settle opposite request order', t => {
+  const trace = makeSyntheticPolicyOneJourneyTrace({ reversedSupportCompletionOrder: true });
+  const inventory = trace.transportLedger.find(entry => entry.path === 'semantic-inventory');
+  const capabilities = trace.transportLedger.find(entry => entry.path === 'construction-capabilities');
+  assert(inventory && capabilities);
+  assert(inventory.requestEventIndex < capabilities.requestEventIndex);
+  assert(capabilities.requestEventIndex < capabilities.settlementEventIndex);
+  assert(capabilities.settlementEventIndex < inventory.settlementEventIndex,
+    'the later physical request must settle first in the retained observer event order');
+  assert.deepEqual(inventory.responseHeaders, { status: 200, requestId: inventory.requestId });
+  assert.deepEqual(capabilities.responseHeaders, { status: 200, requestId: capabilities.requestId });
+  const eventIndices = trace.transportLedger.flatMap(entry => [entry.requestEventIndex, entry.settlementEventIndex]);
+  assert.equal(trace.formalExit.afterEventIndex, Math.max(...eventIndices));
+  assert.equal(validatePolicyOneJourneyTrace(trace), trace);
+
+  const result = checkWithTLC(trace, 'PolicyOneReverseSupportCompletionPositive');
+  t.diagnostic(summary(result.output));
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, summary(result.output));
+  assert.match(result.output, /Model checking completed\. No error has been found\./);
+});
+
+test('TLC binds bounded no-header support requests to the actual formal-exit boundary', t => {
+  const trace = makeSyntheticPolicyOneJourneyTrace({ pendingSupportReads: true });
+  const pending = trace.transportLedger.filter(entry => entry.settlement === 'pending');
+  assert.deepEqual(pending.map(entry => entry.path), ['semantic-inventory', 'construction-capabilities']);
+  assert.deepEqual(pending.map(entry => entry.settlementEventIndex), [undefined, undefined],
+    'pending support requests have no fabricated terminal event');
+  assert.deepEqual(pending.map(entry => [entry.status, entry.response, entry.responseOwnerIndex]), [
+    [null, null, null],
+    [null, null, null],
+  ], 'pending support requests have no response or owner credit');
+  assert.deepEqual(trace.formalExit.pendingTransportIndices, pending.map(entry => entry.transportIndex));
+  assert.equal(trace.formalExit.afterTransportIndex, trace.transportLedger.length);
+  assert.equal(trace.formalExit.afterEventIndex,
+    Math.max(...trace.transportLedger.flatMap(entry => [
+      entry.requestEventIndex,
+      ...(entry.settlement === 'pending' ? [] : [entry.settlementEventIndex]),
+    ])));
+  assert.deepEqual(pending.flatMap(entry => [
+    ...entry.currentReceiptProducerTransportIndices,
+    ...entry.successfulPreviewConsumerTransportIndices,
+  ]), []);
+
+  const positive = checkWithTLC(trace, 'PolicyOnePendingSupportReadsPositive');
+  t.diagnostic(summary(positive.output));
+  assert.equal(positive.error, undefined, positive.error?.message);
+  assert.equal(positive.status, 0, summary(positive.output));
+  assert.match(positive.output, /Model checking completed\. No error has been found\./);
+
+  const foreignOwner = structuredClone(trace);
+  const foreignPending = foreignOwner.transportLedger.find(entry => entry.settlement === 'pending');
+  foreignPending.ownerScope = `${foreignPending.ownerScope}/other`;
+  foreignPending.resourcePath = `${foreignPending.ownerScope}/authoring/v2/${foreignPending.path}`;
+  assert.throws(() => validatePolicyOneJourneyTrace(foreignOwner), /exact formal Explorer owner scope/);
+
+  const pendingCommand = structuredClone(trace);
+  const command = pendingCommand.transportLedger.find(entry => entry.path === 'commands'
+    && entry.classification === 'modeled');
+  command.settlement = 'pending';
+  command.settlementEventIndex = undefined;
+  command.status = null;
+  command.responseOwnerIndex = null;
+  command.responseHeaders = null;
+  command.response = null;
+  assert.throws(() => validatePolicyOneJourneyTrace(pendingCommand), /explicitly supported read-only route/);
+
+  const pendingReconcile = structuredClone(trace);
+  const ownerScope = trace.transportLedger[0].ownerScope;
+  const transportIndex = pendingReconcile.transportLedger.length + 1;
+  const requestEventIndex = pendingReconcile.formalExit.afterEventIndex + 1;
+  pendingReconcile.transportLedger.push({
+    transportIndex,
+    requestEventIndex,
+    capturePhase: 'FORMAL',
+    method: 'POST',
+    path: 'reconcile',
+    resourcePath: `${ownerScope}/authoring/v2/reconcile`,
+    ownerScope,
+    classification: 'reconcile',
+    mutatesDraft: false,
+    setupMutation: false,
+    settlement: 'pending',
+    responseHeaders: null,
+    responseReadError: null,
+    responseObservedBeforeFailure: false,
+    status: null,
+    responseOwnerIndex: null,
+    response: null,
+    requestId: 'builder-pending-1',
+    requestBody: { snapshotToken: 'snapshot-unit', draftVersion: 1, draftDigest: 'draft-unit' },
+  });
+  pendingReconcile.formalExit = {
+    ...pendingReconcile.formalExit,
+    afterTransportIndex: transportIndex,
+    afterEventIndex: requestEventIndex,
+    pendingTransportIndices: [transportIndex],
+  };
+  assert.throws(() => validatePolicyOneJourneyTrace(pendingReconcile), /explicitly supported read-only route/);
+
+  const pendingSetupCommand = structuredClone(trace);
+  const setupIndex = pendingSetupCommand.transportLedger.length + 1;
+  const setupEvent = pendingSetupCommand.formalExit.afterEventIndex + 1;
+  pendingSetupCommand.transportLedger.push({
+    transportIndex: setupIndex,
+    requestEventIndex: setupEvent,
+    capturePhase: 'SETUP',
+    method: 'POST',
+    path: 'commands',
+    resourcePath: `${ownerScope}/authoring/v2/commands`,
+    ownerScope,
+    classification: 'setup',
+    mutatesDraft: true,
+    setupMutation: true,
+    settlement: 'pending',
+    responseHeaders: null,
+    responseReadError: null,
+    responseObservedBeforeFailure: false,
+    status: null,
+    responseOwnerIndex: null,
+    response: null,
+    requestId: 'setup-pending-command',
+    requestBody: { commandId: 'setup-pending-command', commands: [{ type: 'CREATE_TABLE' }] },
+  });
+  pendingSetupCommand.formalExit = {
+    ...pendingSetupCommand.formalExit,
+    afterTransportIndex: setupIndex,
+    afterEventIndex: setupEvent,
+    pendingTransportIndices: [setupIndex],
+  };
+  assert.throws(() => validatePolicyOneJourneyTrace(pendingSetupCommand), /explicitly supported read-only route/);
 });
 
 test('TLC keeps initial and captured receipt producers distinct through the policy adapter', t => {

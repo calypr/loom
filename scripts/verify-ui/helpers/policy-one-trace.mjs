@@ -7,6 +7,10 @@ const MODELED_TRANSPORTS = new Map([
   ['POST construction-choice-proposals', false],
   ['POST commands', true],
 ]);
+const PENDING_FORMAL_SUPPORT_TRANSPORTS = new Set([
+  'POST semantic-inventory',
+  'POST construction-capabilities',
+]);
 const READ_ONLY_TRANSPORTS = new Map([
   ['GET builder', 'BuilderState read'],
   ['GET capability', 'Explorer capability read'],
@@ -174,9 +178,41 @@ function ownerChangingCommands(rows, ownerScope, draftVersion, draftDigest, afte
           || candidate.savedCASAfter.draftDigest !== draftDigest)));
 }
 
-function canonicalTransportLedger(captures, references, initialPreview, initialObservation, actions, formalEntry) {
+function formalExitFromCaptures(captures, observedFormalExit) {
+  if (observedFormalExit !== undefined) return observedFormalExit;
+  const pending = captures.filter(capture => capture.settlement === 'pending');
+  assert.equal(pending.length, 0,
+    'pending raw transport requests require the observer’s actual formal exit boundary');
+  const eventIndices = captures.flatMap(capture => [capture.requestEventIndex, capture.settlementEventIndex]);
+  return {
+    afterTransportIndex: Math.max(0, ...captures.map(capture => capture.transportIndex)),
+    afterEventIndex: Math.max(0, ...eventIndices),
+    observedAt: null,
+    drainTimeoutMs: 5000,
+    deadlineReached: false,
+    pendingTransportIndices: [],
+    pendingResponseReadTransportIndices: [],
+  };
+}
+
+function canonicalTransportLedger(captures, references, initialPreview, initialObservation, actions,
+  formalEntry, formalExit) {
   assert(Array.isArray(captures), 'workflow transport captures must be an array');
   record(formalEntry, 'formal entry boundary');
+  record(formalExit, 'formal exit boundary');
+  assert(Number.isInteger(formalExit.afterTransportIndex) && formalExit.afterTransportIndex >= 0,
+    'formal exit must retain the final observed physical transport index');
+  assert(Number.isInteger(formalExit.afterEventIndex) && formalExit.afterEventIndex >= 0,
+    'formal exit must retain the final observed transport event index');
+  assert(formalExit.observedAt === null || (Number.isInteger(formalExit.observedAt) && formalExit.observedAt > 0),
+    'formal exit observedAt must be an actual capture time or null for a fully settled synthetic input');
+  assert(Number.isInteger(formalExit.drainTimeoutMs) && formalExit.drainTimeoutMs > 0,
+    'formal exit must retain its bounded transport drain');
+  assert.equal(typeof formalExit.deadlineReached, 'boolean', 'formal exit must retain whether its drain expired');
+  assert(Array.isArray(formalExit.pendingTransportIndices),
+    'formal exit must enumerate physical requests pending at its boundary');
+  assert(Array.isArray(formalExit.pendingResponseReadTransportIndices),
+    'formal exit must enumerate pending response-body reads');
   assert(Number.isInteger(formalEntry.afterTransportIndex) && formalEntry.afterTransportIndex >= 0,
     'formal entry must retain the exact final setup transport index');
   assert(Number.isInteger(formalEntry.afterEventIndex) && formalEntry.afterEventIndex >= 0,
@@ -209,6 +245,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
     assert(!byIndex.has(capture.transportIndex), 'transport observer indexes must be unique');
     const method = nonEmptyString(capture.method, `transport ${capture.transportIndex} method`).toUpperCase();
     const path = transportEndpoint(capture.path, `transport ${capture.transportIndex}`);
+    const route = `${method} ${path}`;
     const resourcePath = nonEmptyString(capture.resourcePath,
       `transport ${capture.transportIndex} resource path`);
     assert.equal(transportEndpoint(resourcePath, `transport ${capture.transportIndex} resource path`), path,
@@ -218,17 +255,42 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       `transport ${capture.transportIndex} owner scope must come from its exact resource path`);
     const requestBody = capture.requestBody ?? null;
     finiteJSON(requestBody, `transport ${capture.transportIndex} request body`);
-    assert(['response', 'request-failed'].includes(capture.settlement),
-      `transport ${capture.transportIndex} must have a settled response or failure`);
+    assert(['response', 'request-failed', 'pending'].includes(capture.settlement),
+      `transport ${capture.transportIndex} must retain its actual terminal or pending state`);
     assert(Number.isInteger(capture.requestEventIndex) && capture.requestEventIndex > 0,
       `transport ${capture.transportIndex} must retain its request event order`);
     if (position > 0) {
       assert(ordered[position - 1].requestEventIndex < capture.requestEventIndex,
         'transport observer indexes must preserve request event order');
     }
-    assert(Number.isInteger(capture.settlementEventIndex)
-      && capture.settlementEventIndex > capture.requestEventIndex,
-    `transport ${capture.transportIndex} settlement must follow its request`);
+    if (capture.settlement === 'pending') {
+      assert(PENDING_FORMAL_SUPPORT_TRANSPORTS.has(route),
+        `pending transport ${capture.transportIndex} must use an explicitly supported formal read-only route`);
+      assert.equal(capture.capturePhase, 'FORMAL',
+        `pending transport ${capture.transportIndex} cannot remain in setup`);
+      assert.equal(capture.settlementEventIndex ?? null, null,
+        `pending transport ${capture.transportIndex} cannot claim a terminal event`);
+      assert.equal(capture.responseHeaders ?? null, null,
+        `pending transport ${capture.transportIndex} cannot be accepted after response headers were observed`);
+      assert.equal(capture.responseReadError ?? null, null,
+        `pending transport ${capture.transportIndex} cannot hide an observed response-body error`);
+      assert.equal(capture.responseBody ?? null, null,
+        `pending transport ${capture.transportIndex} cannot retain an unmodeled response body`);
+      assert.equal(capture.status ?? null, null,
+        `pending transport ${capture.transportIndex} cannot claim an HTTP status`);
+      assert.equal(capture.responseOwnerIndex ?? null, null,
+        `pending transport ${capture.transportIndex} cannot claim a response owner`);
+      assert.equal(capture.response ?? null, null,
+        `pending transport ${capture.transportIndex} cannot claim response facts`);
+      assert.equal(capture.failure ?? null, null,
+        `pending transport ${capture.transportIndex} cannot claim a request failure`);
+      assert.equal(capture.responseObservedBeforeFailure, false,
+        `pending transport ${capture.transportIndex} cannot claim a failed terminal`);
+    } else {
+      assert(Number.isInteger(capture.settlementEventIndex)
+        && capture.settlementEventIndex > capture.requestEventIndex,
+      `transport ${capture.transportIndex} settlement must follow its request`);
+    }
     assert(['SETUP', 'FORMAL'].includes(capture.capturePhase),
       `transport ${capture.transportIndex} must retain its actual capture phase`);
     assert.equal(typeof capture.responseObservedBeforeFailure, 'boolean',
@@ -280,7 +342,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       assert.equal(capture.response.status, capture.status,
         `transport ${capture.transportIndex} response status must match its settlement`);
       finiteJSON(capture.response, `transport ${capture.transportIndex} response facts`);
-    } else {
+    } else if (capture.settlement === 'request-failed') {
       assert.equal(capture.responseObservedBeforeFailure, Boolean(responseHeaders),
         `transport ${capture.transportIndex} must preserve whether headers preceded its failed terminal`);
       assert.equal(capture.status, null, `failed transport ${capture.transportIndex} cannot have a response status`);
@@ -302,12 +364,31 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
     });
   }
 
-  const eventIndices = ordered.flatMap(capture => [capture.requestEventIndex, capture.settlementEventIndex])
-    .sort((left, right) => left - right);
+  const eventIndices = ordered.flatMap(capture => [
+    capture.requestEventIndex,
+    ...(capture.settlement === 'pending' ? [] : [capture.settlementEventIndex]),
+  ]).sort((left, right) => left - right);
   assert.equal(new Set(eventIndices).size, eventIndices.length,
-    'every observed transport request and settlement must have a distinct event index');
+    'every observed transport request and terminal must have a distinct event index');
   assert.deepEqual(eventIndices, Array.from({ length: eventIndices.length }, (_, index) => index + 1),
-    'raw transport ledger must account for every request and settlement event in its scope');
+    'raw transport ledger must account for every observed request and terminal event in its scope');
+  const pendingRows = ordered.filter(capture => capture.settlement === 'pending');
+  assert.equal(formalExit.afterTransportIndex, ordered.at(-1)?.transportIndex ?? 0,
+    'formal exit must follow every observed physical request without renumbering observer indexes');
+  assert.equal(formalExit.afterEventIndex, eventIndices.at(-1) ?? 0,
+    'formal exit must match the last actual request or terminal event');
+  assert.deepEqual(formalExit.pendingTransportIndices, pendingRows.map(capture => capture.transportIndex),
+    'formal exit must retain the exact pending physical request set');
+  assert.deepEqual(formalExit.pendingResponseReadTransportIndices, [],
+    'formal exit cannot leave response-body reads outside its drain');
+  assert.equal(formalExit.deadlineReached, pendingRows.length > 0,
+    'only requests still pending at the bounded deadline may use the support-read boundary');
+  if (pendingRows.length) {
+    assert.equal(formalExit.observedAt > 0, true,
+      'pending support reads require the actual formal-exit observation time');
+    assert.equal(formalExit.drainTimeoutMs, 5000,
+      'pending support reads must preserve the existing 5000ms observation budget');
+  }
 
   const referencesByIndex = new Map();
   for (const reference of references) {
@@ -385,10 +466,29 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       mutatesDraft: false,
       setupMutation: false,
       readOnlyReason: support,
+      ...(capture.settlement === 'pending' ? {
+        previewDisposition: POLICY_TRACE_ABSENT,
+        currentReceiptProducerTransportIndices: [],
+        hasInitialCurrentReceiptProducer: false,
+        successfulPreviewConsumerTransportIndices: [],
+        compatibleProposalTransportIndices: [],
+        invalidatedByTransportIndices: [],
+        reconcileOwnerChangeCaptureIds: [],
+        reconcileOwnerChangeSetupCommandIds: [],
+      } : {}),
     };
   });
   assert.equal(referencesByIndex.size, rows.filter(row => row.classification === 'modeled').length,
     'every modeled request must have exactly one raw transport row');
+  const formalModeledRows = rows.filter(row => row.capturePhase === 'FORMAL' && row.classification === 'modeled');
+  assert(formalModeledRows.length > 0, 'formal transport ledger must retain modeled requests');
+  const formalActorScope = formalModeledRows[0].ownerScope;
+  for (const row of rows.filter(candidate => candidate.settlement === 'pending')) {
+    assert.equal(row.classification, 'read-only',
+      `pending transport ${row.transportIndex} cannot be modeled, reconcile, or setup activity`);
+    assert.equal(row.ownerScope, formalActorScope,
+      `pending support transport ${row.transportIndex} must belong to the exact formal Explorer owner scope`);
+  }
 
   for (const row of rows) {
     if (row.classification === 'modeled' && row.path === 'commands'
@@ -1000,6 +1100,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
   record(responses, 'response captures');
   record(dom, 'DOM observations');
   record(context, 'workflow trace context');
+  const formalExit = formalExitFromCaptures(context.transportCaptures, context.formalExit);
 
   const oneRequest = inspectRequest(requests.one, 'ONE', expected.proposalPath, expected, expected.one.policy);
   const allRequest = inspectRequest(requests.all, 'ALL', expected.proposalPath, expected, expected.all.policy);
@@ -1114,6 +1215,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
     context.initialObservation,
     actions,
     context.formalEntry,
+    formalExit,
   );
   return {
     journeyTrace: {
@@ -1124,6 +1226,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
       actions,
       transportLedger,
       formalEntry: finiteClone(context.formalEntry, 'formal entry boundary and initial saved snapshot'),
+      formalExit: finiteClone(formalExit, 'formal exit boundary and pending support requests'),
       outcome: finiteClone(context.outcome, 'journey outcome projection'),
     },
   };

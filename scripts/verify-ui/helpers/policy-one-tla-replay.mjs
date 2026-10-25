@@ -384,6 +384,20 @@ function validateTraceShape(trace) {
   assert(Array.isArray(trace.transportLedger), 'journey trace must include its raw transport ledger');
   assert(trace.transportLedger.length > 0, 'raw transport ledger must not be empty');
   const formalEntry = requireRecord(trace.formalEntry, 'formal entry boundary');
+  const formalExit = requireRecord(trace.formalExit, 'formal exit boundary');
+  assert(Number.isInteger(formalExit.afterTransportIndex) && formalExit.afterTransportIndex >= 0,
+    'formal exit must retain the last observed physical transport index');
+  assert(Number.isInteger(formalExit.afterEventIndex) && formalExit.afterEventIndex >= 0,
+    'formal exit must retain the last actual transport event index');
+  assert(formalExit.observedAt === null || (Number.isInteger(formalExit.observedAt) && formalExit.observedAt > 0),
+    'formal exit must retain an actual observation time when pending support requests remain');
+  assert.equal(formalExit.drainTimeoutMs, 5000,
+    'formal exit must retain the unchanged 5000ms transport drain');
+  assert.equal(typeof formalExit.deadlineReached, 'boolean');
+  assert(Array.isArray(formalExit.pendingTransportIndices),
+    'formal exit must enumerate the exact pending request indexes');
+  assert.deepEqual(formalExit.pendingResponseReadTransportIndices, [],
+    'formal exit cannot leave response-body reads pending');
   assert(Number.isInteger(formalEntry.afterTransportIndex) && formalEntry.afterTransportIndex >= 0,
     'formal entry must retain its exact final setup transport index');
   assert(Number.isInteger(formalEntry.afterEventIndex) && formalEntry.afterEventIndex >= 0,
@@ -411,9 +425,11 @@ function validateTraceShape(trace) {
       'transport ledger rows must be ordered by contiguous observer index');
     assert(Number.isInteger(entry.requestEventIndex) && entry.requestEventIndex > 0,
       `transport ledger row ${index} must retain its request event index`);
-    assert(Number.isInteger(entry.settlementEventIndex)
-      && entry.settlementEventIndex > entry.requestEventIndex,
-    `transport ledger row ${index} must retain its ordered settlement event`);
+    if (entry.settlement !== 'pending') {
+      assert(Number.isInteger(entry.settlementEventIndex)
+        && entry.settlementEventIndex > entry.requestEventIndex,
+      `transport ledger row ${index} must retain its ordered settlement event`);
+    }
     requireString(entry.method, `transport ledger row ${index} method`);
     assert.equal(entry.method, entry.method.toUpperCase(),
       `transport ledger row ${index} method must be normalized`);
@@ -424,8 +440,37 @@ function validateTraceShape(trace) {
       `transport ledger row ${index} resourcePath must match its endpoint`);
     assert.equal(ownerScopeForResourcePath(entry.resourcePath, `transport ledger row ${index}`), entry.ownerScope,
       `transport ledger row ${index} ownerScope must be derived from its resourcePath`);
-    assert(['response', 'request-failed'].includes(entry.settlement),
-      `transport ledger row ${index} must have a settled response or failure`);
+    assert(['response', 'request-failed', 'pending'].includes(entry.settlement),
+      `transport ledger row ${index} must retain its actual terminal or pending state`);
+    const route = `${entry.method} ${entry.path}`;
+    if (entry.settlement === 'pending') {
+      assert(['POST semantic-inventory', 'POST construction-capabilities'].includes(route),
+        `pending transport ledger row ${index} must use an explicitly supported read-only route`);
+      assert.equal(entry.capturePhase, 'FORMAL',
+        `pending transport ledger row ${index} cannot be setup evidence`);
+      assert.equal(entry.settlementEventIndex ?? 0, 0,
+        `pending transport ledger row ${index} cannot claim a terminal event`);
+      assert.equal(entry.responseHeaders ?? null, null,
+        `pending transport ledger row ${index} cannot retain response headers in this bounded scope`);
+      assert.equal(entry.responseReadError ?? null, null,
+        `pending transport ledger row ${index} cannot hide a response body error`);
+      assert.equal(entry.responseBody ?? null, null,
+        `pending transport ledger row ${index} cannot retain an unmodeled response body`);
+      assert.equal(entry.status ?? null, null,
+        `pending transport ledger row ${index} cannot claim a terminal response status`);
+      assert.equal(entry.responseOwnerIndex ?? null, null,
+        `pending transport ledger row ${index} cannot claim a response owner`);
+      assert.equal(entry.response ?? null, null,
+        `pending transport ledger row ${index} cannot claim response facts`);
+      assert.equal(entry.previewDisposition, ABSENT);
+      assert.equal(entry.currentReceiptProducerTransportIndices.length, 0);
+      assert.equal(entry.hasInitialCurrentReceiptProducer, false);
+      assert.equal(entry.successfulPreviewConsumerTransportIndices.length, 0);
+    } else {
+      assert(Number.isInteger(entry.settlementEventIndex)
+        && entry.settlementEventIndex > entry.requestEventIndex,
+      `transport ledger row ${index} must retain its ordered settlement event`);
+    }
     assert.equal(typeof entry.responseObservedBeforeFailure, 'boolean',
       `transport ledger row ${index} must retain whether headers preceded a failed terminal`);
     const responseHeaders = entry.responseHeaders ?? null;
@@ -486,7 +531,6 @@ function validateTraceShape(trace) {
       assert.equal(entry.status, null, `failed transport ledger row ${index} cannot have a response status`);
       assert.equal(entry.response ?? null, null, `failed transport ledger row ${index} cannot have response facts`);
     }
-    const route = `${entry.method} ${entry.path}`;
     const modeledMutation = MODELED_TRANSPORT_PATHS.get(route);
     if (entry.capturePhase === 'SETUP' && route === 'POST commands') {
       assert.equal(entry.classification, 'setup', 'pre-entry commands must be declared SETUP mutations');
@@ -579,13 +623,40 @@ function validateTraceShape(trace) {
         }
       }
     }
-    transportEventIndices.push(entry.requestEventIndex, entry.settlementEventIndex);
+    transportEventIndices.push(entry.requestEventIndex);
+    if (entry.settlement !== 'pending') transportEventIndices.push(entry.settlementEventIndex);
   }
   assert.equal(new Set(transportEventIndices).size, transportEventIndices.length,
-    'each observed transport request and settlement must have a distinct event index');
-  assert.deepEqual([...transportEventIndices].sort((left, right) => left - right),
+    'each observed transport request and terminal must have a distinct event index');
+  const orderedTransportEventIndices = [...transportEventIndices].sort((left, right) => left - right);
+  assert.deepEqual(orderedTransportEventIndices,
     Array.from({ length: transportEventIndices.length }, (_, index) => index + 1),
-    'transport ledger must retain every request and settlement event in its scope');
+    'transport ledger must retain every actual request and terminal event in its scope');
+  const pendingRows = trace.transportLedger.filter(entry => entry.settlement === 'pending');
+  assert.equal(formalExit.afterTransportIndex, trace.transportLedger.length,
+    'formal exit must follow every captured physical request');
+  assert.equal(formalExit.afterEventIndex, orderedTransportEventIndices.at(-1) ?? 0,
+    'formal exit must match the last actual request or terminal event');
+  assert.deepEqual(formalExit.pendingTransportIndices, pendingRows.map(entry => entry.transportIndex),
+    'formal exit must match the exact pending raw transport set');
+  assert.equal(formalExit.deadlineReached, pendingRows.length > 0,
+    'pending requests can remain only at the bounded drain deadline');
+  if (pendingRows.length) {
+    assert(formalExit.observedAt > 0,
+      'pending support requests require the actual formal exit observation time');
+    assert.equal(formalExit.drainTimeoutMs, 5000);
+  }
+  const groupPreviewTransportIndex = trace.actions.find(entry => entry.label === 'GroupPreviewSubmitted')
+    .request.transportIndex;
+  const formalActorScope = trace.transportLedger[groupPreviewTransportIndex - 1]?.ownerScope;
+  requireString(formalActorScope, 'formal journey Explorer owner scope');
+  for (const entry of pendingRows) {
+    assert.equal(entry.ownerScope, formalActorScope,
+      `pending support transport ${entry.transportIndex} must use the exact formal Explorer owner scope`);
+    assert.equal(entry.classification, 'read-only');
+    assert.equal(entry.mutatesDraft, false);
+    assert.equal(entry.setupMutation, false);
+  }
   assert.equal(formalEntry.afterTransportIndex, lastSetupTransportIndex,
     'formal entry must retain the actual final setup transport index');
   assert.equal(formalEntry.afterEventIndex, lastSetupEventIndex,
@@ -898,6 +969,15 @@ function deriveModelConstants(trace) {
       draftDigest: trace.formalEntry.initialSavedState.draftDigest,
       workspace: trace.formalEntry.initialSavedState.workspaceProjection,
     },
+    ObservedFormalExit: {
+      afterTransportIndex: trace.formalExit.afterTransportIndex,
+      afterEventIndex: trace.formalExit.afterEventIndex,
+      observedAtPresent: Number.isInteger(trace.formalExit.observedAt) && trace.formalExit.observedAt > 0,
+      drainTimeoutMs: trace.formalExit.drainTimeoutMs,
+      deadlineReached: trace.formalExit.deadlineReached,
+      pendingTransportIndices: trace.formalExit.pendingTransportIndices,
+      pendingResponseReadTransportIndices: trace.formalExit.pendingResponseReadTransportIndices,
+    },
   };
 }
 
@@ -920,6 +1000,7 @@ function generateReplayModule(moduleName, observations) {
     `ObservedInitialDraftDigest == ${tlavalue(observations.ObservedInitialDraftDigest)}`,
     `ObservedInitialPreview == ${tlavalue(observations.ObservedInitialPreview)}`,
     `ObservedFormalEntry == ${tlavalue(observations.ObservedFormalEntry)}`,
+    `ObservedFormalExit == ${tlavalue(observations.ObservedFormalExit)}`,
     '',
     'ExpectedLabels == <<"GroupPreviewSubmitted", "GroupPreviewReady",',
     '  "GroupApplySubmitted", "GroupApplied", "OneSubmitted", "OneRejected",',
@@ -1265,8 +1346,16 @@ function generateReplayModule(moduleName, observations) {
     'TransportRequestEventIndices ==',
     '  {ObservedTransportLedger[index].requestEventIndex : index \\in 1..Len(ObservedTransportLedger)}',
     '',
+    'TransportSettledRows ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    ObservedTransportLedger[index].settlementEventIndex > 0}',
+    '',
+    'PendingTransportRows ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    ObservedTransportLedger[index].settlement = \"pending\"}',
+    '',
     'TransportSettlementEventIndices ==',
-    '  {ObservedTransportLedger[index].settlementEventIndex : index \\in 1..Len(ObservedTransportLedger)}',
+    '  {ObservedTransportLedger[index].settlementEventIndex : index \\in TransportSettledRows}',
     '',
     'TransportEventIndices == TransportRequestEventIndices \\cup TransportSettlementEventIndices',
     '',
@@ -1275,8 +1364,10 @@ function generateReplayModule(moduleName, observations) {
     '  /\\ entry.capturePhase \\in {"SETUP", "FORMAL"}',
     '  /\\ entry.setupMutation \\in BOOLEAN',
     '  /\\ entry.requestEventIndex > 0',
-    '  /\\ entry.settlement \\in {"response", "request-failed"}',
-    '  /\\ entry.settlementEventIndex > entry.requestEventIndex',
+    '  /\\ entry.settlement \\in {\"response\", \"request-failed\", \"pending\"}',
+    '  /\\ IF entry.settlement = \"pending\"',
+    '       THEN entry.settlementEventIndex = 0',
+    '       ELSE entry.settlementEventIndex > entry.requestEventIndex',
     '  /\\ entry.responseHeadersObserved \\in BOOLEAN',
     '  /\\ entry.responseHeadersStatus >= 0',
     '  /\\ entry.responseObservedBeforeFailure \\in BOOLEAN',
@@ -1295,6 +1386,11 @@ function generateReplayModule(moduleName, observations) {
     '            /\\ entry.responseHeadersStatus = entry.responseStatus',
     '       ELSE /\\ entry.responseOwnerIndex = 0',
     '            /\\ entry.responseStatus = 0',
+    '  /\\ (entry.settlement = \"pending\" =>',
+    '         /\\ entry.capturePhase = \"FORMAL\"',
+    '         /\\ ~entry.responseHeadersObserved',
+    '         /\\ entry.responseReadError = \"Absent\"',
+    '         /\\ entry.responseObservedBeforeFailure = FALSE)',
     '  /\\ IF index = 1',
     '       THEN TRUE',
     '       ELSE ObservedTransportLedger[index - 1].requestEventIndex < entry.requestEventIndex',
@@ -1415,15 +1511,40 @@ function generateReplayModule(moduleName, observations) {
     '       /\\ entry.receiptId \\in SequenceSet(entry.responseReceiptIds)',
     '       /\\ entry.outputId \\in SequenceSet(entry.responseOutputIds))',
     '',
+    'FormalActorScope ==',
+    '  ObservedTransportLedger[ObservedActions[GroupPreviewSubmittedIndex].request.transportIndex].ownerScope',
+    '',
+    'PendingReadOnlyTransportValid(entry) ==',
+    '  /\\ entry.settlement = \"pending\"',
+    '  /\\ entry.capturePhase = \"FORMAL\"',
+    '  /\\ entry.method = \"POST\"',
+    '  /\\ entry.path \\in {\"semantic-inventory\", \"construction-capabilities\"}',
+    '  /\\ entry.ownerScope = FormalActorScope',
+    '  /\\ entry.responseOwnerIndex = 0',
+    '  /\\ entry.responseStatus = 0',
+    '  /\\ Len(entry.responseReceiptIds) = 0',
+    '  /\\ Len(entry.responseOutputIds) = 0',
+    '  /\\ entry.responseHeadersObserved = FALSE',
+    '  /\\ entry.responseReadError = \"Absent\"',
+    '  /\\ entry.previewDisposition = \"Absent\"',
+    '  /\\ Len(entry.currentReceiptProducerTransportIndices) = 0',
+    '  /\\ ~entry.hasInitialCurrentReceiptProducer',
+    '  /\\ Len(entry.successfulPreviewConsumerTransportIndices) = 0',
+    '  /\\ Len(entry.compatibleProposalTransportIndices) = 0',
+    '  /\\ Len(entry.invalidatedByTransportIndices) = 0',
+    '  /\\ Len(entry.reconcileOwnerChangeCaptureIds) = 0',
+    '  /\\ Len(entry.reconcileOwnerChangeSetupCommandIds) = 0',
+    '',
     'ReadOnlyTransportRowValid(entry) ==',
     '  /\\ ReadOnlyTransportSupported(entry)',
     '  /\\ ~entry.mutatesDraft',
     '  /\\ ~entry.setupMutation',
     '  /\\ TransportCaptureValid(entry, entry.transportIndex)',
-    '  /\\ IF entry.path = "preview"',
-    '       THEN PreviewTransportValid(entry)',
-    '       ELSE entry.readOnlyReason # "Absent"',
-    '',
+    '  /\\ IF entry.settlement = \"pending\"',
+    '       THEN PendingReadOnlyTransportValid(entry)',
+    '       ELSE IF entry.path = \"preview\"',
+    '         THEN PreviewTransportValid(entry)',
+    '         ELSE entry.readOnlyReason # \"Absent\"',
     'TransportRowValid(entry) ==',
     '  IF entry.classification = "setup"',
     '  THEN /\\ entry.capturePhase = "SETUP"',
@@ -1591,12 +1712,30 @@ function generateReplayModule(moduleName, observations) {
     '       /\\ Len(entry.reconcileOwnerChangeCaptureIds) = 0',
     '       /\\ Len(entry.reconcileOwnerChangeSetupCommandIds) = 0',
     '',
+    'FormalExitBoundaryValid ==',
+    '  /\\ ObservedFormalExit.afterTransportIndex = Len(ObservedTransportLedger)',
+    '  /\\ ObservedFormalExit.afterEventIndex >= ObservedFormalEntry.afterEventIndex',
+    '  /\\ ObservedFormalExit.drainTimeoutMs = 5000',
+    '  /\\ SequenceSet(ObservedFormalExit.pendingTransportIndices) =',
+    '       {ObservedTransportLedger[index].transportIndex : index \\in PendingTransportRows}',
+    '  /\\ SequenceSet(ObservedFormalExit.pendingResponseReadTransportIndices) = {}',
+    '  /\\ ObservedFormalExit.deadlineReached =',
+    '       (Len(ObservedFormalExit.pendingTransportIndices) > 0)',
+    '  /\\ (Len(ObservedFormalExit.pendingTransportIndices) > 0 => ObservedFormalExit.observedAtPresent)',
+    '  /\\ \\A index \\in 1..Len(ObservedTransportLedger):',
+    '       (ObservedTransportLedger[index].settlement = \"pending\" =>',
+    '          PendingReadOnlyTransportValid(ObservedTransportLedger[index]))',
+    '',
+    'ObservedFormalExitBoundary == FormalExitBoundaryValid',
+    '',
     'ObservedTransportLedgerInvariant ==',
     '  /\\ Len(ObservedTransportLedger) > 0',
     '  /\\ LedgerTransportIndices = 1..Len(ObservedTransportLedger)',
     '  /\\ Cardinality(TransportRequestEventIndices) = Len(ObservedTransportLedger)',
-    '  /\\ Cardinality(TransportSettlementEventIndices) = Len(ObservedTransportLedger)',
-    '  /\\ TransportEventIndices = 1..(2 * Len(ObservedTransportLedger))',
+    '  /\\ Cardinality(TransportSettlementEventIndices) =',
+    '       Cardinality(TransportSettledRows)',
+    '  /\\ TransportEventIndices = 1..ObservedFormalExit.afterEventIndex',
+    '  /\\ FormalExitBoundaryValid',
     '  /\\ LedgerModeledIndices = ActionTransportIndices',
     '  /\\ FormalEntryBoundaryValid',
     '  /\\ Cardinality(ActionTransportIndices) =',
@@ -1682,6 +1821,7 @@ function generateConfig(constants) {
     'INVARIANT ObservedDraftTransitions',
     'INVARIANT ObservedTransportLedgerInvariant',
     'INVARIANT ObservedFormalEntryBoundary',
+    'INVARIANT ObservedFormalExitBoundary',
     'INVARIANT ObservedChronology',
     'INVARIANT TraceProgress',
     'PROPERTY ReplayCompletes',
