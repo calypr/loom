@@ -59,7 +59,7 @@ NoObservedRequest ==
    requestMountEpoch |-> InitialMountEpoch,
    responseMountEpoch |-> No, failureMountEpoch |-> No,
    failureCanceled |-> FALSE,
-   requestReceiptId |-> No, requestOutputId |-> No,
+   requestReceiptId |-> No, requestOutputId |-> No, requestLimit |-> No,
    outputId |-> No, receiptId |-> No,
    responseReceiptId |-> No, responseOutputId |-> No,
    candidateColumnIds |-> No,
@@ -69,10 +69,15 @@ NoObservedRequest ==
    responseDraftDigest |-> No, responseOutputIds |-> No,
    responseCode |-> No, responseRetryable |-> FALSE,
    possibleReconcileProducerCaptureIds |-> <<>>,
+   previewDisposition |-> No,
+   previewRetryFollowupCaptureIds |-> <<>>,
+   previewRecoveryReconcileCaptureIds |-> <<>>,
+   previewRecoveryPreviewCaptureIds |-> <<>>,
+   previewRecoveryBuilderReadCaptureIds |-> <<>>,
    reconcileDisposition |-> No,
    reconcileCompatiblePreviewCaptureIds |-> <<>>,
    reconcileDOMObservationIndexes |-> <<>>,
-   reconcileInvalidatedByCaptureIds |-> <<>>,
+   reconcileOwnerChangeCaptureIds |-> <<>>,
    reconcileRetryFollowupCaptureIds |-> <<>>]
 NoObservedDOM ==
   [observationIndex |-> 0, capturedAt |-> 0, capturedAtExact |-> "0",
@@ -325,7 +330,7 @@ AbstractObservedRequest(captureId, isMutation, method, path, status,
    requestMountEpoch |-> InitialMountEpoch,
    responseMountEpoch |-> InitialMountEpoch, failureMountEpoch |-> No,
    failureCanceled |-> FALSE,
-   requestReceiptId |-> No, requestOutputId |-> No,
+   requestReceiptId |-> No, requestOutputId |-> No, requestLimit |-> No,
    responseReceiptId |-> receiptId, responseOutputId |-> outputId,
    candidateColumnIds |-> candidateColumnIds,
    requestSnapshotToken |-> No, requestDraftVersion |-> No,
@@ -336,10 +341,15 @@ AbstractObservedRequest(captureId, isMutation, method, path, status,
    receiptId |-> receiptId, outputId |-> outputId,
    responseCode |-> No, responseRetryable |-> FALSE,
    possibleReconcileProducerCaptureIds |-> <<>>,
+   previewDisposition |-> No,
+   previewRetryFollowupCaptureIds |-> <<>>,
+   previewRecoveryReconcileCaptureIds |-> <<>>,
+   previewRecoveryPreviewCaptureIds |-> <<>>,
+   previewRecoveryBuilderReadCaptureIds |-> <<>>,
    reconcileDisposition |-> No,
    reconcileCompatiblePreviewCaptureIds |-> <<>>,
    reconcileDOMObservationIndexes |-> <<>>,
-   reconcileInvalidatedByCaptureIds |-> <<>>,
+   reconcileOwnerChangeCaptureIds |-> <<>>,
    reconcileRetryFollowupCaptureIds |-> <<>>]
 AbstractReconcileRequest(captureId, snapshotToken, draftVersion, draftDigest,
                          outputId, receiptId, mount, ordinal, domIndex) ==
@@ -350,7 +360,7 @@ AbstractReconcileRequest(captureId, snapshotToken, draftVersion, draftDigest,
    completedAt |-> ordinal * 1000 - 1, completedAtExact |-> ToString(ordinal * 1000 - 1),
    requestMountEpoch |-> mount, responseMountEpoch |-> mount, failureMountEpoch |-> No,
    failureCanceled |-> FALSE,
-   requestReceiptId |-> No, requestOutputId |-> outputId,
+   requestReceiptId |-> No, requestOutputId |-> outputId, requestLimit |-> No,
    responseReceiptId |-> receiptId, responseOutputId |-> No,
    candidateColumnIds |-> No,
    requestSnapshotToken |-> snapshotToken,
@@ -367,7 +377,7 @@ AbstractReconcileRequest(captureId, snapshotToken, draftVersion, draftDigest,
    reconcileDisposition |-> "compatible-unattributed",
    reconcileCompatiblePreviewCaptureIds |-> <<>>,
    reconcileDOMObservationIndexes |-> <<domIndex>>,
-   reconcileInvalidatedByCaptureIds |-> <<>>,
+   reconcileOwnerChangeCaptureIds |-> <<>>,
    reconcileRetryFollowupCaptureIds |-> <<>>]
 AbstractObservedDOM ==
   <<[observationIndex |-> 0, capturedAt |-> 6000, capturedAtExact |-> "6000",
@@ -1293,6 +1303,13 @@ ObservedMutationIds ==
   {request.captureId : request \in ObservedMutationRequests}
 EventRequests ==
   SequenceSet([i \in 1..Len(ModelEvents) |-> ModelEvents[i].request])
+EventRequestIds ==
+  {ModelEvents[i].request.captureId : i \in 1..Len(ModelEvents)}
+    \cup UNION {SequenceSet(ModelEvents[i].proposalCaptureIds) : i \in 1..Len(ModelEvents)}
+NoSemanticRequestBetween(start, end) ==
+  \A request \in SequenceSet(ObservedRequests):
+    request.captureId \in EventRequestIds =>
+      ~(start < request.startedAt /\ request.startedAt < end)
 EventMutationRequests ==
   {request \in EventRequests: request.isMutation = TRUE}
 EventMutationIds ==
@@ -1358,29 +1375,33 @@ InvObservedBuilderReadChronology ==
     /\ read.snapshotToken # No
     /\ read.draftVersion \in Nat
     /\ read.draftDigest # No
-InvalidatesReconcileOwner(request, mutation) ==
+ChangesReconcileOwner(request, mutation) ==
   /\ mutation.responseReceivedAt \in Int
-  /\ request.responseReceivedAt \in Int
   /\ request.startedAt < mutation.responseReceivedAt
-  /\ mutation.responseReceivedAt < request.responseReceivedAt
   /\ \E i \in 1..Len(ModelEvents):
        /\ ModelEvents[i].request.captureId = mutation.captureId
        /\ ModelEvents[i].after # NoSnapshot
+       /\ ModelEvents[i].afterReadRequestStartedAt \in Int
        /\ ModelEvents[i].afterReadCapturedAt \in Int
-       /\ ModelEvents[i].afterReadCapturedAt <= request.responseReceivedAt
+       /\ ModelEvents[i].afterReadRequestStartedAt >= mutation.responseReceivedAt
+       /\ ModelEvents[i].afterReadCapturedAt > request.startedAt
        /\ ~RequestOwnerMatchesSnapshot(request, ModelEvents[i].after)
-ReconcileInvalidatingMutationIds(request) ==
+ReconcileOwnerChangeCaptureIds(request) ==
   IF request.status = 0
     THEN {}
     ELSE {mutation.captureId :
       mutation \in {candidate \in ObservedMutationRequests:
-        InvalidatesReconcileOwner(request, candidate)}}
-ReconcileInvalidatedBefore(request, boundary) ==
-  \E captureId \in SequenceSet(request.reconcileInvalidatedByCaptureIds):
-    \E i \in 1..Len(ModelEvents):
-      /\ ModelEvents[i].request.captureId = captureId
-      /\ ModelEvents[i].afterReadCapturedAt \in Int
-      /\ ModelEvents[i].afterReadCapturedAt <= boundary
+        ChangesReconcileOwner(request, candidate)}}
+ReconcileOwnerChangedBefore(request, boundary) ==
+  \E captureId \in SequenceSet(request.reconcileOwnerChangeCaptureIds):
+    \E mutation \in ObservedMutationRequests:
+      /\ mutation.captureId = captureId
+      /\ mutation.responseReceivedAt <= boundary
+ReconcileOwnerChangedAfterResponse(request) ==
+  \E captureId \in SequenceSet(request.reconcileOwnerChangeCaptureIds):
+    \E mutation \in ObservedMutationRequests:
+      /\ mutation.captureId = captureId
+      /\ mutation.responseReceivedAt > request.responseReceivedAt
 ReconcilePossibleProducers(preview) ==
   {request \in ObservedReconcileRequests:
     /\ request.status \in 200..299
@@ -1390,11 +1411,17 @@ ReconcilePossibleProducers(preview) ==
     /\ request.requestOutputId = preview.requestOutputId
     /\ request.responseSnapshotToken = request.requestSnapshotToken
     /\ request.responseReceiptId = preview.requestReceiptId
+    /\ preview.status \in 200..299
+    /\ preview.responseReceiptId = preview.requestReceiptId
+    /\ preview.responseOutputId = preview.requestOutputId
+    /\ preview.responseReceivedAt \in Int
+    /\ preview.responseReceivedAt >= preview.startedAt
     /\ request.requestOutputId \in SequenceSet(request.responseOutputIds)
     /\ request.responseReceivedAt <= preview.startedAt
     /\ request.requestMountEpoch = request.responseMountEpoch
     /\ preview.requestMountEpoch = request.responseMountEpoch
-    /\ ~ReconcileInvalidatedBefore(request, preview.startedAt)}
+    /\ preview.responseMountEpoch = request.responseMountEpoch
+    /\ ~ReconcileOwnerChangedBefore(request, preview.responseReceivedAt)}
 ReconcileDOMIndexes(request) ==
   IF request.status \in 200..299
     THEN {rawIndex \in 0..(Len(ObservedDOM) - 1):
@@ -1405,8 +1432,20 @@ ReconcileDOMIndexes(request) ==
          /\ observation.mountEpoch = request.requestMountEpoch
          /\ observation.mountEpoch = request.responseMountEpoch
          /\ observation.capturedAt >= request.responseReceivedAt
-         /\ ~ReconcileInvalidatedBefore(request, observation.capturedAt)}
+         /\ ~ReconcileOwnerChangedBefore(request, observation.capturedAt)}
     ELSE {}
+PreviewOwnerSuperseded(preview) ==
+  \E request \in ObservedReconcileRequests:
+    /\ request.status \in 200..299
+    /\ request.responseReceiptId = preview.requestReceiptId
+    /\ request.requestOutputId = preview.requestOutputId
+    /\ request.responseSnapshotToken = request.requestSnapshotToken
+    /\ request.responseReceivedAt <= preview.responseReceivedAt
+    /\ request.requestOutputId \in SequenceSet(request.responseOutputIds)
+    /\ request.requestMountEpoch = request.responseMountEpoch
+    /\ preview.requestMountEpoch = request.responseMountEpoch
+    /\ preview.responseMountEpoch = request.responseMountEpoch
+    /\ ReconcileOwnerChangedBefore(request, preview.responseReceivedAt)
 InvReconcilePossibleProducerRelations ==
   /\ \A preview \in ObservedPreviewRequests:
        SequenceSet(preview.possibleReconcileProducerCaptureIds) =
@@ -1419,8 +1458,125 @@ InvReconcilePossibleProducerRelations ==
                  {candidate \in ObservedPreviewRequests:
                    request.captureId \in SequenceSet(candidate.possibleReconcileProducerCaptureIds)}})
        /\ SequenceSet(request.reconcileDOMObservationIndexes) = ReconcileDOMIndexes(request)
-       /\ SequenceSet(request.reconcileInvalidatedByCaptureIds) =
-            ReconcileInvalidatingMutationIds(request)
+       /\ SequenceSet(request.reconcileOwnerChangeCaptureIds) =
+            ReconcileOwnerChangeCaptureIds(request)
+InvPreviewTransportSemantics ==
+  \A preview \in ObservedPreviewRequests:
+    IF preview.status = 0
+      THEN /\ preview.previewDisposition = "cancelled"
+           /\ preview.failureCanceled = TRUE
+           /\ preview.possibleReconcileProducerCaptureIds = <<>>
+           /\ preview.previewRetryFollowupCaptureIds = <<>>
+           /\ preview.previewRecoveryReconcileCaptureIds = <<>>
+           /\ preview.previewRecoveryPreviewCaptureIds = <<>>
+           /\ preview.previewRecoveryBuilderReadCaptureIds = <<>>
+      ELSE IF preview.status = 499 /\ preview.responseCode = "CLIENT_CANCELED"
+      THEN /\ preview.previewDisposition = "canceled-response"
+           /\ (preview.requestMountEpoch # preview.responseMountEpoch
+               \/ PreviewOwnerSuperseded(preview))
+           /\ preview.possibleReconcileProducerCaptureIds = <<>>
+           /\ preview.previewRetryFollowupCaptureIds = <<>>
+           /\ preview.previewRecoveryReconcileCaptureIds = <<>>
+           /\ preview.previewRecoveryPreviewCaptureIds = <<>>
+           /\ preview.previewRecoveryBuilderReadCaptureIds = <<>>
+      ELSE IF preview.status \in 200..299
+      THEN /\ preview.requestReceiptId # No
+           /\ preview.requestOutputId # No
+           /\ preview.responseReceiptId = preview.requestReceiptId
+           /\ preview.responseOutputId = preview.requestOutputId
+           /\ preview.previewRetryFollowupCaptureIds = <<>>
+           /\ preview.previewRecoveryReconcileCaptureIds = <<>>
+           /\ preview.previewRecoveryPreviewCaptureIds = <<>>
+           /\ preview.previewRecoveryBuilderReadCaptureIds = <<>>
+           /\ IF preview.requestMountEpoch # preview.responseMountEpoch
+                THEN /\ preview.previewDisposition = "cross-mount-ignored"
+                     /\ preview.possibleReconcileProducerCaptureIds = <<>>
+                ELSE IF Len(preview.possibleReconcileProducerCaptureIds) > 0
+                     THEN preview.previewDisposition = "compatible-unattributed"
+                     ELSE /\ preview.previewDisposition = "owner-superseded"
+                          /\ preview.possibleReconcileProducerCaptureIds = <<>>
+                          /\ PreviewOwnerSuperseded(preview)
+      ELSE IF preview.status \in 400..599
+      THEN /\ preview.possibleReconcileProducerCaptureIds = <<>>
+           /\ IF preview.responseCode \in {"RECEIPT_RECOMPILE_REQUIRED", "COMPILE_RECEIPT_NOT_FOUND"}
+                THEN /\ preview.previewDisposition = "stale-recompile"
+                     /\ Len(preview.previewRecoveryReconcileCaptureIds) > 0
+                     /\ Len(preview.previewRecoveryPreviewCaptureIds) > 0
+                     /\ preview.previewRecoveryBuilderReadCaptureIds = <<>>
+                     /\ preview.previewRetryFollowupCaptureIds = <<>>
+                ELSE IF preview.responseCode \in {"STALE_CATALOG_SNAPSHOT", "STALE_SNAPSHOT",
+                    "SNAPSHOT_STALE", "STALE_RECEIPT", "RECEIPT_STALE"}
+                     THEN /\ preview.previewDisposition = "stale-refresh"
+                          /\ Len(preview.previewRecoveryReconcileCaptureIds) > 0
+                          /\ Len(preview.previewRecoveryPreviewCaptureIds) > 0
+                          /\ Len(preview.previewRecoveryBuilderReadCaptureIds) > 0
+                          /\ preview.previewRetryFollowupCaptureIds = <<>>
+                     ELSE /\ preview.responseRetryable = TRUE
+                          /\ preview.previewDisposition = "retry"
+                          /\ Len(preview.previewRetryFollowupCaptureIds) > 0
+                          /\ preview.previewRecoveryReconcileCaptureIds = <<>>
+                          /\ preview.previewRecoveryPreviewCaptureIds = <<>>
+                          /\ preview.previewRecoveryBuilderReadCaptureIds = <<>>
+      ELSE FALSE
+InvPreviewRecoveryFollowups ==
+  \A preview \in ObservedPreviewRequests:
+    IF preview.previewDisposition = "retry"
+      THEN \A captureId \in SequenceSet(preview.previewRetryFollowupCaptureIds):
+             \E next \in ObservedPreviewRequests:
+               /\ next.captureId = captureId
+               /\ next.startedAt > preview.responseReceivedAt
+               /\ next.requestReceiptId = preview.requestReceiptId
+               /\ next.requestOutputId = preview.requestOutputId
+               /\ next.requestLimit = preview.requestLimit
+               /\ next.requestMountEpoch = preview.requestMountEpoch
+               /\ NoSemanticRequestBetween(preview.responseReceivedAt, next.startedAt)
+      ELSE IF preview.previewDisposition \in {"stale-recompile", "stale-refresh"}
+      THEN /\ \A reconcileId \in SequenceSet(preview.previewRecoveryReconcileCaptureIds):
+               \E reconcile \in ObservedReconcileRequests:
+                 /\ reconcile.captureId = reconcileId
+                 /\ reconcile.status \in 200..299
+                 /\ reconcile.startedAt > preview.responseReceivedAt
+                 /\ reconcile.requestOutputId = preview.requestOutputId
+                 /\ reconcile.responseSnapshotToken = reconcile.requestSnapshotToken
+                 /\ reconcile.requestOutputId \in SequenceSet(reconcile.responseOutputIds)
+                 /\ reconcile.requestMountEpoch = preview.requestMountEpoch
+                 /\ reconcile.responseMountEpoch = preview.requestMountEpoch
+                 /\ NoSemanticRequestBetween(preview.responseReceivedAt, reconcile.startedAt)
+           /\ \A previewId \in SequenceSet(preview.previewRecoveryPreviewCaptureIds):
+                \E next \in ObservedPreviewRequests:
+                  /\ next.captureId = previewId
+                  /\ next.startedAt > preview.responseReceivedAt
+                  /\ next.requestOutputId = preview.requestOutputId
+                  /\ next.requestLimit = preview.requestLimit
+                  /\ next.requestMountEpoch = preview.requestMountEpoch
+                  /\ \E reconcileId \in SequenceSet(preview.previewRecoveryReconcileCaptureIds):
+                       /\ reconcileId \in SequenceSet(next.possibleReconcileProducerCaptureIds)
+                       /\ \E reconcile \in ObservedReconcileRequests:
+                            /\ reconcile.captureId = reconcileId
+                            /\ next.requestReceiptId = reconcile.responseReceiptId
+                            /\ reconcile.responseReceivedAt < next.startedAt
+           /\ IF preview.previewDisposition = "stale-refresh"
+                THEN \A readId \in SequenceSet(preview.previewRecoveryBuilderReadCaptureIds):
+                       \E read \in SequenceSet(ObservedRequests):
+                         /\ read.captureId = readId
+                         /\ read.method = "GET"
+                         /\ EndsWith(read.path, "/authoring/v2/builder")
+                         /\ read.status \in 200..299
+                         /\ read.responseReceivedAt > preview.responseReceivedAt
+                         /\ read.responseSnapshotToken # No
+                         /\ \E reconcileId \in SequenceSet(preview.previewRecoveryReconcileCaptureIds):
+                              \E reconcile \in ObservedReconcileRequests:
+                                /\ reconcile.captureId = reconcileId
+                                /\ read.responseReceivedAt <= reconcile.startedAt
+                                /\ read.responseSnapshotToken = reconcile.requestSnapshotToken
+                                /\ read.responseDraftVersion = reconcile.requestDraftVersion
+                                /\ read.responseDraftDigest = reconcile.requestDraftDigest
+                                /\ reconcile.requestOutputId \in SequenceSet(read.responseOutputIds)
+                ELSE preview.previewRecoveryBuilderReadCaptureIds = <<>>
+      ELSE /\ preview.previewRetryFollowupCaptureIds = <<>>
+           /\ preview.previewRecoveryReconcileCaptureIds = <<>>
+           /\ preview.previewRecoveryPreviewCaptureIds = <<>>
+           /\ preview.previewRecoveryBuilderReadCaptureIds = <<>>
 InvReconcileOwnerEvidence ==
   \A request \in ObservedReconcileRequests:
     /\ request.requestSnapshotToken # No
@@ -1445,15 +1601,17 @@ InvReconcileTransportSemantics ==
                 THEN /\ request.reconcileDisposition = "cross-mount-ignored"
                      /\ request.reconcileCompatiblePreviewCaptureIds = <<>>
                      /\ request.reconcileDOMObservationIndexes = <<>>
-                ELSE IF ReconcileInvalidatingMutationIds(request) # {}
-                     THEN /\ request.reconcileDisposition = "owner-invalidated"
-                          /\ SequenceSet(request.reconcileInvalidatedByCaptureIds) =
-                               ReconcileInvalidatingMutationIds(request)
+                ELSE IF ReconcileOwnerChangedBefore(request, request.responseReceivedAt)
+                     THEN /\ request.reconcileDisposition = "owner-invalidated-before-response"
                           /\ request.reconcileCompatiblePreviewCaptureIds = <<>>
                           /\ request.reconcileDOMObservationIndexes = <<>>
-                     ELSE /\ request.reconcileDisposition = "compatible-unattributed"
-                          /\ (Cardinality(ObservedReconcilePreviewRequests(request)) > 0
-                              \/ ObservedDOMMatchesReconcile(request))
+                     ELSE IF Cardinality(ObservedReconcilePreviewRequests(request)) > 0
+                               \/ ObservedDOMMatchesReconcile(request)
+                          THEN request.reconcileDisposition = "compatible-unattributed"
+                          ELSE /\ request.reconcileDisposition = "owner-superseded-unconsumed"
+                               /\ ReconcileOwnerChangedAfterResponse(request)
+                               /\ request.reconcileCompatiblePreviewCaptureIds = <<>>
+                               /\ request.reconcileDOMObservationIndexes = <<>>
       ELSE /\ request.status \in 400..599
            /\ IF request.reconcileDisposition = "stale-retry"
                 THEN /\ request.responseCode \in {"STALE_CATALOG_SNAPSHOT", "STALE_SNAPSHOT",
@@ -1471,16 +1629,18 @@ InvReconcileRetryFollowups ==
                /\ next.captureId = captureId
                /\ next.startedAt > request.responseReceivedAt
                /\ next.requestMountEpoch = request.requestMountEpoch
-               /\ \E refresh \in SequenceSet(ObservedBuilderReads):
-                    /\ refresh.status = 200
-                    /\ refresh.requestStartedAt > request.responseReceivedAt
-                    /\ refresh.capturedAt > request.responseReceivedAt
-                    /\ refresh.capturedAt <= next.startedAt
-                    /\ refresh.snapshotToken = next.requestSnapshotToken
-                    /\ refresh.draftVersion = next.requestDraftVersion
-                    /\ refresh.draftDigest = next.requestDraftDigest
-                    /\ refresh.mountEpoch = next.requestMountEpoch
-                    /\ next.requestOutputId \in SequenceSet(refresh.outputIds)
+               /\ \E refresh \in SequenceSet(ObservedRequests):
+                    /\ refresh.method = "GET"
+                    /\ EndsWith(refresh.path, "/authoring/v2/builder")
+                    /\ refresh.status \in 200..299
+                    /\ refresh.responseReceivedAt > request.responseReceivedAt
+                    /\ refresh.responseReceivedAt <= next.startedAt
+                    /\ refresh.responseSnapshotToken = next.requestSnapshotToken
+                    /\ refresh.responseDraftVersion = next.requestDraftVersion
+                    /\ refresh.responseDraftDigest = next.requestDraftDigest
+                    /\ refresh.requestMountEpoch = next.requestMountEpoch
+                    /\ refresh.responseMountEpoch = next.requestMountEpoch
+                    /\ next.requestOutputId \in SequenceSet(refresh.responseOutputIds)
       ELSE IF request.reconcileDisposition = "retry"
       THEN \A captureId \in SequenceSet(request.reconcileRetryFollowupCaptureIds):
              \E next \in ObservedReconcileRequests:

@@ -468,6 +468,21 @@ const RECONCILE_STALE_CODES = new Set([
   'COMPILE_RECEIPT_NOT_FOUND',
   'RECEIPT_RECOMPILE_REQUIRED',
 ]);
+const PREVIEW_RECEIPT_REFRESH_CODES = new Set([
+  'RECEIPT_RECOMPILE_REQUIRED',
+  'COMPILE_RECEIPT_NOT_FOUND',
+]);
+const PREVIEW_CATALOG_REFRESH_CODES = new Set([
+  'STALE_CATALOG_SNAPSHOT',
+  'STALE_SNAPSHOT',
+  'SNAPSHOT_STALE',
+  'STALE_RECEIPT',
+  'RECEIPT_STALE',
+]);
+const isRetryableHTTPStatus = status => status === 408 || status === 429 || status >= 500;
+const isRetryableResponse = request => isRetryableHTTPStatus(request.status) ||
+  Boolean(request.response?.retryable ?? request.response?.error?.retryable);
+const previewResponseCode = request => request.response?.code ?? request.response?.error?.code ?? null;
 
 const ownerMatchesRequest = (snapshot, request) => snapshot &&
   snapshot.snapshotToken === request.request?.snapshotToken &&
@@ -478,19 +493,24 @@ const ownerMatchesRequest = (snapshot, request) => snapshot &&
 const responseOutputIds = request => safeArray(request.response?.outputs)
   .map(output => output?.outputId);
 
-const reconcilePossibleProducers = (previewRequest, reconcileRequests, invalidationsByReconcileId) => reconcileRequests
+const reconcilePossibleProducers = (previewRequest, reconcileRequests, ownerChangesByReconcileId) => reconcileRequests
   .filter(reconcile => Number.isFinite(reconcile.status) && reconcile.status >= 200 && reconcile.status < 300 &&
+    Number.isFinite(previewRequest.status) && previewRequest.status >= 200 && previewRequest.status < 300 &&
     reconcile.request?.snapshotToken && reconcile.request?.draftVersion !== undefined &&
     reconcile.request?.draftDigest && reconcile.request?.outputId &&
     reconcile.response?.snapshotToken === reconcile.request.snapshotToken &&
     reconcile.response?.receiptId === previewRequest.request?.receiptId &&
+    previewRequest.response?.receiptId === previewRequest.request?.receiptId &&
+    previewRequest.response?.outputId === previewRequest.request?.outputId &&
     previewRequest.request?.outputId === reconcile.request.outputId &&
     responseOutputIds(reconcile).includes(previewRequest.request.outputId) &&
     reconcile.responseReceivedAt <= previewRequest.startedAt &&
+    Number.isFinite(previewRequest.responseReceivedAt) &&
     reconcile.mountEpoch === reconcile.responseMountEpoch &&
     previewRequest.mountEpoch === reconcile.responseMountEpoch &&
-    !(invalidationsByReconcileId.get(reconcile.browserRequestId) ?? [])
-      .some(invalidation => invalidation.ownerObservedAt <= previewRequest.startedAt));
+    previewRequest.responseMountEpoch === reconcile.responseMountEpoch &&
+    !(ownerChangesByReconcileId.get(reconcile.browserRequestId) ?? [])
+      .some(change => change.ownerChangeAt <= previewRequest.responseReceivedAt));
 
 const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequestById) => {
   const reconcileRequests = rawRequests.filter(isReconcileRequest);
@@ -509,36 +529,38 @@ const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequ
     left.request?.outputId === right.request?.outputId;
   const actionStartedBetween = (start, end) => rawRequests.some(candidate =>
     semanticRequestIds.has(candidate.browserRequestId) && candidate.startedAt > start && candidate.startedAt < end);
-  const invalidationsByReconcileId = new Map(reconcileRequests.map(request => {
-    const invalidations = trace.actions.flatMap((_, index) => {
+  const ownerChangesByReconcileId = new Map(reconcileRequests.map(request => {
+    const ownerChanges = trace.actions.flatMap((_, index) => {
       const rawStep = lifecycle.steps[index];
       const command = rawRequestById.get(rawStep.requestCaptureId);
       if (!command?.isMutation || !Number.isFinite(command.responseReceivedAt) ||
         command.responseReceivedAt <= request.startedAt ||
-        command.responseReceivedAt >= request.responseReceivedAt ||
         rawStep.afterReadIndex === null || rawStep.afterReadIndex === undefined) return [];
       const after = snapshotAt(lifecycle, rawStep.afterReadIndex);
       const afterRead = lifecycle.builderReads[rawStep.afterReadIndex];
-      return afterRead.capturedAtEpochMs <= request.responseReceivedAt && !ownerMatchesRequest(after, request)
-        ? [{ captureId: command.browserRequestId, ownerObservedAt: afterRead.capturedAtEpochMs }]
+      return afterRead.requestStartedAtEpochMs >= command.responseReceivedAt &&
+        afterRead.capturedAtEpochMs > request.startedAt && !ownerMatchesRequest(after, request)
+        ? [{ captureId: command.browserRequestId, ownerObservedAt: afterRead.capturedAtEpochMs,
+            ownerChangeAt: command.responseReceivedAt }]
         : [];
     });
-    return [request.browserRequestId, invalidations];
+    return [request.browserRequestId, ownerChanges];
   }));
-  const hasFreshBuilderRead = (reconcile, next) => lifecycle.builderReads.some(read =>
-    read.status === 200 && Number.isFinite(read.capturedAtEpochMs) &&
-    read.capturedAtEpochMs > reconcile.responseReceivedAt &&
-    read.requestStartedAtEpochMs > reconcile.responseReceivedAt &&
-    read.capturedAtEpochMs <= next.startedAt &&
-    read.requestMountEpoch === next.mountEpoch && read.mountEpoch === next.mountEpoch &&
-    read.snapshotToken === next.request?.snapshotToken &&
-    read.draftVersion === next.request?.draftVersion &&
-    read.draftDigest === next.request?.draftDigest &&
-    safeArray(read.workspaceDocuments).some(document => document?.output?.id === next.request?.outputId));
+  const hasFreshBuilderRead = (reconcile, next) => rawRequests.some(read =>
+    read.method === 'GET' && read.path.endsWith('/authoring/v2/builder') &&
+    Number.isFinite(read.status) && read.status >= 200 && read.status < 300 &&
+    Number.isFinite(read.responseReceivedAt) && read.responseReceivedAt > reconcile.responseReceivedAt &&
+    read.responseReceivedAt <= next.startedAt &&
+    read.mountEpoch === next.mountEpoch && read.responseMountEpoch === next.mountEpoch &&
+    read.response?.catalog?.snapshotToken === next.request?.snapshotToken &&
+    read.response?.draftVersion === next.request?.draftVersion &&
+    read.response?.draftDigest === next.request?.draftDigest &&
+    safeArray(read.response?.workspace?.documents).some(document =>
+      document?.output?.id === next.request?.outputId));
 
   for (const preview of previewRequests) {
     producerIdsByPreviewId.set(preview.browserRequestId,
-      reconcilePossibleProducers(preview, reconcileRequests, invalidationsByReconcileId)
+      reconcilePossibleProducers(preview, reconcileRequests, ownerChangesByReconcileId)
         .map(request => request.browserRequestId));
   }
 
@@ -546,7 +568,7 @@ const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequ
     const consumerCaptureIds = previewRequests.filter(preview =>
       (producerIdsByPreviewId.get(preview.browserRequestId) ?? []).includes(request.browserRequestId))
       .map(preview => preview.browserRequestId);
-    const invalidations = invalidationsByReconcileId.get(request.browserRequestId) ?? [];
+    const ownerChanges = ownerChangesByReconcileId.get(request.browserRequestId) ?? [];
     const domObservationIndexes = lifecycle.domObservations.flatMap((observation, index) =>
       request.status >= 200 && request.status < 300 &&
       observation.receiptId === request.response?.receiptId &&
@@ -554,12 +576,12 @@ const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequ
       observation.mountEpoch === request.mountEpoch &&
       observation.mountEpoch === request.responseMountEpoch &&
       observation.capturedAtEpochMs >= request.responseReceivedAt &&
-      !invalidations.some(invalidation => invalidation.ownerObservedAt <= observation.capturedAtEpochMs)
+      !ownerChanges.some(change => change.ownerChangeAt <= observation.capturedAtEpochMs)
         ? [index]
         : []);
-    const invalidatedByCaptureIds = invalidations.map(invalidation => invalidation.captureId);
+    const ownerChangeCaptureIds = ownerChanges.map(change => change.captureId);
     const responseCode = request.response?.code ?? request.response?.error?.code ?? null;
-    const responseRetryable = Boolean(request.response?.retryable ?? request.response?.error?.retryable);
+    const responseRetryable = isRetryableResponse(request);
     const retryFollowupCaptureIds = reconcileRequests.filter(next => {
       if (next.browserRequestId === request.browserRequestId ||
         !Number.isFinite(next.status) || next.startedAt <= request.responseReceivedAt ||
@@ -574,14 +596,16 @@ const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequ
     } else if (request.status >= 200 && request.status < 300) {
       if (request.mountEpoch !== request.responseMountEpoch) {
         disposition = 'cross-mount-ignored';
-      } else if (invalidatedByCaptureIds.length > 0) {
+      } else if (ownerChanges.some(change => change.ownerChangeAt <= request.responseReceivedAt)) {
         assert.equal(consumerCaptureIds.length, 0,
-          `Owner-invalidated reconcile ${request.browserRequestId} cannot be a possible producer for a later preview.`);
-        disposition = 'owner-invalidated';
+          `Owner-invalidated reconcile ${request.browserRequestId} cannot be a possible producer after the owner changed.`);
+        disposition = 'owner-invalidated-before-response';
       } else if (consumerCaptureIds.length > 0 || domObservationIndexes.length > 0) {
         disposition = 'compatible-unattributed';
+      } else if (ownerChanges.length > 0) {
+        disposition = 'owner-superseded-unconsumed';
       } else {
-        throw new Error(`Successful reconcile ${request.browserRequestId} has no receipt-compatible preview, DOM observation, captured owner invalidation, or cross-mount boundary.`);
+        throw new Error(`Successful reconcile ${request.browserRequestId} has no receipt-compatible preview, DOM observation, captured owner change, or cross-mount boundary.`);
       }
     } else if (RECONCILE_STALE_CODES.has(responseCode) && retryFollowupCaptureIds.length > 0) {
       disposition = 'stale-retry';
@@ -594,11 +618,137 @@ const deriveReconcileTransportEvidence = (trace, lifecycle, rawRequests, rawRequ
       disposition,
       compatiblePreviewCaptureIds: consumerCaptureIds,
       domObservationIndexes,
-      invalidatedByCaptureIds,
+      ownerChangeCaptureIds,
       retryFollowupCaptureIds,
     });
   }
-  return { evidenceByCaptureId, producerIdsByPreviewId };
+  return { evidenceByCaptureId, producerIdsByPreviewId, ownerChangesByReconcileId };
+};
+
+const derivePreviewTransportEvidence = (lifecycle, rawRequests,
+  reconcileRequests, producerIdsByPreviewId, ownerChangesByReconcileId) => {
+  const previewRequests = rawRequests.filter(isPreviewRequest);
+  const semanticRequestIds = new Set(lifecycle.steps.flatMap(step => [
+    step.requestCaptureId,
+    ...safeArray(step.proposalCaptureIds),
+  ]).filter(value => typeof value === 'string'));
+  const actionStartedBetween = (start, end) => rawRequests.some(candidate =>
+    semanticRequestIds.has(candidate.browserRequestId) && candidate.startedAt > start && candidate.startedAt < end);
+  const matchingOwnerChangedReconciles = preview => reconcileRequests.filter(reconcile =>
+    Number.isFinite(reconcile.status) && reconcile.status >= 200 && reconcile.status < 300 &&
+    reconcile.responseReceivedAt <= preview.responseReceivedAt &&
+    reconcile.response?.receiptId === preview.request?.receiptId &&
+    reconcile.request?.outputId === preview.request?.outputId &&
+    reconcile.response?.snapshotToken === reconcile.request?.snapshotToken &&
+    responseOutputIds(reconcile).includes(preview.request?.outputId) &&
+    reconcile.mountEpoch === reconcile.responseMountEpoch &&
+    preview.mountEpoch === reconcile.responseMountEpoch &&
+    preview.responseMountEpoch === reconcile.responseMountEpoch &&
+    (ownerChangesByReconcileId.get(reconcile.browserRequestId) ?? [])
+      .some(change => change.ownerChangeAt <= preview.responseReceivedAt));
+  const recoveryPairs = (preview, requiresRefresh) => {
+    if (!Number.isFinite(preview.responseReceivedAt)) return [];
+    return reconcileRequests.flatMap(reconcile => {
+      if (!Number.isFinite(reconcile.status) || reconcile.status < 200 || reconcile.status >= 300 ||
+        reconcile.startedAt <= preview.responseReceivedAt ||
+        reconcile.mountEpoch !== preview.mountEpoch || reconcile.responseMountEpoch !== preview.mountEpoch ||
+        reconcile.request?.outputId !== preview.request?.outputId ||
+        reconcile.response?.snapshotToken !== reconcile.request?.snapshotToken ||
+        !responseOutputIds(reconcile).includes(preview.request?.outputId) ||
+        actionStartedBetween(preview.responseReceivedAt, reconcile.startedAt)) return [];
+      const refreshes = requiresRefresh ? rawRequests.filter(read =>
+        read.method === 'GET' && read.path.endsWith('/authoring/v2/builder') &&
+        Number.isFinite(read.status) && read.status >= 200 && read.status < 300 &&
+        Number.isFinite(read.responseReceivedAt) &&
+        read.responseReceivedAt > preview.responseReceivedAt &&
+        read.responseReceivedAt <= reconcile.startedAt &&
+        read.response?.catalog?.snapshotToken === reconcile.request?.snapshotToken &&
+        read.response?.draftVersion === reconcile.request?.draftVersion &&
+        read.response?.draftDigest === reconcile.request?.draftDigest &&
+        safeArray(read.response?.workspace?.documents).some(document =>
+          document?.output?.id === preview.request?.outputId))
+        : [null];
+      if (refreshes.length === 0) return [];
+      const followupPreviews = previewRequests.filter(next =>
+        next.browserRequestId !== preview.browserRequestId &&
+        next.startedAt > reconcile.responseReceivedAt &&
+        next.request?.receiptId === reconcile.response?.receiptId &&
+        next.request?.outputId === preview.request?.outputId &&
+        next.request?.limit === preview.request?.limit &&
+        next.mountEpoch === reconcile.responseMountEpoch &&
+        (producerIdsByPreviewId.get(next.browserRequestId) ?? []).includes(reconcile.browserRequestId));
+      if (followupPreviews.length === 0) return [];
+      return [{ reconcile, refreshes: refreshes.filter(Boolean), followupPreviews }];
+    });
+  };
+
+  const retryFollowups = new Map(previewRequests.map(preview => [preview.browserRequestId,
+    previewRequests.filter(next => Number.isFinite(preview.responseReceivedAt) &&
+      next.browserRequestId !== preview.browserRequestId &&
+      next.startedAt > preview.responseReceivedAt &&
+      next.request?.receiptId === preview.request?.receiptId &&
+      next.request?.outputId === preview.request?.outputId &&
+      next.request?.limit === preview.request?.limit &&
+      next.mountEpoch === preview.mountEpoch &&
+      !actionStartedBetween(preview.responseReceivedAt, next.startedAt))
+      .map(next => next.browserRequestId)]));
+  const evidenceByCaptureId = new Map();
+  for (const preview of previewRequests) {
+    assert(typeof preview.request?.receiptId === 'string' && preview.request.receiptId.length > 0 &&
+      typeof preview.request?.outputId === 'string' && preview.request.outputId.length > 0,
+    `Preview ${preview.browserRequestId} must retain its actual request receipt and output IDs.`);
+    const producerIds = producerIdsByPreviewId.get(preview.browserRequestId) ?? [];
+    const responseCode = previewResponseCode(preview);
+    const responseRetryable = isRetryableResponse(preview);
+    const retryFollowupCaptureIds = retryFollowups.get(preview.browserRequestId) ?? [];
+    const receiptRefreshPairs = recoveryPairs(preview, false);
+    const catalogRefreshPairs = recoveryPairs(preview, true);
+    let disposition;
+    if (preview.status === null) {
+      disposition = 'cancelled';
+    } else if (preview.status === 499 && responseCode === 'CLIENT_CANCELED' &&
+      (preview.mountEpoch !== preview.responseMountEpoch || matchingOwnerChangedReconciles(preview).length > 0)) {
+      disposition = 'canceled-response';
+    } else if (preview.status >= 200 && preview.status < 300) {
+      assert.equal(preview.response?.receiptId, preview.request?.receiptId,
+        `Preview ${preview.browserRequestId} successful response must echo its exact receipt ID.`);
+      assert.equal(preview.response?.outputId, preview.request?.outputId,
+        `Preview ${preview.browserRequestId} successful response must echo its exact output ID.`);
+      if (preview.mountEpoch !== preview.responseMountEpoch) {
+        disposition = 'cross-mount-ignored';
+      } else if (producerIds.length > 0) {
+        disposition = 'compatible-unattributed';
+      } else if (matchingOwnerChangedReconciles(preview).length > 0) {
+        disposition = 'owner-superseded';
+      } else {
+        throw new Error(`Successful preview ${preview.browserRequestId} has no receipt-compatible reconcile producer or captured owner change.`);
+      }
+    } else if (PREVIEW_RECEIPT_REFRESH_CODES.has(responseCode) && receiptRefreshPairs.length > 0) {
+      disposition = 'stale-recompile';
+    } else if (PREVIEW_CATALOG_REFRESH_CODES.has(responseCode) && catalogRefreshPairs.length > 0) {
+      disposition = 'stale-refresh';
+    } else if (responseRetryable && retryFollowupCaptureIds.length > 0) {
+      disposition = 'retry';
+    } else {
+      throw new Error(`Preview ${preview.browserRequestId} failed without a recognized observed cancellation, stale recovery, or retry follow-up.`);
+    }
+    const recoveryPairsForDisposition = disposition === 'stale-refresh'
+      ? catalogRefreshPairs
+      : disposition === 'stale-recompile'
+        ? receiptRefreshPairs
+        : [];
+    evidenceByCaptureId.set(preview.browserRequestId, {
+      disposition,
+      retryFollowupCaptureIds: disposition === 'retry' ? retryFollowupCaptureIds : [],
+      recoveryReconcileCaptureIds: [...new Set(recoveryPairsForDisposition
+        .map(pair => pair.reconcile.browserRequestId))],
+      recoveryPreviewCaptureIds: [...new Set(recoveryPairsForDisposition.flatMap(pair =>
+        pair.followupPreviews.map(next => next.browserRequestId)))],
+      recoveryBuilderReadCaptureIds: [...new Set(recoveryPairsForDisposition.flatMap(pair =>
+        pair.refreshes.map(read => read.browserRequestId)))],
+    });
+  }
+  return evidenceByCaptureId;
 };
 
 export const validateTemporalFilterJourneyTrace = trace => {
@@ -904,8 +1054,11 @@ export const validateTemporalFilterJourneyTrace = trace => {
     }
   }
   const { evidenceByCaptureId: reconcileEvidenceByCaptureId,
-    producerIdsByPreviewId: reconcileProducerIdsByPreviewId } = deriveReconcileTransportEvidence(
+    producerIdsByPreviewId: reconcileProducerIdsByPreviewId,
+    ownerChangesByReconcileId } = deriveReconcileTransportEvidence(
     trace, lifecycle, rawRequests, rawRequestById);
+  const previewEvidenceByCaptureId = derivePreviewTransportEvidence(lifecycle, rawRequests,
+    rawRequests.filter(isReconcileRequest), reconcileProducerIdsByPreviewId, ownerChangesByReconcileId);
 
   const firstActionRead = trace.actions[0]?.after;
   assert(firstActionRead && trace.initialObservation,
@@ -950,6 +1103,7 @@ export const validateTemporalFilterJourneyTrace = trace => {
     failureCanceled: Boolean(request.failure?.canceled),
     requestReceiptId: noIfAbsent(request.request?.receiptId),
     requestOutputId: noIfAbsent(request.request?.outputId),
+    requestLimit: noIfAbsent(request.request?.limit),
     outputId: noIfAbsent(request.response?.outputId),
     receiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
     responseReceiptId: noIfAbsent(request.response?.receiptId ?? request.response?.preview?.receiptId),
@@ -967,12 +1121,17 @@ export const validateTemporalFilterJourneyTrace = trace => {
         ? request.response.workspace.documents.map(document => noIfAbsent(document?.output?.id))
         : NO,
     responseCode: noIfAbsent(request.response?.code ?? request.response?.error?.code),
-    responseRetryable: Boolean(request.response?.retryable ?? request.response?.error?.retryable),
+    responseRetryable: isRetryableResponse(request),
     possibleReconcileProducerCaptureIds: reconcileProducerIdsByPreviewId.get(request.browserRequestId) ?? [],
+    previewDisposition: previewEvidenceByCaptureId.get(request.browserRequestId)?.disposition ?? NO,
+    previewRetryFollowupCaptureIds: previewEvidenceByCaptureId.get(request.browserRequestId)?.retryFollowupCaptureIds ?? [],
+    previewRecoveryReconcileCaptureIds: previewEvidenceByCaptureId.get(request.browserRequestId)?.recoveryReconcileCaptureIds ?? [],
+    previewRecoveryPreviewCaptureIds: previewEvidenceByCaptureId.get(request.browserRequestId)?.recoveryPreviewCaptureIds ?? [],
+    previewRecoveryBuilderReadCaptureIds: previewEvidenceByCaptureId.get(request.browserRequestId)?.recoveryBuilderReadCaptureIds ?? [],
     reconcileDisposition: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.disposition ?? NO,
     reconcileCompatiblePreviewCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.compatiblePreviewCaptureIds ?? [],
     reconcileDOMObservationIndexes: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.domObservationIndexes ?? [],
-    reconcileInvalidatedByCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.invalidatedByCaptureIds ?? [],
+    reconcileOwnerChangeCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.ownerChangeCaptureIds ?? [],
     reconcileRetryFollowupCaptureIds: reconcileEvidenceByCaptureId.get(request.browserRequestId)?.retryFollowupCaptureIds ?? [],
     requestEvidence: opaqueJSON(request.request),
     responseEvidence: opaqueJSON(request.response),
@@ -1050,6 +1209,8 @@ const invariantNames = Object.freeze([
   'InvReconcileTransportSemantics',
   'InvReconcileRetryFollowups',
   'InvReconcileStepLinksBound',
+  'InvPreviewTransportSemantics',
+  'InvPreviewRecoveryFollowups',
   'InvReloadReconcileBindsFreshSnapshot',
   'InvApplyUsesCurrentProposalAndCAS',
   'InvTypedProfileValues',
