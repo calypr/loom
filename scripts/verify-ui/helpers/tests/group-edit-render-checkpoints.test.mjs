@@ -12,6 +12,7 @@ import {
   groupEditRenderCheckpointNames,
   groupEditRenderCheckpointSummary,
   isProtectedExplorerRequestPath,
+  mountedGroupFromHistoryDOM,
   mountedRelatedSourceFromDOM,
   recordGroupEditActionToRender,
   savedColumnLabelsForIds,
@@ -136,7 +137,7 @@ test('mounted RELATED_SOURCE capture reads its step under a closed Column adjust
   const dom = new JSDOM(`
     <section aria-label="Row operations">
       <ol>
-        <li><button data-testid="construction-history-step-group-step-1" title="Counts rows"><span>Group rows</span></button></li>
+        <li><button data-testid="construction-history-step-group-step-1" title="Group rows by Patient FHIR resource ID; Count distinct values of Observation FHIR resource ID counts distinct Observation FHIR resource ID."><span>Group by Patient FHIR resource ID</span></button></li>
         <li>
           <details data-testid="construction-history-adjustment-group-related-step-1">
             <summary><span aria-hidden="true">▸</span>Column adjustments (1)</summary>
@@ -170,6 +171,10 @@ test('mounted RELATED_SOURCE capture reads its step under a closed Column adjust
   const historySteps = historyObservation.steps;
   assert.equal(typeof historyObservation.observedAt, 'number');
   assert.equal(historyObservation.documentTimeOrigin, dom.window.performance.timeOrigin);
+  const mountedGroup = mountedGroupFromHistoryDOM(historySteps);
+  assert.deepEqual(mountedGroup.keyLabels, ['Patient FHIR resource ID']);
+  assert.equal(mountedGroup.aggregate, 'COUNT_DISTINCT');
+  assert.equal(Object.hasOwn(mountedGroup, 'keys'), false);
   const headerCells = [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')];
   const renderedRows = {
     // The retained Chromium innerText is CSS transformed; textContent remains the semantic label.

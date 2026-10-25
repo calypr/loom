@@ -230,6 +230,23 @@ export const assertMountedRelatedSourceMatchesSaved = (mounted, savedRelatedSour
   }
 };
 
+export const mountedGroupFromHistoryDOM = historySteps => {
+  const row = historySteps.find(step => step.title === 'Group rows' || step.title.startsWith('Group by '));
+  if (!row) return null;
+  const keyLabels = row.title === 'Group rows' ? [] : row.title.slice('Group by '.length).split(/,\s*/);
+  const aggregate = row.historyText.includes('counts distinct ')
+    ? 'COUNT_DISTINCT'
+    : row.historyText.includes('counts rows') ? 'COUNT_ROWS' : null;
+  assert(aggregate, 'Mounted Group history text must expose its rendered aggregate.');
+  return {
+    stepId: row.stepId,
+    keyLabels,
+    aggregate,
+    evidence: 'construction-history-dom',
+    historyText: row.historyText,
+  };
+};
+
 export async function runGroupEditBeforeRelatedColumnBrowserWorkflow({ page, cda }) {
 const project = cda.project;
 assert(project, 'CDA fixture must provide the isolated project');
@@ -480,22 +497,6 @@ const readRenderedSourceTable = async () => browserEval(page, () => {
   return { observedAt: Date.now(), documentTimeOrigin: performance.timeOrigin, headers, semanticHeaders, rawRows };
 });
 const readConstructionHistoryDOM = async () => browserEval(page, constructionHistoryDOMProjection);
-const mountedGroupFromHistoryDOM = historySteps => {
-  const row = historySteps.find(step => step.title === 'Group rows' || step.title.startsWith('Group by '));
-  if (!row) return null;
-  const keys = row.title === 'Group rows' ? [] : row.title.slice('Group by '.length).split(/,\s*/);
-  const aggregate = row.historyText.includes('counts distinct ')
-    ? 'COUNT_DISTINCT'
-    : row.historyText.includes('counts rows') ? 'COUNT_ROWS' : null;
-  assert(aggregate, 'Mounted Group history text must expose its rendered aggregate.');
-  return {
-    stepId: row.stepId,
-    keys,
-    aggregate,
-    evidence: 'construction-history-dom',
-    historyText: row.historyText,
-  };
-};
 const groupProjection = state => {
   const step = constructionSteps(state).find(candidate => candidate.operation?.kind === 'GROUP');
   if (!step) return null;
@@ -1069,7 +1070,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
     'The mounted Group history identity must match the independently read saved Group step.');
   if (mountedGroup && savedAfter.group) {
     const savedKeyLabels = savedColumnLabelsForIds(doc(builder), savedAfter.group.keys);
-    assert.deepEqual(mountedGroup.keys, savedKeyLabels,
+    assert.deepEqual(mountedGroup.keyLabels, savedKeyLabels,
       'The mounted Group history key labels must match the independently read saved key identities.');
     assert.equal(mountedGroup.aggregate, savedAfter.group.aggregate,
       'The mounted Group history aggregate must match the independently read saved aggregate.');
