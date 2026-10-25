@@ -7,9 +7,12 @@ import { dirname, join, resolve } from 'node:path';
 import {
   builderColumnLabelForId,
   cdaGroupLifecycleSnapshotProblem,
+  cdaGroupProjectionForTla,
+  cdaLifecycleRecords,
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
+  collectCdaTokens,
   groupLifecycleShapeProblem,
   mountedGroupKeyLabelsProblem,
   mountedRelatedSourceProblem,
@@ -211,6 +214,7 @@ const cdaMountedGroupOutputLabelTest = () => {
       ],
       form: 'ALL', contributorPolicy: 'ALL_MATCHES', rowValuePolicy: 'ALL',
     },
+    casTransitionCount: 0,
   };
   const document = {
     columns: [{ columnId: 'source-column-fixture', label: 'Source ID' }],
@@ -219,7 +223,7 @@ const cdaMountedGroupOutputLabelTest = () => {
       { id: 'expand-patient-observation', operation: { kind: 'RELATED_EXPAND' }, outputs: [{ id: outputId, label }] },
     ] },
   };
-  const mountedGroup = { keys: [label], historyText: 'Group by Patient FHIR resource ID counts rows' };
+  const mountedGroup = { keyLabels: [label], historyText: 'Group by Patient FHIR resource ID counts rows' };
   const savedGroup = { keys: [outputId] };
   const repeatedStepOutputsAccepted = mountedGroupKeyLabelsProblem(
     mountedGroup, savedGroup, document, 'fixture',
@@ -243,6 +247,7 @@ const cdaMountedGroupOutputLabelTest = () => {
   };
   const reloadAction = {
     label: 'Reload',
+    observedEpoch: 5,
     groupLifecycle: {
       mountEpoch: 5, documentTimeOrigin: 500,
       savedBefore: savedSnapshot, savedAfter: savedSnapshot,
@@ -259,18 +264,44 @@ const cdaMountedGroupOutputLabelTest = () => {
   const cdaReloadSnapshotAccepted = cdaGroupLifecycleSnapshotProblem(
     reloadAction, 'fixture', journeyCase,
   ) === null;
+  const compilerTrace = { name: journeyCase.traceName, model: 'BuilderJourney', actions: [reloadAction] };
+  const compilerTokens = collectCdaTokens(compilerTrace, journeyCase);
+  const compiledReload = cdaLifecycleRecords(compilerTrace, compilerTokens, journeyCase)[0];
+  const savedGroupTla = cdaGroupProjectionForTla(savedSnapshot.group, compilerTokens);
+  const mountedAndSavedTlaTokensMatch = compiledReload.includes('observedMountedGroup |-> ' + savedGroupTla) &&
+    compiledReload.includes(', group |-> ' + savedGroupTla + ', relatedSource |->');
   const cdaReloadMissingMountedLabelRejected = cdaGroupLifecycleSnapshotProblem({
     ...reloadAction,
     groupLifecycle: {
       ...reloadAction.groupLifecycle,
-      mountedGroup: { ...reloadAction.groupLifecycle.mountedGroup, keys: [] },
+      mountedGroup: { ...reloadAction.groupLifecycle.mountedGroup, keyLabels: [] },
     },
   }, 'fixture', journeyCase) !== null;
+  const compilerWrongLabelRejected = (() => {
+    const changed = structuredClone(compilerTrace);
+    changed.actions[0].groupLifecycle.mountedGroup.keyLabels = ['Wrong label'];
+    try {
+      collectCdaTokens(changed, journeyCase);
+      return false;
+    } catch (error) {
+      return /keyLabels/.test(error.message);
+    }
+  })();
+  const compilerMissingLabelRejected = (() => {
+    const changed = structuredClone(compilerTrace);
+    delete changed.actions[0].groupLifecycle.mountedGroup.keyLabels;
+    try {
+      collectCdaTokens(changed, journeyCase);
+      return false;
+    } catch (error) {
+      return /keyLabels/.test(error.message);
+    }
+  })();
   const missingMountedLabelRejected = mountedGroupKeyLabelsProblem(
-    { ...mountedGroup, keys: [] }, savedGroup, document, 'fixture',
+    { ...mountedGroup, keyLabels: [] }, savedGroup, document, 'fixture',
   ) !== null;
   const wrongMountedLabelRejected = mountedGroupKeyLabelsProblem(
-    { ...mountedGroup, keys: ['Different label'] }, savedGroup, document, 'fixture',
+    { ...mountedGroup, keyLabels: ['Different label'] }, savedGroup, document, 'fixture',
   ) !== null;
   const missingLabelRejected = Boolean(builderColumnLabelForId(
     { columns: [], construction: { steps: [] } }, outputId, 'fixture',
@@ -289,7 +320,8 @@ const cdaMountedGroupOutputLabelTest = () => {
     construction: { steps: [] },
   }, outputId, 'fixture').problem);
   return repeatedStepOutputsAccepted && cdaReloadShapeAccepted && cdaReloadKeyLabelMappingAccepted &&
-    cdaReloadSnapshotAccepted && cdaReloadMissingMountedLabelRejected &&
+    cdaReloadSnapshotAccepted && mountedAndSavedTlaTokensMatch &&
+    cdaReloadMissingMountedLabelRejected && compilerWrongLabelRejected && compilerMissingLabelRejected &&
     missingMountedLabelRejected && wrongMountedLabelRejected && missingLabelRejected &&
     missingOutputLabelRejected && conflictingLabelsRejected && duplicateSourceIdsRejected;
 };

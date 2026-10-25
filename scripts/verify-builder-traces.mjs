@@ -328,7 +328,7 @@ function previewOwnerProjectionProblem(owner, where, nullable = false, maxMountE
   return null;
 }
 
-function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, allowBrowserRequestId = false, allowedAggregates = ['COUNT_ROWS'], requireReloadEditorProjection = true, mountedGroupKeysAreLabels = false) {
+function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, allowBrowserRequestId = false, allowedAggregates = ['COUNT_ROWS'], requireReloadEditorProjection = true, cdaJourneyCase = false) {
   const lifecycle = action.groupLifecycle;
   if (lifecycle === undefined) {
     return required ? where + '.groupLifecycle is required by the selected Group lifecycle contract' : null;
@@ -398,13 +398,24 @@ function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, 
     }
   }
   if (action.label === 'Reload') {
-    const problem = groupProjectionProblem(lifecycle.mountedGroup, where + '.groupLifecycle.mountedGroup', allowedAggregates);
-    if (problem) return problem;
+    if (cdaJourneyCase) {
+      const mountedGroup = lifecycle.mountedGroup;
+      if (mountedGroup !== null && (!isPlainObject(mountedGroup) ||
+          typeof mountedGroup.stepId !== 'string' || mountedGroup.stepId.trim().length === 0 ||
+          !allowedAggregates.includes(mountedGroup.aggregate))) {
+        return where + '.groupLifecycle.mountedGroup must preserve its observed Group step and aggregate';
+      }
+    } else {
+      const problem = groupProjectionProblem(lifecycle.mountedGroup, where + '.groupLifecycle.mountedGroup', allowedAggregates);
+      if (problem) return problem;
+    }
     if (!requireReloadEditorProjection) {
-      const mountedGroupMatchesSaved = mountedGroupKeysAreLabels
-        ? lifecycle.mountedGroup !== null &&
-          lifecycle.mountedGroup.stepId === lifecycle.savedAfter.group?.stepId &&
-          lifecycle.mountedGroup.aggregate === lifecycle.savedAfter.group?.aggregate
+      const mountedGroupMatchesSaved = cdaJourneyCase
+        ? lifecycle.savedAfter.group === null
+          ? lifecycle.mountedGroup === null
+          : lifecycle.mountedGroup !== null &&
+            lifecycle.mountedGroup.stepId === lifecycle.savedAfter.group.stepId &&
+            lifecycle.mountedGroup.aggregate === lifecycle.savedAfter.group.aggregate
         : lifecycle.mountedGroup !== null && canonicalJson({
           stepId: lifecycle.mountedGroup.stepId,
           keys: lifecycle.mountedGroup.keys,
@@ -420,8 +431,9 @@ function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, 
       if (!Object.hasOwn(lifecycle, 'mountedRelatedSource')) {
         return where + '.groupLifecycle.mountedRelatedSource must explicitly preserve the actual mounted related source or null';
       }
-      if (lifecycle.mountedGroup.evidence !== 'construction-history-dom' ||
-          typeof lifecycle.mountedGroup.historyText !== 'string' || lifecycle.mountedGroup.historyText.trim().length === 0) {
+      if (lifecycle.mountedGroup !== null &&
+          (lifecycle.mountedGroup.evidence !== 'construction-history-dom' ||
+          typeof lifecycle.mountedGroup.historyText !== 'string' || lifecycle.mountedGroup.historyText.trim().length === 0)) {
         return where + '.groupLifecycle.mountedGroup must retain its actual construction-history DOM evidence';
       }
     } else if (lifecycle.mountedGroup !== null) {
@@ -511,9 +523,12 @@ function builderColumnLabelForId(document, columnId, where) {
 }
 
 function mountedGroupKeyLabelsProblem(mountedGroup, savedGroup, document, where) {
-  if (!isPlainObject(mountedGroup) || !Array.isArray(mountedGroup.keys) ||
+  if (savedGroup === null) {
+    return mountedGroup === null ? null : where + ' must be null when the saved Builder projection has no Group';
+  }
+  if (!isPlainObject(mountedGroup) || !Array.isArray(mountedGroup.keyLabels) ||
       !Array.isArray(savedGroup?.keys)) {
-    return where + '.keys must preserve the actual displayed Group key labels and their saved key IDs';
+    return where + '.keyLabels must preserve the actual displayed Group labels for the saved key IDs';
   }
   const expectedLabels = [];
   for (const key of savedGroup.keys) {
@@ -521,10 +536,10 @@ function mountedGroupKeyLabelsProblem(mountedGroup, savedGroup, document, where)
     if (result.problem) return result.problem;
     expectedLabels.push(result.label);
   }
-  if (canonicalJson(mountedGroup.keys) !== canonicalJson(expectedLabels) ||
+  if (canonicalJson(mountedGroup.keyLabels) !== canonicalJson(expectedLabels) ||
       typeof mountedGroup.historyText !== 'string' || mountedGroup.historyText.trim().length === 0 ||
       expectedLabels.some((label) => !mountedGroup.historyText.includes(label))) {
-    return where + '.keys must match actual construction-history labels joined to saved source/output IDs';
+    return where + '.keyLabels must match actual construction-history labels joined to saved source/output IDs';
   }
   return null;
 }
@@ -4031,8 +4046,14 @@ function collectCdaTokens(trace, journeyCase) {
       if (!isPlainObject(lifecycle)) continue;
       addGroup(lifecycle.savedBefore?.group);
       addGroup(lifecycle.savedAfter?.group);
-      addGroup(lifecycle.mountedGroup);
       addGroupIntent(lifecycle.candidateIntent);
+    }
+    if (action.label === 'Reload' && isPlainObject(action.groupLifecycle)) {
+      addGroup(cdaMountedGroupProjectionForTla(
+        action.groupLifecycle.mountedGroup,
+        action.groupLifecycle.savedAfter,
+        'CDA token collection Reload mounted Group',
+      ));
     }
   }
   if (stepTokens.size > BUILDER_GROUP_STEP_TOKENS.length || keyTokens.size > BUILDER_GROUP_KEY_TOKENS.length) {
@@ -4050,6 +4071,31 @@ function cdaCaptureToken(owner, tokens) {
 
 function cdaGroupProjectionForTla(group, tokens) {
   return groupRecordForTla(group, tokens.stepTokens, tokens.keyTokens);
+}
+
+function cdaMountedGroupProjectionForTla(mountedGroup, saved, where) {
+  if (!isPlainObject(saved)) fail(where + ' must retain the actual postreload saved Builder snapshot');
+  if (saved.group === null) {
+    if (mountedGroup !== null) fail(where + ' must be null when the saved Builder snapshot has no Group');
+    return null;
+  }
+  const selected = savedBuilderDocument(saved, where);
+  if (selected.problem) fail(selected.problem);
+  const labelProblem = mountedGroupKeyLabelsProblem(
+    mountedGroup, saved.group, selected.document, where,
+  );
+  if (labelProblem) fail(labelProblem);
+  if (mountedGroup.stepId !== saved.group.stepId || mountedGroup.aggregate !== saved.group.aggregate) {
+    fail(where + ' observed Group step and aggregate must match the saved Group projection');
+  }
+  const keys = mountedGroup.keyLabels.map((label, index) => {
+    const rawKeyId = saved.group.keys[index];
+    const resolved = builderColumnLabelForId(selected.document, rawKeyId, where + '.keyLabels[' + index + ']');
+    if (resolved.problem) fail(resolved.problem);
+    if (label !== resolved.label) fail(where + '.keyLabels must join to the saved Group key at the same position');
+    return rawKeyId;
+  });
+  return { stepId: mountedGroup.stepId, keys, aggregate: mountedGroup.aggregate };
 }
 
 function cdaRelatedSourceRecordForTla(related, tokens) {
@@ -4211,8 +4257,15 @@ function cdaLifecycleRecords(trace, tokens, journeyCase) {
       : action.rowExpansionLifecycle
         ? cdaRowExpansionIntentForTla(lifecycle)
         : candidateIntentForTla(lifecycle.candidateIntent, tokens.stepTokens, tokens.keyTokens);
-    const mountedGroup = isPlainObject(action.groupLifecycle?.mountedGroup)
-      ? cdaGroupProjectionForTla(action.groupLifecycle.mountedGroup, tokens)
+    const mountedGroupProjection = action.label === 'Reload' && isPlainObject(action.groupLifecycle)
+      ? cdaMountedGroupProjectionForTla(
+        action.groupLifecycle.mountedGroup,
+        action.groupLifecycle.savedAfter,
+        where + '.groupLifecycle.mountedGroup',
+      )
+      : null;
+    const mountedGroup = mountedGroupProjection
+      ? cdaGroupProjectionForTla(mountedGroupProjection, tokens)
       : 'NoGroup';
     const mountedRelated = action.label === 'Reload'
       ? cdaRelatedSourceRecordForTla(action.groupLifecycle.mountedRelatedSource, tokens)
@@ -5143,9 +5196,12 @@ async function main() {
 export {
   builderColumnLabelForId,
   cdaGroupLifecycleSnapshotProblem,
+  cdaGroupProjectionForTla,
+  cdaLifecycleRecords,
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
+  collectCdaTokens,
   groupLifecycleShapeProblem,
   mountedGroupKeyLabelsProblem,
   mountedRelatedSourceProblem,
