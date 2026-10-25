@@ -1020,6 +1020,22 @@ function selfTestCatalogValidation() {
   const validErrors = errorsFor(validCatalog());
   assert(validErrors.length === 0, 'valid catalog fixture should pass: ' + validErrors.join(' | '));
 
+  const duplicateSourceAssertion = validCatalog();
+  duplicateSourceAssertion.files[0].assertions.push(structuredClone(duplicateSourceAssertion.files[0].assertions[0]));
+  expectError('duplicate source assertion occurrence', duplicateSourceAssertion, 'duplicate source assertion occurrence');
+
+  const distinctSourceAssertionOccurrences = validCatalog();
+  const secondCallThrough = structuredClone(distinctSourceAssertionOccurrences.files[0].assertions[0]);
+  distinctSourceAssertionOccurrences.files[0].assertions[0].evidenceKind = 'call-through';
+  secondCallThrough.sourceAssertionId = 'source:scripts/example.test.mjs:L2:second-call-through-occurrence';
+  secondCallThrough.sourceLines = [2];
+  secondCallThrough.evidenceKind = 'call-through';
+  secondCallThrough.independence = 'shared';
+  distinctSourceAssertionOccurrences.files[0].assertions.push(secondCallThrough);
+  const distinctErrors = errorsFor(distinctSourceAssertionOccurrences);
+  assert(distinctErrors.length === 0,
+    'one semantic claim may retain multiple call-through occurrences at distinct source lines: ' + distinctErrors.join(' | '));
+
   const missingFile = validCatalog();
   missingFile.files = [];
   expectError('missing file record', missingFile, 'lacks one active catalog record');
@@ -1206,7 +1222,7 @@ function selfTestCatalogValidation() {
   diagnosticCallThrough.files[0].assertions[0].evidenceKind = 'call-through';
   assert(errorsFor(diagnosticCallThrough).length === 0, 'literal-true diagnostic may be catalogued as a call-through');
 
-  console.log('PASS semantic catalog validation self-test: 28 positive and negative fixtures');
+  console.log('PASS semantic catalog validation self-test: 30 positive and negative fixtures');
 }
 
 function selfTestFocusedConnections() {
