@@ -584,7 +584,7 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh',
     'owner-change-before-response'].includes(sourceReceiptCase),
     `unsupported synthetic source receipt case ${sourceReceiptCase}`);
-  assert(['none', 'reconcile-before-command', 'command-before-reconcile-response'].includes(setupReceiptCase),
+  assert(['none', 'reconcile-before-command', 'command-before-reconcile-response', 'command-starts-first'].includes(setupReceiptCase),
     `unsupported synthetic setup receipt case ${setupReceiptCase}`);
   const input = makePolicyOneTraceInput();
   input.requests.one.transportIndex = 3;
@@ -959,18 +959,20 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   };
   let setupCaptures = [setupCommandCapture];
   if (setupReceiptCase !== 'none') {
-    const reconcileBeforeResponse = setupReceiptCase === 'command-before-reconcile-response';
-    const oldReceipt = setupReceipt(1, {
-      requestEventIndex: 1,
-      settlementEventIndex: reconcileBeforeResponse ? 4 : 2,
+    const commandStartsFirst = setupReceiptCase === 'command-starts-first';
+    const commandBeforeReconcileResponse = setupReceiptCase !== 'reconcile-before-command';
+    const oldReceipt = setupReceipt(commandStartsFirst ? 2 : 1, {
+      requestEventIndex: commandStartsFirst ? 2 : 1,
+      settlementEventIndex: commandBeforeReconcileResponse ? 4 : 2,
       generation: 70,
       receiptId: 'receipt-setup-A',
       draftDigest: 'draft-before-setup-command',
     });
-    setupCommandCapture.transportIndex = 2;
-    setupCommandCapture.responseOwnerIndex = 2;
-    setupCommandCapture.requestEventIndex = reconcileBeforeResponse ? 2 : 3;
-    setupCommandCapture.settlementEventIndex = reconcileBeforeResponse ? 3 : 4;
+    setupCommandCapture.transportIndex = commandStartsFirst ? 1 : 2;
+    setupCommandCapture.responseOwnerIndex = setupCommandCapture.transportIndex;
+    setupCommandCapture.requestEventIndex = commandStartsFirst ? 1
+      : commandBeforeReconcileResponse ? 2 : 3;
+    setupCommandCapture.settlementEventIndex = commandBeforeReconcileResponse ? 3 : 4;
     const currentReceipt = setupReceipt(3, {
       requestEventIndex: 5,
       settlementEventIndex: 6,
@@ -978,7 +980,9 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
       receiptId: 'receipt-setup-B',
       draftDigest: rootDraft.digest,
     });
-    setupCaptures = [oldReceipt, setupCommandCapture, currentReceipt];
+    setupCaptures = commandStartsFirst
+      ? [setupCommandCapture, oldReceipt, currentReceipt]
+      : [oldReceipt, setupCommandCapture, currentReceipt];
   }
   const setupTransportOffset = setupCaptures.length;
   const setupEventOffset = setupTransportOffset * 2;

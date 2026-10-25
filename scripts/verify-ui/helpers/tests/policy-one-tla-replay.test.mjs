@@ -375,10 +375,11 @@ test('TLC expires receipts after observed saved-CAS changes and grants no credit
   assert.throws(() => compilePolicyOneJourneyTrace(wrongEcho), /must echo its submitted receipt/);
 });
 
-test('TLC excludes setup reconcile receipts invalidated by a same-owner setup command in both response orders', t => {
+test('TLC excludes setup reconcile receipts invalidated by a same-owner setup command across request/response orderings', t => {
   for (const [setupReceiptCase, suffix] of [
     ['reconcile-before-command', 'ResponseFirst'],
     ['command-before-reconcile-response', 'CommandFirst'],
+    ['command-starts-first', 'CommandStartsFirst'],
   ]) {
     const trace = makeSyntheticPolicyOneJourneyTrace({ setupReceiptCase });
     const setupReceipt = trace.transportLedger.find(entry => entry.requestId === 'builder-70-1');

@@ -378,8 +378,12 @@ test('the Policy observer rejects formal entry when a setup command failed or wa
   }), /setup mutation 1 must have a successful HTTP response/);
 });
 
-test('setup reconcile receipts expire when a same-owner setup command changes CAS in either response order', () => {
-  for (const setupReceiptCase of ['reconcile-before-command', 'command-before-reconcile-response']) {
+test('setup reconcile receipts expire when a same-owner setup command changes CAS across request/response orderings', () => {
+  for (const setupReceiptCase of [
+    'reconcile-before-command',
+    'command-before-reconcile-response',
+    'command-starts-first',
+  ]) {
     const trace = makeSyntheticPolicyOneJourneyTrace({ setupReceiptCase });
     const staleSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-70-1');
     const setupCommand = trace.transportLedger.find(row => row.capturePhase === 'SETUP'
@@ -400,8 +404,16 @@ test('setup reconcile receipts expire when a same-owner setup command changes CA
     assert.deepEqual(currentSetupReceipt.successfulPreviewConsumerTransportIndices, [setupPreview.transportIndex]);
     assert.deepEqual(setupPreview.currentReceiptProducerTransportIndices, [currentSetupReceipt.transportIndex]);
     assert.deepEqual(currentFormalReceipt.successfulPreviewConsumerTransportIndices, [formalPreview.transportIndex]);
+    if (setupReceiptCase === 'command-starts-first') {
+      assert.deepEqual([
+        setupCommand.requestEventIndex,
+        staleSetupReceipt.requestEventIndex,
+        setupCommand.settlementEventIndex,
+        staleSetupReceipt.settlementEventIndex,
+      ], [1, 2, 3, 4], 'the overlap case must preserve the exact command-starts-first event order');
+    }
     assert.equal(staleSetupReceipt.ownerInvalidationObserved,
-      setupReceiptCase === 'command-before-reconcile-response',
+      setupReceiptCase !== 'reconcile-before-command',
       'pre-response invalidation must follow the actual setup command settlement order');
   }
 });
