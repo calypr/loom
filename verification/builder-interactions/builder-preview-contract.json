@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "cd788f830f97a7f1b8a3a2da22e895a7398a575fda94ee36ae22beb7d028a9b7",
+      "sha256": "7d3f629a03c2d9e3e154ecba76f93936e94aeffbb4d350adde62113d08e77c0e",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -484,7 +484,7 @@
     },
     {
       "path": "ui/apps/demo/src/main.tsx",
-      "sha256": "676c59a260d5248a770ba8eba403b2c305efd64ebaee64238f278abbcf459703",
+      "sha256": "cfa1f90d9ab0acc10356d2414b247037025c36e61b2a29b9f51c6f74fe1a1089",
       "contract": "Demo application entry point hosting the native Builder UI."
     },
     {
@@ -614,7 +614,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs",
-      "sha256": "964ac49d5b86737421d6a938bd8f54616d74ef1cfd2c2fd227c49a432a73ef84",
+      "sha256": "ca42cf12b89c094e536b8dc510e2df369a8914058dd6e56e07a033a57ac2ca57",
       "contract": "Synthetic unit fixture for Temporal trace adapter and TLC tests; not browser evidence."
     },
     {
@@ -624,7 +624,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs",
-      "sha256": "203a26373056d11d7fcedf94a7af2a983af79f4adbdaadb90c2e40d90e0838e2",
+      "sha256": "2e7f673eaaf0fe58304eab0649f7c7d36b363a81bfcabda38d00958d9fe9910c",
       "contract": "Focused Temporal contract, TLA replay, and mutation-control tests."
     },
     {
@@ -649,7 +649,7 @@
     },
     {
       "path": "verification/builder-interactions/TemporalFilterJourney.tla",
-      "sha256": "cddbdf02d330251b10905956c363fc2a49114fe285bd243965e5f666b2ababc7",
+      "sha256": "7b2bd6f18c3b7d455aa74d87327541d1e0be4bc0d6c469817f93d792fbccdbfb",
       "contract": "Bounded state machine and invariants for the observed Temporal filter lifecycle."
     },
     {
@@ -721,6 +721,31 @@
       "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json",
       "sha256": "085fe38273813b2b82c35ade8ee1e0e78db22f24909d10da5192ee7f1ff7bcf4",
       "contract": "Sanitized retained run5 DATE target shape for the fixture-oracle placement regression."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-native-corpus.test.mjs",
+      "sha256": "9cc1776b9b13afbb8a82aaea539b13f5253ceb27c980294e47a7c450631d8ae7",
+      "contract": "Replays retained native DATE captures through the registered adapter and production TLC runner as an offline fixture check; it is not a new browser run."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-mutation-controls.test.mjs",
+      "sha256": "af33dd7b0d935615230c71b5c88a5a08dbcc8054743e96441cb70ab8f8aa96c9",
+      "contract": "Checks registered DATE and DATE_TIME mutation controls through the production TLC runner as focused unit evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-96a.json.gz",
+      "sha256": "51bd914beb1ebcbe511f09d6d4ccae865b1daa6be27105a6d1271ac649b7d996",
+      "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run5.json.gz",
+      "sha256": "dba44f69c87ce115bf6e7f1287500c92c4bdc8a88e7717d89571c1ba280e3c99",
+      "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz",
+      "sha256": "acc3cddaa584cbe1bafbde65d8b7aa4b88005346e1edb50d8d87270f0ef26cea",
+      "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
     }
   ]
 }
