@@ -20,9 +20,9 @@
     "staleSources": 0,
     "triageErrors": 0,
     "strictPass": true,
-    "actionObligations": 194,
+    "actionObligations": 214,
     "probedActions": 59,
-    "unprobedActions": 135
+    "unprobedActions": 155
   },
   "allowlist": [],
   "probes": [
@@ -1792,6 +1792,146 @@
       "covered": true
     },
     {
+      "id": "PolicyOneDisagreement.AllApplied",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.AllApplySubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.AllReady",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.AllSubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.GroupApplied",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.GroupApplySubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.GroupPreviewReady",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.GroupPreviewSubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.OneRejected",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.OneSubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.PatientIdField",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.ReloadedAll",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalApplied",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalApplySubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalCancelled",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalPreviewReadyAgain",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalPreviewReadyFirst",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalPreviewSubmitted",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.RemovalPreviewSubmittedAgain",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
+      "id": "PolicyOneDisagreement.SelectAll",
+      "model": "PolicyOneDisagreement",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
       "id": "Population.ApplyRemoval",
       "model": "Population",
       "routeBinding": "candidate",
@@ -2505,6 +2645,26 @@
     "LifecycleEntry.SelectionFailed",
     "LifecycleEntry.SelectionReady",
     "LifecycleEntry.SetFeatureFocus",
+    "PolicyOneDisagreement.AllApplied",
+    "PolicyOneDisagreement.AllApplySubmitted",
+    "PolicyOneDisagreement.AllReady",
+    "PolicyOneDisagreement.AllSubmitted",
+    "PolicyOneDisagreement.GroupApplied",
+    "PolicyOneDisagreement.GroupApplySubmitted",
+    "PolicyOneDisagreement.GroupPreviewReady",
+    "PolicyOneDisagreement.GroupPreviewSubmitted",
+    "PolicyOneDisagreement.OneRejected",
+    "PolicyOneDisagreement.OneSubmitted",
+    "PolicyOneDisagreement.PatientIdField",
+    "PolicyOneDisagreement.ReloadedAll",
+    "PolicyOneDisagreement.RemovalApplied",
+    "PolicyOneDisagreement.RemovalApplySubmitted",
+    "PolicyOneDisagreement.RemovalCancelled",
+    "PolicyOneDisagreement.RemovalPreviewReadyAgain",
+    "PolicyOneDisagreement.RemovalPreviewReadyFirst",
+    "PolicyOneDisagreement.RemovalPreviewSubmitted",
+    "PolicyOneDisagreement.RemovalPreviewSubmittedAgain",
+    "PolicyOneDisagreement.SelectAll",
     "Population.AttachSelection",
     "Population.CoverageComplete",
     "Population.CoverageIncomplete",

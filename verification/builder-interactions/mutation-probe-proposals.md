@@ -6,14 +6,14 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 
 | Measure | Count |
 | --- | ---: |
-| actions | 135 |
+| actions | 155 |
 | high | 44 |
 | medium | 24 |
-| low | 67 |
+| low | 87 |
 | withCandidateTests | 68 |
-| withoutCandidateTests | 67 |
-| guardCandidates | 17 |
-| withGuardCandidates | 9 |
+| withoutCandidateTests | 87 |
+| guardCandidates | 21 |
+| withGuardCandidates | 11 |
 
 ## Review queue
 
@@ -79,7 +79,7 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | low | `BuilderJourney.CdaSnapshot5` | 0 | none | none |
 | low | `BuilderJourney.ChoicePreview` | 0 | none | none |
 | low | `BuilderJourney.ChoicePreviewComplete` | 0 | none | none |
-| ... | 75 more in the JSON report | | | |
+| ... | 95 more in the JSON report | | | |
 
 ## Guard candidates
 
@@ -102,6 +102,10 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | `BuilderJourney.Preview` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1925 | `if (response.preview.rows === null || response.preview.outputId !== table.outputId) {` -> `if (response.preview.rows === null) {` |
 | `BuilderJourney.PreviewRequestCancelled` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 2918 | `if (execution.previewRequest && execution.previewGeneration === previewGeneration.current) {` -> `if (execution.previewRequest) {` |
 | `BuilderJourney.Reload` | `ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts` | 49 | `if (!options?.reload && settledRef.current?.key === request.key) {` -> `if (!options?.reload) {` |
+| `PolicyOneDisagreement.GroupPreviewReady` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 3304 | `if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {` -> `if ((kind === 'expand' || kind === 'group') && table) {` |
+| `PolicyOneDisagreement.SelectAll` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1682 | `if (selection.constructionChoice.form === 'ALL' && !relatedCandidate) {` -> `if (selection.constructionChoice.form === 'ALL') {` |
+| `PolicyOneDisagreement.SelectAll` | `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx` | 1734 | `if (!relatedCandidate || (selection.constructionChoice.form !== 'COUNT' && selection.constructionChoice.form !== 'ALL')) {` -> `if (!relatedCandidate || (selection.constructionChoice.form !== 'COUNT') {` |
+| `PolicyOneDisagreement.SelectAll` | `ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedSourceStepEditor.tsx` | 308 | `if ((form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') || !relatedChoiceIsSupported(selected, rowRoot, form)) {` -> `if ((form !== 'ALL' && form !== 'COUNT') {` |
 
 ## Bounds
 

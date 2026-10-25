@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "241312fe976b4cbdb8b361ba69beb8e78bb754e8ceea4339aa82dc550cfd809d",
+      "sha256": "9e98fc2674367a7bda4f5dfb1e3b4f43648427a45cb5e482cccba7102ed0a744",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "c3ed8f7b48b7e27ff19f6498cc44fa0475af55a20f64bd7bfba9cd346eebcb6f",
+      "sha256": "4c9abf104082dfbfd5709c07d767793924cb83e6ead814ae7e81da81f7934004",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "317687f0f86e45c803d63648767a6bf9ae8afbbb82b5efbff9bfebd3c9de9794",
+      "sha256": "8200149f3c58f90d9d318dec250cb01cb3a247553cb86459b13f3b2df253f7ac",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -554,7 +554,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "d01921d68d318a29e81c25b5b7f1b0a23a2a6780df7863ce55ee42751daca8b9",
+      "sha256": "da3543d1dc34a20eea2e3425985c2a08192ead4dd714fdea85ec0cfc734e9251",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "9b5fb13acd167fa6538fccac6e89043ee28ee651ad29205f252ee02b80e5a92c",
+      "sha256": "826813312d29c85a5e5db6069419db64d070392608f65b95a8f8ccfa95d2ae37",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -579,7 +579,7 @@
     },
     {
       "path": "verification/builder-interactions/builder-policy-one-contract.json",
-      "sha256": "2f5373b18149c25f11573c99746d17093ebbe70fdb04acb45fb97ee1db74a22e",
+      "sha256": "f4384638550c567cdd1c1e5397463f02af7f71e9beeb28aa1c002c9a68132657",
       "contract": "Registered Policy One native journey action, event, and mutation-control contract."
     },
     {

@@ -5,11 +5,11 @@ Status: generated from the TLA models and existing test metadata.
 ## Script quality inventory
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
-683 are currently tracked; 2 baseline files have retained tombstones.
-13186 semantic claims are defined once; 9257 source occurrences are direct test assertions, out of 19003 total labeled occurrences.
-9746 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
-685 catalog records have source-review evidence; 685 MJS records remain runtime-unverified.
-69 files are classified as independent tool/module purposes; 298 MJS files and 5324 semantic claims have no canonical journey mapping.
+691 are currently tracked; 2 baseline files have retained tombstones.
+13186 semantic claims are defined once; 9257 source occurrences are direct test assertions, out of 18998 total labeled occurrences.
+9741 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+693 catalog records have source-review evidence; 693 MJS records remain runtime-unverified.
+69 files are classified as independent tool/module purposes; 306 MJS files and 5329 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
@@ -17,8 +17,8 @@ Status: generated from the TLA models and existing test metadata.
 | browser-spec | 96 |
 | browser-workflow | 146 |
 | config | 5 |
-| helper-or-oracle | 146 |
-| test | 223 |
+| helper-or-oracle | 150 |
+| test | 227 |
 | tool-or-module | 69 |
 
 ### Journey assembly by canonical case
@@ -48,7 +48,7 @@ Status: generated from the TLA models and existing test metadata.
 | `builder-authoring:group-entry` | 6 | 9 | 0 | 8 | 20 | — |
 | `builder-authoring:group-entry-raw-basic` | 5 | 9 | 0 | 6 | 19 | — |
 | `builder-authoring:legacy-v9-rows` | 5 | 0 | 0 | 112 | 24 | BuilderOperations, BuilderPreview |
-| `builder-authoring:patient-one-disagreement` | 6 | 0 | 0 | 74 | 8 | BuilderOperations, BuilderPreview |
+| `builder-authoring:patient-one-disagreement` | 6 | 0 | 0 | 69 | 7 | BuilderOperations, BuilderPreview |
 | `builder-authoring:repeated-empty` | 5 | 12 | 0 | 7 | 54 | — |
 | `builder-authoring:selected-resource-coverage` | 7 | 8 | 0 | 88 | 24 | BuilderOperations, BuilderPreview, Population |
 | `builder-authoring:suggestions` | 5 | 1 | 0 | 18 | 12 | BuilderOperations, BuilderPreview |
@@ -173,8 +173,8 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files | 69 |
 | Tool/module files with a canonical case mapping | 7 |
 | Tool/module files without a canonical case mapping | 62 |
-| All MJS files without a canonical case mapping | 298 |
-| Semantic claims without a canonical case mapping | 5324 |
+| All MJS files without a canonical case mapping | 306 |
+| Semantic claims without a canonical case mapping | 5329 |
 
 ### Explicit formal links
 
@@ -201,6 +201,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/basic-published-membership-oracle.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/verify-ui/helpers/basic-root-replacement-contract.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
 - `scripts/verify-ui/helpers/builder-combine-helpers.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
+- `scripts/verify-ui/helpers/builder-formal-adapters.mjs`: trace-support → BuilderJourney; PolicyOneDisagreement; gap: Static adapter dispatch is framework support; native workflow execution and a retained source-bound proof are required separately.
 - `scripts/verify-ui/helpers/builder-journey-trace.mjs`: trace-support → BuilderJourney; gap: The adapter establishes trace provenance and request coverage; a current browser lifecycle plus TLC receipt is still required.
 - `scripts/verify-ui/helpers/cda-current-draft-membership-oracle.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/verify-ui/helpers/cda-starting-collection-replacement-oracle.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
@@ -209,6 +210,8 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/composed-row-lineage-fixture.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
 - `scripts/verify-ui/helpers/construction-capabilities-readiness.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
 - `scripts/verify-ui/helpers/construction-operation-diff.mjs`: trace-support → BuilderJourney; gap: This helper does not model the expansion transition or prove a browser run; the captured trace and TLC replay remain required.
+- `scripts/verify-ui/helpers/policy-one-tla-replay.mjs`: trace-support → PolicyOneDisagreement; gap: The helper can replay supplied traces, but its unit fixtures do not establish a live browser journey.
+- `scripts/verify-ui/helpers/policy-one-trace.mjs`: trace-support → PolicyOneDisagreement; gap: The adapter preserves observed trace facts; only the native workflow plus retained replay receipt establishes runtime conformance.
 - `scripts/verify-ui/helpers/proposal-reopen-binding.mjs`: candidate; gap: Source review only; no runtime, test, browser, or model result is represented as passing.
 - `scripts/verify-ui/helpers/related-choice-stage-context.mjs`: candidate; gap: Candidate correspondence covers only helper-level state ownership; raw oracle values, browser rendering, persistence, and a complete user trace remain outside the formal model.
 - `scripts/verify-ui/helpers/related-one-all-lifecycle-contract.mjs`: candidate; gap: No model/action binding or formal trace correspondence is established; the current check remains an independent source/oracle/browser contract.
@@ -229,6 +232,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/builder-combine-nullable.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/builder-combine.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
 - `scripts/verify-ui/helpers/tests/builder-controls-table-preview-readiness.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
+- `scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs`: trace-support → PolicyOneDisagreement; gap: The suite uses a synthetic complete trace and is framework evidence, not native browser evidence.
 - `scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs`: trace-support → BuilderJourney; gap: These tests do not perform a browser lifecycle or claim a passing model replay.
 - `scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
@@ -245,6 +249,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/construction-capabilities-readiness.test.mjs`: candidate; gap: The test uses mocked identity reads and emitted request events; no browser lifecycle pass or model binding is claimed.
 - `scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs`: trace-support → BuilderJourney; gap: The unit test is synthetic and does not establish a current browser trace or TLC pass.
 - `scripts/verify-ui/helpers/tests/construction-output-selection.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
+- `scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs`: trace-support → PolicyOneDisagreement; gap: Fixture traces are explicitly synthetic and never represented as captured application evidence.
 - `scripts/verify-ui/helpers/tests/group-pivot-append-contract.test.mjs`: candidate → BuilderOperations [AuthorStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
 - `scripts/verify-ui/helpers/tests/group-related-multiset.test.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
 - `scripts/verify-ui/helpers/tests/missing-component-group-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
@@ -253,12 +258,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/native-verification-batch.test.mjs`: candidate; gap: There is no current Builder TLA model for test-runner orchestration, scheduler concurrency, cancellation, or cleanup; this remains separate from Builder journey coverage.
 - `scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/nested-authored-expand-oracle.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
-- `scripts/verify-ui/helpers/tests/owned-arangosh-command.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
-- `scripts/verify-ui/helpers/tests/playwright-authoring-existing-root-change.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
-- `scripts/verify-ui/helpers/tests/playwright-authoring-suggestions.test.mjs`: candidate → BuilderOperations [AuthorStep, UndoLastStep]; BuilderPreview [StartProposal, CancelProposal, StartPreview, BeginApply, ApplyAck]; gap: Request/fixture assertions can exceed the model fields and no runtime pass is claimed.
-- `scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
-- `scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-process.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
-- 201 additional formal applicability rows are in the JSON report.
+- 208 additional formal applicability rows are in the JSON report.
 
 These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.
 
@@ -267,7 +267,7 @@ These are source associations, not passing runs. Model actions, invariants, sche
 | Disposition | Files |
 | --- | ---: |
 | integrate | 2 |
-| keep | 682 |
+| keep | 690 |
 | merge-candidate | 1 |
 
 | MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |
@@ -284,16 +284,16 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 
 | Measure | Count |
 | --- | ---: |
-| models | 14 |
-| actions | 194 |
-| invariants | 96 |
-| obligations | 290 |
+| models | 15 |
+| actions | 214 |
+| invariants | 108 |
+| obligations | 322 |
 | covered | 10 |
-| partial | 96 |
-| missing | 184 |
+| partial | 108 |
+| missing | 204 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 95 |
+| missingUnbound | 115 |
 | tests | 908 |
 | testsWithObligations | 11 |
 | testsWithoutObligations | 897 |
@@ -385,7 +385,7 @@ The source catalog is hash-bound to reviewed revisions; currentSha256 records ea
 - `ConstructionLifecycle.RetryProposal` (2 route(s))
 - `ConstructionLifecycle.StartPreview` (6 route(s))
 - `ConstructionLifecycle.StartProposal` (6 route(s))
-- 104 more in the JSON report.
+- 124 more in the JSON report.
 
 ## Obligations with exact tests
 
