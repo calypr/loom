@@ -136,7 +136,7 @@
     "nativeCaseKey": "builder-authoring/patient-one-disagreement",
     "traceName": "builder-authoring:patient-one-disagreement",
     "model": "PolicyOneDisagreement",
-    "coverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant; modeled semantic requests, reconcile owner/CAS requests, and explicitly supported read-only routes remain separate row classes.",
+    "coverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes.",
     "exactActionCounts": true,
     "requiredMutationControlNames": [
       "wrong-owner",
@@ -144,6 +144,7 @@
       "out-of-order-repair",
       "stale-restoration",
       "request-body-ledger-drift",
+      "setup-command-response-owner",
       "wrong-row-value-output",
       "non-array-row-value-output"
     ],

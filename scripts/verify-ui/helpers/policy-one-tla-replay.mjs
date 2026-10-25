@@ -29,6 +29,10 @@ const MODELED_TRANSPORT_PATHS = new Map([
 const READ_ONLY_TRANSPORT_PATHS = new Map([
   ['GET builder', 'BuilderState read'],
   ['GET capability', 'Explorer capability read'],
+  ['GET row-definition-choices', 'Row-definition choices read'],
+  ['POST suggestions', 'Source suggestions read'],
+  ['POST semantic-inventory', 'Semantic inventory read'],
+  ['POST configured-column-context', 'Configured-column context read'],
   ['POST construction-capabilities', 'Construction capabilities read'],
   ['POST construction-inputs', 'Construction stage inputs read'],
   ['POST construction-choices', 'Construction source choices read'],
@@ -312,12 +316,19 @@ function transportFact(entry) {
     method: entry.method,
     path: entry.path,
     classification: entry.classification,
+    capturePhase: entry.capturePhase,
     mutatesDraft: entry.mutatesDraft,
+    setupMutation: entry.setupMutation === true,
     actionLabel: entry.actionLabel ?? ABSENT,
     actionEvent: entry.actionEvent ?? ABSENT,
     requestId: entry.requestId ?? ABSENT,
     requestCaptureId: entry.requestCaptureId ?? ABSENT,
     requestBodyFingerprint: stableJSON(entry.requestBody ?? null),
+    responseHeadersObserved: entry.responseHeaders !== null && entry.responseHeaders !== undefined,
+    responseHeadersStatus: entry.responseHeaders?.status ?? 0,
+    responseHeadersRequestId: entry.responseHeaders?.requestId ?? ABSENT,
+    responseReadError: entry.responseReadError ?? ABSENT,
+    responseObservedBeforeFailure: entry.responseObservedBeforeFailure === true,
     commandId: body.commandId ?? command.commandId ?? ABSENT,
     outputId: body.outputId ?? command.outputId ?? ABSENT,
     snapshotToken: body.snapshotToken ?? ABSENT,
@@ -335,6 +346,9 @@ function transportFact(entry) {
     savedCASAfterDraftVersion: entry.savedCASAfter?.draftVersion ?? 0,
     savedCASAfterDraftDigest: entry.savedCASAfter?.draftDigest ?? ABSENT,
     responseRequestId: response.requestId ?? ABSENT,
+    responseCommandId: response.commandId ?? ABSENT,
+    responseDraftVersion: response.draftVersion ?? 0,
+    responseDraftDigest: response.draftDigest ?? ABSENT,
     responseReceiptId: response.receiptId ?? ABSENT,
     responseReceiptIds: response.receiptIds ?? [],
     responseOutputIds: response.outputIds ?? [],
@@ -352,6 +366,7 @@ function transportFact(entry) {
     successfulPreviewConsumerTransportIndices: entry.successfulPreviewConsumerTransportIndices ?? [],
     invalidatedByTransportIndices: entry.invalidatedByTransportIndices ?? [],
     reconcileOwnerChangeCaptureIds: entry.reconcileOwnerChangeCaptureIds ?? [],
+    reconcileOwnerChangeSetupCommandIds: entry.reconcileOwnerChangeSetupCommandIds ?? [],
     ownerInvalidationObserved: entry.ownerInvalidationObserved === true,
     reconcileDisposition: entry.reconcileDisposition ?? ABSENT,
     readOnlyReason: entry.readOnlyReason ?? ABSENT,
@@ -368,6 +383,13 @@ function validateTraceShape(trace) {
     `journey trace must contain ${EXPECTED_LABELS.length} observed actions`);
   assert(Array.isArray(trace.transportLedger), 'journey trace must include its raw transport ledger');
   assert(trace.transportLedger.length > 0, 'raw transport ledger must not be empty');
+  const formalEntry = requireRecord(trace.formalEntry, 'formal entry boundary');
+  assert(Number.isInteger(formalEntry.afterTransportIndex) && formalEntry.afterTransportIndex >= 0,
+    'formal entry must retain its exact final setup transport index');
+  assert(Number.isInteger(formalEntry.afterEventIndex) && formalEntry.afterEventIndex >= 0,
+    'formal entry must retain its exact final setup settlement event index');
+  const initialSavedState = requireRecord(formalEntry.initialSavedState,
+    'formal entry initial saved Builder snapshot');
   for (const [index, entry] of trace.actions.entries()) {
     requireRecord(entry, `journey action ${index}`);
     requireString(entry.label, `journey action ${index} label`);
@@ -381,6 +403,8 @@ function validateTraceShape(trace) {
       `journey trace must contain ${count} ${label} action(s)`);
   }
   const transportEventIndices = [];
+  let lastSetupTransportIndex = 0;
+  let lastSetupEventIndex = 0;
   for (const [index, entry] of trace.transportLedger.entries()) {
     requireRecord(entry, `transport ledger row ${index}`);
     assert.equal(entry.transportIndex, index + 1,
@@ -402,7 +426,51 @@ function validateTraceShape(trace) {
       `transport ledger row ${index} ownerScope must be derived from its resourcePath`);
     assert(['response', 'request-failed'].includes(entry.settlement),
       `transport ledger row ${index} must have a settled response or failure`);
+    assert.equal(typeof entry.responseObservedBeforeFailure, 'boolean',
+      `transport ledger row ${index} must retain whether headers preceded a failed terminal`);
+    const responseHeaders = entry.responseHeaders ?? null;
+    const responseReadError = entry.responseReadError ?? null;
+    if (responseHeaders) {
+      assert(isRecord(responseHeaders), `transport ledger row ${index} response headers must be an object`);
+      assert(Number.isInteger(responseHeaders.status) && responseHeaders.status > 0,
+        `transport ledger row ${index} response headers must retain their actual status`);
+      assert(responseHeaders.requestId === null || typeof responseHeaders.requestId === 'string',
+        `transport ledger row ${index} response header request ID must be a string or null`);
+    } else {
+      assert.equal(entry.responseObservedBeforeFailure, false,
+        `transport ledger row ${index} cannot report headers before failure without captured headers`);
+      assert.equal(responseReadError, null,
+        `transport ledger row ${index} cannot report a body read error without response headers`);
+    }
+    if (responseReadError !== null) {
+      requireString(responseReadError, `transport ledger row ${index} response body read error`);
+      assert(responseHeaders,
+        `transport ledger row ${index} body read error must follow observed response headers`);
+    }
+    assert(['SETUP', 'FORMAL'].includes(entry.capturePhase),
+      `transport ledger row ${index} must retain its capture phase`);
+    assert.equal(typeof entry.setupMutation, 'boolean',
+      `transport ledger row ${index} must classify whether a setup mutation occurred`);
+    if (entry.capturePhase === 'SETUP') {
+      lastSetupTransportIndex = entry.transportIndex;
+      lastSetupEventIndex = Math.max(lastSetupEventIndex, entry.settlementEventIndex);
+      assert(entry.transportIndex <= formalEntry.afterTransportIndex,
+        `setup transport ${entry.transportIndex} must precede formal entry`);
+      assert(entry.settlementEventIndex <= formalEntry.afterEventIndex,
+        `setup transport ${entry.transportIndex} must settle before formal entry`);
+    } else {
+      assert(entry.transportIndex > formalEntry.afterTransportIndex,
+        `formal transport ${entry.transportIndex} must follow setup transport indexes`);
+      assert(entry.requestEventIndex > formalEntry.afterEventIndex,
+        `formal transport ${entry.transportIndex} must follow setup settlements`);
+    }
     if (entry.settlement === 'response') {
+      assert(responseHeaders,
+        `transport ledger row ${index} response terminal must retain response headers`);
+      assert.equal(entry.responseObservedBeforeFailure, false,
+        `transport ledger row ${index} successful terminal cannot follow request failure`);
+      assert.equal(responseHeaders.status, entry.status,
+        `transport ledger row ${index} headers must match terminal status`);
       assert.equal(entry.responseOwnerIndex, entry.transportIndex,
         `transport ledger row ${index} response must retain its exact request owner`);
       assert(Number.isInteger(entry.status) && entry.status > 0,
@@ -411,6 +479,8 @@ function validateTraceShape(trace) {
       assert.equal(entry.response.status, entry.status,
         `transport ledger row ${index} response status must match the settlement`);
     } else {
+      assert.equal(entry.responseObservedBeforeFailure, Boolean(responseHeaders),
+        `transport ledger row ${index} must preserve whether headers preceded its failed terminal`);
       assert.equal(entry.responseOwnerIndex, null,
         `failed transport ledger row ${index} cannot claim a response owner`);
       assert.equal(entry.status, null, `failed transport ledger row ${index} cannot have a response status`);
@@ -418,9 +488,15 @@ function validateTraceShape(trace) {
     }
     const route = `${entry.method} ${entry.path}`;
     const modeledMutation = MODELED_TRANSPORT_PATHS.get(route);
-    if (modeledMutation !== undefined) {
+    if (entry.capturePhase === 'SETUP' && route === 'POST commands') {
+      assert.equal(entry.classification, 'setup', 'pre-entry commands must be declared SETUP mutations');
+      assert.equal(entry.mutatesDraft, true, 'SETUP commands must declare their saved-draft mutation');
+      assert.equal(entry.setupMutation, true, 'SETUP commands must retain their explicit mutation classification');
+    } else if (modeledMutation !== undefined) {
+      assert.equal(entry.capturePhase, 'FORMAL', `${route} semantic requests must follow formal entry`);
       assert.equal(entry.classification, 'modeled', `${route} must remain semantically modeled`);
       assert.equal(entry.mutatesDraft, modeledMutation, `${route} draft-mutation classification must match its contract`);
+      assert.equal(entry.setupMutation, false, `${route} formal requests cannot be setup mutations`);
       if (route === 'POST commands' && entry.status >= 200 && entry.status < 300) {
         requireRecord(entry.savedCASAfter,
           `successful command transport ${entry.transportIndex} after-Builder CAS`);
@@ -445,6 +521,7 @@ function validateTraceShape(trace) {
       }
     } else if (route === 'POST reconcile') {
       assert.equal(entry.classification, 'reconcile', 'reconcile POSTs must retain owner/CAS modeling');
+      assert.equal(entry.setupMutation, false, 'reconcile reads cannot be setup mutations');
       const ownerMatch = /^builder-(\d+)-(\d+)$/.exec(entry.requestId ?? '');
       assert(ownerMatch, `reconcile transport ${entry.transportIndex} must retain its Builder owner generation and attempt`);
       const body = requireRecord(entry.requestBody, `reconcile transport ${entry.transportIndex} request body`);
@@ -462,6 +539,8 @@ function validateTraceShape(trace) {
       assert.equal(entry.reconcileCAS.draftDigest, body.draftDigest);
       assert(Array.isArray(entry.reconcileOwnerChangeCaptureIds),
         `reconcile transport ${entry.transportIndex} must retain its owner-change capture IDs`);
+      assert(Array.isArray(entry.reconcileOwnerChangeSetupCommandIds),
+        `reconcile transport ${entry.transportIndex} must retain its setup command IDs`);
       assert(Array.isArray(entry.successfulPreviewConsumerTransportIndices),
         `reconcile transport ${entry.transportIndex} must retain its successful preview consumers`);
       if (entry.settlement === 'response' && entry.status === 200) {
@@ -478,6 +557,7 @@ function validateTraceShape(trace) {
       assert(readOnlyReason, `unsupported authoring transport ${route}`);
       assert.equal(entry.classification, 'read-only', `${route} must be explicitly classified as read-only`);
       assert.equal(entry.mutatesDraft, false, `${route} cannot be classified as a draft mutation`);
+      assert.equal(entry.setupMutation, false, `${route} cannot be a setup mutation`);
       assert.equal(entry.readOnlyReason, readOnlyReason, `${route} must retain its registered read-only reason`);
       if (route === 'POST preview') {
         assert(['successful-response', 'http-error', 'request-failed'].includes(entry.previewDisposition),
@@ -506,6 +586,10 @@ function validateTraceShape(trace) {
   assert.deepEqual([...transportEventIndices].sort((left, right) => left - right),
     Array.from({ length: transportEventIndices.length }, (_, index) => index + 1),
     'transport ledger must retain every request and settlement event in its scope');
+  assert.equal(formalEntry.afterTransportIndex, lastSetupTransportIndex,
+    'formal entry must retain the actual final setup transport index');
+  assert.equal(formalEntry.afterEventIndex, lastSetupEventIndex,
+    'formal entry must retain the actual final setup settlement event index');
 
   const actionTransportIndices = trace.actions
     .filter(entry => MODELED_REQUEST_EVENTS.has(entry.event))
@@ -533,8 +617,16 @@ function validateTraceShape(trace) {
   }
   requireRecord(trace.initialObservation, 'initial observation');
   requireRecord(trace.initialObservation.workspace, 'initial workspace observation');
+  requireString(trace.initialObservation.outputId, 'initial output ID');
+  requireString(trace.initialObservation.snapshotToken, 'initial saved snapshot token');
   requireVersion(trace.initialObservation.draftVersion, 'initial draft version');
   requireString(trace.initialObservation.draftDigest, 'initial draft digest');
+  assert.equal(initialSavedState.outputId, trace.initialObservation.outputId);
+  assert.equal(initialSavedState.snapshotToken, trace.initialObservation.snapshotToken);
+  assert.equal(initialSavedState.draftVersion, trace.initialObservation.draftVersion);
+  assert.equal(initialSavedState.draftDigest, trace.initialObservation.draftDigest);
+  assert.deepEqual(initialSavedState.workspaceProjection, trace.initialObservation.workspace,
+    'formal entry saved snapshot projection must equal the initial observed workspace');
   requireRecord(trace.initialPreview, 'initial preview');
   const patientIds = trace.initialPreview.patientIds ?? trace.initialObservation.rowIds;
   assert(Array.isArray(patientIds), 'initial preview must contain independent Patient IDs');
@@ -644,6 +736,18 @@ export function buildPolicyOneMutationControls(trace) {
 
   add('request-body-ledger-drift', 'ObservedTransportLedgerInvariant', mutated => {
     action(mutated, 'GroupPreviewSubmitted').request.body.observationProbe = true;
+  });
+
+  const setupMutation = trace.transportLedger.find(entry => entry.capturePhase === 'SETUP' && entry.setupMutation);
+  assert(setupMutation, 'mutation controls require an observed successful setup command');
+  const actualFormalCommandId = action(trace, 'GroupApplySubmitted').request.commandId;
+  requireString(actualFormalCommandId, 'actual formal Group Apply commandId');
+  assert.notEqual(setupMutation.response.commandId, actualFormalCommandId,
+    'setup response owner control requires distinct captured command IDs');
+  add('setup-command-response-owner', 'ObservedTransportLedgerInvariant', mutated => {
+    const row = mutated.transportLedger.find(entry => entry.transportIndex === setupMutation.transportIndex);
+    assert(row, 'setup response owner mutation must retain its exact setup transport');
+    row.response.commandId = actualFormalCommandId;
   });
 
   const appliedAllGroup = action(trace, 'RemovalApplied').savedBefore.group;
@@ -785,6 +889,15 @@ function deriveModelConstants(trace) {
       patientIds,
       receiptId: trace.initialPreview.binding?.receiptId ?? ABSENT,
     },
+    ObservedFormalEntry: {
+      afterTransportIndex: trace.formalEntry.afterTransportIndex,
+      afterEventIndex: trace.formalEntry.afterEventIndex,
+      outputId: trace.formalEntry.initialSavedState.outputId,
+      snapshotToken: trace.formalEntry.initialSavedState.snapshotToken,
+      draftVersion: trace.formalEntry.initialSavedState.draftVersion,
+      draftDigest: trace.formalEntry.initialSavedState.draftDigest,
+      workspace: trace.formalEntry.initialSavedState.workspaceProjection,
+    },
   };
 }
 
@@ -806,6 +919,7 @@ function generateReplayModule(moduleName, observations) {
     `ObservedInitialDraftVersion == ${tlavalue(observations.ObservedInitialDraftVersion)}`,
     `ObservedInitialDraftDigest == ${tlavalue(observations.ObservedInitialDraftDigest)}`,
     `ObservedInitialPreview == ${tlavalue(observations.ObservedInitialPreview)}`,
+    `ObservedFormalEntry == ${tlavalue(observations.ObservedFormalEntry)}`,
     '',
     'ExpectedLabels == <<"GroupPreviewSubmitted", "GroupPreviewReady",',
     '  "GroupApplySubmitted", "GroupApplied", "OneSubmitted", "OneRejected",',
@@ -1143,10 +1257,10 @@ function generateReplayModule(moduleName, observations) {
     '',
     'ReadOnlyTransportSupported(entry) ==',
     '  \\/ /\\ entry.method = "GET"',
-    '       /\\ entry.path \\in {"builder", "capability"}',
+    '       /\\ entry.path \\in {"builder", "capability", "row-definition-choices"}',
     '  \\/ /\\ entry.method = "POST"',
-    '       /\\ entry.path \\in {"construction-capabilities", "construction-inputs",',
-    '          "construction-choices", "preview"}',
+    '       /\\ entry.path \\in {"suggestions", "semantic-inventory", "configured-column-context",',
+    '          "construction-capabilities", "construction-inputs", "construction-choices", "preview"}',
     '',
     'TransportRequestEventIndices ==',
     '  {ObservedTransportLedger[index].requestEventIndex : index \\in 1..Len(ObservedTransportLedger)}',
@@ -1158,17 +1272,65 @@ function generateReplayModule(moduleName, observations) {
     '',
     'TransportCaptureValid(entry, index) ==',
     '  /\\ entry.transportIndex = index',
+    '  /\\ entry.capturePhase \\in {"SETUP", "FORMAL"}',
+    '  /\\ entry.setupMutation \\in BOOLEAN',
     '  /\\ entry.requestEventIndex > 0',
     '  /\\ entry.settlement \\in {"response", "request-failed"}',
     '  /\\ entry.settlementEventIndex > entry.requestEventIndex',
+    '  /\\ entry.responseHeadersObserved \\in BOOLEAN',
+    '  /\\ entry.responseHeadersStatus >= 0',
+    '  /\\ entry.responseObservedBeforeFailure \\in BOOLEAN',
+    '  /\\ (entry.responseHeadersObserved => entry.responseHeadersStatus > 0)',
+    '  /\\ (~entry.responseHeadersObserved =>',
+    '         /\\ entry.responseHeadersStatus = 0',
+    '         /\\ entry.responseHeadersRequestId = "Absent"',
+    '         /\\ entry.responseReadError = "Absent")',
+    '  /\\ (entry.responseReadError # "Absent" => entry.responseHeadersObserved)',
+    '  /\\ entry.responseObservedBeforeFailure =',
+    '       (entry.settlement = "request-failed" /\\ entry.responseHeadersObserved)',
     '  /\\ IF entry.settlement = "response"',
     '       THEN /\\ entry.responseOwnerIndex = index',
     '            /\\ entry.responseStatus > 0',
+    '            /\\ entry.responseHeadersObserved',
+    '            /\\ entry.responseHeadersStatus = entry.responseStatus',
     '       ELSE /\\ entry.responseOwnerIndex = 0',
     '            /\\ entry.responseStatus = 0',
     '  /\\ IF index = 1',
     '       THEN TRUE',
     '       ELSE ObservedTransportLedger[index - 1].requestEventIndex < entry.requestEventIndex',
+    '',
+    'SetupMutationRows ==',
+    '  {index \\in 1..Len(ObservedTransportLedger) :',
+    '    /\\ ObservedTransportLedger[index].capturePhase = "SETUP"',
+    '    /\\ ObservedTransportLedger[index].setupMutation}',
+    '',
+    'SetupMutationsMatchFormalEntry ==',
+    '  IF Cardinality(SetupMutationRows) = 0',
+    '  THEN TRUE',
+    '  ELSE \\E index \\in SetupMutationRows:',
+    '    /\\ \\A other \\in SetupMutationRows: other <= index',
+    '    /\\ ObservedTransportLedger[index].responseDraftVersion = ObservedFormalEntry.draftVersion',
+    '    /\\ ObservedTransportLedger[index].responseDraftDigest = ObservedFormalEntry.draftDigest',
+    '',
+    'FormalEntryBoundaryValid ==',
+    '  /\\ ObservedFormalEntry.afterTransportIndex \\in 0..Len(ObservedTransportLedger)',
+    '  /\\ ObservedFormalEntry.afterEventIndex \\in 0..(2 * Len(ObservedTransportLedger))',
+    '  /\\ ObservedFormalEntry.outputId = OutputId',
+    '  /\\ ObservedFormalEntry.snapshotToken = ObservedActions[GroupPreviewSubmittedIndex].request.snapshotToken',
+    '  /\\ ObservedFormalEntry.draftVersion = RootDraftVersion',
+    '  /\\ ObservedFormalEntry.draftDigest = RootDraftDigest',
+    '  /\\ ObservedFormalEntry.workspace = ObservedInitialWorkspace',
+    '  /\\ SetupMutationsMatchFormalEntry',
+    '  /\\ {index \\in 1..Len(ObservedTransportLedger) :',
+    '       ObservedTransportLedger[index].capturePhase = "SETUP"}',
+    '       = 1..ObservedFormalEntry.afterTransportIndex',
+    '  /\\ {index \\in 1..Len(ObservedTransportLedger) :',
+    '       ObservedTransportLedger[index].capturePhase = "FORMAL"}',
+    '       = (ObservedFormalEntry.afterTransportIndex + 1)..Len(ObservedTransportLedger)',
+    '  /\\ \\A index \\in 1..ObservedFormalEntry.afterTransportIndex:',
+    '       ObservedTransportLedger[index].settlementEventIndex <= ObservedFormalEntry.afterEventIndex',
+    '  /\\ \\A index \\in (ObservedFormalEntry.afterTransportIndex + 1)..Len(ObservedTransportLedger):',
+    '       ObservedTransportLedger[index].requestEventIndex > ObservedFormalEntry.afterEventIndex',
     '',
     'CommandSavedCASMatches(entry) ==',
     '  \\E actionIndex \\in 1..Len(ObservedActions):',
@@ -1181,14 +1343,27 @@ function generateReplayModule(moduleName, observations) {
     '      /\\ action.draftVersion = entry.savedCASAfterDraftVersion',
     '      /\\ action.draftDigest = entry.savedCASAfterDraftDigest',
     '',
+    'CommandAfterDraftVersion(entry) ==',
+    '  IF entry.classification = "setup"',
+    '  THEN entry.responseDraftVersion',
+    '  ELSE entry.savedCASAfterDraftVersion',
+    '',
+    'CommandAfterDraftDigest(entry) ==',
+    '  IF entry.classification = "setup"',
+    '  THEN entry.responseDraftDigest',
+    '  ELSE entry.savedCASAfterDraftDigest',
+    '',
     'CommandChangesOwner(entry, ownerDraftVersion, ownerDraftDigest) ==',
-    '  /\\ entry.classification = "modeled"',
+    '  /\\ entry.classification \\in {"modeled", "setup"}',
     '  /\\ entry.path = "commands"',
     '  /\\ entry.settlement = "response"',
     '  /\\ entry.responseStatus \\in 200..299',
-    '  /\\ CommandSavedCASMatches(entry)',
-    '  /\\ (entry.savedCASAfterDraftVersion # ownerDraftVersion',
-    '    \\/ entry.savedCASAfterDraftDigest # ownerDraftDigest)',
+    '  /\\ (IF entry.classification = "setup"',
+    '       THEN /\\ entry.setupMutation',
+    '            /\\ entry.responseCommandId = entry.commandId',
+    '       ELSE CommandSavedCASMatches(entry))',
+    '  /\\ (CommandAfterDraftVersion(entry) # ownerDraftVersion',
+    '    \\/ CommandAfterDraftDigest(entry) # ownerDraftDigest)',
     '',
     'OwnerChangeRows(ownerScope, ownerDraftVersion, ownerDraftDigest, afterEvent, beforeEvent) ==',
     '  {index \\in 1..Len(ObservedTransportLedger) :',
@@ -1243,15 +1418,33 @@ function generateReplayModule(moduleName, observations) {
     'ReadOnlyTransportRowValid(entry) ==',
     '  /\\ ReadOnlyTransportSupported(entry)',
     '  /\\ ~entry.mutatesDraft',
+    '  /\\ ~entry.setupMutation',
     '  /\\ TransportCaptureValid(entry, entry.transportIndex)',
     '  /\\ IF entry.path = "preview"',
     '       THEN PreviewTransportValid(entry)',
     '       ELSE entry.readOnlyReason # "Absent"',
     '',
     'TransportRowValid(entry) ==',
-    '  IF entry.classification = "modeled"',
+    '  IF entry.classification = "setup"',
+    '  THEN /\\ entry.capturePhase = "SETUP"',
+    '       /\\ entry.method = "POST"',
+    '       /\\ entry.path = "commands"',
+    '       /\\ entry.setupMutation',
+    '       /\\ entry.mutatesDraft',
+    '       /\\ entry.actionLabel = "Absent"',
+    '       /\\ entry.actionEvent = "Absent"',
+    '       /\\ TransportCaptureValid(entry, entry.transportIndex)',
+    '       /\\ entry.settlement = "response"',
+    '       /\\ entry.responseStatus \\in 200..299',
+    '       /\\ entry.commandId # "Absent"',
+    '       /\\ entry.responseCommandId = entry.commandId',
+    '       /\\ entry.responseDraftVersion > 0',
+    '       /\\ entry.responseDraftDigest # "Absent"',
+    '  ELSE IF entry.classification = "modeled"',
     '  THEN /\\ entry.method = "POST"',
     '       /\\ entry.path \\in {"construction-proposals", "construction-choice-proposals", "commands"}',
+    '       /\\ entry.capturePhase = "FORMAL"',
+    '       /\\ ~entry.setupMutation',
     '       /\\ entry.mutatesDraft = (entry.path = "commands")',
     '       /\\ TransportActionMatches(entry)',
     '       /\\ TransportCaptureValid(entry, entry.transportIndex)',
@@ -1267,6 +1460,7 @@ function generateReplayModule(moduleName, observations) {
     '    THEN /\\ entry.method = "POST"',
     '         /\\ entry.path = "reconcile"',
     '         /\\ ~entry.mutatesDraft',
+    '         /\\ ~entry.setupMutation',
     '         /\\ TransportCaptureValid(entry, entry.transportIndex)',
     '         /\\ entry.ownerRequestId = entry.requestId',
     '         /\\ entry.ownerGeneration > 0',
@@ -1343,11 +1537,15 @@ function generateReplayModule(moduleName, observations) {
     'CompatibleInvalidationRows(entry) ==',
     '  {index \\in 1..Len(ObservedTransportLedger) :',
     '    /\\ ObservedTransportLedger[index].ownerScope = entry.ownerScope',
-    '    /\\ ObservedTransportLedger[index].requestEventIndex > entry.requestEventIndex',
-    '    /\\ ObservedTransportLedger[index].requestEventIndex < entry.settlementEventIndex',
-    '    /\\ ((ObservedTransportLedger[index].classification = "modeled"',
-    '          /\\ ObservedTransportLedger[index].path = "commands")',
-    '      \\/ (ObservedTransportLedger[index].classification = "reconcile"',
+    '    /\\ ((/\\ ObservedTransportLedger[index].classification \\in {"modeled", "setup"}',
+    '          /\\ ObservedTransportLedger[index].path = "commands"',
+    '          /\\ ObservedTransportLedger[index].settlementEventIndex > entry.requestEventIndex',
+    '          /\\ ObservedTransportLedger[index].settlementEventIndex < entry.settlementEventIndex',
+    '          /\\ CommandChangesOwner(ObservedTransportLedger[index],',
+    '               entry.reconcileDraftVersion, entry.reconcileDraftDigest))',
+    '      \\/ (/\\ ObservedTransportLedger[index].classification = "reconcile"',
+    '          /\\ ObservedTransportLedger[index].requestEventIndex > entry.requestEventIndex',
+    '          /\\ ObservedTransportLedger[index].requestEventIndex < entry.settlementEventIndex',
     '          /\\ ObservedTransportLedger[index].ownerGeneration > entry.ownerGeneration))}',
     '',
     'CompatibleInvalidations(entry) ==',
@@ -1360,14 +1558,27 @@ function generateReplayModule(moduleName, observations) {
     '    /\\ CommandChangesOwner(ObservedTransportLedger[index],',
     '         entry.reconcileDraftVersion, entry.reconcileDraftDigest)}',
     '',
+    'ReconcileOwnerChangeFormalRows(entry) ==',
+    '  {index \\in ReconcileOwnerChangeRows(entry) :',
+    '    ObservedTransportLedger[index].classification = "modeled"}',
+    '',
+    'ReconcileOwnerChangeSetupRows(entry) ==',
+    '  {index \\in ReconcileOwnerChangeRows(entry) :',
+    '    ObservedTransportLedger[index].classification = "setup"}',
+    '',
     'ReconcileOwnerChangeCaptureIds(entry) ==',
-    '  {ObservedTransportLedger[index].requestCaptureId : index \\in ReconcileOwnerChangeRows(entry)}',
+    '  {ObservedTransportLedger[index].requestCaptureId : index \\in ReconcileOwnerChangeFormalRows(entry)}',
+    '',
+    'ReconcileOwnerChangeSetupCommandIds(entry) ==',
+    '  {ObservedTransportLedger[index].commandId : index \\in ReconcileOwnerChangeSetupRows(entry)}',
     '',
     'ReconcileConsumptionValid(entry) ==',
     '  IF entry.settlement = "response" /\\ entry.responseStatus = 200',
     '  THEN /\\ entry.ownerInvalidationObserved = (Cardinality(CompatibleInvalidations(entry)) > 0)',
     '       /\\ SequenceSet(entry.reconcileOwnerChangeCaptureIds) = ReconcileOwnerChangeCaptureIds(entry)',
     '       /\\ Cardinality(SequenceSet(entry.reconcileOwnerChangeCaptureIds)) = Len(entry.reconcileOwnerChangeCaptureIds)',
+    '       /\\ SequenceSet(entry.reconcileOwnerChangeSetupCommandIds) = ReconcileOwnerChangeSetupCommandIds(entry)',
+    '       /\\ Cardinality(SequenceSet(entry.reconcileOwnerChangeSetupCommandIds)) = Len(entry.reconcileOwnerChangeSetupCommandIds)',
     '       /\\ SequenceSet(entry.compatibleProposalTransportIndices) = CompatibleProposalReceipts(entry)',
     '       /\\ Cardinality(SequenceSet(entry.compatibleProposalTransportIndices)) = Len(entry.compatibleProposalTransportIndices)',
     '       /\\ SequenceSet(entry.successfulPreviewConsumerTransportIndices) = CompatiblePreviewConsumers(entry)',
@@ -1378,6 +1589,7 @@ function generateReplayModule(moduleName, observations) {
     '       /\\ Len(entry.successfulPreviewConsumerTransportIndices) = 0',
     '       /\\ Len(entry.invalidatedByTransportIndices) = 0',
     '       /\\ Len(entry.reconcileOwnerChangeCaptureIds) = 0',
+    '       /\\ Len(entry.reconcileOwnerChangeSetupCommandIds) = 0',
     '',
     'ObservedTransportLedgerInvariant ==',
     '  /\\ Len(ObservedTransportLedger) > 0',
@@ -1386,6 +1598,7 @@ function generateReplayModule(moduleName, observations) {
     '  /\\ Cardinality(TransportSettlementEventIndices) = Len(ObservedTransportLedger)',
     '  /\\ TransportEventIndices = 1..(2 * Len(ObservedTransportLedger))',
     '  /\\ LedgerModeledIndices = ActionTransportIndices',
+    '  /\\ FormalEntryBoundaryValid',
     '  /\\ Cardinality(ActionTransportIndices) =',
     '       Cardinality({index \\in 1..Len(ObservedActions) :',
     '         ObservedActions[index].event \\in ModeledRequestEvents})',
@@ -1393,6 +1606,8 @@ function generateReplayModule(moduleName, observations) {
     '       /\\ TransportRowValid(ObservedTransportLedger[index])',
     '       /\\ (ObservedTransportLedger[index].classification = "reconcile" =>',
     '            ReconcileConsumptionValid(ObservedTransportLedger[index]))',
+    '',
+    'ObservedFormalEntryBoundary == FormalEntryBoundaryValid',
     '',
     'ObservedChronology ==',
     '  /\ ObservedLabels = ExpectedLabels',
@@ -1466,6 +1681,7 @@ function generateConfig(constants) {
     'INVARIANT ObservedChoiceRepair',
     'INVARIANT ObservedDraftTransitions',
     'INVARIANT ObservedTransportLedgerInvariant',
+    'INVARIANT ObservedFormalEntryBoundary',
     'INVARIANT ObservedChronology',
     'INVARIANT TraceProgress',
     'PROPERTY ReplayCompletes',

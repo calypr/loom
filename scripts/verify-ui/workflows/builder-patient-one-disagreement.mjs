@@ -6,12 +6,33 @@ import { fileURLToPath } from 'node:url';
 import { openFreshPatientTable } from './builder-group-entry.mjs';
 import { findRenderedBuilderHeaderIndex, waitForBuilderRenderedGrid } from '../helpers/builder-rendered-grid.mjs';
 import { observeAuthoringAttempt } from '../helpers/fast-fixtures.mjs';
+import { createPolicyOneTransportObserver } from '../helpers/policy-one-transport-observer.mjs';
 import { sanitizePayload } from '../helpers/playwright-browser.mjs';
 import { buildPolicyOneTrace } from '../helpers/policy-one-trace.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
+
+export const isNativeGroupProposalReady = ({ expectedCount }, doc = globalThis.document) => {
+  const panel = doc.querySelector('[data-testid="construction-proposal-panel"]');
+  const preview = doc.querySelector('[data-testid="construction-proposal-preview"]');
+  const summary = doc.querySelector('select[aria-label="Summary 1"]');
+  const headers = [...(preview?.querySelectorAll('thead th') ?? [])]
+    .map(cell => (cell.querySelector('span')?.innerText ?? cell.querySelector('span')?.textContent
+      ?? cell.innerText ?? cell.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase());
+  const rows = [...(preview?.querySelectorAll('tbody tr[data-testid="construction-proposal-preview-row"]') ?? [])];
+  const cells = [...(rows[0]?.querySelectorAll('td') ?? [])]
+    .map(cell => (cell.innerText ?? cell.textContent ?? '').replace(/\s+/g, ' ').trim());
+  const countIndex = headers.findIndex(header => header === 'row count');
+  return Boolean(panel?.dataset.proposalStatus === 'ready'
+    && preview?.dataset.previewStatus === 'ready'
+    && summary?.value === 'COUNT_ROWS'
+    && countIndex >= 0
+    && cells.length === headers.length
+    && cells[countIndex] === expectedCount
+    && rows.length === 1);
+};
 
 export const readNativeGroupSummary = page =>
   page.getByRole('combobox', { name: 'Summary 1', exact: true }).inputValue();
@@ -20,7 +41,7 @@ export const readNativeGroupProposal = (doc = globalThis.document) => {
   const panel = doc.querySelector('[data-testid="construction-proposal-panel"]');
   const ready = panel?.querySelector('[data-testid="construction-proposal-ready"]');
   const editor = doc.querySelector('[data-testid="construction-reshape-editor"]');
-  const preview = doc.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]');
+  const preview = doc.querySelector('[data-testid="construction-proposal-preview"]');
   const table = preview?.querySelector('table');
   const text = element => (element?.innerText ?? element?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const headers = [...(table?.querySelectorAll('thead th') ?? [])]
@@ -294,6 +315,138 @@ export const readPatientOneChoiceEditor = (doc = globalThis.document) => {
   };
 };
 
+export const markPolicyOneExpectedHttp422 = ({
+  networkObserver,
+  report,
+  request,
+  response,
+  requestCaptureId,
+  requestBody,
+  responseBody,
+}) => {
+  assert.equal(response.request(), request,
+    'the expected Policy ONE response must belong to its exact submitted request');
+  assert.equal(response.url(), request.url(),
+    'the expected Policy ONE response must retain the exact submitted request URL');
+  assert.equal(response.status(), 422,
+    'the expected Policy ONE response must retain its native 422 status');
+  assert.equal(typeof requestCaptureId, 'string');
+  assert(requestCaptureId.length > 0);
+  assert.equal(typeof requestBody?.commandId, 'string');
+  assert(requestBody.commandId.length > 0);
+  assert.equal(requestBody.constructionChoices?.length, 1,
+    'the expected Policy ONE request must carry one selected construction choice');
+  const choice = requestBody.constructionChoices[0];
+  assert.equal(choice.rowValuePolicy, 'ONE');
+  assert.equal(typeof choice.choiceId, 'string');
+  assert(choice.choiceId.length > 0);
+  assert.equal(responseBody?.error?.code, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+
+  const entry = networkObserver?.byRequest?.get(request);
+  assert(entry, 'the fixture observer must retain the exact submitted Playwright Request object');
+  assert.equal(entry.method, request.method().toUpperCase());
+  const requestURL = new URL(request.url());
+  assert.equal(entry.url, `${requestURL.origin}${requestURL.pathname}`);
+  assert.deepEqual(networkObserver.requestBody(entry), sanitizePayload(requestBody),
+    'fixture network evidence must retain the exact native ONE request body after its standard redaction');
+  assert.equal(entry.status, 422);
+  assert.equal(entry.failure?.kind, 'http');
+  assert.equal(entry.networkComplete, true);
+  assert.equal(entry.responseCapture, 'captured');
+  assert.equal(entry.responseCaptureComplete, true);
+  assert.equal(entry.responseBodyCaptured, true);
+  assert.deepEqual(networkObserver.responseBody(entry), sanitizePayload(responseBody),
+    'fixture network evidence must capture the body from the exact native 422');
+  assert.equal(networkObserver.failures.filter(failure => failure.entry === entry && failure.kind === 'http').length, 1,
+    'the exact native 422 must appear once in the fixture HTTP failure stream before classification');
+
+  const diagnostic = entry.reportNetwork;
+  assert(diagnostic, 'the exact native 422 must retain its fixture report diagnostic');
+  assert.equal(diagnostic.kind, 'http');
+  assert.equal(diagnostic.url, entry.url);
+  assert.equal(diagnostic.method, entry.method);
+  assert.equal(diagnostic.status, 422);
+  assert.equal(diagnostic.browserRequestId, entry.browserRequestId);
+  assert.equal(diagnostic.observerRequestIndex, entry.index);
+  const reportDiagnostics = report.network.filter(record => record.kind === 'http'
+    && record.browserRequestId === entry.browserRequestId
+    && record.observerRequestIndex === entry.index);
+  assert.equal(reportDiagnostics.length, 1,
+    'fixture network evidence must contain one HTTP diagnostic for the exact physical request');
+  assert.strictEqual(reportDiagnostics[0], diagnostic);
+  const reportFailures = report.errors.filter(record => record.kind === 'http'
+    && record.browserRequestId === entry.browserRequestId);
+  assert.equal(reportFailures.length, 1,
+    'fixture error evidence must contain one HTTP failure for the exact physical request');
+  assert.strictEqual(reportFailures[0], entry.reportError);
+
+  const classification = networkObserver.markExpectedValidation(entry, {
+    status: 422,
+    reason: 'the native Patient.id ONE request was checked against its exact request and response evidence',
+    proof: {
+      requestCaptureId,
+      commandId: requestBody.commandId,
+      outputId: requestBody.outputId,
+      choiceId: choice.choiceId,
+      rowValuePolicy: choice.rowValuePolicy,
+      responseErrorCode: responseBody.error.code,
+    },
+  });
+  assert.equal(entry.httpFailureExempted, true);
+  assert.equal(entry.failure, undefined);
+  return {
+    diagnostic,
+    classification,
+    requestCaptureId,
+    commandId: requestBody.commandId,
+    outputId: requestBody.outputId,
+    choiceId: choice.choiceId,
+    rowValuePolicy: choice.rowValuePolicy,
+    responseErrorCode: responseBody.error.code,
+    browserRequestId: entry.browserRequestId,
+    observerRequestIndex: entry.index,
+    responseCapture: entry.responseCapture,
+    responseBodyCaptured: entry.responseBodyCaptured,
+  };
+};
+
+export const policyOneRowSettingsRemovalLocator = (page, stepId) =>
+  page.getByTestId(`construction-row-remove-${stepId}`);
+
+export const policyOneHistoryRemovalLocator = (page, stepId) =>
+  page.getByTestId(`construction-remove-step-${stepId}`);
+
+const returnPolicyOneRowSettingsToTable = async (workflow, { readBuilder, expectedSavedState, actionLabel }) => {
+  const { page } = workflow;
+  const rowSettings = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
+  const backToTable = rowSettings.getByRole('button', { name: 'Back to table', exact: true });
+  await workflow.action(actionLabel, backToTable,
+    () => backToTable.click(), {
+      after: () => rowSettings.waitFor({ state: 'hidden' }),
+    });
+  const afterNavigation = await readBuilder();
+  assert.deepEqual(afterNavigation.workspace, expectedSavedState.workspace,
+    'returning to the table must preserve the exact saved workspace');
+  assert.equal(afterNavigation.draftVersion, expectedSavedState.draftVersion,
+    'returning to the table must preserve the saved draft version');
+  assert.equal(afterNavigation.draftDigest, expectedSavedState.draftDigest,
+    'returning to the table must preserve the saved draft digest');
+};
+
+export const openPolicyOneAddColumnsEditor = async (workflow, { readBuilder, expectedSavedState }) => {
+  const { page } = workflow;
+  await returnPolicyOneRowSettingsToTable(workflow, {
+    readBuilder,
+    expectedSavedState,
+    actionLabel: 'return to table after applying empty-key COUNT_ROWS Group',
+  });
+
+  const addColumns = page.getByTestId('construction-action-add-columns');
+  await workflow.action('open Add Columns for raw Patient ID', addColumns, () => addColumns.click(), {
+    after: () => page.getByRole('region', { name: 'Add columns editor', exact: true }).waitFor({ state: 'visible' }),
+  });
+};
+
 const requireCheck = (workflow, dimension, name, passed, evidence = {}) =>
   workflow.check(dimension, name, passed, evidence);
 
@@ -320,6 +473,7 @@ export const policySnapshot = ({ builder, outputId, sourceState, fixtureIDs, ren
 
 export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const { page, report } = workflow;
+  const transportObserver = createPolicyOneTransportObserver(page);
   const { fixtureIDs, fixtureOracle, explorer, explorerName, apiRoot, outputId, sourceIdColumn, sourceIdColumnId } =
     await openFreshPatientTable(workflow, context, 'Patient ONE disagreement');
   const fixturePath = join(context.target.fixtureDir, 'Patient.ndjson');
@@ -351,10 +505,33 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     };
   }, { tableSelector: '[data-testid="preview-table-scroll"] [role="table"]' });
   assert.equal(fixtureIDs.length, 2, 'ONE disagreement requires the two-record fixture precondition');
-  const sourceBuilder = await readBuilder();
-  const sourceSavedState = patientOneSavedState(sourceBuilder, outputId);
-  const sourceGrid = await page.evaluate(readPatientOneRenderedGrid);
-  const sourcePreviewBinding = await page.evaluate(readPatientOnePreviewBinding);
+  let sourceBuilder;
+  let sourceSavedState;
+  let sourceGrid;
+  let sourcePreviewBinding;
+  let sourceEventIndex;
+  let policyOneFormalEntry;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await transportObserver.waitUntilIdle();
+    sourceEventIndex = transportObserver.eventIndex;
+    sourceBuilder = await readBuilder();
+    sourceSavedState = patientOneSavedState(sourceBuilder, outputId);
+    sourceGrid = await page.evaluate(readPatientOneRenderedGrid);
+    sourcePreviewBinding = await page.evaluate(readPatientOnePreviewBinding);
+    await transportObserver.waitUntilIdle();
+    if (transportObserver.eventIndex !== sourceEventIndex) continue;
+    policyOneFormalEntry = await transportObserver.beginFormalSpan({
+      ...sourceSavedState,
+      snapshotToken: sourceBuilder.catalog.snapshotToken,
+      workspaceProjection: policyWorkspaceProjection({
+        savedState: sourceSavedState, renderedRows: sourceGrid, sourceState: sourceSavedState,
+        fixtureIDs, addedColumnId: null,
+      }),
+    }, { expectedEventIndex: sourceEventIndex });
+    break;
+  }
+  assert(policyOneFormalEntry,
+    'fresh Patient saved state must be read after every setup authoring request is terminal');
   const sourceIdIndex = findRenderedBuilderHeaderIndex(sourceGrid.headers, sourceIdColumn.label);
   assert(sourceIdIndex >= 0, `fresh Patient table must render ${sourceIdColumn.label}`);
   assert.deepEqual(sorted(sourceGrid.cells.map(row => row[sourceIdIndex]?.text)), fixtureIDs,
@@ -371,6 +548,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   };
   const policyOneInitialObservation = {
     workspace: policyOneSourceObservation.workspaceProjection,
+    outputId,
+    snapshotToken: sourceBuilder.catalog.snapshotToken,
     draftVersion: sourceSavedState.draftVersion,
     draftDigest: sourceSavedState.draftDigest,
   };
@@ -382,96 +561,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     rowCount: sourceGrid.cells.length,
     patientIds: sorted(sourceGrid.cells.map(row => row[sourceIdIndex]?.text)),
   };
+  const transportIndexForRequest = request => transportObserver.transportIndexForRequest(request);
   const policyOneEvidence = [];
-  const policyOneBackendCallCaptures = [];
-  const policyOneTransportByRequest = new Map();
-  const pendingPolicyOneTransportReads = new Set();
-  const authoringPrefix = '/authoring/v2/';
-  let transportIndex = 0;
-  let transportEventIndex = 0;
-  const captureBackendRequest = request => {
-    if (policyOneTransportByRequest.has(request)) return policyOneTransportByRequest.get(request);
-    const url = new URL(request.url());
-    const prefixIndex = url.pathname.indexOf(authoringPrefix);
-    if (prefixIndex < 0) return undefined;
-    let requestBody = null;
-    try { requestBody = request.postDataJSON(); } catch { requestBody = null; }
-    const entry = {
-      requestObject: request,
-      record: {
-        transportIndex: ++transportIndex,
-        requestEventIndex: ++transportEventIndex,
-        origin: url.origin,
-        resourcePath: `${url.origin}${url.pathname}`,
-        ownerScope: `${url.origin}${url.pathname.slice(0, prefixIndex)}`,
-        method: request.method(),
-        path: url.pathname.slice(prefixIndex + authoringPrefix.length),
-        requestId: String(request.headers()['x-request-id'] ?? '').trim() || null,
-        requestBody,
-        settlement: 'pending',
-        status: null,
-        responseOwnerIndex: null,
-        response: null,
-      },
-    };
-    policyOneTransportByRequest.set(request, entry);
-    policyOneBackendCallCaptures.push(entry);
-    return entry;
-  };
-  const captureBackendCall = (request, response = null) => {
-    const url = new URL(request.url());
-    if (!url.pathname.includes(authoringPrefix)) return;
-    const entry = policyOneTransportByRequest.get(request);
-    assert(entry, 'authoring transport settlement must retain its exact observed request object');
-    assert.equal(entry.record.settlement, 'pending',
-      `authoring transport ${entry.record.transportIndex} must settle exactly once`);
-    if (!response) {
-      entry.record.settlement = 'request-failed';
-      entry.record.settlementEventIndex = ++transportEventIndex;
-      entry.record.failure = request.failure()?.errorText ?? 'request failed without error detail';
-      return;
-    }
-    entry.record.settlement = 'response';
-    entry.record.settlementEventIndex = ++transportEventIndex;
-    entry.record.responseOwnerIndex = entry.record.transportIndex;
-    entry.record.status = response.status();
-    const responseRequestId = String(response.headers()['x-request-id'] ?? '').trim() || null;
-    const responseRead = response.json().then(body => {
-      const preview = body?.preview ?? null;
-      const outputIds = [
-        ...(Array.isArray(body?.outputs) ? body.outputs.map(output => output?.outputId) : []),
-        body?.outputId,
-        preview?.outputId,
-      ].filter(value => typeof value === 'string');
-      const receiptIds = [body?.receiptId, body?.proposalId, preview?.receiptId]
-        .filter(value => typeof value === 'string');
-      entry.record.response = {
-        status: response.status(),
-        requestId: responseRequestId ?? body?.requestId ?? null,
-        receiptId: body?.receiptId ?? body?.proposalId ?? preview?.receiptId ?? null,
-        receiptIds: [...new Set(receiptIds)],
-        outputIds: [...new Set(outputIds)],
-        snapshotToken: body?.snapshotToken ?? preview?.snapshotToken ?? null,
-        draftVersion: body?.draftVersion ?? null,
-        draftDigest: body?.draftDigest ?? null,
-        candidateWorkspaceDigest: body?.candidateWorkspaceDigest ?? null,
-        intentDigest: body?.intentDigest ?? null,
-        previewRowsPresent: Array.isArray(preview?.rows),
-      };
-    }).catch(error => {
-      entry.record.responseReadError = String(error);
-    });
-    pendingPolicyOneTransportReads.add(responseRead);
-    responseRead.finally(() => pendingPolicyOneTransportReads.delete(responseRead));
-  };
-  page.on('request', captureBackendRequest);
-  page.on('response', response => captureBackendCall(response.request(), response));
-  page.on('requestfailed', request => captureBackendCall(request));
-  const transportIndexForRequest = request => {
-    const entry = policyOneTransportByRequest.get(request);
-    assert(entry, 'semantic request must retain its raw observer transport index');
-    return entry.record.transportIndex;
-  };
   requireCheck(workflow, 'correctness', 'fresh Patient table renders the exact two fixture IDs', true,
     { fixtureIDs, headers: sourceGrid.headers, cells: sourceGrid.cells });
   const openRows = page.getByTestId('construction-rows-settings-trigger');
@@ -484,8 +575,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     owner: { kind: 'policy-one-group-preview', attempt: 'empty-key' }, timeout: 5000,
   });
   await workflow.action('open native empty-key Group proposal', groupAction, () => groupAction.click(), {
-    after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
-      && document.querySelector('[data-testid="construction-preview"] [data-testid="construction-proposal-preview"]')?.dataset.previewStatus === 'ready'),
+    after: () => page.waitForFunction(isNativeGroupProposalReady,
+      { expectedCount: String(fixtureIDs.length) }, { timeout: 5000 }),
   });
   const groupPreviewStarted = await groupPreviewAttempt.started;
   const groupPreviewExchange = await groupPreviewAttempt.settled;
@@ -636,10 +727,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     },
   });
 
-  await workflow.action('open Add Columns for raw Patient ID', page.getByTestId('construction-action-add-columns'),
-    () => page.getByTestId('construction-action-add-columns').click(), {
-      after: () => page.getByRole('region', { name: 'Add columns editor', exact: true }).waitFor({ state: 'visible' }),
-    });
+  await openPolicyOneAddColumnsEditor(workflow, { readBuilder, expectedSavedState: groupedBuilder });
   const addColumnsPolicy = page.getByRole('combobox', { name: 'Values per grouped row', exact: true });
   await addColumnsPolicy.waitFor({ state: 'visible' });
   await workflow.action('set Patient ID grouped-row policy to ONE', addColumnsPolicy,
@@ -750,28 +838,45 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   const afterOneSavedState = patientOneSavedState(afterONE, outputId);
   assert.deepEqual(afterOneSavedState, patientOneSavedState(beforeONE, outputId),
     'the exact saved Builder state must remain unchanged after the ONE refusal');
-  const expectedDiagnostic = report.network.filter(record => record.kind === 'network'
-    && record.status === 422 && record.method === 'POST' && record.rawURL === oneResponse.url());
-  assert.equal(expectedDiagnostic.length, 1, 'the exact expected native 422 must be present once in fixture network evidence');
-  const consoleDiagnostics = report.network.filter(record => record.kind === 'console-error'
-    && record.location === `${uiOrigin}${choiceProposalPath}` && /422/.test(record.text ?? ''));
+  const expectedHTTPFailure = markPolicyOneExpectedHttp422({
+    networkObserver: workflow.networkObserver,
+    report,
+    request: oneStarted.rawRequest,
+    response: oneResponse,
+    requestCaptureId: oneStarted.request.captureId,
+    requestBody: oneRequestBody,
+    responseBody: oneResponseBody,
+  });
+  const expectedDiagnostic = [expectedHTTPFailure.diagnostic];
   report.expectedFailures ??= [];
   report.expectedFailures.push({ method: 'POST', path: choiceProposalPath, status: 422,
     code: oneResponseBody.error.code, outputId, draftVersion: beforeONE.draftVersion,
     draftDigest: beforeONE.draftDigest, snapshotToken: beforeONE.catalog.snapshotToken,
     preOneSavedStateArtifact: { fileName: preOneStateFile, sha256: preOneStateDigest },
     field: { choiceId: oneChoice.choiceId, title: oneChoice.title, rowValuePolicy: oneChoice.rowValuePolicy },
-    rawPatientIDs: fixtureIDs, networkDiagnostics: expectedDiagnostic, consoleDiagnostics });
-  for (const diagnostic of [...expectedDiagnostic, ...consoleDiagnostics]) {
-    const index = report.network.indexOf(diagnostic);
-    if (index >= 0) report.network.splice(index, 1);
-  }
+    rawPatientIDs: fixtureIDs, networkDiagnostics: expectedDiagnostic,
+    fixtureNetwork: {
+      requestCaptureId: expectedHTTPFailure.requestCaptureId,
+      commandId: expectedHTTPFailure.commandId,
+      outputId: expectedHTTPFailure.outputId,
+      choiceId: expectedHTTPFailure.choiceId,
+      rowValuePolicy: expectedHTTPFailure.rowValuePolicy,
+      responseErrorCode: expectedHTTPFailure.responseErrorCode,
+      browserRequestId: expectedHTTPFailure.browserRequestId,
+      observerRequestIndex: expectedHTTPFailure.observerRequestIndex,
+      responseCapture: expectedHTTPFailure.responseCapture,
+      responseBodyCaptured: expectedHTTPFailure.responseBodyCaptured,
+      classification: expectedHTTPFailure.classification,
+    } });
   requireCheck(workflow, 'correctness', 'Patient.id ONE returns the exact multiple-values 422 for both raw IDs', true,
     { status: oneResponse.status(), code: oneResponseBody.error.code, path: choiceProposalPath,
       request: { outputId: oneRequestBody.outputId, draftVersion: oneRequestBody.expectedDraftVersion,
         draftDigest: oneRequestBody.expectedDraftDigest, snapshotToken: oneRequestBody.snapshotToken,
         choiceId: oneChoice.choiceId, title: oneChoice.title, rowValuePolicy: oneChoice.rowValuePolicy },
-      rawPatientIDs: fixtureIDs, savedWorkspaceUnchanged: true });
+      rawPatientIDs: fixtureIDs, savedWorkspaceUnchanged: true,
+      fixtureNetwork: { browserRequestId: expectedHTTPFailure.browserRequestId,
+        observerRequestIndex: expectedHTTPFailure.observerRequestIndex, responseCapture: expectedHTTPFailure.responseCapture,
+        responseBodyCaptured: expectedHTTPFailure.responseBodyCaptured } });
   requireCheck(workflow, 'persistence', 'rejected Patient.id ONE leaves the saved Group and exact draft unchanged', true,
     { draftVersion: afterONE.draftVersion, draftDigest: afterONE.draftDigest,
       groupStepID: groupedStep.id, workspaceUnchanged: true });
@@ -1079,6 +1184,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     },
   });
 
+  const reloadedAllGroupStepId = allReloadSavedState.group?.stepId;
+  assert.equal(reloadedAllGroupStepId, appliedGroup?.id,
+    'the removal target must use the exact Group step observed after ALL reload');
   const rowsHistory = page.getByTestId('construction-row-operation-history');
   if (!await rowsHistory.isVisible().catch(() => false)) {
     const settings = page.getByTestId('construction-rows-settings-trigger');
@@ -1086,7 +1194,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       after: () => rowsHistory.waitFor({ state: 'visible', timeout: 5000 }),
     });
   }
-  const removalControl = page.getByTestId(`construction-row-remove-${appliedGroup.id}`);
+  const removalControl = policyOneRowSettingsRemovalLocator(page, appliedGroup.id);
   const removalPreviewAttempt = observeAuthoringAttempt(page, {
     method: 'POST', path: 'construction-proposals',
     owner: { kind: 'policy-one-group-removal-preview', attempt: 'cancel-check' }, timeout: 5000,
@@ -1200,16 +1308,27 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
         addedColumnId: addedPatientIDColumnId }),
     },
   });
+  const afterCancelGroupStepId = afterRemovalCancelState.group?.stepId;
+  assert.equal(afterCancelGroupStepId, reloadedAllGroupStepId,
+    'Cancel must preserve the exact reloaded ALL Group step identity');
+  assert.equal(afterCancelGroupStepId, appliedGroup?.id,
+    'Cancel must preserve the current saved ALL Group step, not a pre-ONE snapshot');
+  assert.equal(await page.getByRole('dialog', { name: 'Row definition settings', exact: true }).count(), 0,
+    'the saved-step Remove action must leave the row-settings dialog closed');
+  assert.equal(await page.getByTestId(`construction-history-step-${afterCancelGroupStepId}`).getAttribute('aria-pressed'), 'true',
+    'Cancel must leave the current Group selected in the visible Row operations history');
   requireCheck(workflow, 'persistence', 'Cancel preserves the applied ALL Group and exact draft', true,
-    { groupStepID: appliedGroup.id, draftVersion: afterRemovalCancel.draftVersion,
-      draftDigest: afterRemovalCancel.draftDigest });
+    { groupStepID: afterCancelGroupStepId, draftVersion: afterRemovalCancel.draftVersion,
+      draftDigest: afterRemovalCancel.draftDigest, rowSettingsDialogOpen: false,
+      selectedHistoryStepId: afterCancelGroupStepId });
 
   const removalRetryAttempt = observeAuthoringAttempt(page, {
     method: 'POST', path: 'construction-proposals',
     owner: { kind: 'policy-one-group-removal-preview', attempt: 'apply' }, timeout: 5000,
   });
-  await workflow.action('reopen Group removal after Cancel', page.getByTestId(`construction-row-remove-${appliedGroup.id}`),
-    () => page.getByTestId(`construction-row-remove-${appliedGroup.id}`).click(), {
+  const removalRetryControl = policyOneHistoryRemovalLocator(page, afterCancelGroupStepId);
+  await workflow.action('reopen Group removal after Cancel', removalRetryControl,
+    () => removalRetryControl.click(), {
       after: () => page.waitForFunction(() => document.querySelector('[data-testid="construction-proposal-panel"]')?.dataset.proposalStatus === 'ready'
         && Boolean(document.querySelector('[data-testid="construction-removal-summary"]')), undefined, { timeout: 5000 }),
     });
@@ -1233,8 +1352,8 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
   assert(removalRetryExchange.response?.proposalId,
     'reopened Group removal response must expose its actual proposalId');
   assert.equal(removalRetryExchange.response?.proposalPreviewStatus, 'READY');
-  assert.deepEqual(removalRetryBody?.removeStepIds, [appliedGroup.id],
-    'reopened Group removal must target the same saved Group step');
+  assert.deepEqual(removalRetryBody?.removeStepIds, [afterCancelGroupStepId],
+    'reopened Group removal must target the exact post-Cancel saved Group step');
   const removalRetryPreview = await page.evaluate(readNativeGroupProposal);
   const retryRemovalResponsePreview = removalRetryExchange.payload?.preview;
   const retryRemovalIDColumn = retryRemovalResponsePreview?.columns?.find(column => column.label === sourceIdColumn.label);
@@ -1359,6 +1478,15 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       removedProposalId: removalRetryExchange.response.proposalId,
     },
   });
+  await page.getByRole('dialog', { name: 'Row definition settings', exact: true })
+    .waitFor({ state: 'hidden' });
+  const afterRemovalCloseFrame = await readBuilder();
+  assert.deepEqual(afterRemovalCloseFrame.workspace, removedBuilder.workspace,
+    'closing the already-dismissed row editor after removal must preserve the exact restored workspace');
+  assert.equal(afterRemovalCloseFrame.draftVersion, removedBuilder.draftVersion,
+    'closing the row editor after removal must preserve the restored draft version');
+  assert.equal(afterRemovalCloseFrame.draftDigest, removedBuilder.draftDigest,
+    'closing the row editor after removal must preserve the restored draft digest');
   await page.reload({ waitUntil: 'domcontentloaded' });
   const sourceReloadTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   assert.notEqual(sourceReloadTimeOrigin, allReloadTimeOrigin,
@@ -1421,7 +1549,6 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'removing Group restores the original Patient fields and rows after reload',
   ];
 
-  await Promise.all([...pendingPolicyOneTransportReads]);
   const observedCaptures = [
     [groupPreviewStarted.rawRequest, groupPreviewExchange.request.captureId],
     [groupApplyStarted.rawRequest, groupApplyExchange.request.captureId],
@@ -1433,11 +1560,9 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     [removalApplyStarted.rawRequest, removalApplyExchange.request.captureId],
   ];
   for (const [requestObject, requestCaptureId] of observedCaptures) {
-    const capture = policyOneTransportByRequest.get(requestObject);
-    assert(capture, 'semantic request must appear in the raw authoring transport ledger');
-    capture.record.requestCaptureId = requestCaptureId;
+    transportObserver.bindRequestCaptureId(requestObject, requestCaptureId);
   }
-  const transportCaptures = policyOneBackendCallCaptures.map(({ record }) => record);
+  const { captures: transportCaptures } = await transportObserver.finish();
   const { journeyTrace } = buildPolicyOneTrace({
     expected: {
       outputId,
@@ -1501,6 +1626,7 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
       initialPreview: policyOneInitialPreview,
       actions: policyOneEvidence,
       transportCaptures,
+      formalEntry: policyOneFormalEntry,
       outcome: {
         kind: 'source-restored',
         workspace: policyWorkspaceProjection({ savedState: restoredState,

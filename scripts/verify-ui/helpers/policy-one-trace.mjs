@@ -10,6 +10,10 @@ const MODELED_TRANSPORTS = new Map([
 const READ_ONLY_TRANSPORTS = new Map([
   ['GET builder', 'BuilderState read'],
   ['GET capability', 'Explorer capability read'],
+  ['GET row-definition-choices', 'Row-definition choices read'],
+  ['POST suggestions', 'Source suggestions read'],
+  ['POST semantic-inventory', 'Semantic inventory read'],
+  ['POST configured-column-context', 'Configured-column context read'],
   ['POST construction-capabilities', 'Construction capabilities read'],
   ['POST construction-inputs', 'Construction stage inputs read'],
   ['POST construction-choices', 'Construction source choices read'],
@@ -155,21 +159,47 @@ function savedCASAfterCommand(capture, actions) {
 
 function ownerChangingCommands(rows, ownerScope, draftVersion, draftDigest, afterEventIndex, beforeEventIndex) {
   return rows.filter(candidate => candidate.classification === 'modeled'
-    && candidate.path === 'commands'
+    || candidate.classification === 'setup')
+    .filter(candidate => candidate.path === 'commands'
     && candidate.ownerScope === ownerScope
     && candidate.settlement === 'response'
     && candidate.status >= 200 && candidate.status < 300
     && candidate.settlementEventIndex > afterEventIndex
     && candidate.settlementEventIndex < beforeEventIndex
-    && candidate.savedCASAfter
-    && (candidate.savedCASAfter.draftVersion !== draftVersion
-      || candidate.savedCASAfter.draftDigest !== draftDigest));
+    && (candidate.classification === 'setup'
+      ? candidate.requestBody?.commandId === candidate.response?.commandId
+        && (candidate.response?.draftVersion !== draftVersion || candidate.response?.draftDigest !== draftDigest)
+      : candidate.savedCASAfter
+        && (candidate.savedCASAfter.draftVersion !== draftVersion
+          || candidate.savedCASAfter.draftDigest !== draftDigest)));
 }
 
-function canonicalTransportLedger(captures, references, initialPreview, initialObservation, actions) {
+function canonicalTransportLedger(captures, references, initialPreview, initialObservation, actions, formalEntry) {
   assert(Array.isArray(captures), 'workflow transport captures must be an array');
+  record(formalEntry, 'formal entry boundary');
+  assert(Number.isInteger(formalEntry.afterTransportIndex) && formalEntry.afterTransportIndex >= 0,
+    'formal entry must retain the exact final setup transport index');
+  assert(Number.isInteger(formalEntry.afterEventIndex) && formalEntry.afterEventIndex >= 0,
+    'formal entry must retain the exact final setup settlement event index');
+  record(formalEntry.initialSavedState, 'formal entry initial saved Builder snapshot');
+  assert.equal(formalEntry.initialSavedState.outputId, initialObservation.outputId,
+    'formal entry saved snapshot must bind the observed initial output');
+  assert.equal(formalEntry.initialSavedState.snapshotToken, initialObservation.snapshotToken,
+    'formal entry saved snapshot must bind the observed initial snapshot token');
+  assert.equal(formalEntry.initialSavedState.draftVersion, initialObservation.draftVersion,
+    'formal entry saved snapshot must bind the observed initial draft version');
+  assert.equal(formalEntry.initialSavedState.draftDigest, initialObservation.draftDigest,
+    'formal entry saved snapshot must bind the observed initial draft digest');
+  assert(isDeepStrictEqual(formalEntry.initialSavedState.workspaceProjection, initialObservation.workspace),
+    'formal entry saved snapshot projection must equal the actual initial workspace observation');
   const ordered = [...captures].sort((left, right) => left.transportIndex - right.transportIndex);
   const byIndex = new Map();
+  const setupCaptures = ordered.filter(capture => capture.capturePhase === 'SETUP');
+  assert.equal(formalEntry.afterTransportIndex, setupCaptures.at(-1)?.transportIndex ?? 0,
+    'formal entry must follow every captured setup request without renumbering observer indexes');
+  assert.equal(formalEntry.afterEventIndex, setupCaptures.reduce((max, capture) =>
+    Math.max(max, capture.settlementEventIndex), 0),
+  'formal entry must follow every captured setup settlement');
   for (const [position, capture] of ordered.entries()) {
     record(capture, `transport capture ${position}`);
     assert(Number.isInteger(capture.transportIndex) && capture.transportIndex > 0,
@@ -199,7 +229,51 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
     assert(Number.isInteger(capture.settlementEventIndex)
       && capture.settlementEventIndex > capture.requestEventIndex,
     `transport ${capture.transportIndex} settlement must follow its request`);
+    assert(['SETUP', 'FORMAL'].includes(capture.capturePhase),
+      `transport ${capture.transportIndex} must retain its actual capture phase`);
+    assert.equal(typeof capture.responseObservedBeforeFailure, 'boolean',
+      `transport ${capture.transportIndex} must retain whether headers preceded a failed terminal`);
+    const responseHeaders = capture.responseHeaders ?? null;
+    const responseReadError = capture.responseReadError ?? null;
+    if (responseHeaders) {
+      record(responseHeaders, `transport ${capture.transportIndex} response headers`);
+      assert(Number.isInteger(responseHeaders.status) && responseHeaders.status > 0,
+        `transport ${capture.transportIndex} response headers must retain their actual status`);
+      assert(responseHeaders.requestId === null || typeof responseHeaders.requestId === 'string',
+        `transport ${capture.transportIndex} response headers request ID must be a string or null`);
+      finiteJSON(responseHeaders, `transport ${capture.transportIndex} response headers`);
+    } else {
+      assert.equal(capture.responseObservedBeforeFailure, false,
+        `transport ${capture.transportIndex} cannot report headers before failure without captured headers`);
+      assert.equal(responseReadError, null,
+        `transport ${capture.transportIndex} cannot report a response body read error without response headers`);
+    }
+    if (responseReadError !== null) {
+      nonEmptyString(responseReadError, `transport ${capture.transportIndex} response body read error`);
+      assert(responseHeaders,
+        `transport ${capture.transportIndex} response body read error must follow observed response headers`);
+    }
+    if (capture.responseBody !== undefined && capture.responseBody !== null) {
+      finiteJSON(capture.responseBody, `transport ${capture.transportIndex} response body facts`);
+    }
+    if (capture.capturePhase === 'SETUP') {
+      assert(capture.transportIndex <= formalEntry.afterTransportIndex,
+        `setup transport ${capture.transportIndex} must precede the formal entry`);
+      assert(capture.settlementEventIndex <= formalEntry.afterEventIndex,
+        `setup transport ${capture.transportIndex} must settle before the formal entry`);
+    } else {
+      assert(capture.transportIndex > formalEntry.afterTransportIndex,
+        `formal transport ${capture.transportIndex} must follow the setup transport boundary`);
+      assert(capture.requestEventIndex > formalEntry.afterEventIndex,
+        `formal transport ${capture.transportIndex} request must follow all setup settlements`);
+    }
     if (capture.settlement === 'response') {
+      assert(responseHeaders,
+        `transport ${capture.transportIndex} response terminal must retain its response headers`);
+      assert.equal(capture.responseObservedBeforeFailure, false,
+        `transport ${capture.transportIndex} successful terminal cannot follow request failure`);
+      assert.equal(responseHeaders.status, capture.status,
+        `transport ${capture.transportIndex} response headers must match its terminal status`);
       assert.equal(capture.responseOwnerIndex, capture.transportIndex,
         `transport ${capture.transportIndex} response must retain its exact request owner`);
       assert(isRecord(capture.response), `transport ${capture.transportIndex} response facts are required`);
@@ -207,6 +281,8 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         `transport ${capture.transportIndex} response status must match its settlement`);
       finiteJSON(capture.response, `transport ${capture.transportIndex} response facts`);
     } else {
+      assert.equal(capture.responseObservedBeforeFailure, Boolean(responseHeaders),
+        `transport ${capture.transportIndex} must preserve whether headers preceded its failed terminal`);
       assert.equal(capture.status, null, `failed transport ${capture.transportIndex} cannot have a response status`);
       assert.equal(capture.responseOwnerIndex, null,
         `failed transport ${capture.transportIndex} cannot claim a response owner`);
@@ -260,19 +336,45 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
     const reference = referencesByIndex.get(capture.transportIndex);
     const route = `${capture.method} ${capture.path}`;
     const modeledMutation = MODELED_TRANSPORTS.get(route);
+    if (capture.capturePhase === 'SETUP' && route === 'POST commands') {
+      assert(!reference, 'setup commands must remain explicitly outside the formal action span');
+      assert.equal(capture.settlement, 'response',
+        `setup mutation ${capture.transportIndex} must settle successfully before formal entry`);
+      assert(capture.status >= 200 && capture.status < 300,
+        `setup mutation ${capture.transportIndex} must return a successful HTTP status`);
+      const commandId = nonEmptyString(capture.requestBody?.commandId,
+        `setup mutation ${capture.transportIndex} commandId`);
+      assert.equal(capture.response.commandId, commandId,
+        `setup mutation ${capture.transportIndex} response must echo its exact commandId`);
+      assert(Number.isInteger(capture.response.draftVersion) && capture.response.draftVersion > 0,
+        `setup mutation ${capture.transportIndex} must retain its response draft version`);
+      nonEmptyString(capture.response.draftDigest,
+        `setup mutation ${capture.transportIndex} must retain its response draft digest`);
+      return {
+        ...capture,
+        classification: 'setup',
+        mutatesDraft: true,
+        setupMutation: true,
+        actionLabel: POLICY_TRACE_ABSENT,
+        actionEvent: POLICY_TRACE_ABSENT,
+      };
+    }
     if (modeledMutation !== undefined) {
+      assert.equal(capture.capturePhase, 'FORMAL',
+        `${route} must not be modeled as a formal action before the entry snapshot`);
       assert(reference, `${route} must be linked to a semantic journey request`);
       return {
         ...capture,
         classification: 'modeled',
         mutatesDraft: modeledMutation,
+        setupMutation: false,
         actionLabel: reference.label,
         actionEvent: reference.event,
       };
     }
     if (route === 'POST reconcile') {
       assert(!reference, 'reconcile requests use the reconcile owner/CAS/consumption abstraction');
-      return { ...capture, classification: 'reconcile', mutatesDraft: false };
+      return { ...capture, classification: 'reconcile', mutatesDraft: false, setupMutation: false };
     }
     const support = READ_ONLY_TRANSPORTS.get(route);
     assert(support, `unsupported authoring transport ${route}`);
@@ -281,6 +383,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       ...capture,
       classification: 'read-only',
       mutatesDraft: false,
+      setupMutation: false,
       readOnlyReason: support,
     };
   });
@@ -292,6 +395,15 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       && row.settlement === 'response' && row.status >= 200 && row.status < 300) {
       row.savedCASAfter = savedCASAfterCommand(row, actions);
     }
+  }
+
+  const setupMutations = rows.filter(row => row.classification === 'setup');
+  const finalSetupMutation = setupMutations.at(-1);
+  if (finalSetupMutation) {
+    assert.equal(finalSetupMutation.response.draftVersion, formalEntry.initialSavedState.draftVersion,
+      'formal entry saved Builder version must include the final successful setup mutation');
+    assert.equal(finalSetupMutation.response.draftDigest, formalEntry.initialSavedState.draftDigest,
+      'formal entry saved Builder digest must include the final successful setup mutation');
   }
 
   const initialReceipt = initialPreview?.binding?.receiptId ?? null;
@@ -404,18 +516,26 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         `reconcile transport ${row.transportIndex} receipt must expose output identities`);
       if (body.outputId) assert(response.outputIds.includes(body.outputId),
         `reconcile transport ${row.transportIndex} receipt must include its selected output`);
-      const invalidatedBy = rows.filter(candidate => candidate.transportIndex > row.transportIndex
-        && candidate.ownerScope === row.ownerScope
-        && candidate.requestEventIndex < row.settlementEventIndex
-        && (candidate.classification === 'modeled' && candidate.path === 'commands'
-          || candidate.classification === 'reconcile'
-            && Number(/^builder-(\d+)-/.exec(candidate.requestId ?? '')?.[1] ?? 0) > Number(ownerMatch[1])));
+      const changedCommandsBeforeResponse = ownerChangingCommands(rows, row.ownerScope,
+        body.draftVersion, body.draftDigest, row.requestEventIndex, row.settlementEventIndex);
+      const invalidatedBy = rows.filter(candidate => changedCommandsBeforeResponse.includes(candidate)
+        || candidate.classification === 'reconcile'
+          && candidate.ownerScope === row.ownerScope
+          && candidate.requestEventIndex > row.requestEventIndex
+          && candidate.requestEventIndex < row.settlementEventIndex
+          && Number(/^builder-(\d+)-/.exec(candidate.requestId ?? '')?.[1] ?? 0) > Number(ownerMatch[1]));
       row.invalidatedByTransportIndices = invalidatedBy.map(candidate => candidate.transportIndex);
-      row.reconcileOwnerChangeCaptureIds = ownerChangingCommands(rows, row.ownerScope,
+      const ownerChanging = ownerChangingCommands(rows, row.ownerScope,
         body.draftVersion,
         body.draftDigest,
         row.requestEventIndex,
-        Number.POSITIVE_INFINITY).map(candidate => candidate.requestCaptureId);
+        Number.POSITIVE_INFINITY);
+      row.reconcileOwnerChangeCaptureIds = ownerChanging
+        .filter(candidate => candidate.classification === 'modeled')
+        .map(candidate => candidate.requestCaptureId);
+      row.reconcileOwnerChangeSetupCommandIds = ownerChanging
+        .filter(candidate => candidate.classification === 'setup')
+        .map(candidate => candidate.requestBody.commandId);
       row.ownerInvalidationObserved = row.invalidatedByTransportIndices.length > 0;
       row.reconcileDisposition = row.ownerInvalidationObserved
         ? 'invalidated-by-captured-owner-event'
@@ -427,6 +547,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       row.successfulPreviewConsumerTransportIndices = [];
       row.invalidatedByTransportIndices = [];
       row.reconcileOwnerChangeCaptureIds = [];
+      row.reconcileOwnerChangeSetupCommandIds = [];
     } else {
       row.ownerInvalidationObserved = false;
       row.reconcileDisposition = 'request-failed';
@@ -434,6 +555,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       row.successfulPreviewConsumerTransportIndices = [];
       row.invalidatedByTransportIndices = [];
       row.reconcileOwnerChangeCaptureIds = [];
+      row.reconcileOwnerChangeSetupCommandIds = [];
     }
   }
 
@@ -991,6 +1113,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
     context.initialPreview,
     context.initialObservation,
     actions,
+    context.formalEntry,
   );
   return {
     journeyTrace: {
@@ -1000,6 +1123,7 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
       initialPreview: finiteClone(context.initialPreview, 'initial source-grid observation'),
       actions,
       transportLedger,
+      formalEntry: finiteClone(context.formalEntry, 'formal entry boundary and initial saved snapshot'),
       outcome: finiteClone(context.outcome, 'journey outcome projection'),
     },
   };

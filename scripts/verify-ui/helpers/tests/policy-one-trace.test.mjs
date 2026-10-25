@@ -1,16 +1,22 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
+import { createPlaywrightNetworkObserver } from '../playwright-network-observer.mjs';
 import {
   buildPolicyOneMutationControls,
   compilePolicyOneJourneyTrace,
+  validatePolicyOneJourneyTrace,
 } from '../policy-one-tla-replay.mjs';
 import {
+  markPolicyOneExpectedHttp422,
   patientOneSavedState,
   policyApplyTraceExpectation,
   policyWorkspaceProjection,
 } from '../../workflows/builder-patient-one-disagreement.mjs';
+import { observeAuthoringAttempt } from '../fast-fixtures.mjs';
+import { createPolicyOneTransportObserver } from '../policy-one-transport-observer.mjs';
 import {
   makePolicyOneTraceInput,
   makeSyntheticPolicyOneJourneyTrace,
@@ -40,11 +46,17 @@ const extraTransport = ({
   ownerScope = 'https://fixture.invalid/api/explorers/policy-one',
   status = 200,
   response,
+  responseHeaders = status === null ? null : { status, requestId },
+  responseReadError = null,
+  responseObservedBeforeFailure = false,
+  failure = null,
 }) => {
   return {
     transportIndex,
     requestEventIndex,
     settlementEventIndex,
+    capturePhase: 'FORMAL',
+    setupMutation: false,
     method,
     path,
     resourcePath: `${ownerScope}/authoring/v2/${path}`,
@@ -54,7 +66,11 @@ const extraTransport = ({
     requestBody,
     settlement: status === null ? 'request-failed' : 'response',
     responseOwnerIndex: status === null ? null : transportIndex,
+    responseHeaders,
+    responseReadError,
+    responseObservedBeforeFailure,
     status,
+    failure,
     response: status === null ? null : {
       status,
       requestId,
@@ -107,6 +123,120 @@ const captureMutations = [
   ['Apply carries the wrong choice policy', input => { input.requests.apply.body.commands[0].constructionChoice.rowValuePolicy = 'ONE'; }, /request must use ALL/],
   ['Apply response is owned by another request', input => { input.responses.apply.requestObject = {}; }, /exact captured request object/],
 ];
+
+test('the Policy ONE HTTP exemption binds the exact recorder request and preserves unrelated failures', async () => {
+  const origin = 'http://loom.test';
+  const proposalPath = '/api/explorers/e/authoring/v2/construction-choice-proposals';
+  const unrelatedPath = '/api/explorers/e/authoring/v2/commands';
+  const page = new EventEmitter();
+  page.url = () => `${origin}/`;
+  const report = { errors: [] };
+  const observer = createPlaywrightNetworkObserver(page, {
+    scopeRequest: request => new URL(request.url()).origin === origin,
+    appOrigins: [origin],
+    responsePaths: [proposalPath],
+    report,
+  });
+  const makeRequest = (path, body, requestId) => {
+    const serializedBody = JSON.stringify(body);
+    return {
+      url: () => `${origin}${path}`,
+      method: () => 'POST',
+      headers: () => ({ 'x-request-id': requestId }),
+      postData: () => serializedBody,
+      postDataJSON: () => JSON.parse(serializedBody),
+      resourceType: () => 'fetch',
+      failure: () => null,
+    };
+  };
+  const makeResponse = (request, status, body) => ({
+    request: () => request,
+    url: () => request.url(),
+    status: () => status,
+    body: async () => Buffer.from(JSON.stringify(body)),
+    json: async () => body,
+  });
+
+  try {
+    const requestBody = {
+      commandId: 'command-one-422',
+      snapshotToken: 'snapshot-one-422',
+      expectedDraftVersion: 3,
+      expectedDraftDigest: 'draft-one-422',
+      outputId: 'output-one-422',
+      constructionChoices: [{
+        rowValuePolicy: 'ONE', choiceId: 'choice-patient-id-one', form: 'VALUE', title: 'Patient ID',
+      }],
+      limit: 25,
+    };
+    const responseBody = {
+      diagnostics: [{ code: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', stage: 'preview' }],
+      error: { code: 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES', message: 'multiple values' },
+    };
+    const request = makeRequest(proposalPath, requestBody, 'request-one-422');
+    const response = makeResponse(request, 422, responseBody);
+    const oneReady = observer.waitForResponse(entry => entry.path === proposalPath);
+    page.emit('request', request);
+    page.emit('response', response);
+    page.emit('requestfinished', request);
+    const oneEntry = await oneReady;
+
+    const unrelatedRequest = makeRequest(unrelatedPath, { commandId: 'unrelated-command' }, 'request-unrelated-500');
+    const unrelatedResponse = makeResponse(unrelatedRequest, 500, { error: 'server failure' });
+    const unrelatedReady = observer.waitForResponse(entry => entry.path === unrelatedPath);
+    page.emit('request', unrelatedRequest);
+    page.emit('response', unrelatedResponse);
+    page.emit('requestfinished', unrelatedRequest);
+    const unrelatedEntry = await unrelatedReady;
+
+    const wrongRequest = makeRequest(proposalPath, requestBody, 'different-physical-request');
+    assert.throws(() => markPolicyOneExpectedHttp422({
+      networkObserver: observer,
+      report,
+      request: wrongRequest,
+      response,
+      requestCaptureId: 'capture-one-422',
+      requestBody,
+      responseBody,
+    }), /exact submitted request/);
+    assert.equal(oneEntry.httpFailureExempted, undefined,
+      'a different Request object cannot exempt the captured 422');
+    assert(observer.failures.some(failure => failure.entry === oneEntry && failure.kind === 'http'));
+
+    const expected = markPolicyOneExpectedHttp422({
+      networkObserver: observer,
+      report,
+      request,
+      response,
+      requestCaptureId: 'capture-one-422',
+      requestBody,
+      responseBody,
+    });
+    assert.equal(expected.diagnostic.kind, 'http');
+    assert.equal(expected.diagnostic.status, 422);
+    assert.equal(expected.requestCaptureId, 'capture-one-422');
+    assert.equal(expected.commandId, requestBody.commandId);
+    assert.equal(expected.outputId, requestBody.outputId);
+    assert.equal(expected.choiceId, requestBody.constructionChoices[0].choiceId);
+    assert.equal(expected.rowValuePolicy, 'ONE');
+    assert.equal(expected.responseErrorCode, 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
+    assert.equal(expected.diagnostic.browserRequestId, oneEntry.browserRequestId);
+    assert.equal(expected.diagnostic.observerRequestIndex, oneEntry.index);
+    assert.equal(oneEntry.httpFailureExempted, true);
+    assert.equal(report.network.some(entry => entry.browserRequestId === oneEntry.browserRequestId), false,
+      'the shared observer removes only the explicitly classified 422 diagnostic');
+    assert.equal(report.errors.some(entry => entry.browserRequestId === oneEntry.browserRequestId), false);
+    assert.deepEqual(observer.failures.map(failure => failure.entry), [unrelatedEntry]);
+    assert.deepEqual(report.network.map(entry => ({ kind: entry.kind, status: entry.status,
+      browserRequestId: entry.browserRequestId })), [{
+      kind: 'http', status: 500, browserRequestId: unrelatedEntry.browserRequestId,
+    }]);
+    assert.equal(report.errors.filter(entry => entry.kind === 'http').length, 1,
+      'an unrelated HTTP failure remains visible after the expected 422 is classified');
+  } finally {
+    observer.stop();
+  }
+});
 
 test('a valid ONE rejection and same-choice ALL Apply persist distinct input and output bindings', () => {
   const input = makePolicyOneTraceInput();
@@ -255,6 +385,217 @@ test('workspace projections separate fixture counts from observed rows and requi
   }), /saved Group projection must bind its observed row count/);
 });
 
+test('the Policy observer retains an in-flight setup request across formal entry and binds the actual observeAuthoringAttempt request', async () => {
+  class ObserverPage extends EventEmitter {
+    waitForRequest(predicate, { timeout = 1000 } = {}) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.off('request', onRequest);
+          reject(new Error('timed out waiting for a matching request'));
+        }, timeout);
+        const onRequest = request => {
+          if (!predicate(request)) return;
+          clearTimeout(timer);
+          this.off('request', onRequest);
+          resolve(request);
+        };
+        this.on('request', onRequest);
+      });
+    }
+
+    async evaluate() { return {}; }
+  }
+
+  const makeRequest = ({ method = 'POST', path, requestId, body }) => ({
+    url: () => `http://loom.test/api/explorers/e/authoring/v2/${path}`,
+    method: () => method,
+    headers: () => requestId ? { 'x-request-id': requestId } : {},
+    postDataJSON: () => body,
+    failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+  });
+  const makeResponse = (requestObject, body, { status = 200, requestId } = {}) => ({
+    request: () => requestObject,
+    status: () => status,
+    headers: () => requestId ? { 'x-request-id': requestId } : {},
+    json: async () => body,
+    ok: () => status >= 200 && status < 300,
+  });
+  const deferred = () => {
+    let resolve;
+    let reject;
+    const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+    return { promise, resolve, reject };
+  };
+
+  const page = new ObserverPage();
+  const observer = createPolicyOneTransportObserver(page);
+  const setupRequest = makeRequest({ path: 'construction-capabilities', requestId: 'setup-capabilities-physical-id',
+    body: { outputId: 'output-1', expectedDraftVersion: 2, expectedDraftDigest: 'draft-source' } });
+  page.emit('request', setupRequest);
+  const setupIdle = observer.waitUntilIdle();
+  const setupBody = deferred();
+  let setupIdleSettled = false;
+  setupIdle.then(() => { setupIdleSettled = true; });
+  page.emit('response', makeResponse(setupRequest, setupBody.promise));
+  page.emit('requestfinished', setupRequest);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(setupIdleSettled, false,
+    'the setup drain must wait for the pre-boundary response body to finish reading');
+  setupBody.resolve({ capabilities: [] });
+  await setupIdle;
+  const snapshotEventIndex = observer.eventIndex;
+  const formalEntry = await observer.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-source',
+  }, { expectedEventIndex: snapshotEventIndex });
+  assert.equal(formalEntry.afterTransportIndex, 1);
+  assert.equal(formalEntry.afterEventIndex, 2);
+  assert.equal(formalEntry.initialSavedState.draftVersion, 2);
+
+  const attempt = observeAuthoringAttempt(page, {
+    method: 'POST', path: 'construction-proposals',
+    owner: { kind: 'policy-one-group-preview', attempt: 'entry-boundary-test' }, timeout: 1000,
+  });
+  const proposalRequest = makeRequest({
+    path: 'construction-proposals', requestId: 'proposal-physical-id',
+    body: { outputId: 'output-1', expectedDraftVersion: 2 },
+  });
+  page.emit('request', proposalRequest);
+  const started = await attempt.started;
+  const proposalResponse = makeResponse(proposalRequest, {
+    proposalId: 'proposal-1', outputId: 'output-1', snapshotToken: 'snapshot-1',
+    draftVersion: 2, draftDigest: 'draft-source', previewStatus: 'READY',
+    preview: { receiptId: 'receipt-1', outputId: 'output-1', rowCount: 1, rows: [] },
+  }, { requestId: 'proposal-physical-id' });
+  page.emit('response', proposalResponse);
+  page.emit('requestfinished', proposalRequest);
+  const settled = await attempt.settled;
+  assert.equal(settled.response?.captureId, started.request.captureId);
+  assert.equal(settled.response?.status, 200);
+  const semanticRecord = observer.bindRequestCaptureId(started.rawRequest, started.request.captureId);
+  assert.equal(semanticRecord.capturePhase, 'FORMAL');
+  assert.equal(semanticRecord.transportIndex, observer.transportIndexForRequest(started.rawRequest));
+  assert.equal(semanticRecord.requestId, started.request.requestId);
+  assert.equal(semanticRecord.requestCaptureId, settled.request.captureId);
+  assert.equal(semanticRecord.responseOwnerIndex, semanticRecord.transportIndex);
+
+  const inventoryRequest = makeRequest({ path: 'semantic-inventory', requestId: 'inventory-physical-id',
+    body: { outputId: 'output-1', rowRoot: 'Patient', limit: 50 } });
+  page.emit('request', inventoryRequest);
+  const inventoryBody = deferred();
+  page.emit('response', makeResponse(inventoryRequest, inventoryBody.promise,
+    { requestId: 'inventory-physical-id' }));
+  await new Promise(resolve => setImmediate(resolve));
+  const inventoryRecord = observer.entryForRequest(inventoryRequest).record;
+  assert.deepEqual(inventoryRecord.responseHeaders,
+    { status: 200, requestId: 'inventory-physical-id' },
+  'the response event must retain actual HTTP headers without marking transport completion');
+  assert.equal(inventoryRecord.settlement, 'pending');
+  page.emit('requestfailed', inventoryRequest);
+  assert.equal(inventoryRecord.settlement, 'request-failed');
+  assert.equal(inventoryRecord.responseObservedBeforeFailure, true);
+  assert.equal(inventoryRecord.responseHeaders.status, 200);
+  assert.equal(inventoryRecord.status, null,
+    'a response-header observation followed by a failed terminal remains a request failure');
+  let failedReadIdleSettled = false;
+  const failedReadIdle = observer.waitUntilIdle().then(() => { failedReadIdleSettled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(failedReadIdleSettled, false,
+    'the transport drain must wait for a response body read after the request failed');
+  assert.throws(() => page.emit('requestfailed', inventoryRequest),
+    /authoring transport 3 must settle exactly once/,
+  'a second real terminal event for the same Request identity remains fatal');
+  inventoryBody.reject(new Error('response body was canceled after response headers'));
+  await failedReadIdle;
+
+  const capture = await observer.finish();
+  assert.deepEqual(capture.captures.map(entry => entry.capturePhase), ['SETUP', 'FORMAL', 'FORMAL']);
+  assert.equal(capture.captures[0].settlement, 'response');
+  assert.equal(capture.captures[1].requestCaptureId, started.request.captureId);
+  assert.equal(capture.captures[1].responseOwnerIndex, capture.captures[1].transportIndex);
+  assert.equal(capture.captures[2].settlement, 'request-failed');
+  assert.deepEqual(capture.captures[2].responseHeaders,
+    { status: 200, requestId: 'inventory-physical-id' });
+  assert.equal(capture.captures[2].responseObservedBeforeFailure, true);
+  assert.equal(capture.captures[2].responseReadError,
+    'Error: response body was canceled after response headers');
+  assert.equal(capture.captures[2].failure, 'net::ERR_ABORTED');
+});
+
+test('the Policy observer rejects formal entry when a setup command failed or was canceled', async () => {
+  class ObserverPage extends EventEmitter {
+    async evaluate() { return {}; }
+  }
+  const page = new ObserverPage();
+  const observer = createPolicyOneTransportObserver(page);
+  const failedSetupCommand = {
+    url: () => 'http://loom.test/api/explorers/e/authoring/v2/commands',
+    method: () => 'POST',
+    headers: () => ({ 'x-request-id': 'failed-setup-command-id' }),
+    postDataJSON: () => ({ commandId: 'failed-setup-command-id', commands: [{ type: 'CREATE_TABLE' }] }),
+    failure: () => ({ errorText: 'net::ERR_ABORTED' }),
+  };
+  page.emit('request', failedSetupCommand);
+  page.emit('requestfailed', failedSetupCommand);
+  await assert.rejects(observer.beginFormalSpan({
+    outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 0, draftDigest: 'draft-empty',
+  }), /setup mutation 1 must have a successful HTTP response/);
+});
+
+test('setup reconcile receipts expire when a same-owner setup command changes CAS across request/response orderings', () => {
+  for (const setupReceiptCase of [
+    'reconcile-before-command',
+    'command-before-reconcile-response',
+    'command-starts-first',
+  ]) {
+    const trace = makeSyntheticPolicyOneJourneyTrace({ setupReceiptCase });
+    const staleSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-70-1');
+    const setupCommand = trace.transportLedger.find(row => row.capturePhase === 'SETUP'
+      && row.classification === 'setup' && row.setupMutation);
+    const currentSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-71-1');
+    const setupPreview = trace.transportLedger.find(row => row.path === 'preview'
+      && row.requestBody.receiptId === currentSetupReceipt?.response.receiptId);
+    const currentFormalReceipt = trace.transportLedger.find(row => row.requestId === 'builder-72-1');
+    const formalPreview = trace.transportLedger.find(row => row.path === 'preview'
+      && row.requestBody.receiptId === currentFormalReceipt?.response.receiptId);
+    assert(staleSetupReceipt && setupCommand && currentSetupReceipt && setupPreview
+      && currentFormalReceipt && formalPreview);
+    assert.deepEqual(staleSetupReceipt.reconcileOwnerChangeSetupCommandIds,
+      [setupCommand.requestBody.commandId],
+    `${setupReceiptCase} must retain the exact successful setup command as the reconcile's owner change`);
+    assert.deepEqual(staleSetupReceipt.successfulPreviewConsumerTransportIndices, [],
+      `${setupReceiptCase} must not credit the stale receipt to the later preview`);
+    assert.deepEqual(currentSetupReceipt.successfulPreviewConsumerTransportIndices, [setupPreview.transportIndex]);
+    assert.deepEqual(setupPreview.currentReceiptProducerTransportIndices, [currentSetupReceipt.transportIndex]);
+    assert.deepEqual(currentFormalReceipt.successfulPreviewConsumerTransportIndices, [formalPreview.transportIndex]);
+    if (setupReceiptCase === 'command-starts-first') {
+      assert.deepEqual([
+        setupCommand.requestEventIndex,
+        staleSetupReceipt.requestEventIndex,
+        setupCommand.settlementEventIndex,
+        staleSetupReceipt.settlementEventIndex,
+      ], [1, 2, 3, 4], 'the overlap case must preserve the exact command-starts-first event order');
+    }
+    assert.equal(staleSetupReceipt.ownerInvalidationObserved,
+      setupReceiptCase !== 'reconcile-before-command',
+      'pre-response invalidation must follow the actual setup command settlement order');
+  }
+});
+
+test('the compiler rejects a setup settlement moved across the captured formal-entry boundary at shape validation', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const setupMutation = trace.transportLedger.find(row => row.capturePhase === 'SETUP' && row.setupMutation);
+  assert(setupMutation);
+  const originalBoundary = trace.formalEntry.afterEventIndex;
+  assert(setupMutation.settlementEventIndex <= originalBoundary);
+
+  trace.formalEntry.afterEventIndex = setupMutation.settlementEventIndex - 1;
+
+  assert.throws(() => validatePolicyOneJourneyTrace(trace),
+    /setup transport .* settle before formal entry/);
+  assert.throws(() => compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicySetupSettlementCrossesEntry' }),
+    /setup transport .* settle before formal entry/);
+});
+
 test('the registered Policy One contract matches captured actions, compiler events, and self-test controls', () => {
   const trace = makeSyntheticPolicyOneJourneyTrace();
   const nativeJourney = policyOneContract.nativeJourney;
@@ -336,6 +677,29 @@ test('the transport ledger accounts for explicitly supported read-only routes an
   }));
   assert.equal(buildPolicyOneTrace(readOnlyGet).journeyTrace.transportLedger.at(-1).readOnlyReason,
     'BuilderState read');
+
+  const canceledReadOnly = makePolicyOneTraceInput();
+  canceledReadOnly.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'POST',
+    path: 'semantic-inventory',
+    requestBody: { outputId: 'output-1', rowRoot: 'Patient', limit: 50 },
+    status: null,
+    responseHeaders: { status: 200, requestId: 'inventory-header-id' },
+    responseObservedBeforeFailure: true,
+    responseReadError: 'response body canceled after navigation',
+    failure: 'net::ERR_ABORTED',
+  }));
+  const canceledTransport = buildPolicyOneTrace(canceledReadOnly).journeyTrace.transportLedger.at(-1);
+  assert.equal(canceledTransport.settlement, 'request-failed');
+  assert.deepEqual(canceledTransport.responseHeaders,
+    { status: 200, requestId: 'inventory-header-id' });
+  assert.equal(canceledTransport.responseObservedBeforeFailure, true);
+  assert.equal(canceledTransport.responseReadError, 'response body canceled after navigation');
+  assert.equal(canceledTransport.status, null);
+  assert.equal(canceledTransport.responseOwnerIndex, null);
 
   const unknownPost = makePolicyOneTraceInput();
   unknownPost.context.transportCaptures.push(extraTransport({
