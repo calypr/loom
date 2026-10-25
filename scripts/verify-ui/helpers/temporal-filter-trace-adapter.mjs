@@ -438,6 +438,8 @@ const attachFilterFields = (capture, events, contract) => {
       : previousFilter?.id ?? requestFilter.step?.id ?? null;
     event.filter = {
       intent,
+      proposalId: request.response?.proposalId ?? null,
+      receiptId: request.response?.preview?.receiptId ?? null,
       stepId,
       outputId: capture.outputId,
       columnId: requestFilter.filter?.columnId ?? capture.temporalColumnId,
@@ -460,6 +462,8 @@ const attachFilterFields = (capture, events, contract) => {
     const intent = event.action === 'FilterRemoved' ? 'remove' : event.action.endsWith('(edit)') ? 'edit' : 'create';
     event.filter = {
       intent,
+      proposalId: proposal.response?.proposalId ?? null,
+      receiptId: proposal.response?.preview?.receiptId ?? null,
       stepId: intent === 'create' ? saved?.id ?? null : prior?.id ?? null,
       outputId: capture.outputId,
       columnId: proposedFilter.filter?.columnId ?? findFilter(prior)?.columnId ?? capture.temporalColumnId,

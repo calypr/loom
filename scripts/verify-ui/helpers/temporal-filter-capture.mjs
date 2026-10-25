@@ -83,10 +83,13 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
           return normalize(String(text ?? '').split(/\r?\n/, 1)[0]);
         });
       const idIndex = headers.findIndex(value => value === `${type.toLowerCase()} id`);
-      const rowIds = idIndex < 0 ? [] : rows.map(row => {
+      const rowIds = idIndex < 0 ? [] : rows.flatMap(row => {
         const cells = [...row.querySelectorAll('[role="cell"], td')];
-        return String(cells[idIndex]?.innerText ?? '').trim();
-      }).filter(Boolean);
+        const idCell = cells[idIndex];
+        if (!idCell || idCell.hasAttribute('colspan')) return [];
+        const id = String(idCell.innerText ?? '').trim();
+        return id ? [id] : [];
+      });
       const panel = activePanel;
       return {
         proposalStatus: panel?.dataset.proposalStatus ?? null,
