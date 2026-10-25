@@ -99,6 +99,8 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
   assert.equal(journeyTrace.actions.length, 16);
   assert(journeyTrace.actions.every(action => action.label === action.action),
     'Every action must expose the exact common label alias expected by the shared verifier.');
+  assert(journeyTrace.actions.every(action => action.event === action.action),
+    'Every common event binding must name the exact TLA transition derived from the raw step.');
   assert.deepEqual(journeyTrace.nativeRequests, rawCapture.requestEvents.map(request => ({
     index: request.index,
     browserRequestId: request.browserRequestId,

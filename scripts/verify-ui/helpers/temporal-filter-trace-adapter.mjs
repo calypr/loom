@@ -23,6 +23,9 @@ const REQUIRED_LABELS = Object.freeze([
   'Reload',
 ]);
 
+export const TEMPORAL_FILTER_ACTION_EVENT_PAIRS = Object.freeze(REQUIRED_LABELS.map(label =>
+  Object.freeze({ label, event: label })));
+
 const canonicalJSON = value => Array.isArray(value)
   ? `[${value.map(canonicalJSON).join(',')}]`
   : value && typeof value === 'object'
@@ -614,6 +617,7 @@ export const adaptTemporalFilterJourney = capture => {
     return {
       ...event,
       label: event.action,
+      event: event.action,
       ...(ownerRequest ? {
         owner: {
           kind: 'proposal',

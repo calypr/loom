@@ -10,6 +10,7 @@ import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-fil
 import {
   compileTemporalFilterJourneyTrace,
   createTemporalFilterMutationControls,
+  TEMPORAL_FILTER_ACTION_EVENT_PAIRS,
   TEMPORAL_FILTER_MUTATION_CONTROL_NAMES,
   validateTemporalFilterJourneyTrace,
 } from '../temporal-filter-tla-adapter.mjs';
@@ -17,9 +18,57 @@ import {
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(testDirectory, '../../../../');
 const modelPath = resolve(repositoryRoot, 'verification/builder-interactions/TemporalFilterJourney.tla');
+const dateContractPath = resolve(repositoryRoot, 'verification/builder-interactions/builder-temporal-filter-date-contract.json');
+const dateTimeContractPath = resolve(repositoryRoot, 'verification/builder-interactions/builder-temporal-filter-date-time-contract.json');
 const tlcJar = process.env.TLA2TOOLS_JAR;
 
 const makeJourney = caseName => adaptTemporalFilterJourney(makeTemporalFilterJourneyCaptureFixture(caseName));
+
+test('DATE and DATE_TIME native contracts bind the exact TLA action/event chronology', () => {
+  const requiredCounts = {
+    ExplorerCreated: 1,
+    SourceTableCreated: 1,
+    TemporalColumnApplied: 1,
+    'FilterProposed(create)': 2,
+    FilterCancelled: 1,
+    Reload: 4,
+    'FilterApplied(create)': 1,
+    FilterEditOpened: 1,
+    'FilterProposed(edit)': 1,
+    'FilterApplied(edit)': 1,
+    'FilterProposed(remove)': 1,
+    FilterRemoved: 1,
+  };
+  const cases = [
+    { path: dateContractPath, caseName: 'date', nativeCaseKey: 'basic-temporal-filter/date', valueKind: 'DATE', resourceType: 'Patient', fieldPath: 'birthDate' },
+    { path: dateTimeContractPath, caseName: 'date-time', nativeCaseKey: 'basic-temporal-filter/date-time', valueKind: 'DATE_TIME', resourceType: 'Observation', fieldPath: 'effectiveDateTime' },
+  ];
+  const expectedActions = makeJourney('date').actions.map(({ label, event }) => ({ label, event }));
+  assert.deepEqual(expectedActions, TEMPORAL_FILTER_ACTION_EVENT_PAIRS);
+  for (const { path, caseName, nativeCaseKey, valueKind, resourceType, fieldPath } of cases) {
+    const contract = JSON.parse(readFileSync(path, 'utf8'));
+    const nativeJourney = contract.nativeJourney;
+    const traceName = `basic-temporal-filter:${caseName}`;
+    assert.equal(nativeJourney.captureAdapter, 'temporal-filter-journey-v1');
+    assert.equal(nativeJourney.captureKind, 'builder-temporal-native-lifecycle');
+    assert.equal(nativeJourney.nativeCaseKey, nativeCaseKey);
+    assert.equal(nativeJourney.traceName, traceName);
+    assert.equal(nativeJourney.model, 'TemporalFilterJourney');
+    assert.equal(nativeJourney.valueKind, valueKind);
+    assert.equal(nativeJourney.resourceType, resourceType);
+    assert.equal(nativeJourney.fieldPath, fieldPath);
+    assert.match(nativeJourney.coverageBasis, /observer request identity, response status, owner\/CAS and chronology/u);
+    assert.match(nativeJourney.coverageBasis, /Builder read snapshots/u);
+    assert.match(nativeJourney.coverageBasis, /mounted DOM receipt\/output\/row IDs/u);
+    assert.equal(nativeJourney.exactActionCounts, true);
+    assert.deepEqual(nativeJourney.requiredMutationControlNames, TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);
+    assert.deepEqual(nativeJourney.actions, expectedActions);
+    assert.deepEqual(contract.models.TemporalFilterJourney.actions, Object.keys(requiredCounts));
+    assert.deepEqual(contract.phase1.requiredActionsByTrace[traceName], expectedActions.map(action => action.label));
+    assert.deepEqual(contract.phase1.requiredActionCountsByTrace[traceName], requiredCounts);
+    assert.deepEqual(contract.phase1.requiredEvents, Object.keys(requiredCounts));
+  }
+});
 
 const runTlc = (trace, moduleSuffix, { mutateModel } = {}) => {
   assert(tlcJar, 'Set TLA2TOOLS_JAR to the verified TLC 1.7.4 jar for this focused check.');
@@ -162,6 +211,10 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
   const labelMismatch = makeJourney('date');
   labelMismatch.actions[0].label = 'SourceTableCreated';
   assert.throws(() => compileTemporalFilterJourneyTrace(labelMismatch), /common label must exactly match/u);
+
+  const eventMismatch = makeJourney('date');
+  eventMismatch.actions[0].event = 'SourceTableCreated';
+  assert.throws(() => compileTemporalFilterJourneyTrace(eventMismatch), /event must equal its exact TLA transition label/u);
 
   const rawIndexTamper = makeJourney('date');
   rawIndexTamper.temporalFilterLifecycle.requestEvents[0].index += 1;

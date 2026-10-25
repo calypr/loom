@@ -3,7 +3,10 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
 import { READ_ONLY_POST_PATH_SUFFIXES } from './playwright-network-observer.mjs';
-import { TEMPORAL_FILTER_CAPTURE_KIND } from './temporal-filter-trace-adapter.mjs';
+import {
+  TEMPORAL_FILTER_ACTION_EVENT_PAIRS,
+  TEMPORAL_FILTER_CAPTURE_KIND,
+} from './temporal-filter-trace-adapter.mjs';
 
 const REQUIRED_LABELS = Object.freeze([
   'ExplorerCreated',
@@ -325,6 +328,7 @@ const projectReadTime = (lifecycle, index, timeOrigin) => {
 
 const projectModelEvent = (event, rawStep, lifecycle, timeOrigin, initialMountEpoch) => ({
   action: event.action,
+  event: event.event,
   atMonotonicMs: Math.round((event.atMonotonicMs - timeOrigin.monotonicMs) * 1_000),
   atMonotonicMsExact: String(event.atMonotonicMs),
   atEpochMs: event.atEpochMs - timeOrigin.epochMs,
@@ -890,6 +894,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
     assert.equal(rawStep.label, event.action, `Canonical action ${index} must map to its same-index raw step.`);
     assert.equal(event.label, event.action,
       `Canonical action ${index} common label must exactly match its TLA action.`);
+    assert.equal(event.event, event.action,
+      `Canonical action ${index} event must equal its exact TLA transition label.`);
     assert.deepEqual(event.reconcileCaptureIds, rawStep.reconcileCaptureIds,
       `${event.action} reconcile request links must remain equal to their raw step references.`);
     assert(Number.isFinite(event.atMonotonicMs) && Number.isFinite(event.atEpochMs),
@@ -1384,3 +1390,4 @@ export const createTemporalFilterMutationControls = trace => {
 };
 
 export { REQUIRED_LABELS as TEMPORAL_FILTER_TLA_ACTIONS };
+export { TEMPORAL_FILTER_ACTION_EVENT_PAIRS };
