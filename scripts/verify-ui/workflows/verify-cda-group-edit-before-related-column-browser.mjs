@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { assertCompletePopulationRowsMatchOracle } from '../helpers/cda-row-oracle.mjs';
 import { assertReopenedProposalAfterCancel } from '../helpers/proposal-reopen-binding.mjs';
 import { relatedSourceProposalCandidate } from '../helpers/related-source-capture.mjs';
@@ -9,10 +11,16 @@ import { assertCdaNoAuthRuntime } from '../helpers/cda-no-auth-runtime.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
 import { relatedChoiceStageContext } from '../helpers/related-choice-stage-context.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
+import { captureBuilderObservation } from '../helpers/fast-fixtures.mjs';
+import {
+  builderJourneyTraceBindingFor,
+  writeAndReplayBuilderJourneyTrace,
+} from '../helpers/builder-journey-trace.mjs';
 
 export const groupEditRawFieldsDisclosureSelector = '[data-testid="feature-catalog-raw-fields"]';
 export const groupEditRawFieldsSummarySelector = `${groupEditRawFieldsDisclosureSelector} > summary`;
 export const groupEditRenderBudgetMs = 5000;
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 export const isProtectedExplorerRequestPath = (pathname, explorerRoot, explorerId) => {
   const protectedPath = explorerRoot + '/' + encodeURIComponent(explorerId);
   return pathname === protectedPath || pathname.startsWith(protectedPath + '/');
@@ -46,6 +54,21 @@ export const groupEditRenderCheckpointNames = Object.freeze([
   'reopened-remove-RELATED_SOURCE-preview-before-Apply',
   'apply-remove-RELATED_SOURCE-to-restore-Group',
   'reload-final-Group-source-restoration',
+]);
+const cdaJourneyReadOnlyRoutes = new Map([
+  ['GET /builder', { kind: 'builder-read', reason: 'The journey model records saved workspace snapshots on Reload actions; Builder reads supply those snapshots.' }],
+  ['POST /population-routes', { kind: 'population-route-read', reason: 'The journey model does not own the selected population-route inventory.' }],
+  ['POST /construction-capabilities', { kind: 'construction-capability-read', reason: 'The journey model does not own construction capability discovery.' }],
+  ['POST /semantic-inventory', { kind: 'semantic-inventory-read', reason: 'The journey model does not own semantic field inventory.' }],
+  ['POST /construction-choices', { kind: 'construction-choice-read', reason: 'The journey model does not own field chooser inventory.' }],
+  ['POST /configured-column-context', { kind: 'configured-column-context-read', reason: 'The journey model does not own configured-column context reads.' }],
+  ['POST /related-field-choices', { kind: 'related-field-choice-read', reason: 'The journey model does not own related-field chooser inventory.' }],
+  ['POST /related-expand-choices', { kind: 'related-expand-choice-read', reason: 'The journey model does not own related-expansion choice inventory.' }],
+  ['POST /related-expand-contributors', { kind: 'related-expand-contributor-read', reason: 'The journey model does not own related-expansion contributor inventory.' }],
+  ['POST /construction-inputs', { kind: 'construction-input-read', reason: 'The journey model does not own construction-input discovery.' }],
+  ['POST /construction-category-discoveries', { kind: 'construction-category-discovery-read', reason: 'The journey model does not own construction category discovery.' }],
+  ['POST /preview', { kind: 'table-preview-read', reason: 'The journey model records proposal transitions; read-only table previews supply rendered Builder rows.' }],
+  ['POST /reconcile', { kind: 'draft-reconcile-read', reason: 'The journey model does not own draft reconciliation reads.' }],
 ]);
 
 export function recordGroupEditActionToRender(report, name, startedAt, details = {}, now = Date.now) {
@@ -139,7 +162,23 @@ const report = {
   protectedExplorerUntouched: true,
   started: new Date().toISOString(),
 };
-let builder, outputId, selection, source, selectedPopulationRoute;
+let builder, outputId, selection, source, selectedPopulationRoute, lastBuilderRead;
+const builderSnapshotsByDraft = new Map();
+const journeyTraceBinding = builderJourneyTraceBindingFor(cda.scenarioID, cda.caseName);
+const journeyTrace = {
+  name: journeyTraceBinding.name,
+  model: journeyTraceBinding.model,
+  initialObservation: null,
+  initialPreview: null,
+  actions: [],
+  unmodeledEvents: [],
+};
+let mountEpoch = 0;
+let documentTimeOrigin = null;
+let journeyTraceStarted = false;
+const capturedProposalBrowserRequestIds = new Set();
+const capturedApplyBrowserRequestIds = new Set();
+const proposalMounts = new Map();
 const oracleQueries = [];
 const recordLifecycleCheck = (dimension, name, passed, checkEvidence = {}) =>
   cda.check(dimension, name, passed, checkEvidence);
@@ -155,12 +194,63 @@ const api = async (path, body) => {
   });
   const value = await response.json();
   report.requests.push({ path, requestId, body, status: response.status, response: value });
+  if (path.endsWith('/builder')) {
+    lastBuilderRead = {
+      path,
+      requestId,
+      status: response.status,
+      draftVersion: value.draftVersion,
+      draftDigest: value.draftDigest,
+    };
+    builderSnapshotsByDraft.set(`${String(value.draftVersion)}\u0000${value.draftDigest}`, structuredClone(value));
+  }
   assert(response.ok, `${response.status} ${JSON.stringify(value)}`);
   return value;
 };
 const identity = (state) => ({ snapshotToken: state.catalog.snapshotToken,
   expectedDraftVersion: state.draftVersion, expectedDraftDigest: state.draftDigest });
 const doc = (state = builder) => state.workspace.documents.find((item) => item.output.id === outputId);
+const constructionSteps = state => doc(state).construction?.steps ?? [];
+const builderStateForProposal = (entry, fallbackState) => {
+  const body = entry.request ?? {};
+  const version = body.expectedDraftVersion ?? body.draftVersion;
+  const digest = body.expectedDraftDigest ?? body.draftDigest;
+  const saved = builderSnapshotsByDraft.get(`${String(version)}\u0000${digest}`);
+  if (saved) return saved;
+  if (fallbackState && String(fallbackState.draftVersion) === String(version) && fallbackState.draftDigest === digest) {
+    return fallbackState;
+  }
+  throw new Error(`Observed proposal ${entry.browserRequestId} has no matching actual /builder snapshot for its draft CAS.`);
+};
+const proposalCaptureKind = (entry, state) => {
+  const body = entry.request ?? {};
+  const steps = [
+    ...(body.candidateConstruction?.steps ?? []),
+    ...(entry.response?.candidateConstruction?.steps ?? []),
+  ];
+  const changedStep = steps.find(step => step.id === body.changedStepId);
+  const removedRelatedStep = (body.removeStepIds ?? []).some(stepId =>
+    constructionSteps(state).some(step => step.id === stepId && step.operation?.kind === 'RELATED_SOURCE'));
+  if (removedRelatedStep || changedStep?.operation?.kind === 'RELATED_SOURCE') return 'relatedSource';
+  if (changedStep?.operation?.kind === 'RELATED_EXPAND') return 'expandRows';
+  if (changedStep?.operation?.kind === 'GROUP') return 'group';
+  if (!body.changedStepId) {
+    if (relatedSourceProjection(state) === null && steps.some(step => step.operation?.kind === 'RELATED_SOURCE')) {
+      return 'relatedSource';
+    }
+    if (groupProjection(state) === null && steps.some(step => step.operation?.kind === 'GROUP')) return 'group';
+    if (steps.some(step => step.operation?.kind === 'RELATED_EXPAND')) return 'expandRows';
+  }
+  throw new Error(`Observed proposal ${entry.browserRequestId} has no modeled Group, row-expansion, or RELATED_SOURCE candidate.`);
+};
+const readRenderedProposalPanel = async () => browserEval(page, () => {
+  const panel = document.querySelector('[data-testid="construction-proposal-panel"]');
+  return { status: panel?.dataset.proposalStatus ?? null,
+    id: panel?.dataset.proposalId ?? null,
+    text: panel?.innerText ?? '',
+    rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
+      .map(row => [...row.querySelectorAll('td')].map(cell => ({ text: cell.innerText, title: cell.title }))) };
+});
 const recordAction = (name, startedAt, details = {}) =>
   recordGroupEditActionToRender(report, name, startedAt, details);
 const command = async (commands) => {
@@ -209,6 +299,417 @@ const assertSourceBinding = (state, route) => {
   assert.equal(document.rootResourceType, 'Specimen');
   return document;
 };
+const currentMount = async () => {
+  const actualTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+  assert(Number.isFinite(actualTimeOrigin) && actualTimeOrigin > 0,
+    'Builder journey must read the current document performance.timeOrigin from the page.');
+  if (documentTimeOrigin === null) {
+    documentTimeOrigin = actualTimeOrigin;
+  } else if (documentTimeOrigin !== actualTimeOrigin) {
+    mountEpoch += 1;
+    documentTimeOrigin = actualTimeOrigin;
+  }
+  return { mountEpoch, documentTimeOrigin };
+};
+const readRenderedSourceTable = async () => browserEval(page, () => {
+  const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+  const rowList = [...(table?.querySelectorAll('[role="row"]') ?? [])];
+  const headers = [...(rowList[0]?.querySelectorAll('[role="columnheader"]') ?? [])]
+    .map(cell => cell.innerText.replace(/\s+/g, ' ').trim());
+  const rawRows = rowList.slice(1).map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => ({
+    text: cell.innerText.replace(/\s+/g, ' ').trim(),
+    title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
+  })));
+  return { headers, rawRows };
+});
+const readConstructionHistoryDOM = async () => browserEval(page, () =>
+  [...document.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
+    const testId = button.getAttribute('data-testid');
+    return {
+      testId,
+      stepId: testId?.replace(/^construction-history-step-/, '') ?? null,
+      title: button.querySelector(':scope > span')?.innerText.replace(/\s+/g, ' ').trim() ?? '',
+      historyText: button.getAttribute('title') ?? '',
+      selected: button.getAttribute('aria-pressed') === 'true',
+    };
+  }));
+const mountedGroupFromHistoryDOM = historySteps => {
+  const row = historySteps.find(step => step.title === 'Group rows' || step.title.startsWith('Group by '));
+  if (!row) return null;
+  const keys = row.title === 'Group rows' ? [] : row.title.slice('Group by '.length).split(/,\s*/);
+  const aggregate = row.historyText.includes('counts distinct ')
+    ? 'COUNT_DISTINCT'
+    : row.historyText.includes('counts rows') ? 'COUNT_ROWS' : null;
+  assert(aggregate, 'Mounted Group history text must expose its rendered aggregate.');
+  return {
+    stepId: row.stepId,
+    keys,
+    aggregate,
+    evidence: 'construction-history-dom',
+    historyText: row.historyText,
+  };
+};
+const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, state }) => {
+  const row = historySteps.find(step => step.title === 'Related Observation' &&
+    step.historyText.includes('Observation.status'));
+  if (!row) return null;
+  const sourceMatch = row.historyText.match(/\bfrom ([^\s]+)\.([^\s]+)(?:\s+via\s+|\s+as\s+)/);
+  const labelMatch = row.historyText.match(/\bas (.+)\.$/);
+  const rowIndex = historySteps.indexOf(row);
+  const inputStepId = historySteps[rowIndex - 1]?.stepId ?? null;
+  const related = relatedSourceProjection(state);
+  assert(sourceMatch && labelMatch && inputStepId && related,
+    'Mounted RELATED_SOURCE history DOM must expose its source, output label, and preceding Group input identity.');
+  const visibleLabel = renderedRows.headers.find(header => header === labelMatch[1]);
+  assert(visibleLabel, 'The mounted RELATED_SOURCE output label must appear in the rendered table header.');
+  return {
+    stepId: row.stepId,
+    inputStepId,
+    source: { resourceType: sourceMatch[1], path: sourceMatch[2] },
+    outputColumnId: related.outputColumnId,
+    route: structuredClone(related.route),
+    visibleColumn: {
+      id: related.outputColumnId,
+      label: visibleLabel,
+      visible: true,
+      evidence: 'label-from-construction-history-and-table-header-dom; id-joined-from-raw-builder-projection',
+    },
+    historyText: row.historyText,
+  };
+};
+const groupProjection = state => {
+  const step = constructionSteps(state).find(candidate => candidate.operation?.kind === 'GROUP');
+  if (!step) return null;
+  const aggregates = step.operation.group?.aggregates ?? [];
+  return {
+    stepId: step.id,
+    keys: (step.operation.group?.keys ?? []).map(key => key.inputColumnId),
+    aggregate: aggregates[0]?.operation ?? null,
+  };
+};
+const relatedSourceProjectionFromStep = step => {
+  if (!step) return null;
+  const related = step.operation?.relatedSource;
+  const output = step.outputs?.find(candidate => candidate.id === related?.outputColumnId) ?? null;
+  return {
+    stepId: step.id,
+    inputStepId: step.inputs?.find(input => input.kind === 'STEP_OUTPUT')?.stepId ?? null,
+    source: structuredClone(related?.source ?? null),
+    route: structuredClone(related?.route ?? null),
+    choiceId: related?.choiceId ?? null,
+    form: related?.form ?? null,
+    contributorPolicy: related?.contributorRule?.policy ?? null,
+    rowValuePolicy: related?.rowValuePolicy ?? null,
+    outputColumnId: related?.outputColumnId ?? null,
+    output: output ? structuredClone(output) : null,
+  };
+};
+const relatedSourceProjection = state => {
+  const step = constructionSteps(state).find(candidate => candidate.operation?.kind === 'RELATED_SOURCE');
+  return relatedSourceProjectionFromStep(step);
+};
+const savedBuilderProjection = state => ({
+  explorerId: explorer,
+  group: groupProjection(state),
+  relatedSource: relatedSourceProjection(state),
+  workspace: structuredClone(state.workspace),
+  outputId,
+  draftVersion: state.draftVersion,
+  draftDigest: state.draftDigest,
+});
+const nativeRequestRecord = entry => {
+  const requestPath = entry.path.split('/authoring/v2/')[1] ?? entry.path;
+  const body = entry.request === undefined ? null : structuredClone(entry.request);
+  const captureId = typeof body?.captureId === 'string' && body.captureId.length > 0 ? body.captureId : undefined;
+  return {
+    method: entry.method,
+    path: requestPath,
+    requestId: entry.requestId ?? null,
+    browserRequestId: entry.browserRequestId,
+    startedAt: entry.startedAt,
+    ...(captureId === undefined ? {} : { captureId }),
+    body,
+  };
+};
+const nativeResponseRecord = entry => {
+  const body = entry.response === undefined ? null : structuredClone(entry.response);
+  const previewBody = body?.preview && typeof body.preview === 'object' && !Array.isArray(body.preview)
+    ? body.preview
+    : body;
+  const rawRowCount = previewBody?.rowCount ?? previewBody?.rows?.length;
+  const numericRowCount = rawRowCount === undefined || rawRowCount === null ? null : Number(rawRowCount);
+  const rawDraftVersion = body?.draftVersion;
+  const numericDraftVersion = rawDraftVersion === undefined || rawDraftVersion === null
+    ? null
+    : Number(rawDraftVersion);
+  const hasPreview = Boolean(previewBody && (
+    previewBody.receiptId !== undefined || previewBody.outputId !== undefined ||
+    previewBody.rowCount !== undefined || Array.isArray(previewBody.rows)
+  ));
+  return {
+    ...(body && typeof body === 'object' && !Array.isArray(body) ? body : {}),
+    status: Number.isInteger(entry.status) ? entry.status : null,
+    requestId: typeof body?.requestId === 'string' ? body.requestId : null,
+    browserRequestId: entry.browserRequestId,
+    ...(typeof body?.captureId === 'string' ? { captureId: body.captureId } : {}),
+    proposalId: body?.proposalId ?? null,
+    proposalOutputId: body?.outputId ?? previewBody?.outputId ?? null,
+    proposalSnapshotToken: body?.snapshotToken ?? null,
+    proposalDraftVersion: Number.isFinite(numericDraftVersion) ? numericDraftVersion : null,
+    proposalDraftDigest: body?.draftDigest ?? null,
+    proposalPreviewStatus: body?.previewStatus ?? null,
+    preview: hasPreview ? {
+      receiptId: previewBody.receiptId ?? null,
+      outputId: previewBody.outputId ?? null,
+      rowCount: Number.isFinite(numericRowCount) ? numericRowCount : null,
+      rowsPresent: Array.isArray(previewBody.rows),
+    } : null,
+    body,
+  };
+};
+const nativeSettlementRecord = entry => ({
+  kind: Number.isInteger(entry.status) ? 'http-response' : 'request-failed',
+  browserRequestId: entry.browserRequestId,
+  requestId: entry.requestId ?? null,
+  ...(typeof entry.request?.captureId === 'string' ? { captureId: entry.request.captureId } : {}),
+  ...(Number.isInteger(entry.status) ? { status: entry.status } : {}),
+  ...(entry.failure?.errorText ? { errorText: entry.failure.errorText } : {}),
+  startedAt: entry.startedAt,
+  ...(entry.responseReceivedAt === undefined ? {} : { responseReceivedAt: entry.responseReceivedAt }),
+  ...(entry.completedAt === undefined ? {} : { completedAt: entry.completedAt }),
+});
+const ownerForProposal = (entry, attempt, kind = 'proposal') => ({
+  kind,
+  attempt,
+  browserRequestId: entry.browserRequestId,
+  requestId: entry.requestId ?? null,
+  ...(typeof entry.request?.captureId === 'string' ? { captureId: entry.request.captureId } : {}),
+});
+const groupCandidateIntent = (entry, savedBefore) => {
+  const body = entry.request ?? {};
+  const candidateConstruction = entry.response?.candidateConstruction;
+  const candidateStep = candidateConstruction?.steps?.find(step =>
+    step.operation?.kind === 'GROUP' && step.id === (body.changedStepId ?? body.candidateConstruction?.steps
+      ?.find(candidate => candidate.operation?.kind === 'GROUP')?.id))
+    ?? candidateConstruction?.steps?.find(step => step.operation?.kind === 'GROUP')
+    ?? body.candidateConstruction?.steps?.find(step => step.operation?.kind === 'GROUP');
+  const base = groupProjection(savedBefore);
+  const targetStepId = body.changedStepId ?? candidateStep?.id ?? null;
+  assert(targetStepId, 'Captured Group proposal must retain its actual changed step identity.');
+  assert(candidateStep, 'Captured Group proposal must retain its actual candidate Group step.');
+  const aggregates = candidateStep.operation.group?.aggregates ?? [];
+  assert.equal(aggregates.length, 1, 'Captured Group proposal must retain its actual single aggregate.');
+  return {
+    kind: base === null ? 'create' : 'edit',
+    targetStepId,
+    base,
+    proposed: {
+      stepId: candidateStep.id,
+      keys: (candidateStep.operation.group?.keys ?? []).map(key => key.inputColumnId),
+      aggregate: aggregates[0]?.operation ?? null,
+    },
+    rawProposalBody: structuredClone(body),
+  };
+};
+const relatedCandidateIntent = (entry, savedBefore) => {
+  const body = entry.request ?? {};
+  const candidateConstruction = entry.response?.candidateConstruction;
+  const removing = Array.isArray(body.removeStepIds) && body.removeStepIds.length > 0;
+  const targetStepId = removing
+    ? body.removeStepIds[0]
+    : body.changedStepId ?? candidateConstruction?.steps?.find(step => step.operation?.kind === 'RELATED_SOURCE')?.id
+      ?? body.candidateConstruction?.steps?.find(step => step.operation?.kind === 'RELATED_SOURCE')?.id;
+  assert(targetStepId, 'Captured RELATED_SOURCE proposal must retain its actual target step identity.');
+  const proposedStep = removing ? null
+    : candidateConstruction?.steps?.find(step => step.id === targetStepId && step.operation?.kind === 'RELATED_SOURCE')
+      ?? body.candidateConstruction?.steps?.find(step => step.id === targetStepId && step.operation?.kind === 'RELATED_SOURCE');
+  if (!removing) assert(proposedStep, 'Captured RELATED_SOURCE proposal must retain its response candidate step.');
+  return {
+    kind: removing ? 'remove' : 'add',
+    targetStepId,
+    base: relatedSourceProjection(savedBefore),
+    proposed: relatedSourceProjectionFromStep(proposedStep),
+    rawProposalBody: structuredClone(body),
+  };
+};
+const waitForNativeSettlement = async entry => {
+  if (entry.networkComplete && entry.responseCaptureComplete) return entry;
+  const fromIndex = nativeCapture.requests.indexOf(entry);
+  assert(fromIndex >= 0, 'Native settlement must belong to the captured request view.');
+  return nativeCapture.waitForResponse(candidate => candidate.browserRequestId === entry.browserRequestId &&
+    candidate.networkComplete && candidate.responseCaptureComplete, { fromIndex, timeoutMs: 5000 });
+};
+const waitForNativeProposalApply = async (fromIndex, proposalId) => {
+  const candidates = nativeCapture.requests.slice(fromIndex).filter(entry =>
+    entry.path === `${base}/commands` && entry.method === 'POST' &&
+    entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL' &&
+      command.proposalId === proposalId));
+  assert(candidates.length > 0, `Apply for proposal ${proposalId} must retain its actual native command request.`);
+  return waitForNativeSettlement(candidates.at(-1));
+};
+const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chosen, state, captureKind,
+  attempt = 'P1', renderedProposal, label }) => {
+  const entries = observedEntries ?? nativeCapture.requests.slice(requestStart).filter(entry =>
+    entry.path === `${base}/construction-proposals` && entry.method === 'POST' &&
+    entry.request?.outputId === outputId);
+  assert(entries.includes(chosen), `${label} response must match an actual native proposal request.`);
+  const chosenKind = proposalCaptureKind(chosen, builderStateForProposal(chosen, state));
+  assert.equal(chosenKind, captureKind,
+    `${label} selected native proposal candidate must match its actual Builder operation kind.`);
+  for (const entry of entries) await waitForNativeSettlement(entry);
+  const unrecorded = entries.filter(entry => !capturedProposalBrowserRequestIds.has(entry.browserRequestId));
+  assert(unrecorded.length > 0, `${label} actual proposal requests must not be recorded twice.`);
+  const pageObservation = await captureBuilderObservation(page);
+  const renderedObservation = {
+    builder: pageObservation,
+    proposalPanel: structuredClone(renderedProposal),
+  };
+  const events = [];
+  const captures = new Map();
+  for (const [index, entry] of unrecorded.entries()) {
+    capturedProposalBrowserRequestIds.add(entry.browserRequestId);
+    const ownerAttempt = index === 0 ? attempt : 'P2';
+    const owner = ownerForProposal(entry, ownerAttempt);
+    const mount = proposalMounts.get(entry.browserRequestId);
+    assert(mount && Number.isInteger(mount.mountEpoch) && Number.isFinite(mount.documentTimeOrigin),
+      `Observed proposal ${entry.browserRequestId} must retain its actual page mount and timeOrigin.`);
+    const request = nativeRequestRecord(entry);
+    const response = Number.isInteger(entry.status) ? nativeResponseRecord(entry) : null;
+    const settlement = nativeSettlementRecord(entry);
+    const capture = { owner, request, response, settlement, renderedObservation };
+    const entryState = builderStateForProposal(entry, state);
+    const entryCaptureKind = proposalCaptureKind(entry, entryState);
+    if (entryCaptureKind === 'relatedSource') {
+      const requestBody = entry.request ?? {};
+      const requestStillCurrent = String(builder.draftVersion) ===
+        String(requestBody.expectedDraftVersion ?? requestBody.draftVersion) &&
+        builder.draftDigest === (requestBody.expectedDraftDigest ?? requestBody.draftDigest);
+      const before = savedBuilderProjection(requestStillCurrent ? entryState : builder);
+      const afterState = await api(base + '/builder');
+      const after = savedBuilderProjection(afterState);
+      assert.deepEqual(after, before,
+        `${label} proposal response must leave the actual saved Builder projection unchanged.`);
+      capture.relatedSourceLifecycle = {
+        ...mount,
+        owner,
+        candidateIntent: relatedCandidateIntent(entry, entryState),
+        request,
+        response,
+        settlement,
+        renderedObservation,
+        savedGroupInput: groupProjection(entryState),
+        savedBefore: before,
+        savedAfter: after,
+      };
+      events.push({
+        sequence: entry.completedAt ?? entry.startedAt,
+        tie: entry.index,
+        action: {
+          label: 'RelatedSourcePreview',
+          event: 'related-source-preview',
+          ...capture,
+          observation: pageObservation,
+          relatedSourceLifecycle: capture.relatedSourceLifecycle,
+        },
+      });
+      captures.set(entry.browserRequestId, capture);
+      continue;
+    }
+
+    const candidateIntent = entryCaptureKind === 'group' ? groupCandidateIntent(entry, entryState) : null;
+    if (entryCaptureKind === 'group') {
+      const savedSnapshot = savedBuilderProjection(entryState);
+      capture.groupLifecycle = {
+        ...mount,
+        owner: { ...mount, ...owner },
+        candidateIntent,
+        savedGroupInput: groupProjection(entryState),
+        savedBefore: savedSnapshot,
+        savedAfter: savedSnapshot,
+      };
+    } else {
+      const expandedStep = entry.response?.candidateConstruction?.steps?.find(step =>
+        ['EXPAND', 'RELATED_EXPAND'].includes(step.operation?.kind))
+        ?? entry.request?.candidateConstruction?.steps?.find(step =>
+          ['EXPAND', 'RELATED_EXPAND'].includes(step.operation?.kind));
+      assert(expandedStep, `${label} row-expansion proposal must retain its actual candidate step.`);
+      const currentSteps = constructionSteps(entryState);
+      const sourceResourceType = currentSteps.at(-1)?.operation?.relatedExpand?.targetResourceType
+        ?? doc(entryState).rootResourceType;
+      const targetResourceType = expandedStep.operation?.relatedExpand?.targetResourceType;
+      const stageToken = `${sourceResourceType}${targetResourceType}`;
+      assert(['SpecimenPatient', 'PatientObservation'].includes(stageToken),
+        `${label} actual source and target resource identities must bind a registered row-expansion stage.`);
+      const before = savedBuilderProjection(entryState);
+      const beforeTable = await readRenderedSourceTable();
+      const afterState = await api(base + '/builder');
+      const after = savedBuilderProjection(afterState);
+      const requestBody = entry.request ?? {};
+      const currentDraftMatches = String(afterState.draftVersion) ===
+        String(requestBody.expectedDraftVersion ?? requestBody.draftVersion) &&
+        afterState.draftDigest === (requestBody.expectedDraftDigest ?? requestBody.draftDigest);
+      if (currentDraftMatches) assert.deepEqual(after, before,
+        `${label} current proposal must leave the actual saved Builder projection unchanged before Apply or Cancel.`);
+      capture.savedBeforeTable = beforeTable;
+      capture.mountEpoch = mount.mountEpoch;
+      capture.expandRowsLifecycle = {
+        stage: stageToken,
+        stepId: expandedStep.id,
+        inputStepId: expandedStep.inputs?.find(input => input.kind === 'STEP_OUTPUT')?.stepId ?? null,
+        route: structuredClone(expandedStep.operation?.relatedExpand?.route ?? null),
+        owner,
+        request,
+        response,
+        renderedObservation,
+        savedBefore: savedBuilderProjection(entryState),
+        savedAfter: after,
+      };
+    }
+    const previewAction = {
+      label: 'Preview',
+      event: 'preview',
+      owner,
+      request,
+      observation: pageObservation,
+      renderedObservation,
+      ...(capture.mountEpoch === undefined ? {} : { observedEpoch: capture.mountEpoch }),
+      ...(capture.groupLifecycle ? { groupLifecycle: capture.groupLifecycle } : {}),
+      ...(capture.expandRowsLifecycle ? { rowExpansionLifecycle: capture.expandRowsLifecycle } : {}),
+    };
+    const aborted = entry.failure?.errorText === 'net::ERR_ABORTED';
+    const ready = entry.status >= 200 && entry.status < 300 &&
+      entry.response?.previewStatus === 'READY' && entry.response?.proposalId;
+    const newerRequestCompletedFirst = entries.some(other => other.startedAt > entry.startedAt &&
+      other.startedAt < (entry.completedAt ?? entry.startedAt));
+    const stalePanel = ready && pageObservation.proposalId !== entry.response.proposalId;
+    const settlementLabel = aborted ? 'PreviewRequestCancelled'
+      : ready
+        ? (newerRequestCompletedFirst || stalePanel ? 'LatePreviewCompleteIgnored' : 'PreviewComplete')
+        : entry.failure && (newerRequestCompletedFirst || stalePanel)
+          ? 'LatePreviewErrorIgnored'
+          : 'PreviewError';
+    const settlementAction = {
+      label: settlementLabel,
+      event: aborted ? 'preview-request-cancelled' : 'preview-response',
+      owner,
+      request,
+      response,
+      settlement,
+      observation: pageObservation,
+      renderedObservation,
+      ...(capture.groupLifecycle ? { groupLifecycle: capture.groupLifecycle } : {}),
+      ...(capture.expandRowsLifecycle ? { rowExpansionLifecycle: capture.expandRowsLifecycle } : {}),
+    };
+    events.push({ sequence: entry.startedAt, tie: entry.index, action: previewAction });
+    events.push({ sequence: entry.completedAt ?? entry.startedAt, tie: entry.index + 0.5, action: settlementAction });
+    captures.set(entry.browserRequestId, capture);
+  }
+  events.sort((left, right) => left.sequence - right.sequence || left.tie - right.tie);
+  journeyTrace.actions.push(...events.map(event => event.action));
+  const chosenCapture = captures.get(chosen.browserRequestId);
+  assert(chosenCapture, `${label} selected response must retain its captured native request owner.`);
+  return chosenCapture;
+};
 const assertPreviewValues = (preview, expectedRows, label) => {
   assert(expectedRows.length <= 25, `${label} must have a complete bounded witness population of at most 25 rows`);
   assert.equal(preview.outputId, outputId, `${label} receipt must belong to the selected output`);
@@ -240,13 +741,22 @@ const expectedPreview = async (expectedRows, { requestStart, expectedBuilder, la
   assert.equal(request.response.outputId, outputId);
   assertPreviewValues(request.response, expectedRows, label);
   assert(Date.now() <= deadline, `${label} exceeded its five-second action budget`);
-  return { active, response: request.response, requestIndex: nativeCapture.requests.indexOf(request) };
+  return { active, response: request.response, request, requestIndex: nativeCapture.requests.indexOf(request) };
 };
 const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, label = 'reload') => {
+  builder = await api(base + '/builder');
+  const savedBefore = savedBuilderProjection(builder);
+  const builderReadBefore = structuredClone(lastBuilderRead);
   const startedAt = Date.now();
   const requestStart = nativeCapture.requests.length;
+  const previousTimeOrigin = documentTimeOrigin;
   await navigate(page, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
   await waitForControl(page, `[data-testid="construction-table-${outputId}"]`);
+  const mount = await currentMount();
+  if (journeyTraceStarted) {
+    assert.notEqual(mount.documentTimeOrigin, previousTimeOrigin,
+      'Every recorded Builder reload must create a new browser document timeOrigin.');
+  }
   await click(page, `[data-testid="construction-table-${outputId}"]`);
   await waitForControl(page, '[data-testid="construction-rows-settings-trigger"]', { enabled: true });
   await waitForBrowser(page, ({ columnCount: count }) => {
@@ -257,7 +767,70 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
   builder = await api(base + '/builder');
   const binding = assertSourceBinding(builder, selectedPopulationRoute);
   assert.equal(binding.output.id, outputId);
-  await expectedPreview(expectedRows, { requestStart, expectedBuilder: builder, label, startedAt });
+  const preview = await expectedPreview(expectedRows, { requestStart, expectedBuilder: builder, label, startedAt });
+  const observation = await captureBuilderObservation(page);
+  const renderedRows = await readRenderedSourceTable();
+  const historySteps = await readConstructionHistoryDOM();
+  const mountedGroup = mountedGroupFromHistoryDOM(historySteps);
+  const mountedRelatedSource = mountedRelatedSourceFromDOM({ historySteps, renderedRows, state: builder });
+  const savedAfter = savedBuilderProjection(builder);
+  assert.equal(mountedGroup?.stepId ?? null, savedAfter.group?.stepId ?? null,
+    'The mounted Group history identity must match the independently read saved Group step.');
+  if (mountedGroup && savedAfter.group) {
+    const savedKeyLabels = savedAfter.group.keys.map(key =>
+      doc(builder).columns.find(column => (column.columnId ?? column.id) === key)?.label ?? null);
+    assert.deepEqual(mountedGroup.keys, savedKeyLabels,
+      'The mounted Group history key labels must match the independently read saved key identities.');
+    assert.equal(mountedGroup.aggregate, savedAfter.group.aggregate,
+      'The mounted Group history aggregate must match the independently read saved aggregate.');
+  }
+  if (mountedRelatedSource) {
+    assert(savedAfter.relatedSource, 'Mounted RELATED_SOURCE history must have a saved related-source step.');
+    assert.equal(mountedRelatedSource.stepId, savedAfter.relatedSource.stepId);
+    assert.equal(mountedRelatedSource.inputStepId, savedAfter.relatedSource.inputStepId);
+    assert.deepEqual(mountedRelatedSource.source, savedAfter.relatedSource.source);
+    assert.equal(mountedRelatedSource.outputColumnId, savedAfter.relatedSource.outputColumnId);
+    assert.deepEqual(mountedRelatedSource.route, savedAfter.relatedSource.route);
+    assert.equal(mountedRelatedSource.visibleColumn.id, savedAfter.relatedSource.outputColumnId);
+    assert.equal(mountedRelatedSource.visibleColumn.label, savedAfter.relatedSource.output?.label);
+  } else {
+    assert.equal(savedAfter.relatedSource, null,
+      'No mounted RELATED_SOURCE history row must agree with no saved RELATED_SOURCE step.');
+  }
+  if (!journeyTraceStarted) {
+    journeyTraceStarted = true;
+    journeyTrace.initialObservation = observation;
+    journeyTrace.initialPreview = {
+      owner: ownerForProposal(preview.request, 'P1', 'preview'),
+      request: nativeRequestRecord(preview.request),
+      response: nativeResponseRecord(preview.request),
+      settlement: nativeSettlementRecord(preview.request),
+      renderedObservation: observation,
+      renderedRows,
+    };
+  } else {
+    assert(savedBefore, 'A modeled Builder reload must have a saved-before projection from an actual Builder read.');
+    journeyTrace.actions.push({
+      label: 'Reload',
+      event: 'reload',
+      observedAt: Date.now(),
+      groupLifecycle: {
+        ...mount,
+        savedBefore,
+        savedAfter,
+        mountedGroup,
+        mountedRelatedSource,
+        renderedSourceRows: renderedRows,
+      },
+      builderReads: {
+        before: builderReadBefore,
+        after: structuredClone(lastBuilderRead),
+      },
+      observation,
+      renderedRows,
+      historySteps,
+    });
+  }
   recordAction(label, startedAt, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
   return builder;
 };
@@ -323,6 +896,10 @@ const installBrowserCapture = async () => {
     let url;
     try { url = new URL(request.url()); } catch { return; }
     if (isProtectedExplorerRequestPath(url.pathname, root, protectedExplorer)) report.protectedExplorerUntouched = false;
+    const entry = nativeCapture.observer.byRequest.get(request);
+    if (entry?.path === `${base}/construction-proposals` && entry.request?.outputId === outputId) {
+      proposalMounts.set(entry.browserRequestId, { mountEpoch, documentTimeOrigin });
+    }
   });
 };
 const assertDraftRequest = (entry, state, label) => {
@@ -348,7 +925,7 @@ const assertDraftRequest = (entry, state, label) => {
   }
   return entry.response;
 };
-const browserProposal = async ({ requestStart, path, expectedRows, state, label, startedAt }) => {
+const browserProposal = async ({ requestStart, path, expectedRows, state, label, startedAt, captureKind, attempt }) => {
   assert(path.endsWith('/construction-proposals'), `${label} must use the current native construction-proposals endpoint`);
   const panelSelector = '[data-testid="construction-proposal-panel"]';
   await waitForBrowser(page, ({ selector }) => ['ready', 'error', 'needs-repair'].includes(document.querySelector(selector)?.dataset.proposalStatus),
@@ -359,8 +936,21 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
       rows: [...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')]
         .map(row => [...row.querySelectorAll('td')].map(cell => ({ text: cell.innerText, title: cell.title }))) };
   }, { selector: panelSelector });
+  const observed = nativeCapture.requests.slice(requestStart).filter(entry =>
+    entry.path === path && entry.method === 'POST' && entry.request?.outputId === outputId);
+  assert(observed.length > 0, `${label} must retain every actual native construction-proposal request.`);
+  for (const entry of observed) await waitForNativeSettlement(entry);
+  const request = observed.findLast(entry => entry.response?.proposalId === panel.id) ?? observed.at(-1);
+  const journeyCapture = await recordProposalCaptureBatch({
+    requestStart,
+    chosen: request,
+    state,
+    captureKind,
+    attempt,
+    renderedProposal: panel,
+    label,
+  });
   assert.equal(panel.status, 'ready', panel.text);
-  const request = await nativeCapture.waitForResponse(entry => entry.path === path && entry.method === 'POST' && entry.status === 200 && entry.response?.proposalId, { fromIndex: requestStart, timeoutMs: Math.max(1, startedAt + 5000 - Date.now()) });
   const response = assertDraftRequest(request, state, label);
   assert.equal(response.previewStatus, 'READY', `${label} proposal must compile a ready automatic preview`);
   assert.equal(response.preview?.receiptId, response.proposalId, `${label} candidate receipt must bind to its proposal`);
@@ -375,7 +965,7 @@ const browserProposal = async ({ requestStart, path, expectedRows, state, label,
   assert.equal(displayedRows.length, expectedRows.length, `${label} proposal panel must render the complete witness population`);
   assertCompletePopulationRowsMatchOracle(displayedRows, expectedDisplayedRows, { label: `${label} proposal panel DOM` });
   recordAction(label, startedAt, { receiptId: response.proposalId, candidateWorkspaceDigest: response.candidateWorkspaceDigest });
-  return { request, requestIndex: nativeCapture.requests.indexOf(request), response, panel };
+  return { request, requestIndex: nativeCapture.requests.indexOf(request), response, panel, journeyCapture };
 };
 const findNative = (startIndex, path, predicate = () => true) => nativeCapture.requests.slice(startIndex).findLast((entry) => entry.path === path && predicate(entry));
 const closeRowSettings = async () => {
@@ -387,22 +977,163 @@ const waitForSavedStepEditorClosed = async () => {
   const editor = '[data-testid="construction-operation-editor"]';
   await waitForControl(page, editor, { hidden: true });
 };
-const applyGroupProposal = async (proposal, savedBefore, expectedRows, label) => {
+const recordRelatedSourceApply = async ({ proposal, applyRequest, savedBefore, savedAfter }) => {
+  const lifecycle = proposal.journeyCapture.relatedSourceLifecycle;
+  assert(lifecycle, 'RELATED_SOURCE Apply must bind to the exact captured proposal owner.');
+  capturedApplyBrowserRequestIds.add(applyRequest.browserRequestId);
+  const observation = await captureBuilderObservation(page);
+  journeyTrace.actions.push({
+    label: 'RelatedSourceApply',
+    event: 'related-source-apply',
+    owner: {
+      kind: 'apply',
+      attempt: proposal.journeyCapture.owner.attempt,
+      browserRequestId: applyRequest.browserRequestId,
+      requestId: applyRequest.requestId ?? null,
+      ...(typeof applyRequest.request?.captureId === 'string' ? { captureId: applyRequest.request.captureId } : {}),
+      ...(typeof applyRequest.request?.commandId === 'string' ? { commandId: applyRequest.request.commandId } : {}),
+    },
+    request: nativeRequestRecord(applyRequest),
+    response: nativeResponseRecord(applyRequest),
+    settlement: nativeSettlementRecord(applyRequest),
+    observation,
+    relatedSourceLifecycle: {
+      ...lifecycle,
+      savedBefore: savedBuilderProjection(savedBefore),
+      savedAfter: savedBuilderProjection(savedAfter),
+    },
+  });
+};
+const recordRelatedSourceCancel = async ({ proposal, savedBefore, savedAfter, observedAt }) => {
+  const lifecycle = proposal.journeyCapture.relatedSourceLifecycle;
+  assert(lifecycle, 'RELATED_SOURCE Cancel must bind to the exact captured proposal owner.');
+  const observation = await captureBuilderObservation(page);
+  journeyTrace.actions.push({
+    label: 'RelatedSourceCancel',
+    event: 'related-source-cancel',
+    observedAt,
+    owner: proposal.journeyCapture.owner,
+    request: lifecycle.request,
+    response: lifecycle.response,
+    settlement: lifecycle.settlement,
+    exitControl: { kind: 'proposal-cancel', controlTestId: 'construction-cancel-proposal' },
+    observation,
+    relatedSourceLifecycle: {
+      ...lifecycle,
+      savedBefore: savedBuilderProjection(savedBefore),
+      savedAfter: savedBuilderProjection(savedAfter),
+    },
+  });
+};
+const recordGroupEditCancel = async ({ proposal, savedBefore, savedAfter, observedAt }) => {
+  const lifecycle = proposal.journeyCapture.groupLifecycle;
+  assert(lifecycle, 'Group edit Cancel must bind to the exact captured Group proposal owner.');
+  const mount = await currentMount();
+  const observation = await captureBuilderObservation(page);
+  journeyTrace.actions.push({
+    label: 'GroupEditCancel',
+    event: 'group-edit-cancel',
+    observedAt,
+    observation,
+    groupLifecycle: {
+      ...mount,
+      candidateIntent: lifecycle.candidateIntent,
+      candidateOwner: lifecycle.owner,
+      savedGroupInput: groupProjection(savedBefore),
+      savedBefore: savedBuilderProjection(savedBefore),
+      savedAfter: savedBuilderProjection(savedAfter),
+      exitControl: { kind: 'proposal-cancel', controlTestId: 'construction-cancel-proposal' },
+    },
+  });
+};
+const applyGroupProposal = async (proposal, savedBefore, expectedRows, label, { journeyLabel = 'Group' } = {}) => {
+  const proposalResponse = proposal.response;
   const startedAt = Date.now();
   const requestStart = nativeCapture.requests.length;
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
   await mountedRows(expectedRows, expectedRows[0]?.length ?? 2);
-  const applyRequest = await nativeCapture.waitForResponse(entry => entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === proposal.proposalId), { fromIndex: requestStart, timeoutMs: 5000 });
+  const applyRequest = await waitForNativeProposalApply(requestStart, proposalResponse.proposalId);
   assertDraftRequest(applyRequest, savedBefore, label);
-  assert(applyRequest.request.commands.some((item) => item.proposalId === proposal.proposalId));
+  assert(applyRequest.request.commands.some((item) => item.proposalId === proposalResponse.proposalId));
+  capturedApplyBrowserRequestIds.add(applyRequest.browserRequestId);
   builder = await api(base + '/builder');
-  assert.equal(builder.draftVersion, proposal.draftVersion + 1);
-  assert.equal(builder.draftDigest, proposal.candidateWorkspaceDigest);
+  assert.equal(builder.draftVersion, proposalResponse.draftVersion + 1);
+  assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest);
+  const observation = await captureBuilderObservation(page);
+  const mount = await currentMount();
+  const request = nativeRequestRecord(applyRequest);
+  const response = nativeResponseRecord(applyRequest);
+  const settlement = nativeSettlementRecord(applyRequest);
+  const owner = {
+    kind: 'apply',
+    attempt: proposal.journeyCapture.owner.attempt,
+    browserRequestId: applyRequest.browserRequestId,
+    requestId: applyRequest.requestId ?? null,
+    ...(typeof applyRequest.request?.captureId === 'string' ? { captureId: applyRequest.request.captureId } : {}),
+    ...(typeof applyRequest.request?.commandId === 'string' ? { commandId: applyRequest.request.commandId } : {}),
+  };
+  if (proposal.journeyCapture.relatedSourceLifecycle) {
+    const lifecycle = proposal.journeyCapture.relatedSourceLifecycle;
+    const relatedSourceLifecycle = {
+      ...lifecycle,
+      savedBefore: savedBuilderProjection(savedBefore),
+      savedAfter: savedBuilderProjection(builder),
+    };
+    journeyTrace.actions.push({
+      label: 'RelatedSourceApply',
+      event: 'related-source-apply',
+      owner,
+      request,
+      response,
+      settlement,
+      observation,
+      relatedSourceLifecycle,
+    });
+  } else if (proposal.journeyCapture.expandRowsLifecycle) {
+    const lifecycle = proposal.journeyCapture.expandRowsLifecycle;
+    journeyTrace.actions.push({
+      label: 'ExpandRows',
+      event: 'expand-rows',
+      owner,
+      request,
+      response,
+      settlement,
+      observation,
+      observedEpoch: proposal.journeyCapture.mountEpoch,
+      savedBeforeTable: proposal.journeyCapture.savedBeforeTable,
+      savedAfterTable: await readRenderedSourceTable(),
+      rowExpansionLifecycle: {
+        ...lifecycle,
+        savedBefore: savedBuilderProjection(savedBefore),
+        savedAfter: savedBuilderProjection(builder),
+      },
+    });
+  } else {
+    const lifecycle = proposal.journeyCapture.groupLifecycle;
+    assert(lifecycle, `${label} must bind its native proposal to a Group lifecycle capture.`);
+    journeyTrace.actions.push({
+      label: journeyLabel,
+      event: journeyLabel === 'Group' ? 'group' : 'edit-group',
+      owner,
+      request,
+      response,
+      settlement,
+      observation,
+      groupLifecycle: {
+        ...mount,
+        candidateIntent: lifecycle.candidateIntent,
+        candidateOwner: lifecycle.owner,
+        savedGroupInput: groupProjection(savedBefore),
+        savedBefore: savedBuilderProjection(savedBefore),
+        savedAfter: savedBuilderProjection(builder),
+      },
+    });
+  }
   recordAction(label, startedAt, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
   return builder;
 };
-const editGroupAggregate = async (operation, expectedRows, state, label) => {
+const editGroupAggregate = async (operation, expectedRows, state, label, attempt = 'P1') => {
   const groupStep = doc(state).construction.steps.find((step) => step.operation.kind === 'GROUP');
   assert(groupStep, 'Saved construction must contain the authored Group');
   const stepId = groupStep.id;
@@ -422,7 +1153,7 @@ const editGroupAggregate = async (operation, expectedRows, state, label) => {
     await selectOption(page, 'select[aria-label="Summary field 1"]', selectedField.value);
   }
   const proposal = await browserProposal({ requestStart: startIndex,
-    path: base + '/construction-proposals', expectedRows, state, label, startedAt });
+    path: base + '/construction-proposals', expectedRows, state, label, startedAt, captureKind: 'group', attempt });
   const group = proposal.response.candidateConstruction.steps.find((step) => step.id === stepId);
   assert(group?.operation.kind === 'GROUP');
   assert.equal(group.operation.group.aggregates[0].operation, operation);
@@ -591,17 +1322,10 @@ FOR s IN (
     await waitForControl(page, `${editor} input[aria-label="${routeLabel}"]`, { timeout: 5000 });
     await click(page, editor + ` input[aria-label="${routeLabel}"]`);
     const expandedProposal = await browserProposal({ requestStart: startIndex, path: base + '/construction-proposals',
-      expectedRows: expectedExpandedRows, state: builder, label: `expand-${hop.from}-${hop.to}`, startedAt });
-    const actionStart = Date.now();
-    const proposalResponse = expandedProposal.response;
-    await click(page, '[data-testid="construction-apply-proposal"]');
-    await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
-    await mountedRows(expectedExpandedRows, expectedExpandedRows[0]?.length ?? 2);
-    const applied = await nativeCapture.waitForResponse(entry => entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === proposalResponse.proposalId), { fromIndex: startIndex, timeoutMs: 5000 });
-    assertDraftRequest(applied, builder, `apply expand-${hop.from}-${hop.to}`);
-    builder = await api(base + '/builder');
-    assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest);
-    recordAction(`apply-expand-${hop.from}-${hop.to}`, actionStart, { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
+      expectedRows: expectedExpandedRows, state: builder, label: `expand-${hop.from}-${hop.to}`, startedAt,
+      captureKind: 'expandRows', attempt: 'P1' });
+    builder = await applyGroupProposal(expandedProposal, builder, expectedExpandedRows,
+      `apply expand-${hop.from}-${hop.to}`, { journeyLabel: 'ExpandRows' });
     await closeRowSettings();
     assertSourceBinding(builder, selectedPopulationRoute);
   }
@@ -632,8 +1356,11 @@ FOR s IN (
   const groupStartedAt = Date.now();
   await click(page, 'input[aria-label="Group by Patient FHIR resource ID"]');
   const initialGroupProposal = await browserProposal({ requestStart: groupStartIndex, path: base + '/construction-proposals',
-    expectedRows: groupedRows, state: builder, label: 'group-by-Specimen-ID-count-rows', startedAt: groupStartedAt });
-  builder = await applyGroupProposal(initialGroupProposal.response, builder, groupedRows, 'apply-initial-Group');
+    expectedRows: groupedRows, state: builder, label: 'group-by-Specimen-ID-count-rows', startedAt: groupStartedAt,
+    captureKind: 'group', attempt: 'P1' });
+  builder = await applyGroupProposal(initialGroupProposal, builder, groupedRows, 'apply-initial-Group', {
+    journeyLabel: 'Group',
+  });
   const groupBaseline = structuredClone(builder);
   const groupDocumentBaseline = structuredClone(doc(builder));
   assertSourceBinding(builder, selectedPopulationRoute);
@@ -650,7 +1377,7 @@ FOR s IN (
   // downstream Observation.status column does not exist yet.
   const beforeFirstEdit = structuredClone(builder);
   const countDistinctProposal = await editGroupAggregate('COUNT_DISTINCT', distinctRows, builder,
-    'edit-Group-to-count-distinct-before-column');
+    'edit-Group-to-count-distinct-before-column', 'P1');
   assert.deepEqual(countDistinctProposal.panel.rows[0].slice(0, 2).map((cell) => cell.text), distinctRows[0].map(String));
   recordLifecycleCheck('correctness',
     'COUNT_DISTINCT Group proposal previews the exact bounded raw Observation identity count',
@@ -669,6 +1396,12 @@ FOR s IN (
   assert.equal(afterEditCancel.draftVersion, beforeFirstEdit.draftVersion);
   assert.equal(afterEditCancel.draftDigest, beforeFirstEdit.draftDigest);
   assert.deepEqual(afterEditCancel.workspace, beforeFirstEdit.workspace, 'Group edit Cancel must preserve the exact source and draft bindings');
+  await recordGroupEditCancel({
+    proposal: countDistinctProposal,
+    savedBefore: beforeFirstEdit,
+    savedAfter: afterEditCancel,
+    observedAt: cancelStartedAt,
+  });
   recordAction('cancel-Group-edit-before-column', cancelStartedAt);
   recordLifecycleCheck('persistence',
     'Group COUNT_DISTINCT edit Cancel preserves exact prior draft before adding related column',
@@ -679,9 +1412,9 @@ FOR s IN (
       workspace: afterEditCancel.workspace });
 
   const appliedDistinctProposal = await editGroupAggregate('COUNT_DISTINCT', distinctRows, afterEditCancel,
-    'reapply-Group-count-distinct-before-column');
-  builder = await applyGroupProposal(appliedDistinctProposal.response, afterEditCancel, distinctRows,
-    'apply-Group-edit-before-column');
+    'reapply-Group-count-distinct-before-column', 'P2');
+  builder = await applyGroupProposal(appliedDistinctProposal, afterEditCancel, distinctRows,
+    'apply-Group-edit-before-column', { journeyLabel: 'EditGroup' });
   await waitForSavedStepEditorClosed();
   const distinctDocument = structuredClone(doc(builder));
   const reloadedDistinct = await open(distinctRows, 2, 'reload-Group-edit-before-column');
@@ -759,13 +1492,13 @@ FOR s IN (
     }, { routeSelector, formSelector });
     assert.deepEqual(selected, { route: true, form: true, policy: 'ALL' }, 'Chooser must bind exact source route, ALL matches, and grouped-row ALL policy');
   };
-  const proposeRelatedField = async (state, label) => {
+  const proposeRelatedField = async (state, label, attempt = 'P1') => {
     const startedAt = Date.now();
-    await prepareRelatedFieldChooser();
     const requestStart = nativeCapture.requests.length;
+    await prepareRelatedFieldChooser();
     await click(page, `${relatedFieldOptionsRegion} button`, { name: 'Preview related columns' });
     const proposal = await browserProposal({ requestStart, path: base + '/construction-proposals',
-      expectedRows: withFieldTyped, state, label, startedAt });
+      expectedRows: withFieldTyped, state, label, startedAt, captureKind: 'relatedSource', attempt });
     const match = relatedSourceProposalCandidate({ path: proposal.request.path, request: proposal.request.request }, {
       resourceType: 'Observation', path: 'status',
     });
@@ -798,7 +1531,7 @@ FOR s IN (
       'Typed automatic preview must equal the scoped raw Observation.status multiset');
     return { ...proposal, match };
   };
-  const fieldProposal = await proposeRelatedField(beforeFieldAdd, 'automatic-Observation-status-RELATED_SOURCE-preview-after-Group-edit');
+  const fieldProposal = await proposeRelatedField(beforeFieldAdd, 'automatic-Observation-status-RELATED_SOURCE-preview-after-Group-edit', 'P1');
   const statusCandidateId = fieldProposal.match.related.source.candidateId;
   recordLifecycleCheck('correctness',
     'Observation.status RELATED_SOURCE proposal matches the exact raw status multiset and edited Group input',
@@ -817,6 +1550,12 @@ FOR s IN (
   assert.equal(afterFieldCancel.draftVersion, beforeFieldAdd.draftVersion);
   assert.equal(afterFieldCancel.draftDigest, beforeFieldAdd.draftDigest);
   assert.deepEqual(afterFieldCancel.workspace, beforeFieldAdd.workspace, 'Related-column Cancel must preserve exact Group edit and source bindings');
+  await recordRelatedSourceCancel({
+    proposal: fieldProposal,
+    savedBefore: beforeFieldAdd,
+    savedAfter: afterFieldCancel,
+    observedAt: fieldCancelStartedAt,
+  });
   recordAction('cancel-related-column-after-Group-edit', fieldCancelStartedAt);
   recordLifecycleCheck('persistence',
     'Related-column Cancel preserves exact COUNT_DISTINCT Group workspace and draft CAS',
@@ -828,7 +1567,7 @@ FOR s IN (
 
   // Cancellation clears the proposed candidate. Reopen the same native chooser
   // and capture a new proposal before Apply so receipt and draft bindings are fresh.
-  const applyProposal = await proposeRelatedField(afterFieldCancel, 'reopened-Observation-status-RELATED_SOURCE-preview-before-Apply');
+  const applyProposal = await proposeRelatedField(afterFieldCancel, 'reopened-Observation-status-RELATED_SOURCE-preview-before-Apply', 'P2');
   assert.notEqual(applyProposal.response.proposalId, fieldProposal.response.proposalId,
     'The reopened chooser must produce a fresh proposal receipt after Cancel');
   assert.equal(applyProposal.match.related.choiceId, fieldProposal.match.related.choiceId,
@@ -840,7 +1579,7 @@ FOR s IN (
   await click(page, '[data-testid="construction-apply-proposal"]');
   await waitForControl(page, '[data-testid="construction-proposal-panel"]', { timeout: 5000, hidden: true });
   await mountedRows(withFieldTyped, 3);
-  const choiceApply = await nativeCapture.waitForResponse(entry => entry.path === `${base}/commands` && entry.method === 'POST' && entry.status === 200 && entry.request?.commands?.some(item => item.type === 'APPLY_CONSTRUCTION_PROPOSAL' && item.proposalId === applyProposal.response.proposalId), { fromIndex: applyRequestStart, timeoutMs: 5000 });
+  const choiceApply = await waitForNativeProposalApply(applyRequestStart, applyProposal.response.proposalId);
   assertDraftRequest(choiceApply, afterFieldCancel, 'apply related Observation.status column');
   assert(choiceApply.request.commands.some((item) => item.proposalId === applyProposal.response.proposalId));
   builder = await api(base + '/builder');
@@ -848,6 +1587,12 @@ FOR s IN (
   assert.equal(choiceApply.response.draftDigest, applyProposal.response.candidateWorkspaceDigest);
   assert.equal(builder.draftVersion, applyProposal.response.draftVersion + 1);
   assert.equal(builder.draftDigest, applyProposal.response.candidateWorkspaceDigest);
+  await recordRelatedSourceApply({
+    proposal: applyProposal,
+    applyRequest: choiceApply,
+    savedBefore: afterFieldCancel,
+    savedAfter: builder,
+  });
   recordAction('apply-related-column-after-Group-edit', fieldApplyStartedAt,
     { draftVersion: builder.draftVersion, draftDigest: builder.draftDigest });
   const withFieldDocument = structuredClone(doc(builder));
@@ -891,7 +1636,7 @@ FOR s IN (
   // its owning native step through an automatic proposal and prove restoration.
   const beforeRestoreEdit = structuredClone(builder);
   const countRowsProposal = await editGroupAggregate('COUNT_ROWS', withFieldTyped, builder,
-    'edit-Group-back-to-count-rows-with-related-column');
+    'edit-Group-back-to-count-rows-with-related-column', 'P1');
   const restoreEditCancelStartedAt = Date.now();
 
   await click(page, '[data-testid="construction-cancel-proposal"]');
@@ -902,6 +1647,12 @@ FOR s IN (
   assert.deepEqual(afterRestoreCancel.workspace, beforeRestoreEdit.workspace);
   assert.equal(afterRestoreCancel.draftDigest, beforeRestoreEdit.draftDigest);
   recordAction('cancel-Group-round-trip-edit', restoreEditCancelStartedAt);
+  await recordGroupEditCancel({
+    proposal: countRowsProposal,
+    savedBefore: beforeRestoreEdit,
+    savedAfter: afterRestoreCancel,
+    observedAt: restoreEditCancelStartedAt,
+  });
   recordLifecycleCheck('persistence',
     'Group round-trip Cancel preserves downstream RELATED_SOURCE and exact saved draft',
     afterRestoreCancel.draftVersion === beforeRestoreEdit.draftVersion &&
@@ -911,9 +1662,9 @@ FOR s IN (
       workspace: afterRestoreCancel.workspace });
 
   const restoreProposal = await editGroupAggregate('COUNT_ROWS', withFieldTyped, afterRestoreCancel,
-    'reapply-Group-count-rows-with-related-column');
-  builder = await applyGroupProposal(restoreProposal.response, afterRestoreCancel, withFieldTyped,
-    'apply-Group-round-trip-with-related-column');
+    'reapply-Group-count-rows-with-related-column', 'P2');
+  builder = await applyGroupProposal(restoreProposal, afterRestoreCancel, withFieldTyped,
+    'apply-Group-round-trip-with-related-column', { journeyLabel: 'EditGroupAgain' });
   await waitForSavedStepEditorClosed();
   assert.deepEqual(doc(builder).columns, withFieldDocument.columns,
     'Editing Group must preserve the exact downstream field occurrence and ALL source binding');
@@ -931,9 +1682,10 @@ FOR s IN (
         .operation.group.aggregates[0].operation === 'COUNT_ROWS',
     { construction: doc(reloadedCountRows).construction, columns: doc(reloadedCountRows).columns });
 
-  const proposeRelatedStepRemoval = async (state, label) => {
+  const proposeRelatedStepRemoval = async (state, label, attempt = 'P1') => {
     const step = doc(state).construction.steps.find((candidate) => candidate.id === relatedStep.id);
     assert(step?.operation.kind === 'RELATED_SOURCE');
+    const requestStart = nativeCapture.requests.length;
     const adjustmentGroupSelector = `[data-testid="construction-history-adjustment-group-${step.id}"]`;
     const stepSelector = `[data-testid="construction-history-step-${step.id}"]`;
     await waitForBrowser(page, ({ selector }) => document.querySelectorAll(selector).length === 1,
@@ -948,11 +1700,10 @@ FOR s IN (
     await click(page, stepSelector);
     const removeSelector = `[data-testid="construction-remove-step-${step.id}"]:not(:disabled)`;
     await waitForControl(page, removeSelector, { timeout: 5000 });
-    const requestStart = nativeCapture.requests.length;
     const startedAt = Date.now();
     await click(page, `[data-testid="construction-remove-step-${step.id}"]`);
     const proposal = await browserProposal({ requestStart, path: base + '/construction-proposals',
-      expectedRows: groupedRows, state, label, startedAt });
+      expectedRows: groupedRows, state, label, startedAt, captureKind: 'relatedSource', attempt });
     assert.deepEqual(proposal.request.request.removeStepIds, [relatedStep.id],
       'Removal must target only the newly added downstream RELATED_SOURCE step');
     assert.deepEqual(proposal.response.candidateConstruction.steps, groupDocumentBaseline.construction.steps,
@@ -960,7 +1711,8 @@ FOR s IN (
     return proposal;
   };
   const beforeRemoveCancel = structuredClone(builder);
-  const removePreview = await proposeRelatedStepRemoval(beforeRemoveCancel, 'automatic-remove-RELATED_SOURCE-preview-cancel-target');
+  const removePreview = await proposeRelatedStepRemoval(beforeRemoveCancel,
+    'automatic-remove-RELATED_SOURCE-preview-cancel-target', 'P1');
   const removeCancelStartedAt = Date.now();
 
   await click(page, '[data-testid="construction-cancel-proposal"]');
@@ -971,6 +1723,12 @@ FOR s IN (
   assert.equal(afterRemoveCancel.draftDigest, beforeRemoveCancel.draftDigest);
   assert.deepEqual(afterRemoveCancel.workspace, beforeRemoveCancel.workspace,
     'Canceling related-source removal must preserve its exact step, Group, and source bindings');
+  await recordRelatedSourceCancel({
+    proposal: removePreview,
+    savedBefore: beforeRemoveCancel,
+    savedAfter: afterRemoveCancel,
+    observedAt: removeCancelStartedAt,
+  });
   recordAction('cancel-remove-RELATED_SOURCE', removeCancelStartedAt);
   recordLifecycleCheck('persistence',
     'Related-source removal Cancel preserves the exact saved Group and related field workspace',
@@ -982,7 +1740,7 @@ FOR s IN (
   const removeCancelledAt = Date.now();
 
   const appliedRemovePreview = await proposeRelatedStepRemoval(afterRemoveCancel,
-    'reopened-remove-RELATED_SOURCE-preview-before-Apply');
+    'reopened-remove-RELATED_SOURCE-preview-before-Apply', 'P2');
   // Proposal IDs are content identities; unchanged candidate content may yield
   // the same ID. Require a new completed request after Cancel and exact binding.
   assertReopenedProposalAfterCancel({
@@ -993,7 +1751,7 @@ FOR s IN (
     outputId,
     removeStepIds: [relatedStep.id],
   });
-  builder = await applyGroupProposal(appliedRemovePreview.response, afterRemoveCancel, groupedRows,
+  builder = await applyGroupProposal(appliedRemovePreview, afterRemoveCancel, groupedRows,
     'apply-remove-RELATED_SOURCE-to-restore-Group');
   assert.deepEqual(doc(builder).columns, groupDocumentBaseline.columns,
     'Removing the related source must restore the original authored column bindings');
@@ -1021,6 +1779,150 @@ FOR s IN (
   recordLifecycleCheck('performance',
     'All Group edit action-to-render checkpoints complete within five seconds',
     renderCheckpointSummary.status === 'passed', renderCheckpointSummary);
+  assert(journeyTraceStarted && journeyTrace.initialObservation && journeyTrace.initialPreview,
+    'The BuilderJourney trace must start from the actual mounted source preview.');
+  const relevantProposalRequests = nativeCapture.requests.filter(entry =>
+    entry.path === `${base}/construction-proposals` && entry.method === 'POST' &&
+    entry.request?.outputId === outputId);
+  const unrecordedProposals = relevantProposalRequests.filter(entry =>
+    !capturedProposalBrowserRequestIds.has(entry.browserRequestId));
+  for (const entry of unrecordedProposals.sort((left, right) => left.startedAt - right.startedAt)) {
+    const state = builderStateForProposal(entry);
+    const captureKind = proposalCaptureKind(entry, state);
+    const priorOwners = new Set();
+    for (const action of journeyTrace.actions) {
+      const actionKind = action.relatedSourceLifecycle ? 'relatedSource'
+        : action.rowExpansionLifecycle ? 'expandRows'
+          : action.groupLifecycle && action.request?.path === 'construction-proposals' ? 'group' : null;
+      const proposalRequest = action.request?.path === 'construction-proposals'
+        ? action.request
+        : action.relatedSourceLifecycle?.request;
+      const body = proposalRequest?.body;
+      if (actionKind === captureKind && proposalRequest?.browserRequestId &&
+          String(body?.expectedDraftVersion ?? body?.draftVersion) === String(entry.request?.expectedDraftVersion ?? entry.request?.draftVersion) &&
+          (body?.expectedDraftDigest ?? body?.draftDigest) === (entry.request?.expectedDraftDigest ?? entry.request?.draftDigest)) {
+        priorOwners.add(proposalRequest.browserRequestId);
+      }
+    }
+    await recordProposalCaptureBatch({
+      requestStart: nativeCapture.requests.indexOf(entry),
+      observedEntries: [entry],
+      chosen: entry,
+      state,
+      captureKind,
+      attempt: priorOwners.size === 0 ? 'P1' : 'P2',
+      renderedProposal: await readRenderedProposalPanel(),
+      label: `late-${captureKind}-proposal`,
+    });
+  }
+  const actionTime = action => {
+    if (action.label === 'Preview') {
+      return action.request?.startedAt ?? action.settlement?.startedAt ?? 0;
+    }
+    if (action.label === 'RelatedSourcePreview') {
+      return action.settlement?.completedAt ?? action.request?.startedAt ?? 0;
+    }
+    if (action.label === 'PreviewComplete' || action.label === 'PreviewError' ||
+        action.label === 'LatePreviewCompleteIgnored' || action.label === 'LatePreviewErrorIgnored' ||
+        action.label === 'PreviewRequestCancelled' || action.label === 'ExpandRows' ||
+        action.label === 'Group' || action.label === 'EditGroup' || action.label === 'EditGroupAgain' ||
+        action.label === 'RelatedSourceApply') {
+      return action.settlement?.completedAt ?? action.request?.startedAt ?? 0;
+    }
+    return action.observedAt ?? 0;
+  };
+  journeyTrace.actions = journeyTrace.actions
+    .map((action, index) => ({ action, index }))
+    .sort((left, right) => actionTime(left.action) - actionTime(right.action) || left.index - right.index)
+    .map(({ action }) => action);
+  const unrecordedAfterFlush = relevantProposalRequests.filter(entry =>
+    !capturedProposalBrowserRequestIds.has(entry.browserRequestId));
+  assert.deepEqual(unrecordedAfterFlush, [],
+    'Every actual intermediate, late, rejected, or accepted proposal request must bind to a trace action.');
+  for (const entry of relevantProposalRequests) {
+    const state = builderStateForProposal(entry);
+    const kind = proposalCaptureKind(entry, state);
+    const requestId = entry.browserRequestId;
+    if (kind === 'relatedSource') {
+      assert.equal(journeyTrace.actions.filter(action => action.label === 'RelatedSourcePreview' &&
+        action.request?.browserRequestId === requestId).length, 1,
+      `RELATED_SOURCE proposal ${requestId} must map to exactly one RelatedSourcePreview transition.`);
+    } else {
+      assert.equal(journeyTrace.actions.filter(action => action.label === 'Preview' &&
+        action.request?.browserRequestId === requestId).length, 1,
+      `Builder proposal ${requestId} must map to exactly one Preview request transition.`);
+      assert.equal(journeyTrace.actions.filter(action =>
+        ['PreviewComplete', 'PreviewError', 'LatePreviewCompleteIgnored', 'LatePreviewErrorIgnored', 'PreviewRequestCancelled']
+          .includes(action.label) && action.request?.browserRequestId === requestId).length, 1,
+      `Builder proposal ${requestId} must map to exactly one captured settlement transition.`);
+    }
+  }
+  const relevantApplyRequests = nativeCapture.requests.filter(entry =>
+    entry.path === `${base}/commands` && entry.method === 'POST' &&
+    entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL'));
+  const unrecordedApplies = relevantApplyRequests.filter(entry =>
+    !capturedApplyBrowserRequestIds.has(entry.browserRequestId));
+  assert.deepEqual(unrecordedApplies, [],
+    'Every actual construction-proposal Apply request must bind to a modeled Group, row-expansion, or RELATED_SOURCE action.');
+  for (const entry of relevantApplyRequests) {
+    assert.equal(journeyTrace.actions.filter(action =>
+      ['Group', 'EditGroup', 'EditGroupAgain', 'ExpandRows', 'RelatedSourceApply'].includes(action.label) &&
+      action.request?.browserRequestId === entry.browserRequestId).length, 1,
+    `Construction-proposal Apply request ${entry.browserRequestId} must map to exactly one modeled transition.`);
+  }
+  const readOnlySupport = new Map();
+  const unclassifiedRequests = [];
+  for (const entry of nativeCapture.requests) {
+    const route = entry.path.startsWith(base) ? entry.path.slice(base.length) : entry.path;
+    if (route === '/construction-proposals' && entry.method === 'POST' && entry.request?.outputId === outputId &&
+        capturedProposalBrowserRequestIds.has(entry.browserRequestId)) continue;
+    if (route === '/commands' && entry.method === 'POST' &&
+        entry.request?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_PROPOSAL') &&
+        capturedApplyBrowserRequestIds.has(entry.browserRequestId)) continue;
+    const support = cdaJourneyReadOnlyRoutes.get(`${entry.method} ${route}`);
+    if (!support || entry.isMutation !== false) {
+      unclassifiedRequests.push({ method: entry.method, path: entry.path,
+        browserRequestId: entry.browserRequestId, isMutation: entry.isMutation });
+      continue;
+    }
+    const events = readOnlySupport.get(support.kind) ?? { ...support, requests: [] };
+    events.requests.push({
+      method: entry.method,
+      path: route,
+      browserRequestId: entry.browserRequestId,
+      requestId: entry.requestId ?? null,
+    });
+    readOnlySupport.set(support.kind, events);
+  }
+  assert.deepEqual(unclassifiedRequests, [],
+    'Every same-origin request after formal Init must be modeled or match an explicit method and read-only route family.');
+  journeyTrace.unmodeledEvents = [...readOnlySupport.values()].map(({ kind, reason, requests }) => ({
+    kind,
+    note: `Captured ${requests.length} supported read-only Builder requests.`,
+    classification: 'unsupported',
+    reason,
+    requests,
+  }));
+  const traceResult = writeAndReplayBuilderJourneyTrace({
+    scenarioID: cda.scenarioID,
+    caseName: cda.caseName,
+    journeyTrace,
+    report,
+    fixture: {
+      project,
+      generation,
+      explorer,
+      outputId,
+      source: structuredClone(source),
+      patient: structuredClone(patient),
+      observations: structuredClone(observations),
+    },
+    repositoryRoot,
+  });
+  recordLifecycleCheck('correctness',
+    'Captured Group and RELATED_SOURCE browser transitions replay through BuilderJourney TLC with the registered action contract',
+    traceResult.status === 'pass' && traceResult.replayStatus === 'pass' && traceResult.selfTestStatus === 'pass',
+    traceResult);
   report.rawOracleQueries = oracleQueries;
   report.status = 'passed';
 } catch (error) {

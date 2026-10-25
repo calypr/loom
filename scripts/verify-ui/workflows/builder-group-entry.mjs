@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserURL } from './builder-url.mjs';
+import { writeAndReplayBuilderJourneyTrace } from '../helpers/builder-journey-trace.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import {
   findRenderedBuilderHeaderIndex,
@@ -24,9 +23,6 @@ import { addField } from '../helpers/cda-journey-fields.mjs';
 const expectedPatientIDs = ['dev-patient-001', 'dev-patient-002'];
 const legacyBasicSourceLabels = ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const journeyContractPath = 'verification/builder-interactions/builder-edit-remove-contract.json';
-const journeyTraceContractPath = join(repositoryRoot, journeyContractPath);
-const sourceManifestPath = join(repositoryRoot, 'verification/builder-interactions/builder-preview-contract.json');
 const proposalPanel = '[data-testid="construction-proposal-panel"]';
 const proposalPreview = '[data-testid="construction-proposal-preview"]';
 const renderedTableSelector = '[data-testid="preview-table-scroll"] [role="table"]';
@@ -36,34 +32,6 @@ const readNDJSON = path => readFileSync(path, 'utf8')
   .split(/\r?\n/)
   .filter(Boolean)
   .map(line => JSON.parse(line));
-
-const canonicalJson = value => Array.isArray(value)
-  ? `[${value.map(canonicalJson).join(',')}]`
-  : value && typeof value === 'object'
-    ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
-    : JSON.stringify(value);
-
-const journeyTraceProvenance = () => {
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' });
-  if (head.error || head.status !== 0) {
-    throw new Error(`Cannot resolve Builder trace source HEAD: ${head.error?.message ?? head.stderr ?? head.stdout}`);
-  }
-  const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, 'utf8'));
-  const sourceEntries = sourceManifest.sources.map(source => {
-    const actual = createHash('sha256').update(readFileSync(join(repositoryRoot, source.path))).digest('hex');
-    if (actual !== source.sha256) {
-      throw new Error(`Builder trace source pin drift at ${source.path}: expected ${source.sha256}, found ${actual}`);
-    }
-    return { path: source.path, sha256: actual };
-  }).sort((left, right) => left.path.localeCompare(right.path));
-  const contract = JSON.parse(readFileSync(journeyTraceContractPath, 'utf8'));
-  return {
-    sourceProfile: 'journey',
-    sourceCommit: head.stdout.trim(),
-    contractSourceCommit: contract.sourceCommit,
-    sourceFingerprint: createHash('sha256').update(canonicalJson(sourceEntries)).digest('hex'),
-  };
-};
 
 const recordPreviewStart = (actions, started, groupLifecycle) => actions.push({
   label: 'Preview',
@@ -243,81 +211,6 @@ const assertRenderedHeaders = (actual, expected, message) => assert.deepEqual(
   expected.map(normalizeRenderedBuilderHeader),
   message,
 );
-
-const writeAndReplayGroupJourney = (journeyTrace, report, fixture) => {
-  const artifactStem = journeyTrace.name.replaceAll(':', '-');
-  const tracePath = process.env.LOOM_JOURNEY_TRACE
-    ? resolve(repositoryRoot, process.env.LOOM_JOURNEY_TRACE)
-    : join(report.evidenceDirectory, `${artifactStem}-trace.json`);
-  const replayReportPath = join(report.evidenceDirectory, `${artifactStem}-tla.json`);
-  const tracePayload = {
-    schemaVersion: 1,
-    ...journeyTraceProvenance(),
-    fixture,
-    traces: [journeyTrace],
-  };
-  mkdirSync(dirname(tracePath), { recursive: true });
-  writeFileSync(tracePath, `${JSON.stringify(tracePayload, null, 2)}\n`);
-  const replay = spawnSync(process.execPath, [
-    join(repositoryRoot, 'scripts/verify-builder-traces.mjs'),
-    '--traces', tracePath,
-    '--contract', journeyContractPath,
-    '--output', replayReportPath,
-    '--quiet',
-  ], {
-    cwd: repositoryRoot,
-    env: process.env,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  if (replay.error) throw replay.error;
-  report.target.builderJourneyTrace = {
-    caseKey: journeyTrace.name,
-    tracePath,
-    replayReportPath,
-    actionLabels: journeyTrace.actions.map(action => action.label),
-    status: replay.status === 0 ? 'pass' : 'fail',
-  };
-  if (replay.status !== 0) {
-    const output = `${replay.stdout ?? ''}${replay.stderr ?? ''}`.trim();
-    throw new Error(`Builder Group trace replay failed for ${journeyTrace.name}: ${output.split('\n').slice(-20).join('\n')}`);
-  }
-  const selfTestReportPath = join(report.evidenceDirectory, `${artifactStem}-self-test.json`);
-  const selfTestArgs = [
-    join(repositoryRoot, 'scripts/self-test-builder-traces.mjs'),
-    '--journey-only',
-    '--traces', tracePath,
-    '--contract', journeyContractPath,
-  ];
-  const selfTest = spawnSync(process.execPath, selfTestArgs, {
-    cwd: repositoryRoot,
-    env: process.env,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  const selfTestOutput = `${selfTest.stdout ?? ''}${selfTest.stderr ?? ''}`.trim();
-  const selfTestStatus = !selfTest.error && selfTest.status === 0 ? 'pass' : 'fail';
-  writeFileSync(selfTestReportPath, `${JSON.stringify({
-    caseKey: journeyTrace.name,
-    tracePath,
-    contractPath: journeyContractPath,
-    command: [process.execPath, ...selfTestArgs],
-    status: selfTestStatus,
-    exitCode: selfTest.status,
-    error: selfTest.error?.message ?? null,
-    output: selfTestOutput,
-  }, null, 2)}\n`);
-  report.target.builderJourneyTrace = {
-    ...report.target.builderJourneyTrace,
-    replayStatus: 'pass',
-    status: selfTestStatus === 'pass' ? 'pass' : 'fail',
-    selfTestStatus,
-    selfTestReportPath,
-  };
-  if (selfTestStatus !== 'pass') {
-    throw new Error(`Builder Group trace self-test failed for ${journeyTrace.name}: ${selfTestOutput.split('\n').slice(-30).join('\n')}`);
-  }
-};
 
 export const openFreshPatientTable = async ({ page, report, check, action }, context, purpose, { populateBootstrap = false } = {}) => {
   configureNativePage(page);
@@ -1851,13 +1744,20 @@ export const groupEntryWorkflow = async (workflow, context) => {
     assert(capturedGroupProposalRequests.has(request),
       'Every observed Group construction-proposal request must be bound into the model trace.');
   }
-  writeAndReplayGroupJourney(journeyTrace, report, {
-    project: context.target.fixtureProject,
-    generation: context.target.fixtureGeneration,
-    explorer,
-    patientIDs: fixtureIDs,
-    idGenderPairs: fixtureIDGenderPairs,
-    sourceRows: fixtureSourceRows,
+  writeAndReplayBuilderJourneyTrace({
+    scenarioID: report.scenario,
+    caseName: context.args.caseName,
+    journeyTrace,
+    report,
+    fixture: {
+      project: context.target.fixtureProject,
+      generation: context.target.fixtureGeneration,
+      explorer,
+      patientIDs: fixtureIDs,
+      idGenderPairs: fixtureIDGenderPairs,
+      sourceRows: fixtureSourceRows,
+    },
+    repositoryRoot,
   });
   report.target.qaIsolation.requiredLifecycleChecks = [
     'applied empty-key Group renders the independently expected count 2',
