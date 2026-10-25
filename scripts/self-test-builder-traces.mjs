@@ -112,6 +112,242 @@ const selfTestReceiptWriterTest = () => {
   const duplicateStatusRejected = selfTestReceiptProblem({ ...fixture, selfTestStatus: 'pass' }, expected) !== null;
   return validAccepted && missingOutputRejected && wrongOutputRejected && duplicateStatusRejected;
 };
+const policyMutationControlNamesMatch = (controls, requiredNames) => {
+  if (!Array.isArray(controls) || !Array.isArray(requiredNames)) return false;
+  const names = controls.map(control => control?.name);
+  return names.length === requiredNames.length &&
+    names.every(name => typeof name === 'string' && name.length > 0) &&
+    new Set(names).size === names.length &&
+    [...names].sort().every((name, index) => name === [...requiredNames].sort()[index]);
+};
+const policyExpectedFailureMatches = (expected, actual) =>
+  expected?.stage === 'TLC' && actual?.stage === 'TLC' &&
+  typeof expected.invariant === 'string' && expected.invariant.length > 0 &&
+  actual.invariant === expected.invariant;
+const policyTlcFailureFromReport = report => {
+  const traceEntry = report?.traces?.length === 1 ? report.traces[0] : null;
+  const failure = traceEntry?.failure;
+  if (traceEntry?.status !== 'fail' || failure?.stage !== 'TLC' ||
+      !Number.isInteger(failure.processExitCode) || failure.processExitCode === 0 ||
+      typeof failure.invariant !== 'string' || failure.invariant.length === 0) return null;
+  return { stage: failure.stage, invariant: failure.invariant };
+};
+const policyStructuredFailureBoundaryTest = () => {
+  const expected = { stage: 'TLC', invariant: 'ObservedResponseOwnership' };
+  const diagnosticTail = 'tail contains only the terminal TLC summary; earlier diagnostic omitted';
+  const failureFromTailOmittingViolation = policyTlcFailureFromReport({
+    traces: [{
+      status: 'fail',
+      failure: {
+        stage: 'TLC', invariant: 'ObservedResponseOwnership', processExitCode: 1,
+        outputTail: diagnosticTail,
+      },
+    }],
+  });
+  const recognizedDeadlock = policyTlcFailureFromReport({
+    traces: [{
+      status: 'fail',
+      failure: { stage: 'TLC', invariant: 'Deadlock', processExitCode: 1, outputTail: 'terminal TLC summary' },
+    }],
+  });
+  const runnerRmiFailure = policyTlcFailureFromReport({
+    traces: [{
+      status: 'fail',
+      failure: { stage: 'runner', processExitCode: 1, outputTail: 'java.rmi.server.ExportException' },
+    }],
+  });
+  const unclassifiedTlcFailure = policyTlcFailureFromReport({
+    traces: [{
+      status: 'fail',
+      failure: { stage: 'TLC', processExitCode: 1, outputTail: 'TLC exited nonzero without a semantic violation' },
+    }],
+  });
+  const zeroExitWithViolation = policyTlcFailureFromReport({
+    traces: [{ status: 'fail', failure: { stage: 'TLC', invariant: 'ObservedResponseOwnership', processExitCode: 0 } }],
+  });
+  return !diagnosticTail.includes(expected.invariant) &&
+    policyExpectedFailureMatches(expected, failureFromTailOmittingViolation) &&
+    policyExpectedFailureMatches({ stage: 'TLC', invariant: 'Deadlock' }, recognizedDeadlock) &&
+    !policyExpectedFailureMatches(expected, runnerRmiFailure) &&
+    !policyExpectedFailureMatches(expected, unclassifiedTlcFailure) &&
+    !policyExpectedFailureMatches(expected, zeroExitWithViolation) &&
+    !policyExpectedFailureMatches(expected, { stage: 'TLC', invariant: 'DifferentInvariant' });
+};
+const runPolicyNativeJourneySelfTest = async () => {
+  const registration = contract.nativeJourney;
+  const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const mutationControlResults = [];
+  let workDirectory = null;
+  let allPassed = false;
+  const fail = message => {
+    console.error('FAIL Policy nativeJourney self-test: ' + message);
+    return false;
+  };
+  try {
+    const adapterModule = await import('./verify-ui/helpers/builder-formal-adapters.mjs');
+    const builderFormalAdapterForBinding = adapterModule.builderFormalAdapterForBinding;
+    if (typeof builderFormalAdapterForBinding !== 'function') {
+      return fail('static adapter resolver does not export builderFormalAdapterForBinding');
+    }
+    const binding = {
+      captureAdapter: registration?.captureAdapter,
+      captureKind: registration?.captureKind ?? 'builder-policy-one-native-lifecycle',
+      name: registration?.traceName,
+      model: registration?.model,
+    };
+    let unknownAdapterRejected = false;
+    try {
+      builderFormalAdapterForBinding({ ...binding, captureAdapter: 'unknown-policy-adapter-self-test' });
+    } catch {
+      unknownAdapterRejected = true;
+    }
+    if (!unknownAdapterRejected) return fail('unknown adapter binding was accepted');
+    if (!Array.isArray(payload?.traces) || payload.traces.length !== 1) {
+      return fail('selected nativeJourney contract requires exactly one registered Policy trace');
+    }
+    const trace = payload.traces[0];
+    if (trace?.name !== registration.traceName || trace?.model !== registration.model) {
+      return fail('input trace name/model does not match the selected nativeJourney contract');
+    }
+    const adapter = builderFormalAdapterForBinding(binding);
+    if (!adapter || adapter.captureAdapter !== registration.captureAdapter ||
+        adapter.captureKind !== binding.captureKind || adapter.traceName !== registration.traceName ||
+        adapter.model !== registration.model || typeof adapter.validateTrace !== 'function' ||
+        typeof adapter.compileTrace !== 'function' || typeof adapter.buildMutationControls !== 'function') {
+      return fail('static adapter does not expose the frozen PolicyOne trace/model/capture and replay methods');
+    }
+    if (!Array.isArray(registration.requiredMutationControlNames) ||
+        registration.requiredMutationControlNames.length === 0 ||
+        new Set(registration.requiredMutationControlNames).size !== registration.requiredMutationControlNames.length) {
+      return fail('nativeJourney requiredMutationControlNames must be non-empty and unique');
+    }
+    const validatedTrace = adapter.validateTrace(trace);
+    if (!validatedTrace || validatedTrace.name !== trace.name || validatedTrace.model !== trace.model) {
+      return fail('Policy unit trace did not pass adapter validation');
+    }
+    const compiled = adapter.compileTrace(trace, { moduleName: 'PolicyOneSelfTestPositive' });
+    if (!compiled || compiled.moduleName !== 'PolicyOneSelfTestPositive' ||
+        compiled.modelName !== registration.model || typeof compiled.modelText !== 'string' ||
+        typeof compiled.configText !== 'string' || typeof compiled.baseModelText !== 'string' ||
+        !Array.isArray(compiled.expectedLabels) || !Array.isArray(compiled.expectedEvents) ||
+        typeof compiled.claim !== 'string' || compiled.claim.length === 0) {
+      return fail('Policy unit trace compiler did not return the registered model/config and observation contract');
+    }
+    const originalTraceBytes = JSON.stringify(trace);
+    const controls = adapter.buildMutationControls(trace);
+    if (!policyMutationControlNamesMatch(controls, registration.requiredMutationControlNames)) {
+      return fail('Policy adapter mutation-control names must exactly and uniquely match nativeJourney.requiredMutationControlNames');
+    }
+    if (controls.some(control => JSON.stringify(control.trace) === JSON.stringify(trace))) {
+      return fail('every Policy mutation control must alter its trace input');
+    }
+    if (JSON.stringify(trace) !== originalTraceBytes) {
+      return fail('Policy mutation control construction must leave the selected trace unchanged');
+    }
+    const missingControlRejected = !policyMutationControlNamesMatch(
+      controls.slice(1), registration.requiredMutationControlNames,
+    );
+    const duplicateControlRejected = !policyMutationControlNamesMatch(
+      [...controls, controls[0]], registration.requiredMutationControlNames,
+    );
+    const substitutedControls = controls.map((control, index) => index === 0
+      ? { ...control, name: 'substituted-policy-control-self-test' }
+      : control);
+    const substitutedControlRejected = !policyMutationControlNamesMatch(
+      substitutedControls, registration.requiredMutationControlNames,
+    );
+    const firstExpectedFailure = controls[0]?.expectedFailure;
+    const wrongStageRejected = !policyExpectedFailureMatches(firstExpectedFailure, {
+      stage: 'TRACE_SHAPE', invariant: firstExpectedFailure?.invariant,
+    });
+    const wrongInvariantRejected = !policyExpectedFailureMatches(firstExpectedFailure, {
+      stage: 'TLC', invariant: 'WrongInvariantSelfTest',
+    });
+    const structuredFailureBoundaryAccepted = policyStructuredFailureBoundaryTest();
+    if (!missingControlRejected || !duplicateControlRejected || !substitutedControlRejected ||
+        !wrongStageRejected || !wrongInvariantRejected || !structuredFailureBoundaryAccepted) {
+      return fail('missing, duplicate, substituted control names and wrong TLC failure stage/invariant must be rejected');
+    }
+    console.log('PASS Policy adapter fail-closed negatives: unknown adapter, missing/duplicate/substituted controls, wrong stage/invariant, runner error, and unclassified TLC failure');
+    if (controls.some(control => !control || typeof control.name !== 'string' ||
+        !isRecord(control.expectedFailure) || control.expectedFailure.stage !== 'TLC' ||
+        typeof control.expectedFailure.invariant !== 'string' || control.expectedFailure.invariant.length === 0 ||
+        !isRecord(control.trace))) {
+      return fail('each Policy mutation control must carry a mutated trace and exact expected TLC invariant');
+    }
+
+    workDirectory = mkdtempSync(join(tmpdir(), 'loom-policy-one-adapter-self-test-'));
+    const runVerifier = (candidateTrace, name) => {
+      const candidatePayload = { ...payload, traces: [candidateTrace] };
+      const candidateTracePath = join(workDirectory, name + '.traces.json');
+      const reportPath = join(workDirectory, name + '.report.json');
+      writeFileSync(candidateTracePath, JSON.stringify(candidatePayload, null, 2) + '\n');
+      const result = spawnSync(process.execPath, [
+        'scripts/verify-builder-traces.mjs',
+        '--traces', candidateTracePath,
+        '--contract', contractPath,
+        '--output', reportPath,
+        '--quiet',
+      ], { cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+      let report = null;
+      try { report = JSON.parse(readFileSync(reportPath, 'utf8')); } catch {}
+      return { result, report };
+    };
+    const baseline = runVerifier(trace, 'policy-unit-baseline');
+    if (baseline.result.status !== 0 || baseline.report?.validatedCount !== 1 ||
+        baseline.report?.invalidCount !== 0 || baseline.report?.traces?.[0]?.status !== 'pass') {
+      console.error('FAIL Policy unit fixture positive: ordinary trace verifier rejected the validated Policy adapter fixture');
+      console.error(((baseline.result.stdout || '') + (baseline.result.stderr || '')).split('\n').slice(-20).join('\n'));
+      return false;
+    }
+    console.log('PASS Policy nativeJourney positive: static adapter validates/compiles and ordinary verifier replays the unmutated trace');
+
+    let allMutationControlsPassed = true;
+    for (const control of controls) {
+      const { result, report } = runVerifier(control.trace, 'policy-mutation-' + control.name);
+      const actualFailure = policyTlcFailureFromReport(report);
+      const passed = result.status !== 0 && report?.invalidCount === 1 &&
+        report?.validatedCount === 0 && policyExpectedFailureMatches(control.expectedFailure, actualFailure);
+      mutationControlResults.push({
+        name: control.name,
+        status: passed ? 'pass' : 'fail',
+        expectedFailure: control.expectedFailure,
+        observedFailure: actualFailure,
+      });
+      console.log((passed ? 'PASS ' : 'FAIL ') + 'Policy mutation control ' + control.name +
+        (passed ? ': ordinary verifier reported exact TLC invariant ' + actualFailure.invariant : ''));
+      if (!passed) {
+        allMutationControlsPassed = false;
+        console.error(((result.stdout || '') + (result.stderr || '')).split('\n').slice(-20).join('\n'));
+      }
+    }
+    allPassed = allMutationControlsPassed;
+    return allPassed;
+  } catch (error) {
+    console.error('FAIL Policy nativeJourney self-test: ' + (error instanceof Error ? error.message : String(error)));
+    return false;
+  } finally {
+    const receipt = {
+      traceName: registration?.traceName ?? null,
+      model: registration?.model ?? null,
+      captureAdapter: registration?.captureAdapter ?? null,
+      captureKind: registration?.captureKind ?? 'builder-policy-one-native-lifecycle',
+      tracePath: tracesPath ? resolve(ROOT, tracesPath) : null,
+      traceSha256,
+      selfTestReportPath: selfTestOutputPath ? resolve(ROOT, selfTestOutputPath) : null,
+      status: allPassed ? 'pass' : 'fail',
+      requiredMutationControlNames: [...(registration?.requiredMutationControlNames ?? [])],
+      mutationControls: mutationControlResults,
+    };
+    if (selfTestOutputPath) {
+      const absolute = resolve(ROOT, selfTestOutputPath);
+      mkdirSync(dirname(absolute), { recursive: true });
+      writeFileSync(absolute, JSON.stringify(receipt, null, 2) + '\n');
+    }
+    if (allPassed && workDirectory) rmSync(workDirectory, { recursive: true, force: true });
+    else if (workDirectory) console.error('Policy mutation diagnostics retained at ' + workDirectory);
+  }
+};
 const cdaRelatedOutputProjectionTest = () => {
   const journeyCase = {
     relatedSource: {
@@ -1183,6 +1419,10 @@ if (!selfTestReceiptWriterTest()) {
   process.exit(1);
 }
 console.log('PASS self-test receipt compatibility and output-path checks');
+if (contract.nativeJourney !== undefined) {
+  const policySelfTestPassed = await runPolicyNativeJourneySelfTest();
+  process.exit(policySelfTestPassed ? 0 : 1);
+}
 if (selectedCdaTrace) {
 if (!cdaRelatedOutputProjectionTest()) {
   console.error('FAIL CDA related output projection must use the unique saved step output and reject missing/ambiguous IDs');
