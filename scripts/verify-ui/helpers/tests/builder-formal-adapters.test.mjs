@@ -62,11 +62,44 @@ test('Policy adapter validates, compiles, and binds transport accounting to the 
   assert.equal(coverage.modeled, coverage.observed);
   assert.equal(coverage.unmapped, 0);
   assert.equal(coverage.duplicates, 0);
-  assert.equal(coverage.modeledActions + coverage.reconcileReads + coverage.supportedReadOnly, coverage.observed);
+  assert.equal(coverage.modeledActions + coverage.reconcileReads + coverage.supportedReadOnly +
+    coverage.setupMutations, coverage.observed);
   const controls = adapter.buildMutationControls(trace);
   assert.deepEqual(controls.map(control => control.name), policyContract.nativeJourney.requiredMutationControlNames);
   assert(controls.every(control => control.expectedFailure.stage === 'TLC' &&
     typeof control.expectedFailure.invariant === 'string' && control.expectedFailure.invariant.length > 0));
+});
+
+test('Policy coverage counts setup mutations separately and leaves malformed setup rows unmapped', () => {
+  const adapter = builderFormalAdapterForBinding(policyBinding);
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const baseline = adapter.requestCoverage(trace);
+  const setupRow = {
+    ...structuredClone(trace.transportLedger[0]),
+    transportIndex: Math.max(...trace.transportLedger.map(row => row.transportIndex)) + 1,
+    capturePhase: 'SETUP',
+    classification: 'setup',
+    setupMutation: true,
+  };
+  const withSetupMutation = {
+    ...trace,
+    transportLedger: [...trace.transportLedger, setupRow],
+  };
+  const setupCoverage = adapter.requestCoverage(withSetupMutation);
+  assert.equal(setupCoverage.observed, baseline.observed + 1);
+  assert.equal(setupCoverage.modeledActions, baseline.modeledActions);
+  assert.equal(setupCoverage.setupMutations, 1);
+  assert.equal(setupCoverage.modeled, setupCoverage.observed);
+  assert.equal(setupCoverage.unmapped, 0);
+  assert.equal(setupCoverage.modeledActions + setupCoverage.reconcileReads +
+    setupCoverage.supportedReadOnly + setupCoverage.setupMutations, setupCoverage.observed);
+
+  const malformed = structuredClone(withSetupMutation);
+  malformed.transportLedger.at(-1).setupMutation = false;
+  const malformedCoverage = adapter.requestCoverage(malformed);
+  assert.equal(malformedCoverage.setupMutations, 0);
+  assert.equal(malformedCoverage.unmapped, 1);
+  assert.equal(malformedCoverage.modeled, malformedCoverage.observed - 1);
 });
 
 test('native journey shape preserves exact action/event pairs while leaving chronology to TLC', () => {
@@ -90,7 +123,7 @@ test('native journey shape preserves exact action/event pairs while leaving chro
     /label\/event pair exactly/);
 });
 
-test('shared journey writer replays a complete synthetic Policy trace and all seven controls', { timeout: 120000 }, t => {
+test('shared journey writer replays a complete synthetic Policy trace and all registered controls', { timeout: 120000 }, t => {
   const directory = mkdtempSync(join(tmpdir(), 'policy-one-shared-writer-unit-'));
   const tracePath = join(directory, 'synthetic-policy-one.trace.json');
   const priorTracePath = process.env.LOOM_JOURNEY_TRACE;
@@ -129,7 +162,7 @@ test('shared journey writer replays a complete synthetic Policy trace and all se
   assert.equal(receipt.selfTestStatus, 'pass');
   assert.equal(receipt.nativeCaseKey, 'builder-authoring/patient-one-disagreement');
   assert.equal(receipt.traceName, 'builder-authoring:patient-one-disagreement');
-  assert.equal(receipt.mutationControls.length, 7);
+  assert.equal(receipt.mutationControls.length, policyContract.nativeJourney.requiredMutationControlNames.length);
   assert(receipt.mutationControls.every(control => control.status === 'pass'));
   assert.equal(receipt.requestCoverage.unmapped, 0);
   assert.equal(receipt.requestCoverage.duplicates, 0);

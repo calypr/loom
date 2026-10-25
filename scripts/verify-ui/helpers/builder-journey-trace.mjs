@@ -390,9 +390,9 @@ export const assertNativeBuilderJourneyReplayReceipt = (receipt, {
   if (Object.hasOwn(receipt, 'requestCoverageBasis')) {
     assert(typeof receipt.requestCoverageBasis === 'string' && receipt.requestCoverageBasis.trim().length > 0,
       'Verifier requestCoverageBasis must state the adapter coverage claim.');
-    const detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly'];
+    const detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'];
     assert(detailFields.every(field => Number.isInteger(coverage[field]) && coverage[field] >= 0),
-      'Adapter request coverage must retain semantic-action, reconcile-read, and read-only counts.');
+      'Adapter request coverage must retain semantic-action, reconcile-read, read-only, and setup-mutation counts.');
     assert.equal(detailFields.reduce((sum, field) => sum + coverage[field], 0), coverage.observed,
       'Adapter request coverage detail counts must account for every retained transport row.');
   }

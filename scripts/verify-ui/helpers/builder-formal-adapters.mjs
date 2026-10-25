@@ -6,18 +6,25 @@ import {
 
 const policyOneRequestCoverage = trace => {
   const rows = Array.isArray(trace?.transportLedger) ? trace.transportLedger : [];
-  const accountedClasses = new Set(['modeled', 'reconcile', 'read-only']);
   const indices = rows.map(row => row?.transportIndex);
   const duplicateIndices = indices.length - new Set(indices).size;
-  const unaccountedRows = rows.filter(row => !accountedClasses.has(row?.classification)).length;
+  const invalidSetupRows = new Set(rows.filter(row =>
+    (row?.classification === 'setup' && (row?.setupMutation !== true || row?.capturePhase !== 'SETUP')) ||
+    (row?.setupMutation === true && row?.classification !== 'setup')));
+  const modeledActions = rows.filter(row => row?.classification === 'modeled' && !invalidSetupRows.has(row)).length;
+  const reconcileReads = rows.filter(row => row?.classification === 'reconcile' && !invalidSetupRows.has(row)).length;
+  const supportedReadOnly = rows.filter(row => row?.classification === 'read-only' && !invalidSetupRows.has(row)).length;
+  const setupMutations = rows.filter(row => row?.classification === 'setup' && !invalidSetupRows.has(row)).length;
+  const modeled = modeledActions + reconcileReads + supportedReadOnly + setupMutations;
   return {
     observed: rows.length,
-    modeled: rows.length - unaccountedRows,
-    unmapped: unaccountedRows,
+    modeled,
+    unmapped: rows.length - modeled,
     duplicates: duplicateIndices,
-    modeledActions: rows.filter(row => row?.classification === 'modeled').length,
-    reconcileReads: rows.filter(row => row?.classification === 'reconcile').length,
-    supportedReadOnly: rows.filter(row => row?.classification === 'read-only').length,
+    modeledActions,
+    reconcileReads,
+    supportedReadOnly,
+    setupMutations,
   };
 };
 

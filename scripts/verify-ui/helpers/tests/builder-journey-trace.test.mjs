@@ -218,12 +218,20 @@ test('native replay and mutation receipts preserve verifier coverage and require
     status: 'pending-self-test',
     replayStatus: 'pass',
     selfTestStatus: 'not-run',
-    requestCoverage: { observed: 11, modeled: 11, unmapped: 0, duplicates: 0 },
+    requestCoverage: {
+      observed: 11, modeled: 11, unmapped: 0, duplicates: 0,
+      modeledActions: 4, reconcileReads: 3, supportedReadOnly: 3, setupMutations: 1,
+    },
+    requestCoverageBasis: 'unit fixture separates modeled requests, reconciliation reads, supported reads, and setup mutations',
     requiredActionCountsByTrace: { mismatches: {} },
     requiredActionMinimumsByTrace: { mismatches: {} },
     unmodeledEvents: { total: 3, unclassified: { total: 0 } },
   };
   assert.strictEqual(assertNativeBuilderJourneyReplayReceipt(replayReceipt, identity), replayReceipt);
+  assert.throws(() => assertNativeBuilderJourneyReplayReceipt({
+    ...replayReceipt,
+    requestCoverage: { ...replayReceipt.requestCoverage, setupMutations: undefined },
+  }, identity), /setup-mutation counts/u);
   const selfTestReportPath = fixture.selfTestReportPath;
   const selfTestReceipt = {
     traceName: identity.traceName,

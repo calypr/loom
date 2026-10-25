@@ -24,6 +24,18 @@ const PLAYWRIGHT_SANITIZER = 'scripts/verify-ui/helpers/playwright-browser.mjs';
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const fail = (message) => { throw new Error(message); };
 const requireValue = (condition, message) => { if (!condition) fail(message); };
+
+export const nativeJourneyRequestCoverageProblem = coverage => {
+  const detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly', 'setupMutations'];
+  if (!coverage || typeof coverage !== 'object' || Array.isArray(coverage) ||
+      detailFields.some(field => !Number.isInteger(coverage[field]) || coverage[field] < 0)) {
+    return 'native request coverage must retain non-negative action, reconcile, read-only, and setup counts';
+  }
+  if (detailFields.reduce((sum, field) => sum + coverage[field], 0) !== coverage.observed) {
+    return 'native request coverage classes must account for each observed transport row exactly once';
+  }
+  return null;
+};
 const stableJson = (value) => Array.isArray(value)
   ? value.map(stableJson)
   : value && typeof value === 'object'
@@ -425,10 +437,9 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
     requireValue(replayReceipt?.requestCoverageBasis === contract.nativeJourney.coverageBasis &&
       typeof replayReceipt?.requestCoverageBasis === 'string' && replayReceipt.requestCoverageBasis.trim().length > 0,
     'TLA request coverage basis differs from the registered nativeJourney contract');
-    requireValue(['modeledActions', 'reconcileReads', 'supportedReadOnly']
-      .every(field => Number.isInteger(requestCoverage[field]) && requestCoverage[field] >= 0) &&
-      requestCoverage.modeledActions + requestCoverage.reconcileReads + requestCoverage.supportedReadOnly === requestCoverage.observed,
-    'Policy One request coverage must distinguish semantic actions, reconcile reads, and supported read-only reads');
+    const coverageProblem = nativeJourneyRequestCoverageProblem(requestCoverage);
+    requireValue(coverageProblem === null,
+      coverageProblem ?? 'Native request coverage is invalid');
   }
   requireValue(Object.keys(replayReceipt?.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
     Object.keys(replayReceipt?.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
