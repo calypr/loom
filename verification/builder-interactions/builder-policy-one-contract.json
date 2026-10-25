@@ -147,6 +147,35 @@
       "wrong-row-value-output",
       "non-array-row-value-output"
     ],
+    "uncoveredAssertions": [
+      {
+        "claim": "same-editor ALL repair preview matches both literal raw Patient IDs",
+        "status": "uncovered",
+        "reason": "The current direct-field choice path obtains preview rows from the response and immediately applies the command; it does not render those candidate rows before Apply. The API response assertion and post-Apply/reload grid checks are separate observations.",
+        "sourceEvidence": [
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "symbol": "addSelectedFeatures",
+            "fact": "The non-related choice branch awaits proposeConstructionChoices, validates response.preview, then immediately calls applyCommandsWithResult."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "symbol": "candidatePreviewElement",
+            "fact": "The rendered ConstructionProposalPreview is derived from constructionLifecycle.proposal ready/applying state, which the direct-field choice branch does not set."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "symbol": "appliedChoicePreview",
+            "fact": "The choice response preview is handed to the normal table preview only after applyCommandsWithResult succeeds."
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
+            "symbol": "responsePreview",
+            "fact": "The current same-editor assertion reads the ALL preview from the captured HTTP response body."
+          }
+        ]
+      }
+    ],
     "actions": [
       { "label": "GroupPreviewSubmitted", "event": "preview" },
       { "label": "GroupPreviewReady", "event": "preview-response" },
