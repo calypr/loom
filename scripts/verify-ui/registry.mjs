@@ -1,4 +1,4 @@
-export const registry = Object.freeze([
+const registryRows = [
   Object.freeze({
     id: 'builder-controls',
     workflow: 'supported-builder-controls',
@@ -9105,7 +9105,79 @@ export const registry = Object.freeze([
       }
     ],
   }),
-]);
+];
+
+import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { planFocusedCheckGroups } from './helpers/focused-check-groups.mjs';
+
+const registryRoot = fileURLToPath(new URL('../../', import.meta.url));
+const focusedCheckAttachments = JSON.parse(readFileSync(new URL('./mjs-focused-check-attachments.json', import.meta.url), 'utf8'));
+if (focusedCheckAttachments.schemaVersion !== 1 || !Array.isArray(focusedCheckAttachments.attachments)) {
+  throw new Error('Generated MJS focused-check attachments must use schemaVersion 1 and an attachments array.');
+}
+
+const attachedCases = new Map();
+for (const attachment of focusedCheckAttachments.attachments) {
+  if (!attachment || typeof attachment.scenarioId !== 'string' || attachment.scenarioId.length === 0
+    || attachment.scenarioId.trim() !== attachment.scenarioId || typeof attachment.caseId !== 'string'
+    || attachment.caseId.length === 0 || attachment.caseId.trim() !== attachment.caseId
+    || !Array.isArray(attachment.focusedChecks) || attachment.focusedChecks.length === 0) {
+    throw new Error('Generated MJS focused-check attachment needs an exact scenario, case, and checks array.');
+  }
+  const caseIdentity = attachment.scenarioId + ':' + attachment.caseId;
+  if (attachedCases.has(caseIdentity)) throw new Error('Generated MJS focused-check attachments duplicate ' + caseIdentity + '.');
+  planFocusedCheckGroups(attachment.focusedChecks, registryRoot);
+  attachedCases.set(caseIdentity, attachment.focusedChecks);
+}
+
+const usedAttachmentCases = new Set();
+const scenarioIds = new Set();
+const caseIds = new Set();
+export const registry = Object.freeze(registryRows.map((scenario) => {
+  if (scenarioIds.has(scenario.id)) throw new Error('Native verification registry duplicates scenario ID ' + scenario.id + '.');
+  scenarioIds.add(scenario.id);
+  const cases = { ...scenario.cases };
+  let changed = false;
+  for (const [caseName, caseData] of Object.entries(scenario.cases ?? {})) {
+    const caseIdentity = scenario.id + ':' + caseName;
+    if (caseIds.has(caseIdentity)) throw new Error('Native verification registry duplicates case identity ' + caseIdentity + '.');
+    caseIds.add(caseIdentity);
+    const additions = attachedCases.get(caseIdentity);
+    if (!additions) continue;
+    usedAttachmentCases.add(caseIdentity);
+    const focusedChecks = [...(caseData.focusedChecks ?? [])];
+    planFocusedCheckGroups(focusedChecks, registryRoot);
+    const checkIds = new Set();
+    for (const check of focusedChecks) {
+      if (checkIds.has(check.id)) throw new Error('Registered focused-check IDs are duplicated in ' + caseIdentity + ': ' + check.id);
+      checkIds.add(check.id);
+    }
+    for (const check of additions) {
+      if (!check || typeof check.id !== 'string') throw new Error('Generated focused-check attachment has no stable ID in ' + caseIdentity + '.');
+      const existing = focusedChecks.find((candidate) => candidate.id === check.id);
+      if (existing) {
+        if (!isDeepStrictEqual(existing, check)) throw new Error('Generated focused-check ID conflicts with registry contents in ' + caseIdentity + ': ' + check.id);
+        continue;
+      }
+      if (checkIds.has(check.id)) throw new Error('Generated focused-check ID collides in ' + caseIdentity + ': ' + check.id);
+      checkIds.add(check.id);
+      focusedChecks.push(Object.freeze(check));
+      changed = true;
+    }
+    if (focusedChecks.length !== (caseData.focusedChecks ?? []).length) {
+      planFocusedCheckGroups(focusedChecks, registryRoot);
+      cases[caseName] = Object.freeze({ ...caseData, focusedChecks: Object.freeze(focusedChecks) });
+    }
+  }
+  if (changed) return Object.freeze({ ...scenario, cases: Object.freeze(cases) });
+  return scenario;
+}));
+
+for (const caseIdentity of attachedCases.keys()) {
+  if (!usedAttachmentCases.has(caseIdentity)) throw new Error('Generated MJS focused-check attachment references unknown case ' + caseIdentity + '.');
+}
 
 export const getScenario = (id) => {
   const scenario = registry.find((entry) => entry.id === id);
