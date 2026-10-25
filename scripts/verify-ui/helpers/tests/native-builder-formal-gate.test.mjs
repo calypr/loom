@@ -68,17 +68,41 @@ const makeBracketFixture = (root) => {
     label,
     ...(index < owners.length ? { groupLifecycle: { owner: owners[index] } } : {}),
   }));
-  const nativeRequests = Array.from({ length: 18 }, (_, index) => ({
-    index,
-    browserRequestId: index < owners.length ? owners[index].browserRequestId : `native-request-${index}`,
-    requestId: index < owners.length ? `request-${index}` : null,
-    method: index < owners.length ? 'POST' : 'GET',
-    path: index < owners.length
-      ? '/api/v1/projects/p/explorers/e/authoring/v2/construction-proposals'
-      : '/api/v1/projects/p/explorers/e/authoring/v2/builder',
-    startedAt: 1_000 + index,
-    isMutation: index < owners.length,
-  }));
+  const nativeRequests = [
+    ...owners.map((owner, index) => ({
+      index,
+      browserRequestId: owner.browserRequestId,
+      requestId: null,
+      method: 'POST',
+      path: '/api/v1/projects/p/explorers/e/authoring/v2/construction-proposals',
+      startedAt: 1_000 + index,
+      isMutation: false,
+    })),
+    ...Array.from({ length: 13 }, (_, offset) => {
+      const index = owners.length + offset;
+      return {
+        index,
+        browserRequestId: `native-command-${offset}`,
+        requestId: null,
+        method: 'POST',
+        path: '/api/v1/projects/p/explorers/e/authoring/v2/commands',
+        startedAt: 1_000 + index,
+        isMutation: true,
+      };
+    }),
+    ...Array.from({ length: 11 }, (_, offset) => {
+      const index = owners.length + 13 + offset;
+      return {
+        index,
+        browserRequestId: `native-support-${offset}`,
+        requestId: null,
+        method: 'GET',
+        path: '/api/v1/projects/p/explorers/e/authoring/v2/builder',
+        startedAt: 1_000 + index,
+        isMutation: false,
+      };
+    }),
+  ];
   const nativeTrace = {
     schemaVersion: 1,
     sourceProfile: 'journey',
@@ -442,8 +466,8 @@ const makeEvidenceFixture = (root) => {
       { label: 'Preview', groupLifecycle: { owner } },
       { label: 'Reload' },
     ], nativeRequests: [{
-      index: 0, browserRequestId: owner.browserRequestId, requestId: 'request-1', method: 'POST',
-      path: '/authoring/v2/construction-proposals', startedAt: 1, isMutation: true,
+      index: 0, browserRequestId: owner.browserRequestId, requestId: null, method: 'POST',
+      path: '/authoring/v2/construction-proposals', startedAt: 1, isMutation: false,
     }] }],
   };
   const traceBytes = Buffer.from(JSON.stringify(trace));
