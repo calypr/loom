@@ -147,7 +147,38 @@ VARIABLES
   lastAppliedCandidate,
   lastCancelObservedGroup,
   lastIgnoredRequestOwner,
-  lastAction
+  lastAction,
+  cdaCurrentTable,
+  cdaRowExpansionCount,
+  cdaGroupInputTable,
+  cdaMountedGroupInputTable,
+  cdaGroupInputStep,
+  cdaMountedGroupInputStep,
+  cdaPersistedGroup,
+  cdaMountedGroup,
+  cdaPersistedRelatedSource,
+  cdaMountedRelatedSource,
+  cdaMountEpoch,
+  cdaPreview,
+  cdaProposalPreviewOwner,
+  cdaProposalPreviewCaptureOwner,
+  cdaProposalIdPresent,
+  cdaRowsPresent,
+  cdaGroupCandidate,
+  cdaExpansionCandidate,
+  cdaRelatedCandidate,
+  cdaOutputToken,
+  cdaDraftVersion,
+  cdaDraftDigest,
+  cdaLastAppliedGroupCandidate,
+  cdaLastAppliedRelatedCandidate,
+  cdaLastCancelBefore,
+  cdaLastCancelAfter,
+  cdaLastIgnoredRequestOwner,
+  cdaLastGroupEditRelatedBefore,
+  cdaLastGroupEditRelatedAfter,
+  cdaLastAction,
+  cdaWitnessStage
 
 vars == <<phase, reshapeCount, pivotReady, preview, proposalPreviewOwner,
           proposalPreviewCaptureOwner, choicePreview, choicePreviewOwner, proposalIdPresent,
@@ -710,8 +741,6 @@ Next ==
   \/ Reload(mountEpoch + 1, persistedGroup, persistedGroup, persistedGroup)
   \/ Stutter
 
-Spec == Init /\ [][Next]_vars
-
 \* This static relation explores the full finite Group lifecycle transition
 \* system; every applicable Group lifecycle action remains nondeterministic.
 GroupSafetyVars == vars
@@ -759,8 +788,6 @@ GroupSafetyNext ==
   \/ GroupRemovalCancel(mountEpoch, candidate.owner, persistedGroup,
                         persistedGroup, TRUE, TRUE, TRUE)
   \/ Reload(mountEpoch + 1, persistedGroup, persistedGroup, persistedGroup)
-
-GroupSafetySpec == Init /\ [][GroupSafetyNext]_GroupSafetyVars
 
 TypeOK ==
   /\ phase \in Phases
@@ -832,6 +859,1263 @@ RowsOnlyAfterProposalPreview ==
 
 SourceRowsRequireReadyTablePreview ==
   sourceRowsPresent => tablePreview = "ready"
+
+\* CDA uses a separate bounded profile so its COUNT_DISTINCT and five-mount
+\* source journey do not widen the legacy Group-only model.
+CdaMaxMountEpoch == 5
+CdaMountEpochs == 0..CdaMaxMountEpoch
+CdaReshapeCounts == 0..MaxReshapes
+CdaProposalOwners == {"P1", "P2", "NoAttempt"}
+CdaRequestOwnerTokens == CaptureIds
+CdaOwnerEpochs == CdaMountEpochs
+CdaPreviewStates == PreviewStates
+CdaGroupInputSteps == {"None", "G1"}
+CdaDataTokens == {"Specimen", "Patient", "Observation"}
+CdaRowExpansionStages == {"SpecimenPatient", "PatientObservation"}
+CdaAggregates == {"COUNT_ROWS", "COUNT_DISTINCT"}
+CdaColumnTokens == {"ID", "Status", "O1"}
+CdaSourceTokens == {"None", "ObservationStatus"}
+CdaRelatedStepTokens == {"None", "R1"}
+CdaOutputColumnTokens == {"None", "O1"}
+CdaRouteTokens == {"None", "SpecimenPatientObservation"}
+CdaWorkspaceTokens == {"W1"}
+CdaOutputTokens == {"O0"}
+CdaDraftVersions == 0..7
+CdaDraftDigests == {"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"}
+
+CdaGroupRecords == {NoGroup} \cup
+  [stepId : StepIds, shape : GroupShapes, keys : GroupKeySequences,
+   aggregate : CdaAggregates]
+
+CdaGroupRecordOK(groupValue) ==
+  IF groupValue = NoGroup
+  THEN TRUE
+  ELSE /\ groupValue \in [stepId : StepIds, shape : GroupShapes,
+                            keys : GroupKeySequences, aggregate : CdaAggregates]
+       /\ CASE groupValue.shape = "EmptyKeys" -> groupValue.keys = <<>>
+            [] groupValue.shape = "ByID" -> groupValue.keys = <<"ID">>
+            [] groupValue.shape = "ByIDGender" -> groupValue.keys = <<"ID", "Gender">>
+
+CdaByIDCountRowsGroup == [stepId |-> "G1", shape |-> "ByID",
+                          keys |-> <<"ID">>, aggregate |-> "COUNT_ROWS"]
+CdaByIDCountDistinctGroup == [stepId |-> "G1", shape |-> "ByID",
+                              keys |-> <<"ID">>, aggregate |-> "COUNT_DISTINCT"]
+
+CdaNoGroupIntent == [kind |-> "none", targetStepId |-> NoStep,
+                     base |-> NoGroup, proposed |-> NoGroup]
+CdaCreateByIDCountRowsIntent == [kind |-> "create", targetStepId |-> NoStep,
+                                 base |-> NoGroup,
+                                 proposed |-> CdaByIDCountRowsGroup]
+CdaEditByIDCountDistinctIntent == [kind |-> "edit", targetStepId |-> "G1",
+                                   base |-> CdaByIDCountRowsGroup,
+                                   proposed |-> CdaByIDCountDistinctGroup]
+CdaEditByIDCountRowsIntent == [kind |-> "edit", targetStepId |-> "G1",
+                               base |-> CdaByIDCountDistinctGroup,
+                               proposed |-> CdaByIDCountRowsGroup]
+CdaUnchangedByIDCountRowsIntent ==
+  [kind |-> "edit", targetStepId |-> "G1",
+   base |-> CdaByIDCountRowsGroup, proposed |-> CdaByIDCountRowsGroup]
+CdaUnchangedByIDCountDistinctIntent ==
+  [kind |-> "edit", targetStepId |-> "G1",
+   base |-> CdaByIDCountDistinctGroup,
+   proposed |-> CdaByIDCountDistinctGroup]
+CdaGroupIntentValues == {CdaCreateByIDCountRowsIntent,
+                         CdaEditByIDCountDistinctIntent,
+                         CdaEditByIDCountRowsIntent,
+                         CdaUnchangedByIDCountRowsIntent,
+                         CdaUnchangedByIDCountDistinctIntent}
+CdaGroupIntentDomain == {CdaNoGroupIntent} \cup CdaGroupIntentValues
+
+CdaNoPreviewOwner == [mountEpoch |-> 0, captureId |-> "NoCapture"]
+CdaPreviewOwners == {CdaNoPreviewOwner} \cup
+  [mountEpoch : CdaOwnerEpochs, captureId : CdaRequestOwnerTokens]
+CdaPreviewOwner(epoch, capture) == [mountEpoch |-> epoch, captureId |-> capture]
+
+CdaNoGroupCandidate == [intent |-> CdaNoGroupIntent,
+                        owner |-> CdaNoPreviewOwner,
+                        groupInputStep |-> "None",
+                        groupInputTable |-> "None"]
+CdaGroupCandidates == {CdaNoGroupCandidate} \cup
+  [intent : CdaGroupIntentValues, owner : CdaPreviewOwners,
+   groupInputStep : CdaGroupInputSteps,
+   groupInputTable : CdaDataTokens]
+CdaGroupCandidateFromIntent(intent, owner, inputStep, inputTable) ==
+  [intent |-> intent, owner |-> owner,
+   groupInputStep |-> inputStep, groupInputTable |-> inputTable]
+
+CdaNoExpansionIntent == [kind |-> "none", stage |-> "None",
+                         beforeTable |-> "None", afterTable |-> "None"]
+CdaSpecimenPatientIntent == [kind |-> "expandRows",
+                             stage |-> "SpecimenPatient",
+                             beforeTable |-> "Specimen",
+                             afterTable |-> "Patient"]
+CdaPatientObservationIntent == [kind |-> "expandRows",
+                                stage |-> "PatientObservation",
+                                beforeTable |-> "Patient",
+                                afterTable |-> "Observation"]
+CdaExpansionIntentValues == {CdaSpecimenPatientIntent,
+                             CdaPatientObservationIntent}
+CdaExpansionIntentDomain == {CdaNoExpansionIntent} \cup CdaExpansionIntentValues
+CdaNoExpansionCandidate == [intent |-> CdaNoExpansionIntent,
+                            owner |-> CdaNoPreviewOwner]
+CdaExpansionCandidates == {CdaNoExpansionCandidate} \cup
+  [intent : CdaExpansionIntentValues, owner : CdaPreviewOwners]
+
+CdaNoRelatedSource == [sourceToken |-> "None",
+                       relatedStepToken |-> "None",
+                       inputGroupStepToken |-> "None",
+                       outputColumnToken |-> "None",
+                       routeToken |-> "None"]
+CdaObservationStatusRelatedSource ==
+  [sourceToken |-> "ObservationStatus",
+   relatedStepToken |-> "R1",
+   inputGroupStepToken |-> "G1",
+   outputColumnToken |-> "O1",
+   routeToken |-> "SpecimenPatientObservation"]
+CdaRelatedSources == {CdaNoRelatedSource,
+                      CdaObservationStatusRelatedSource}
+
+CdaNoRelatedIntent == [kind |-> "none", targetStepId |-> "None",
+                       groupInputStep |-> "None",
+                       base |-> CdaNoRelatedSource,
+                       proposed |-> CdaNoRelatedSource]
+CdaAddObservationStatusIntent ==
+  [kind |-> "add", targetStepId |-> "None",
+   groupInputStep |-> "G1",
+   base |-> CdaNoRelatedSource,
+   proposed |-> CdaObservationStatusRelatedSource]
+CdaRemoveObservationStatusIntent ==
+  [kind |-> "remove", targetStepId |-> "R1",
+   groupInputStep |-> "G1",
+   base |-> CdaObservationStatusRelatedSource,
+   proposed |-> CdaNoRelatedSource]
+CdaRelatedIntentValues == {CdaAddObservationStatusIntent,
+                           CdaRemoveObservationStatusIntent,
+                           [kind |-> "keep", targetStepId |-> "R1",
+                            groupInputStep |-> "G1",
+                            base |-> CdaObservationStatusRelatedSource,
+                            proposed |-> CdaObservationStatusRelatedSource]}
+CdaRelatedIntentDomain == {CdaNoRelatedIntent} \cup CdaRelatedIntentValues
+CdaNoRelatedCandidate == [intent |-> CdaNoRelatedIntent,
+                          owner |-> CdaNoPreviewOwner,
+                          attempt |-> "NoAttempt",
+                          groupInputStep |-> "None"]
+CdaRelatedCandidates == {CdaNoRelatedCandidate} \cup
+  [intent : CdaRelatedIntentValues, owner : CdaPreviewOwners,
+   attempt : CdaProposalOwners, groupInputStep : CdaGroupInputSteps]
+CdaRelatedCandidateFromIntent(intent, owner, attempt, inputStep) ==
+  [intent |-> intent, owner |-> owner, attempt |-> attempt,
+   groupInputStep |-> inputStep]
+
+CdaSnapshot(groupValue, relatedValue, outputValue, versionValue, digestValue) ==
+  [workspaceToken |-> "W1",
+   group |-> groupValue,
+   relatedSource |-> relatedValue,
+   outputToken |-> outputValue,
+   draftVersion |-> versionValue,
+   draftDigest |-> digestValue]
+CdaSnapshot0 == CdaSnapshot(NoGroup, CdaNoRelatedSource, "O0", 0, "D0")
+CdaSnapshot1 == CdaSnapshot(NoGroup, CdaNoRelatedSource, "O0", 1, "D1")
+CdaSnapshot2 == CdaSnapshot(NoGroup, CdaNoRelatedSource, "O0", 2, "D2")
+CdaSnapshot3 == CdaSnapshot(CdaByIDCountRowsGroup,
+                             CdaNoRelatedSource, "O0", 3, "D3")
+CdaSnapshot4 == CdaSnapshot(CdaByIDCountDistinctGroup,
+                             CdaNoRelatedSource, "O0", 4, "D4")
+CdaSnapshot5 == CdaSnapshot(CdaByIDCountDistinctGroup,
+                             CdaObservationStatusRelatedSource,
+                             "O0", 5, "D5")
+CdaSnapshot6 == CdaSnapshot(CdaByIDCountRowsGroup,
+                             CdaObservationStatusRelatedSource,
+                             "O0", 6, "D6")
+CdaSnapshot7 == CdaSnapshot(CdaByIDCountRowsGroup,
+                             CdaNoRelatedSource, "O0", 7, "D3")
+CdaSnapshotRecords == {CdaSnapshot0, CdaSnapshot1, CdaSnapshot2,
+                       CdaSnapshot3, CdaSnapshot4, CdaSnapshot5,
+                       CdaSnapshot6, CdaSnapshot7}
+CdaSnapshotOK(snapshot) ==
+  /\ snapshot \in CdaSnapshotRecords
+  /\ CdaGroupRecordOK(snapshot.group)
+  /\ snapshot.relatedSource \in CdaRelatedSources
+
+CdaCASOf(snapshot) ==
+  [workspaceToken |-> snapshot.workspaceToken,
+   outputToken |-> snapshot.outputToken,
+   versionStep |-> snapshot.draftVersion,
+   digestToken |-> snapshot.draftDigest]
+
+CdaNoAppliedGroupCandidate ==
+  [intent |-> CdaNoGroupIntent,
+   owner |-> CdaNoPreviewOwner,
+   groupInputStep |-> "None",
+   before |-> CdaSnapshot0,
+   after |-> CdaSnapshot0]
+CdaAppliedGroupCandidates == {CdaNoAppliedGroupCandidate} \cup
+  [intent : CdaGroupIntentValues, owner : CdaPreviewOwners,
+   groupInputStep : CdaGroupInputSteps,
+   before : CdaSnapshotRecords, after : CdaSnapshotRecords]
+CdaAppliedGroupCandidate(intent, owner, inputStep, before, after) ==
+  [intent |-> intent, owner |-> owner, groupInputStep |-> inputStep,
+   before |-> before, after |-> after]
+
+CdaNoAppliedRelatedCandidate ==
+  [intent |-> CdaNoRelatedIntent,
+   owner |-> CdaNoPreviewOwner,
+   attempt |-> "NoAttempt",
+   groupInputStep |-> "None",
+   before |-> CdaSnapshot0,
+   after |-> CdaSnapshot0]
+CdaAppliedRelatedCandidates == {CdaNoAppliedRelatedCandidate} \cup
+  [intent : CdaRelatedIntentValues, owner : CdaPreviewOwners,
+   attempt : CdaProposalOwners, groupInputStep : CdaGroupInputSteps,
+   before : CdaSnapshotRecords, after : CdaSnapshotRecords]
+CdaAppliedRelatedCandidate(intent, owner, attempt, inputStep, before, after) ==
+  [intent |-> intent, owner |-> owner, attempt |-> attempt,
+   groupInputStep |-> inputStep, before |-> before, after |-> after]
+
+CdaCurrentSnapshot ==
+  CdaSnapshot(cdaPersistedGroup, cdaPersistedRelatedSource,
+              cdaOutputToken, cdaDraftVersion, cdaDraftDigest)
+
+CdaVars == <<cdaCurrentTable, cdaRowExpansionCount, cdaGroupInputTable,
+             cdaMountedGroupInputTable, cdaGroupInputStep,
+             cdaMountedGroupInputStep, cdaPersistedGroup, cdaMountedGroup,
+             cdaPersistedRelatedSource, cdaMountedRelatedSource,
+             cdaMountEpoch, cdaPreview, cdaProposalPreviewOwner,
+             cdaProposalPreviewCaptureOwner, cdaProposalIdPresent,
+             cdaRowsPresent, cdaGroupCandidate, cdaExpansionCandidate,
+             cdaRelatedCandidate, cdaOutputToken, cdaDraftVersion,
+             cdaDraftDigest, cdaLastAppliedGroupCandidate,
+             cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+             cdaLastCancelAfter, cdaLastIgnoredRequestOwner,
+             cdaLastGroupEditRelatedBefore, cdaLastGroupEditRelatedAfter,
+             cdaLastAction, cdaWitnessStage>>
+
+CdaInitialSnapshot == CdaSnapshot0
+CdaInit ==
+  /\ cdaCurrentTable = "Specimen"
+  /\ cdaRowExpansionCount = 0
+  /\ cdaGroupInputTable = "None"
+  /\ cdaMountedGroupInputTable = "None"
+  /\ cdaGroupInputStep = "None"
+  /\ cdaMountedGroupInputStep = "None"
+  /\ cdaPersistedGroup = NoGroup
+  /\ cdaMountedGroup = NoGroup
+  /\ cdaPersistedRelatedSource = CdaNoRelatedSource
+  /\ cdaMountedRelatedSource = CdaNoRelatedSource
+  /\ cdaMountEpoch = 0
+  /\ cdaPreview = "none"
+  /\ cdaProposalPreviewOwner = "NoAttempt"
+  /\ cdaProposalPreviewCaptureOwner = CdaNoPreviewOwner
+  /\ cdaProposalIdPresent = FALSE
+  /\ cdaRowsPresent = FALSE
+  /\ cdaGroupCandidate = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate = CdaNoRelatedCandidate
+  /\ cdaOutputToken = "O0"
+  /\ cdaDraftVersion = 0
+  /\ cdaDraftDigest = "D0"
+  /\ cdaLastAppliedGroupCandidate = CdaNoAppliedGroupCandidate
+  /\ cdaLastAppliedRelatedCandidate = CdaNoAppliedRelatedCandidate
+  /\ cdaLastCancelBefore = CdaInitialSnapshot
+  /\ cdaLastCancelAfter = CdaInitialSnapshot
+  /\ cdaLastIgnoredRequestOwner = CdaNoPreviewOwner
+  /\ cdaLastGroupEditRelatedBefore = CdaNoRelatedSource
+  /\ cdaLastGroupEditRelatedAfter = CdaNoRelatedSource
+  /\ cdaLastAction = "Init"
+  /\ cdaWitnessStage = 0
+
+CdaCurrentTableForExpansionCount(count) ==
+  CASE count = 0 -> "Specimen"
+    [] count = 1 -> "Patient"
+    [] count = 2 -> "Observation"
+
+CdaExpansionBefore(stage) ==
+  CASE stage = "SpecimenPatient" -> "Specimen"
+    [] stage = "PatientObservation" -> "Patient"
+
+CdaExpansionAfter(stage) ==
+  CASE stage = "SpecimenPatient" -> "Patient"
+    [] stage = "PatientObservation" -> "Observation"
+
+CdaExpansionBeforeSnapshot(stage) ==
+  CASE stage = "SpecimenPatient" -> CdaSnapshot0
+    [] stage = "PatientObservation" -> CdaSnapshot1
+
+CdaExpansionAfterSnapshot(stage) ==
+  CASE stage = "SpecimenPatient" -> CdaSnapshot1
+    [] stage = "PatientObservation" -> CdaSnapshot2
+
+CdaCurrentGroupCandidate(attempt, observedEpoch, candidateOwner,
+                         intent, savedGroupInput) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ attempt = cdaProposalPreviewOwner
+  /\ observedEpoch = cdaMountEpoch
+  /\ candidateOwner = cdaGroupCandidate.owner
+  /\ candidateOwner = cdaProposalPreviewCaptureOwner
+  /\ candidateOwner.mountEpoch = cdaMountEpoch
+  /\ intent = cdaGroupCandidate.intent
+  /\ cdaGroupCandidate # CdaNoGroupCandidate
+  /\ cdaPreview = "ready"
+  /\ savedGroupInput = cdaGroupInputStep
+  /\ cdaGroupCandidate.groupInputStep = savedGroupInput
+
+CdaCurrentRelatedCandidate(attempt, observedEpoch, candidateOwner,
+                           intent, savedGroupInput) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ attempt = cdaProposalPreviewOwner
+  /\ observedEpoch = cdaMountEpoch
+  /\ candidateOwner = cdaRelatedCandidate.owner
+  /\ candidateOwner = cdaProposalPreviewCaptureOwner
+  /\ candidateOwner.mountEpoch = cdaMountEpoch
+  /\ attempt = cdaRelatedCandidate.attempt
+  /\ intent = cdaRelatedCandidate.intent
+  /\ cdaRelatedCandidate # CdaNoRelatedCandidate
+  /\ cdaPreview = "ready"
+  /\ savedGroupInput = cdaGroupInputStep
+  /\ cdaRelatedCandidate.groupInputStep = savedGroupInput
+
+CdaCloseProposalPreview ==
+  /\ cdaPreview \in {"none", "ready", "error"}
+  /\ cdaPreview' = "none"
+  /\ cdaProposalIdPresent' = IF cdaPreview = "ready"
+                              THEN FALSE ELSE cdaProposalIdPresent
+  /\ cdaRowsPresent' = IF cdaPreview = "ready"
+                       THEN FALSE ELSE cdaRowsPresent
+  /\ cdaProposalPreviewOwner' = "NoAttempt"
+  /\ cdaProposalPreviewCaptureOwner' = CdaNoPreviewOwner
+
+CdaPreview(attempt, observedEpoch, ownerEpoch, captureId, intent,
+           savedGroupInput, savedBefore, savedAfter) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ observedEpoch = cdaMountEpoch
+  /\ ownerEpoch = observedEpoch
+  /\ captureId \in CdaRequestOwnerTokens
+  /\ intent \in {CdaNoGroupIntent} \cup
+       CdaGroupIntentValues \cup CdaExpansionIntentValues
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedAfter = savedBefore
+  /\ cdaPreview \in CdaPreviewStates
+  /\ IF intent \in CdaExpansionIntentValues
+     THEN /\ savedGroupInput = "None"
+          /\ cdaGroupInputStep = "None"
+          /\ cdaPersistedGroup = NoGroup
+          /\ cdaRowExpansionCount \in 0..1
+          /\ intent.beforeTable = cdaCurrentTable
+          /\ intent.beforeTable = CdaExpansionBefore(intent.stage)
+          /\ intent.afterTable = CdaExpansionAfter(intent.stage)
+          /\ intent.stage = IF cdaRowExpansionCount = 0
+                            THEN "SpecimenPatient"
+                            ELSE "PatientObservation"
+          /\ savedBefore = CdaExpansionBeforeSnapshot(intent.stage)
+          /\ cdaExpansionCandidate' =
+               [intent |-> intent,
+                owner |-> CdaPreviewOwner(ownerEpoch, captureId)]
+          /\ cdaGroupCandidate' = CdaNoGroupCandidate
+     ELSE IF intent = CdaNoGroupIntent
+          THEN /\ savedGroupInput = cdaGroupInputStep
+               /\ cdaGroupCandidate' = CdaNoGroupCandidate
+               /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+          ELSE /\ savedGroupInput = cdaGroupInputStep
+               /\ IF intent.kind = "create"
+                  THEN /\ cdaPersistedGroup = NoGroup
+                       /\ intent = CdaCreateByIDCountRowsIntent
+                       /\ savedGroupInput = "None"
+                  ELSE /\ cdaRowExpansionCount = 2
+                       /\ cdaCurrentTable = "Observation"
+                       /\ savedGroupInput = "G1"
+                       /\ IF intent = CdaEditByIDCountDistinctIntent
+                          THEN cdaPersistedGroup = CdaByIDCountRowsGroup
+                          ELSE IF intent = CdaEditByIDCountRowsIntent
+                               THEN cdaPersistedGroup = CdaByIDCountDistinctGroup
+                               ELSE IF intent = CdaUnchangedByIDCountRowsIntent
+                                    THEN cdaPersistedGroup = CdaByIDCountRowsGroup
+                                    ELSE /\ intent = CdaUnchangedByIDCountDistinctIntent
+                                         /\ cdaPersistedGroup = CdaByIDCountDistinctGroup
+               /\ cdaGroupCandidate' =
+                    CdaGroupCandidateFromIntent(
+                      intent, CdaPreviewOwner(ownerEpoch, captureId),
+                      savedGroupInput,
+                      IF savedGroupInput = "None"
+                      THEN cdaCurrentTable ELSE cdaGroupInputTable)
+               /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaPreview' = "pending"
+  /\ cdaProposalPreviewOwner' = attempt
+  /\ cdaProposalPreviewCaptureOwner' = CdaPreviewOwner(ownerEpoch, captureId)
+  /\ cdaProposalIdPresent' = FALSE
+  /\ cdaRowsPresent' = FALSE
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastAppliedGroupCandidate' = CdaNoAppliedGroupCandidate
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch,
+                  cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                  cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+                  cdaLastCancelAfter, cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "Preview"
+
+CdaPreviewComplete(attempt, observedEpoch, ownerEpoch, captureId) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ observedEpoch \in CdaMountEpochs
+  /\ ownerEpoch \in CdaMountEpochs
+  /\ captureId \in CdaRequestOwnerTokens
+  /\ cdaPreview = "pending"
+  /\ cdaProposalPreviewOwner = attempt
+  /\ cdaProposalPreviewCaptureOwner = CdaPreviewOwner(ownerEpoch, captureId)
+  /\ observedEpoch = cdaMountEpoch
+  /\ ownerEpoch = observedEpoch
+  /\ cdaPreview' = "ready"
+  /\ cdaProposalIdPresent' = TRUE
+  /\ cdaRowsPresent' = TRUE
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaProposalPreviewOwner,
+                  cdaProposalPreviewCaptureOwner, cdaGroupCandidate,
+                  cdaExpansionCandidate, cdaRelatedCandidate,
+                  cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                  cdaLastAppliedGroupCandidate,
+                  cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+                  cdaLastCancelAfter, cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "PreviewComplete"
+
+CdaPreviewError(attempt, observedEpoch, ownerEpoch, captureId, hasProposalId) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ observedEpoch \in CdaMountEpochs
+  /\ ownerEpoch \in CdaMountEpochs
+  /\ captureId \in CdaRequestOwnerTokens
+  /\ cdaPreview = "pending"
+  /\ cdaProposalPreviewOwner = attempt
+  /\ cdaProposalPreviewCaptureOwner = CdaPreviewOwner(ownerEpoch, captureId)
+  /\ observedEpoch = cdaMountEpoch
+  /\ ownerEpoch = observedEpoch
+  /\ hasProposalId \in BOOLEAN
+  /\ cdaPreview' = "error"
+  /\ cdaProposalIdPresent' = hasProposalId
+  /\ cdaRowsPresent' = FALSE
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaProposalPreviewOwner,
+                  cdaProposalPreviewCaptureOwner, cdaGroupCandidate,
+                  cdaExpansionCandidate, cdaRelatedCandidate,
+                  cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                  cdaLastAppliedGroupCandidate,
+                  cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+                  cdaLastCancelAfter, cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "PreviewError"
+
+CdaPreviewRequestCancelled(attempt, observedEpoch, ownerEpoch, captureId) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ observedEpoch \in CdaMountEpochs
+  /\ ownerEpoch \in CdaMountEpochs
+  /\ captureId \in CdaRequestOwnerTokens
+  /\ cdaPreview = "pending"
+  /\ cdaProposalPreviewOwner = attempt
+  /\ cdaProposalPreviewCaptureOwner = CdaPreviewOwner(ownerEpoch, captureId)
+  /\ observedEpoch = cdaMountEpoch
+  /\ ownerEpoch = observedEpoch
+  /\ cdaPreview' = "none"
+  /\ cdaProposalPreviewOwner' = "NoAttempt"
+  /\ cdaProposalPreviewCaptureOwner' = CdaNoPreviewOwner
+  /\ cdaProposalIdPresent' = FALSE
+  /\ cdaRowsPresent' = FALSE
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaOutputToken, cdaDraftVersion,
+                  cdaDraftDigest, cdaLastAppliedGroupCandidate,
+                  cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+                  cdaLastCancelAfter, cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "PreviewRequestCancelled"
+
+CdaLatePreviewCompleteIgnored(attempt, observedEpoch, ownerEpoch, captureId) ==
+  LET settledOwner == CdaPreviewOwner(ownerEpoch, captureId)
+  IN /\ attempt \in {"P1", "P2"}
+     /\ observedEpoch \in CdaMountEpochs
+     /\ ownerEpoch \in CdaMountEpochs
+     /\ captureId \in CdaRequestOwnerTokens
+     /\ observedEpoch = cdaMountEpoch
+     /\ settledOwner # cdaProposalPreviewCaptureOwner
+     /\ cdaLastIgnoredRequestOwner' = settledOwner
+     /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                     cdaGroupInputTable, cdaMountedGroupInputTable,
+                     cdaGroupInputStep, cdaMountedGroupInputStep,
+                     cdaPersistedGroup, cdaMountedGroup,
+                     cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                     cdaMountEpoch, cdaPreview, cdaProposalPreviewOwner,
+                     cdaProposalPreviewCaptureOwner, cdaProposalIdPresent,
+                     cdaRowsPresent, cdaGroupCandidate,
+                     cdaExpansionCandidate, cdaRelatedCandidate,
+                     cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                     cdaLastAppliedGroupCandidate,
+                     cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+                     cdaLastCancelAfter,
+                     cdaLastGroupEditRelatedBefore,
+                     cdaLastGroupEditRelatedAfter>>
+     /\ cdaLastAction' = "LatePreviewCompleteIgnored"
+
+CdaLatePreviewErrorIgnored(attempt, observedEpoch, ownerEpoch, captureId) ==
+  LET settledOwner == CdaPreviewOwner(ownerEpoch, captureId)
+  IN /\ attempt \in {"P1", "P2"}
+     /\ observedEpoch \in CdaMountEpochs
+     /\ ownerEpoch \in CdaMountEpochs
+     /\ captureId \in CdaRequestOwnerTokens
+     /\ observedEpoch = cdaMountEpoch
+     /\ settledOwner # cdaProposalPreviewCaptureOwner
+     /\ cdaLastIgnoredRequestOwner' = settledOwner
+     /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                     cdaGroupInputTable, cdaMountedGroupInputTable,
+                     cdaGroupInputStep, cdaMountedGroupInputStep,
+                     cdaPersistedGroup, cdaMountedGroup,
+                     cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                     cdaMountEpoch, cdaPreview, cdaProposalPreviewOwner,
+                     cdaProposalPreviewCaptureOwner, cdaProposalIdPresent,
+                     cdaRowsPresent, cdaGroupCandidate,
+                     cdaExpansionCandidate, cdaRelatedCandidate,
+                     cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                     cdaLastAppliedGroupCandidate,
+                     cdaLastAppliedRelatedCandidate, cdaLastCancelBefore,
+                     cdaLastCancelAfter,
+                     cdaLastGroupEditRelatedBefore,
+                     cdaLastGroupEditRelatedAfter>>
+     /\ cdaLastAction' = "LatePreviewErrorIgnored"
+
+ExpandRows(attempt, observedEpoch, candidateOwner, stageToken,
+           savedBeforeTable, savedAfterTable, savedBefore, savedAfter) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ attempt = cdaProposalPreviewOwner
+  /\ observedEpoch = cdaMountEpoch
+  /\ candidateOwner = cdaExpansionCandidate.owner
+  /\ candidateOwner = cdaProposalPreviewCaptureOwner
+  /\ candidateOwner.mountEpoch = cdaMountEpoch
+  /\ cdaExpansionCandidate # CdaNoExpansionCandidate
+  /\ cdaExpansionCandidate.intent.stage = stageToken
+  /\ cdaPreview = "ready"
+  /\ stageToken \in CdaRowExpansionStages
+  /\ savedBeforeTable = cdaCurrentTable
+  /\ savedBeforeTable = CdaExpansionBefore(stageToken)
+  /\ savedAfterTable = CdaExpansionAfter(stageToken)
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedBefore = CdaExpansionBeforeSnapshot(stageToken)
+  /\ savedAfter = CdaExpansionAfterSnapshot(stageToken)
+  /\ cdaRowExpansionCount < 2
+  /\ cdaCurrentTable' = savedAfterTable
+  /\ cdaRowExpansionCount' = cdaRowExpansionCount + 1
+  /\ cdaOutputToken' = savedAfter.outputToken
+  /\ cdaDraftVersion' = savedAfter.draftVersion
+  /\ cdaDraftDigest' = savedAfter.draftDigest
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastCancelBefore' = cdaLastCancelBefore
+  /\ cdaLastCancelAfter' = cdaLastCancelAfter
+  /\ CdaCloseProposalPreview
+  /\ UNCHANGED <<cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaLastAppliedGroupCandidate,
+                  cdaLastAppliedRelatedCandidate,
+                  cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "ExpandRows"
+
+CdaGroup(attempt, observedEpoch, candidateOwner, intent, savedGroupInput,
+         savedBefore, savedAfter) ==
+  /\ CdaCurrentGroupCandidate(attempt, observedEpoch, candidateOwner,
+                              intent, savedGroupInput)
+  /\ intent = CdaCreateByIDCountRowsIntent
+  /\ savedGroupInput = "None"
+  /\ cdaRowExpansionCount = 2
+  /\ cdaCurrentTable = "Observation"
+  /\ cdaGroupInputTable = "None"
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedBefore = CdaSnapshot2
+  /\ savedAfter = CdaSnapshot3
+  /\ savedBefore.relatedSource = savedAfter.relatedSource
+  /\ cdaPersistedGroup' = savedAfter.group
+  /\ cdaMountedGroup' = savedAfter.group
+  /\ cdaGroupInputStep' = "G1"
+  /\ cdaMountedGroupInputStep' = "G1"
+  /\ cdaGroupInputTable' = "Observation"
+  /\ cdaMountedGroupInputTable' = "Observation"
+  /\ cdaOutputToken' = savedAfter.outputToken
+  /\ cdaDraftVersion' = savedAfter.draftVersion
+  /\ cdaDraftDigest' = savedAfter.draftDigest
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastAppliedGroupCandidate' =
+       CdaAppliedGroupCandidate(intent, candidateOwner, savedGroupInput,
+                                savedBefore, savedAfter)
+  /\ cdaLastGroupEditRelatedBefore' = savedBefore.relatedSource
+  /\ cdaLastGroupEditRelatedAfter' = savedAfter.relatedSource
+  /\ CdaCloseProposalPreview
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaLastAppliedRelatedCandidate,
+                  cdaLastCancelBefore, cdaLastCancelAfter,
+                  cdaLastIgnoredRequestOwner>>
+  /\ cdaLastAction' = "Group"
+
+CdaEditGroup(attempt, observedEpoch, candidateOwner, intent,
+             savedGroupInput, savedBefore, savedAfter) ==
+  /\ CdaCurrentGroupCandidate(attempt, observedEpoch, candidateOwner,
+                              intent, savedGroupInput)
+  /\ intent = CdaEditByIDCountDistinctIntent
+  /\ savedGroupInput = "G1"
+  /\ cdaRowExpansionCount = 2
+  /\ cdaPersistedGroup = CdaByIDCountRowsGroup
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedBefore = CdaSnapshot3
+  /\ savedAfter = CdaSnapshot4
+  /\ savedBefore.relatedSource = savedAfter.relatedSource
+  /\ cdaPersistedGroup' = savedAfter.group
+  /\ cdaMountedGroup' = savedAfter.group
+  /\ cdaOutputToken' = savedAfter.outputToken
+  /\ cdaDraftVersion' = savedAfter.draftVersion
+  /\ cdaDraftDigest' = savedAfter.draftDigest
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastAppliedGroupCandidate' =
+       CdaAppliedGroupCandidate(intent, candidateOwner, savedGroupInput,
+                                savedBefore, savedAfter)
+  /\ cdaLastGroupEditRelatedBefore' = savedBefore.relatedSource
+  /\ cdaLastGroupEditRelatedAfter' = savedAfter.relatedSource
+  /\ CdaCloseProposalPreview
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaLastAppliedRelatedCandidate,
+                  cdaLastCancelBefore, cdaLastCancelAfter,
+                  cdaLastIgnoredRequestOwner>>
+  /\ cdaLastAction' = "EditGroup"
+
+CdaEditGroupAgain(attempt, observedEpoch, candidateOwner, intent,
+                  savedGroupInput, savedBefore, savedAfter) ==
+  /\ CdaCurrentGroupCandidate(attempt, observedEpoch, candidateOwner,
+                              intent, savedGroupInput)
+  /\ intent = CdaEditByIDCountRowsIntent
+  /\ savedGroupInput = "G1"
+  /\ cdaRowExpansionCount = 2
+  /\ cdaPersistedGroup = CdaByIDCountDistinctGroup
+  /\ cdaPersistedRelatedSource = CdaObservationStatusRelatedSource
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedBefore = CdaSnapshot5
+  /\ savedAfter = CdaSnapshot6
+  /\ savedBefore.relatedSource = savedAfter.relatedSource
+  /\ cdaPersistedGroup' = savedAfter.group
+  /\ cdaMountedGroup' = savedAfter.group
+  /\ cdaOutputToken' = savedAfter.outputToken
+  /\ cdaDraftVersion' = savedAfter.draftVersion
+  /\ cdaDraftDigest' = savedAfter.draftDigest
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastAppliedGroupCandidate' =
+       CdaAppliedGroupCandidate(intent, candidateOwner, savedGroupInput,
+                                savedBefore, savedAfter)
+  /\ cdaLastGroupEditRelatedBefore' = savedBefore.relatedSource
+  /\ cdaLastGroupEditRelatedAfter' = savedAfter.relatedSource
+  /\ CdaCloseProposalPreview
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaLastAppliedRelatedCandidate,
+                  cdaLastCancelBefore, cdaLastCancelAfter,
+                  cdaLastIgnoredRequestOwner>>
+  /\ cdaLastAction' = "EditGroupAgain"
+
+CdaGroupEditCancel(observedEpoch, candidateOwner, savedGroupInput,
+                   savedBefore, savedAfter) ==
+  /\ observedEpoch = cdaMountEpoch
+  /\ cdaGroupCandidate # CdaNoGroupCandidate
+  /\ cdaGroupCandidate.intent.kind = "edit"
+  /\ cdaGroupCandidate.groupInputStep = cdaGroupInputStep
+  /\ candidateOwner = cdaGroupCandidate.owner
+  /\ candidateOwner = cdaProposalPreviewCaptureOwner
+  /\ candidateOwner.mountEpoch = observedEpoch
+  /\ cdaProposalPreviewOwner \in {"P1", "P2"}
+  /\ cdaPreview = "ready"
+  /\ savedGroupInput = cdaGroupInputStep
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedAfter = savedBefore
+  /\ CdaCloseProposalPreview
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastCancelBefore' = savedBefore
+  /\ cdaLastCancelAfter' = savedAfter
+  /\ cdaLastGroupEditRelatedBefore' = savedBefore.relatedSource
+  /\ cdaLastGroupEditRelatedAfter' = savedAfter.relatedSource
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaLastAppliedGroupCandidate,
+                  cdaLastAppliedRelatedCandidate,
+                  cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                  cdaLastIgnoredRequestOwner>>
+  /\ cdaLastAction' = "GroupEditCancel"
+
+RelatedSourcePreview(attempt, observedEpoch, candidateOwner, intent,
+                     savedGroupInput, savedBefore, savedAfter) ==
+  /\ attempt \in {"P1", "P2"}
+  /\ observedEpoch = cdaMountEpoch
+  /\ candidateOwner.mountEpoch = observedEpoch
+  /\ candidateOwner \in CdaPreviewOwners
+  /\ candidateOwner.captureId \in CdaRequestOwnerTokens
+  /\ intent \in CdaRelatedIntentValues
+  /\ savedGroupInput = "G1"
+  /\ savedGroupInput = cdaGroupInputStep
+  /\ cdaGroupInputTable = "Observation"
+  /\ cdaPersistedGroup # NoGroup
+  /\ cdaPersistedGroup.stepId = "G1"
+  /\ intent.groupInputStep = savedGroupInput
+  /\ intent.base = cdaPersistedRelatedSource
+  /\ (intent.kind = "add" => intent.targetStepId = "None")
+  /\ (intent.kind \in {"remove", "keep"} =>
+      intent.targetStepId = cdaPersistedRelatedSource.relatedStepToken)
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedAfter = savedBefore
+  /\ IF intent.kind = "add"
+     THEN /\ intent = CdaAddObservationStatusIntent
+          /\ intent.targetStepId = "None"
+          /\ cdaPersistedGroup.aggregate = "COUNT_DISTINCT"
+          /\ savedBefore = CdaSnapshot4
+     ELSE IF intent.kind = "remove"
+          THEN /\ intent = CdaRemoveObservationStatusIntent
+               /\ intent.targetStepId = "R1"
+               /\ cdaPersistedGroup.aggregate = "COUNT_ROWS"
+               /\ savedBefore = CdaSnapshot6
+          ELSE /\ intent.kind = "keep"
+               /\ cdaPersistedRelatedSource =
+                    CdaObservationStatusRelatedSource
+               /\ savedBefore \in {CdaSnapshot5, CdaSnapshot6}
+  /\ cdaPreview' = "ready"
+  /\ cdaProposalPreviewOwner' = attempt
+  /\ cdaProposalPreviewCaptureOwner' = candidateOwner
+  /\ cdaProposalIdPresent' = TRUE
+  /\ cdaRowsPresent' = FALSE
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' =
+       CdaRelatedCandidateFromIntent(intent, candidateOwner, attempt,
+                                     savedGroupInput)
+  /\ cdaLastAppliedRelatedCandidate' = CdaNoAppliedRelatedCandidate
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaOutputToken,
+                  cdaDraftVersion, cdaDraftDigest,
+                  cdaLastAppliedGroupCandidate,
+                  cdaLastCancelBefore, cdaLastCancelAfter,
+                  cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "RelatedSourcePreview"
+
+RelatedSourceApply(attempt, observedEpoch, candidateOwner, intent,
+                   savedGroupInput, savedBefore, savedAfter) ==
+  /\ CdaCurrentRelatedCandidate(attempt, observedEpoch, candidateOwner,
+                                intent, savedGroupInput)
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedBefore = IF intent.kind = "add"
+                   THEN CdaSnapshot4 ELSE CdaSnapshot6
+  /\ savedAfter = IF intent.kind = "add"
+                  THEN CdaSnapshot5 ELSE CdaSnapshot7
+  /\ intent.base = cdaPersistedRelatedSource
+  /\ intent.proposed = savedAfter.relatedSource
+  /\ savedBefore.group = savedAfter.group
+  /\ savedBefore.group = cdaPersistedGroup
+  /\ savedGroupInput = cdaGroupInputStep
+  /\ savedGroupInput = cdaPersistedGroup.stepId
+  /\ savedGroupInput = intent.groupInputStep
+  /\ IF intent.kind = "add"
+     THEN /\ intent = CdaAddObservationStatusIntent
+          /\ cdaPersistedRelatedSource = CdaNoRelatedSource
+          /\ savedAfter.relatedSource = CdaObservationStatusRelatedSource
+          /\ savedAfter.group.aggregate = "COUNT_DISTINCT"
+     ELSE /\ intent = CdaRemoveObservationStatusIntent
+          /\ cdaPersistedRelatedSource = CdaObservationStatusRelatedSource
+          /\ savedAfter.relatedSource = CdaNoRelatedSource
+          /\ savedAfter.group.aggregate = "COUNT_ROWS"
+  /\ cdaPersistedRelatedSource' = savedAfter.relatedSource
+  /\ cdaMountedRelatedSource' = savedAfter.relatedSource
+  /\ cdaOutputToken' = savedAfter.outputToken
+  /\ cdaDraftVersion' = savedAfter.draftVersion
+  /\ cdaDraftDigest' = savedAfter.draftDigest
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastAppliedRelatedCandidate' =
+       CdaAppliedRelatedCandidate(intent, candidateOwner, attempt,
+                                  savedGroupInput, savedBefore, savedAfter)
+  /\ CdaCloseProposalPreview
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaMountEpoch, cdaGroupCandidate,
+                  cdaExpansionCandidate, cdaLastAppliedGroupCandidate,
+                  cdaLastCancelBefore, cdaLastCancelAfter,
+                  cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "RelatedSourceApply"
+
+RelatedSourceCancel(attempt, observedEpoch, candidateOwner, intent,
+                    savedGroupInput, savedBefore, savedAfter) ==
+  /\ CdaCurrentRelatedCandidate(attempt, observedEpoch, candidateOwner,
+                                intent, savedGroupInput)
+  /\ intent.base = cdaPersistedRelatedSource
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedAfter = savedBefore
+  /\ savedGroupInput = cdaGroupInputStep
+  /\ savedGroupInput = cdaPersistedGroup.stepId
+  /\ CdaCloseProposalPreview
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaLastCancelBefore' = savedBefore
+  /\ cdaLastCancelAfter' = savedAfter
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaMountedGroupInputTable,
+                  cdaGroupInputStep, cdaMountedGroupInputStep,
+                  cdaPersistedGroup, cdaMountedGroup,
+                  cdaPersistedRelatedSource, cdaMountedRelatedSource,
+                  cdaMountEpoch, cdaGroupCandidate,
+                  cdaExpansionCandidate, cdaLastAppliedGroupCandidate,
+                  cdaLastAppliedRelatedCandidate,
+                  cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                  cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "RelatedSourceCancel"
+
+CdaReload(observedEpoch, savedBefore, savedAfter,
+          observedMountedGroup, observedMountedRelated) ==
+  /\ cdaMountEpoch < CdaMaxMountEpoch
+  /\ observedEpoch = cdaMountEpoch + 1
+  /\ savedBefore = CdaCurrentSnapshot
+  /\ savedAfter = savedBefore
+  /\ observedMountedGroup = savedAfter.group
+  /\ observedMountedRelated = savedAfter.relatedSource
+  /\ cdaMountEpoch' = observedEpoch
+  /\ cdaMountedGroup' = savedAfter.group
+  /\ cdaMountedRelatedSource' = savedAfter.relatedSource
+  /\ cdaMountedGroupInputStep' = cdaGroupInputStep
+  /\ cdaMountedGroupInputTable' = cdaGroupInputTable
+  /\ cdaGroupCandidate' = CdaNoGroupCandidate
+  /\ cdaExpansionCandidate' = CdaNoExpansionCandidate
+  /\ cdaRelatedCandidate' = CdaNoRelatedCandidate
+  /\ cdaPreview' = "none"
+  /\ cdaProposalPreviewOwner' = "NoAttempt"
+  /\ cdaProposalPreviewCaptureOwner' = CdaNoPreviewOwner
+  /\ cdaProposalIdPresent' = FALSE
+  /\ cdaRowsPresent' = FALSE
+  /\ cdaLastAppliedGroupCandidate' = CdaNoAppliedGroupCandidate
+  /\ cdaLastAppliedRelatedCandidate' = CdaNoAppliedRelatedCandidate
+  /\ cdaLastCancelBefore' = savedBefore
+  /\ cdaLastCancelAfter' = savedAfter
+  /\ UNCHANGED <<cdaCurrentTable, cdaRowExpansionCount,
+                  cdaGroupInputTable, cdaGroupInputStep,
+                  cdaPersistedGroup, cdaPersistedRelatedSource,
+                  cdaOutputToken, cdaDraftVersion, cdaDraftDigest,
+                  cdaLastIgnoredRequestOwner,
+                  cdaLastGroupEditRelatedBefore,
+                  cdaLastGroupEditRelatedAfter>>
+  /\ cdaLastAction' = "Reload"
+
+CdaStutter == UNCHANGED CdaVars
+
+CdaNext ==
+  \/ \E attempt \in {"P1", "P2"}, ownerEpoch \in CdaMountEpochs,
+       captureId \in CdaRequestOwnerTokens,
+       intent \in {CdaNoGroupIntent} \cup
+                    CdaGroupIntentValues \cup CdaExpansionIntentValues:
+       CdaPreview(attempt, cdaMountEpoch, ownerEpoch, captureId, intent,
+                  cdaGroupInputStep, CdaCurrentSnapshot, CdaCurrentSnapshot)
+  \/ \E attempt \in {"P1", "P2"}, ownerEpoch \in CdaMountEpochs,
+       captureId \in CdaRequestOwnerTokens:
+       CdaPreviewComplete(attempt, cdaMountEpoch, ownerEpoch, captureId)
+  \/ \E attempt \in {"P1", "P2"}, ownerEpoch \in CdaMountEpochs,
+       captureId \in CdaRequestOwnerTokens, hasProposalId \in BOOLEAN:
+       CdaPreviewError(attempt, cdaMountEpoch, ownerEpoch, captureId,
+                       hasProposalId)
+  \/ \E attempt \in {"P1", "P2"}, ownerEpoch \in CdaMountEpochs,
+       captureId \in CdaRequestOwnerTokens:
+       CdaPreviewRequestCancelled(attempt, cdaMountEpoch, ownerEpoch,
+                                  captureId)
+  \/ \E attempt \in {"P1", "P2"}, ownerEpoch \in CdaMountEpochs,
+       captureId \in CdaRequestOwnerTokens:
+       CdaLatePreviewCompleteIgnored(attempt, cdaMountEpoch, ownerEpoch,
+                                     captureId)
+  \/ \E attempt \in {"P1", "P2"}, ownerEpoch \in CdaMountEpochs,
+       captureId \in CdaRequestOwnerTokens:
+       CdaLatePreviewErrorIgnored(attempt, cdaMountEpoch, ownerEpoch,
+                                  captureId)
+  \/ \E attempt \in {"P1", "P2"}, stageToken \in CdaRowExpansionStages:
+       ExpandRows(attempt, cdaMountEpoch, cdaProposalPreviewCaptureOwner,
+                  stageToken, cdaCurrentTable,
+                  CdaExpansionAfter(stageToken), CdaCurrentSnapshot,
+                  CdaExpansionAfterSnapshot(stageToken))
+  \/ \E attempt \in {"P1", "P2"}:
+       CdaGroup(attempt, cdaMountEpoch, cdaProposalPreviewCaptureOwner,
+                CdaCreateByIDCountRowsIntent, "None",
+                CdaCurrentSnapshot, CdaSnapshot3)
+  \/ \E attempt \in {"P1", "P2"}:
+       CdaEditGroup(attempt, cdaMountEpoch, cdaProposalPreviewCaptureOwner,
+                    CdaEditByIDCountDistinctIntent, "G1",
+                    CdaCurrentSnapshot, CdaSnapshot4)
+  \/ \E attempt \in {"P1", "P2"}:
+       CdaEditGroupAgain(attempt, cdaMountEpoch,
+                         cdaProposalPreviewCaptureOwner,
+                         CdaEditByIDCountRowsIntent, "G1",
+                         CdaCurrentSnapshot, CdaSnapshot6)
+  \/ CdaGroupEditCancel(cdaMountEpoch, cdaGroupCandidate.owner,
+                        cdaGroupInputStep, CdaCurrentSnapshot,
+                        CdaCurrentSnapshot)
+  \/ \E attempt \in {"P1", "P2"}, captureId \in CdaRequestOwnerTokens,
+       intent \in CdaRelatedIntentValues:
+       RelatedSourcePreview(attempt, cdaMountEpoch,
+                            CdaPreviewOwner(cdaMountEpoch, captureId),
+                            intent, cdaGroupInputStep,
+                            CdaCurrentSnapshot, CdaCurrentSnapshot)
+  \/ \E attempt \in {"P1", "P2"}, intent \in CdaRelatedIntentValues:
+       RelatedSourceApply(attempt, cdaMountEpoch,
+                          cdaProposalPreviewCaptureOwner, intent,
+                          cdaGroupInputStep, CdaCurrentSnapshot,
+                          IF intent.kind = "add"
+                          THEN CdaSnapshot5 ELSE CdaSnapshot7)
+  \/ \E attempt \in {"P1", "P2"}, intent \in CdaRelatedIntentValues:
+       RelatedSourceCancel(attempt, cdaMountEpoch,
+                           cdaProposalPreviewCaptureOwner, intent,
+                           cdaGroupInputStep, CdaCurrentSnapshot,
+                           CdaCurrentSnapshot)
+  \/ CdaReload(cdaMountEpoch + 1, CdaCurrentSnapshot,
+               CdaCurrentSnapshot, cdaPersistedGroup,
+               cdaPersistedRelatedSource)
+  \/ CdaStutter
+
+CdaWitnessCapture1 ==
+  CHOOSE token \in CdaRequestOwnerTokens : TRUE
+CdaWitnessCapture2 ==
+  CHOOSE token \in CdaRequestOwnerTokens \ {CdaWitnessCapture1} : TRUE
+
+CdaWitnessAction ==
+  CASE cdaWitnessStage = 0 ->
+         CdaPreview("P1", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture1, CdaSpecimenPatientIntent,
+                    "None", CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 1 ->
+         CdaPreviewComplete("P1", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture1)
+    [] cdaWitnessStage = 2 ->
+         ExpandRows("P1", cdaMountEpoch, cdaExpansionCandidate.owner,
+                    "SpecimenPatient", cdaCurrentTable, "Patient",
+                    CdaCurrentSnapshot, CdaSnapshot1)
+    [] cdaWitnessStage = 3 ->
+         CdaPreview("P2", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture2, CdaPatientObservationIntent,
+                    "None", CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 4 ->
+         CdaPreviewComplete("P2", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture2)
+    [] cdaWitnessStage = 5 ->
+         ExpandRows("P2", cdaMountEpoch, cdaExpansionCandidate.owner,
+                    "PatientObservation", cdaCurrentTable, "Observation",
+                    CdaCurrentSnapshot, CdaSnapshot2)
+    [] cdaWitnessStage = 6 ->
+         CdaPreview("P1", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture1, CdaCreateByIDCountRowsIntent,
+                    "None", CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 7 ->
+         CdaPreviewComplete("P1", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture1)
+    [] cdaWitnessStage = 8 ->
+         CdaGroup("P1", cdaMountEpoch, cdaProposalPreviewCaptureOwner,
+                  CdaCreateByIDCountRowsIntent, "None",
+                  CdaCurrentSnapshot, CdaSnapshot3)
+    [] cdaWitnessStage = 9 ->
+         CdaReload(cdaMountEpoch + 1, CdaCurrentSnapshot,
+                   CdaCurrentSnapshot, cdaPersistedGroup,
+                   cdaPersistedRelatedSource)
+    [] cdaWitnessStage = 10 ->
+         CdaPreview("P2", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture2,
+                    CdaEditByIDCountDistinctIntent, "G1",
+                    CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 11 ->
+         CdaPreviewComplete("P2", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture2)
+    [] cdaWitnessStage = 12 ->
+         CdaGroupEditCancel(cdaMountEpoch, cdaGroupCandidate.owner,
+                            cdaGroupInputStep, CdaCurrentSnapshot,
+                            CdaCurrentSnapshot)
+    [] cdaWitnessStage = 13 ->
+         CdaPreview("P1", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture1,
+                    CdaEditByIDCountDistinctIntent, "G1",
+                    CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 14 ->
+         CdaPreviewComplete("P1", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture1)
+    [] cdaWitnessStage = 15 ->
+         CdaEditGroup("P1", cdaMountEpoch,
+                      cdaProposalPreviewCaptureOwner,
+                      CdaEditByIDCountDistinctIntent, "G1",
+                      CdaCurrentSnapshot, CdaSnapshot4)
+    [] cdaWitnessStage = 16 ->
+         CdaReload(cdaMountEpoch + 1, CdaCurrentSnapshot,
+                   CdaCurrentSnapshot, cdaPersistedGroup,
+                   cdaPersistedRelatedSource)
+    [] cdaWitnessStage = 17 ->
+         RelatedSourcePreview("P2", cdaMountEpoch,
+                              CdaPreviewOwner(cdaMountEpoch,
+                                              CdaWitnessCapture2),
+                              CdaAddObservationStatusIntent, "G1",
+                              CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 18 ->
+         RelatedSourceCancel("P2", cdaMountEpoch,
+                             cdaRelatedCandidate.owner,
+                             CdaAddObservationStatusIntent, "G1",
+                             CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 19 ->
+         RelatedSourcePreview("P1", cdaMountEpoch,
+                              CdaPreviewOwner(cdaMountEpoch,
+                                              CdaWitnessCapture1),
+                              CdaAddObservationStatusIntent, "G1",
+                              CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 20 ->
+         RelatedSourceApply("P1", cdaMountEpoch,
+                            cdaRelatedCandidate.owner,
+                            CdaAddObservationStatusIntent, "G1",
+                            CdaCurrentSnapshot, CdaSnapshot5)
+    [] cdaWitnessStage = 21 ->
+         CdaReload(cdaMountEpoch + 1, CdaCurrentSnapshot,
+                   CdaCurrentSnapshot, cdaPersistedGroup,
+                   cdaPersistedRelatedSource)
+    [] cdaWitnessStage = 22 ->
+         CdaPreview("P2", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture2, CdaEditByIDCountRowsIntent,
+                    "G1", CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 23 ->
+         CdaPreviewComplete("P2", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture2)
+    [] cdaWitnessStage = 24 ->
+         CdaGroupEditCancel(cdaMountEpoch, cdaGroupCandidate.owner,
+                            cdaGroupInputStep, CdaCurrentSnapshot,
+                            CdaCurrentSnapshot)
+    [] cdaWitnessStage = 25 ->
+         CdaPreview("P1", cdaMountEpoch, cdaMountEpoch,
+                    CdaWitnessCapture1, CdaEditByIDCountRowsIntent,
+                    "G1", CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 26 ->
+         CdaPreviewComplete("P1", cdaMountEpoch, cdaMountEpoch,
+                            CdaWitnessCapture1)
+    [] cdaWitnessStage = 27 ->
+         CdaEditGroupAgain("P1", cdaMountEpoch,
+                           cdaProposalPreviewCaptureOwner,
+                           CdaEditByIDCountRowsIntent, "G1",
+                           CdaCurrentSnapshot, CdaSnapshot6)
+    [] cdaWitnessStage = 28 ->
+         CdaReload(cdaMountEpoch + 1, CdaCurrentSnapshot,
+                   CdaCurrentSnapshot, cdaPersistedGroup,
+                   cdaPersistedRelatedSource)
+    [] cdaWitnessStage = 29 ->
+         RelatedSourcePreview("P2", cdaMountEpoch,
+                              CdaPreviewOwner(cdaMountEpoch,
+                                              CdaWitnessCapture2),
+                              CdaRemoveObservationStatusIntent, "G1",
+                              CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 30 ->
+         RelatedSourceCancel("P2", cdaMountEpoch,
+                             cdaRelatedCandidate.owner,
+                             CdaRemoveObservationStatusIntent, "G1",
+                             CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 31 ->
+         RelatedSourcePreview("P1", cdaMountEpoch,
+                              CdaPreviewOwner(cdaMountEpoch,
+                                              CdaWitnessCapture1),
+                              CdaRemoveObservationStatusIntent, "G1",
+                              CdaCurrentSnapshot, CdaCurrentSnapshot)
+    [] cdaWitnessStage = 32 ->
+         RelatedSourceApply("P1", cdaMountEpoch,
+                            cdaRelatedCandidate.owner,
+                            CdaRemoveObservationStatusIntent, "G1",
+                            CdaCurrentSnapshot, CdaSnapshot7)
+    [] cdaWitnessStage = 33 ->
+         CdaReload(cdaMountEpoch + 1, CdaCurrentSnapshot,
+                   CdaCurrentSnapshot, cdaPersistedGroup,
+                   cdaPersistedRelatedSource)
+
+CdaWitnessNext ==
+  \/ /\ cdaWitnessStage \in 0..33
+     /\ CdaWitnessAction
+     /\ cdaWitnessStage' = cdaWitnessStage + 1
+     /\ UNCHANGED vars
+  \/ /\ cdaWitnessStage = 34
+     /\ UNCHANGED <<vars, CdaVars>>
+
+CdaJourneyRestored ==
+  /\ cdaLastAction = "Reload"
+  /\ cdaMountEpoch = CdaMaxMountEpoch
+  /\ cdaRowExpansionCount = 2
+  /\ cdaCurrentTable = "Observation"
+  /\ cdaPersistedGroup = CdaByIDCountRowsGroup
+  /\ cdaMountedGroup = CdaByIDCountRowsGroup
+  /\ cdaGroupInputTable = "Observation"
+  /\ cdaMountedGroupInputTable = "Observation"
+  /\ cdaGroupInputStep = "G1"
+  /\ cdaMountedGroupInputStep = "G1"
+  /\ cdaPersistedRelatedSource = CdaNoRelatedSource
+  /\ cdaMountedRelatedSource = CdaNoRelatedSource
+
+CdaJourneyEventuallyRestored == <>CdaJourneyRestored
+
+CdaJourneyWitnessVars == <<vars, CdaVars>>
+CdaJourneyWitnessSpec ==
+  /\ Init
+  /\ CdaInit
+  /\ [][CdaWitnessNext]_CdaJourneyWitnessVars
+  /\ WF_CdaJourneyWitnessVars(CdaWitnessNext)
+
+CdaJourneyNext == CdaNext /\ UNCHANGED <<vars, cdaWitnessStage>>
+CdaJourneySpec == Init /\ CdaInit /\ [][CdaJourneyNext]_<<vars, CdaVars>>
+
+Spec == Init /\ CdaInit /\ [][Next /\ UNCHANGED CdaVars]_<<vars, CdaVars>>
+GroupSafetySpec ==
+  Init /\ CdaInit /\
+  [][GroupSafetyNext /\ UNCHANGED CdaVars]_<<GroupSafetyVars, CdaVars>>
+
+CdaTypeOK ==
+  /\ cdaCurrentTable \in CdaDataTokens
+  /\ cdaRowExpansionCount \in 0..2
+  /\ cdaCurrentTable = CdaCurrentTableForExpansionCount(cdaRowExpansionCount)
+  /\ cdaGroupInputTable \in CdaDataTokens \cup {"None"}
+  /\ cdaMountedGroupInputTable \in CdaDataTokens \cup {"None"}
+  /\ cdaGroupInputStep \in CdaGroupInputSteps
+  /\ cdaMountedGroupInputStep \in CdaGroupInputSteps
+  /\ cdaPersistedGroup \in CdaGroupRecords
+  /\ CdaGroupRecordOK(cdaPersistedGroup)
+  /\ cdaMountedGroup \in CdaGroupRecords
+  /\ CdaGroupRecordOK(cdaMountedGroup)
+  /\ cdaPersistedRelatedSource \in CdaRelatedSources
+  /\ cdaMountedRelatedSource \in CdaRelatedSources
+  /\ cdaMountEpoch \in CdaMountEpochs
+  /\ cdaPreview \in CdaPreviewStates
+  /\ cdaProposalPreviewOwner \in CdaProposalOwners
+  /\ cdaProposalPreviewCaptureOwner \in CdaPreviewOwners
+  /\ cdaProposalIdPresent \in BOOLEAN
+  /\ cdaRowsPresent \in BOOLEAN
+  /\ cdaGroupCandidate \in CdaGroupCandidates
+  /\ cdaExpansionCandidate \in CdaExpansionCandidates
+  /\ cdaRelatedCandidate \in CdaRelatedCandidates
+  /\ cdaOutputToken \in CdaOutputTokens
+  /\ cdaDraftVersion \in CdaDraftVersions
+  /\ cdaDraftDigest \in CdaDraftDigests
+  /\ CdaSnapshotOK(CdaCurrentSnapshot)
+  /\ cdaLastAppliedGroupCandidate \in CdaAppliedGroupCandidates
+  /\ cdaLastAppliedRelatedCandidate \in CdaAppliedRelatedCandidates
+  /\ CdaSnapshotOK(cdaLastCancelBefore)
+  /\ CdaSnapshotOK(cdaLastCancelAfter)
+  /\ cdaLastIgnoredRequestOwner \in CdaPreviewOwners
+  /\ cdaLastGroupEditRelatedBefore \in CdaRelatedSources
+  /\ cdaLastGroupEditRelatedAfter \in CdaRelatedSources
+  /\ cdaLastAction \in {"Init", "Preview", "PreviewComplete", "PreviewError",
+                         "PreviewRequestCancelled", "LatePreviewCompleteIgnored",
+                         "LatePreviewErrorIgnored", "ExpandRows", "Group",
+                         "EditGroup", "EditGroupAgain", "GroupEditCancel",
+                         "RelatedSourcePreview", "RelatedSourceApply",
+                         "RelatedSourceCancel", "Reload"}
+  /\ cdaWitnessStage \in 0..34
+
+CdaGroupEditsPreserveRelatedBinding ==
+  cdaLastAction \in {"EditGroup", "EditGroupAgain"}
+  => /\ cdaLastAppliedGroupCandidate.intent.kind = "edit"
+     /\ cdaLastAppliedGroupCandidate.before.relatedSource =
+          cdaLastAppliedGroupCandidate.after.relatedSource
+     /\ cdaPersistedRelatedSource =
+          cdaLastAppliedGroupCandidate.after.relatedSource
+
+CdaCanceledProposalsPreserveExactSavedStateAndCAS ==
+  cdaLastAction \in {"GroupEditCancel", "RelatedSourceCancel"}
+  => /\ cdaLastCancelBefore = cdaLastCancelAfter
+     /\ cdaLastCancelBefore = CdaCurrentSnapshot
+     /\ CdaCASOf(cdaLastCancelBefore) = CdaCASOf(cdaLastCancelAfter)
+
+CdaRelatedApplyRequiresCurrentOwnerAndSavedGroupInput ==
+  cdaLastAction = "RelatedSourceApply"
+  => LET applied == cdaLastAppliedRelatedCandidate
+     IN /\ applied.attempt \in {"P1", "P2"}
+        /\ applied.owner.mountEpoch = cdaMountEpoch
+        /\ applied.owner.captureId \in CdaRequestOwnerTokens
+        /\ applied.groupInputStep = cdaGroupInputStep
+        /\ applied.intent.groupInputStep = applied.groupInputStep
+        /\ applied.before = CdaSnapshot4 \/ applied.before = CdaSnapshot6
+        /\ applied.before.group = applied.after.group
+        /\ applied.after = CdaCurrentSnapshot
+
+CdaRelatedRemovalRestoresPriorGroupAndSourceState ==
+  /\ (cdaLastAction = "RelatedSourceApply"
+      /\ cdaLastAppliedRelatedCandidate.intent.kind = "remove")
+     => /\ cdaLastAppliedRelatedCandidate.before.group =
+            cdaLastAppliedRelatedCandidate.after.group
+        /\ cdaLastAppliedRelatedCandidate.before.relatedSource =
+            CdaObservationStatusRelatedSource
+        /\ cdaLastAppliedRelatedCandidate.after.relatedSource =
+            CdaNoRelatedSource
+        /\ cdaPersistedGroup =
+            cdaLastAppliedRelatedCandidate.before.group
+        /\ cdaPersistedRelatedSource = CdaNoRelatedSource
+
+CdaReloadRestoresPersistedGroupAndRelatedBinding ==
+  cdaLastAction = "Reload"
+  => /\ cdaMountedGroup = cdaPersistedGroup
+     /\ cdaMountedRelatedSource = cdaPersistedRelatedSource
+     /\ cdaMountedGroupInputStep = cdaGroupInputStep
+     /\ cdaMountedGroupInputTable = cdaGroupInputTable
+
+CdaApplyUsesCurrentCandidate ==
+  cdaLastAction \in {"Group", "EditGroup", "EditGroupAgain"}
+  => LET applied == cdaLastAppliedGroupCandidate
+     IN /\ applied.owner.mountEpoch = cdaMountEpoch
+        /\ applied.groupInputStep = cdaGroupInputStep \/ cdaLastAction = "Group"
+        /\ applied.after = CdaCurrentSnapshot
+        /\ cdaPersistedGroup = applied.after.group
+
+CdaRowsOnlyAfterProposalPreview ==
+  cdaRowsPresent => cdaPreview = "ready"
+
+CdaOldOwnerCannotSettleCurrentPreview ==
+  cdaLastAction \in {"LatePreviewCompleteIgnored", "LatePreviewErrorIgnored"}
+  => cdaLastIgnoredRequestOwner # cdaProposalPreviewCaptureOwner
+
+CdaJourneyStateMachine == CdaJourneySpec
 
 
 =============================================================================
