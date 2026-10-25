@@ -2259,14 +2259,17 @@ const registryRows = [
           {
             id: 'basic-temporal-filter-oracle',
             cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs'],
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/fixture-context.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
               'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
               'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+              'scripts/verify-ui/helpers/fixture-context.mjs',
+              'scripts/run-builder-journey.mjs',
               'testdata/basic-temporal-filter/Patient.ndjson',
               'testdata/basic-temporal-filter/Observation.ndjson',
+              'scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json',
             ],
           },
           {
@@ -2349,14 +2352,17 @@ const registryRows = [
           {
             id: 'basic-temporal-filter-oracle',
             cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs'],
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs', 'scripts/verify-ui/helpers/tests/fixture-context.test.mjs'],
             sourceFiles: [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
               'scripts/verify-ui/workflows/basic-temporal-filter.mjs',
               'scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs',
+              'scripts/verify-ui/helpers/fixture-context.mjs',
+              'scripts/run-builder-journey.mjs',
               'testdata/basic-temporal-filter/Patient.ndjson',
               'testdata/basic-temporal-filter/Observation.ndjson',
+              'scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json',
             ],
           },
           {

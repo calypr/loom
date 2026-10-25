@@ -64,7 +64,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/fixture-context.mjs",
-      "sha256": "48edfda4b593a209d9c14073f87e5b79f695e2bb23adae23191ad109ea05ebc3",
+      "sha256": "e93a1ab43b1823475870034c27c260c4c60cf60a7cfab8e610300758ee38dd79",
       "contract": "Native fixture context routes the registered Group raw-Basic case to the existing seeded bootstrap Explorer."
     },
     {
@@ -384,12 +384,12 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "a1a7eb43afb76c6ff8448de5a3daeefdc7f2f51fa03dc4eaac2f5a924a73c4e2",
+      "sha256": "cd788f830f97a7f1b8a3a2da22e895a7398a575fda94ee36ae22beb7d028a9b7",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "d118d5ec9f43612e785212952e0ad99ed8ddb769c4265e91039cc70244218f79",
+      "sha256": "fd46982e3b4da902338c41aeabf9a6a08ba7841aef8fa484b9fff8e20e7ad5f0",
       "contract": "Registered authored-three and raw-Basic native Group lifecycles with actual Builder reads, captured request owners, mounted reload controls, post-action observations, TLA replay, and trace-bound mutation controls."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "8b9538a936cc46a030b0ada6f51ca72a37fb1b1065c00e77b8f958dc48690ad2",
+      "sha256": "1d1f3ff26618000a58f346e4093772140eb7a88cbe4ae5bfd56440459eef9143",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "5f9c97918c8043247c9ca8fc23fd4fa622c06a1dd67a7218b5b53b6fe21b0f83",
+      "sha256": "f8b71db71e60375ac689343acf7cbcb5c529a4aa7ac6b93086511977e2d5e952",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
@@ -711,6 +711,16 @@
       "path": "scripts/verify-ui/helpers/tests/transport-terminal.test.mjs",
       "sha256": "31e1c6243f98ccc1249542aa47298f57e79c962ec05c933164b45f413c4aff10",
       "contract": "Focused regressions for pending, completed, and failed-after-header transport settlement and response credit."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixture-context.test.mjs",
+      "sha256": "f01a58f628cccd32761be9755cbe9a478c164a23400a2bb44fd1c47b2eeb00d8",
+      "contract": "Focused regression proving the independent Basic DATE oracle is bound to the actual isolated QA project and generation before the native target gate."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json",
+      "sha256": "085fe38273813b2b82c35ade8ee1e0e78db22f24909d10da5192ee7f1ff7bcf4",
+      "contract": "Sanitized retained run5 DATE target shape for the fixture-oracle placement regression."
     }
   ]
 }
