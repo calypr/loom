@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { currentFormalJourneyEvidence } from '../../../generate-builder-browser-evidence.mjs';
 import { validateNativeBracketEnvelope, validateNativeBracketSummary, validateNativeTlaReceipt } from '../../../run-builder-journey.mjs';
+import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from '../../../verify-builder-traces.mjs';
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => Array.isArray(value)
@@ -327,4 +328,49 @@ test('current browser evidence requires the retained replay receipt and passing 
   tamperedTrace.traces[0].actions[0].label = 'PreviewError';
   writeFileSync(fixture.evidence.tracePath, JSON.stringify(tamperedTrace));
   assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /do not bind the exact retained trace bytes/);
+});
+
+test('CDA request coverage binds false-flag proposal previews and true-flag commands, but rejects unknown false POSTs', () => {
+  const proposal = {
+    method: 'POST', path: '/construction-proposals', browserRequestId: 'browser-proposal-1',
+    captureId: 'capture-proposal-1', requestId: 'wire-proposal-1', index: 0, startedAt: 10, isMutation: false,
+  };
+  const command = {
+    method: 'POST', path: '/commands', browserRequestId: 'browser-command-1',
+    captureId: 'capture-command-1', requestId: 'wire-command-1', index: 1, startedAt: 20, isMutation: true,
+  };
+  const supportRead = {
+    method: 'GET', path: '/builder', browserRequestId: 'browser-builder-1',
+    requestId: null, index: 2, startedAt: 30, isMutation: false,
+  };
+  const trace = {
+    actions: [
+      { label: 'Preview', request: proposal },
+      { label: 'PreviewComplete', request: proposal, settlement: {
+        browserRequestId: proposal.browserRequestId, captureId: proposal.captureId,
+        requestId: proposal.requestId, startedAt: 10, completedAt: 11,
+      } },
+      { label: 'Group', request: command, settlement: { startedAt: 20, completedAt: 21 } },
+    ],
+    unmodeledEvents: [{ kind: 'builder-read', reason: 'Reload evidence read', requests: [supportRead] }],
+    nativeRequests: [
+      { ...proposal, path: '/api/v1/projects/p/explorers/e/authoring/v2/construction-proposals' },
+      { ...command, path: '/api/v1/projects/p/explorers/e/authoring/v2/commands' },
+      { ...supportRead, path: '/api/v1/projects/p/explorers/e/authoring/v2/builder' },
+    ],
+  };
+  const journeyCase = { readOnlySupportKinds: ['builder-read'] };
+  const contract = {
+    readOnlySupportRoutes: { 'builder-read': { method: 'GET', pathSuffix: '/builder' } },
+    unmodeledEventPolicy: { 'builder-read': true },
+  };
+  assert.equal(cdaMutatingRequestCoverageProblem(trace, 'trace', journeyCase, contract), null);
+  assert.deepEqual(cdaRequestCoverageReceipt(trace), { observed: 2, modeled: 2, unmapped: 0, duplicates: 0 });
+
+  const unknownPost = copy(trace);
+  unknownPost.nativeRequests.push({
+    method: 'POST', path: '/api/v1/projects/p/explorers/e/authoring/v2/unknown',
+    browserRequestId: 'browser-unknown-1', requestId: 'wire-unknown-1', index: 3, startedAt: 40, isMutation: false,
+  });
+  assert.match(cdaMutatingRequestCoverageProblem(unknownPost, 'trace', journeyCase, contract)?.message ?? '', /unknown read-only method\/path route outside the support allowlist/);
 });
