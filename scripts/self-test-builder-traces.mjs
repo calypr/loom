@@ -7,6 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import {
   builderColumnLabelForId,
   cdaGroupLifecycleSnapshotProblem,
+  cdaRowExpansionCandidateResponseProblem,
+  cdaCandidateIntentForTla,
   cdaGroupProjectionForTla,
   cdaLifecycleRecords,
   cdaLatePreviewObservationProblem,
@@ -14,6 +16,7 @@ import {
   cdaRequestCoverageReceipt,
   collectCdaTokens,
   groupLifecycleShapeProblem,
+  initialPreviewIdentityProblem,
   journeyGroupLifecycleConsistencyProblem,
   mountedGroupKeyLabelsProblem,
   mountedRelatedSourceProblem,
@@ -445,10 +448,13 @@ const cdaMountedRelatedRouteLabelTest = () => {
     wrongDisplayedEvidenceRejected && alteredRawRouteRejected;
 };
 const cdaProposalObserverFlagTest = () => {
-  const journeyCase = { readOnlySupportKinds: ['builder-read'] };
+  const journeyCase = { readOnlySupportKinds: ['builder-read', 'draft-reconcile-read'] };
   const contract = {
-    readOnlySupportRoutes: { 'builder-read': { method: 'GET', pathSuffix: '/builder' } },
-    unmodeledEventPolicy: { 'builder-read': true },
+    readOnlySupportRoutes: {
+      'builder-read': { method: 'GET', pathSuffix: '/builder' },
+      'draft-reconcile-read': { method: 'POST', pathSuffix: '/reconcile' },
+    },
+    unmodeledEventPolicy: { 'builder-read': true, 'draft-reconcile-read': true },
   };
   const proposalRequest = {
     method: 'POST',
@@ -547,7 +553,461 @@ const cdaProposalObserverFlagTest = () => {
   const unknownFalsePostRejected = cdaMutatingRequestCoverageProblem(
     unknownFalsePostTrace, 'fixture', journeyCase, contract,
   )?.message.includes('unknown read-only method/path route outside the support allowlist');
-  return validProposalAccepted && modeledCoverageCountsBothFlags && unknownFalsePostRejected;
+  const reconcileRequest = (index, browserRequestId) => ({
+    method: 'POST', path: '/reconcile', requestId: 'builder-1-1', browserRequestId,
+    index, startedAt: 1060 + (index - 7) * 10, isMutation: false,
+  });
+  const ledgerEntry = request => ({
+    index: request.index, browserRequestId: request.browserRequestId, requestId: request.requestId,
+    method: request.method, path: '/api/v1/projects/self-test/authoring/v2' + request.path,
+    startedAt: request.startedAt, isMutation: request.isMutation,
+  });
+  const repeatedSupportWireIdTrace = JSON.parse(JSON.stringify(proposalTrace));
+  const reconcileReads = [reconcileRequest(7, 'browser-reconcile-read-1'),
+    reconcileRequest(8, 'browser-reconcile-read-2')];
+  repeatedSupportWireIdTrace.unmodeledEvents.push({
+    kind: 'draft-reconcile-read', reason: 'component-local builder generation may restart after mount',
+    requests: reconcileReads,
+  });
+  repeatedSupportWireIdTrace.nativeRequests.push(...reconcileReads.map(ledgerEntry));
+  const repeatedReadOnlyWireIdAccepted = cdaMutatingRequestCoverageProblem(
+    repeatedSupportWireIdTrace, 'fixture', journeyCase, contract,
+  ) === null;
+  const duplicatePhysicalBrowserRequestRejected = (() => {
+    const changed = JSON.parse(JSON.stringify(repeatedSupportWireIdTrace));
+    changed.unmodeledEvents[1].requests[1].browserRequestId = reconcileReads[0].browserRequestId;
+    changed.nativeRequests.find(entry => entry.index === 8).browserRequestId = reconcileReads[0].browserRequestId;
+    return Boolean(cdaMutatingRequestCoverageProblem(changed, 'fixture', journeyCase, contract));
+  })();
+  const mutationWireIdReuseRejected = (() => {
+    const changed = JSON.parse(JSON.stringify(repeatedSupportWireIdTrace));
+    changed.actions[2].request.requestId = 'builder-1-1';
+    changed.nativeRequests.find(entry => entry.index === 5).requestId = 'builder-1-1';
+    return Boolean(cdaMutatingRequestCoverageProblem(changed, 'fixture', journeyCase, contract));
+  })();
+  const unrelatedRouteWireIdReuseRejected = (() => {
+    const changed = JSON.parse(JSON.stringify(repeatedSupportWireIdTrace));
+    changed.unmodeledEvents.push({
+      kind: 'builder-read', reason: 'different read-only route control',
+      requests: [{
+        method: 'GET', path: '/builder', requestId: 'builder-1-1',
+        browserRequestId: 'browser-builder-different-route', index: 9, startedAt: 1080, isMutation: false,
+      }],
+    });
+    changed.nativeRequests.push({
+      index: 9, browserRequestId: 'browser-builder-different-route', requestId: 'builder-1-1',
+      method: 'GET', path: '/api/v1/projects/self-test/authoring/v2/builder', startedAt: 1080, isMutation: false,
+    });
+    return Boolean(cdaMutatingRequestCoverageProblem(changed, 'fixture', journeyCase, contract));
+  })();
+  return validProposalAccepted && modeledCoverageCountsBothFlags && unknownFalsePostRejected &&
+    repeatedReadOnlyWireIdAccepted && duplicatePhysicalBrowserRequestRejected &&
+    mutationWireIdReuseRejected && unrelatedRouteWireIdReuseRejected;
+};
+const cdaInitialPreviewIdentityTest = () => {
+  const browserRequestId = 'browser-source-preview-self-test';
+  const request = {
+    method: 'POST', path: '/preview', requestId: null, browserRequestId,
+    index: 6, startedAt: 1000, isMutation: false,
+  };
+  const owner = { kind: 'preview', attempt: 'P1', requestId: null, browserRequestId };
+  const response = { status: 200, kind: 'ExplorerBuilderPreview', requestId: null, browserRequestId };
+  const settlement = { kind: 'http-response', requestId: null, browserRequestId };
+  const ledger = {
+    browserRequestId, index: 6, requestId: null, method: 'POST',
+    path: '/api/v1/projects/self-test/authoring/v2/preview', startedAt: 1000, isMutation: false,
+  };
+  const preview = { owner, request, response, settlement };
+  const trace = { nativeRequests: [ledger] };
+  const cdaAccepted = initialPreviewIdentityProblem(preview, trace, 'fixture.initialPreview', true) === null;
+  const wrongResponseBrowserRequestId = structuredClone(preview);
+  wrongResponseBrowserRequestId.response.browserRequestId = 'browser-wrong-response-self-test';
+  const wrongResponseRejected = Boolean(initialPreviewIdentityProblem(
+    wrongResponseBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const wrongOwnerBrowserRequestId = structuredClone(preview);
+  wrongOwnerBrowserRequestId.owner.browserRequestId = 'browser-wrong-owner-self-test';
+  const wrongOwnerRejected = Boolean(initialPreviewIdentityProblem(
+    wrongOwnerBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const wrongSettlementBrowserRequestId = structuredClone(preview);
+  wrongSettlementBrowserRequestId.settlement.browserRequestId = 'browser-wrong-settlement-self-test';
+  const wrongSettlementRejected = Boolean(initialPreviewIdentityProblem(
+    wrongSettlementBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const missingBrowserRequestId = structuredClone(preview);
+  delete missingBrowserRequestId.request.browserRequestId;
+  const missingBrowserRequestIdRejected = Boolean(initialPreviewIdentityProblem(
+    missingBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const missingOwnerBrowserRequestId = structuredClone(preview);
+  delete missingOwnerBrowserRequestId.owner.browserRequestId;
+  const missingOwnerBrowserRequestIdRejected = Boolean(initialPreviewIdentityProblem(
+    missingOwnerBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const missingResponseBrowserRequestId = structuredClone(preview);
+  delete missingResponseBrowserRequestId.response.browserRequestId;
+  const missingResponseBrowserRequestIdRejected = Boolean(initialPreviewIdentityProblem(
+    missingResponseBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const missingSettlementBrowserRequestId = structuredClone(preview);
+  delete missingSettlementBrowserRequestId.settlement.browserRequestId;
+  const missingSettlementBrowserRequestIdRejected = Boolean(initialPreviewIdentityProblem(
+    missingSettlementBrowserRequestId, trace, 'fixture.initialPreview', true,
+  ));
+  const captureIdAliasRejected = Boolean(initialPreviewIdentityProblem({
+    ...preview,
+    request: { ...request, captureId: browserRequestId },
+  }, trace, 'fixture.initialPreview', true));
+  const explicitNullCaptureIdsAccepted = initialPreviewIdentityProblem({
+    ...preview,
+    owner: { ...owner, captureId: null },
+    request: { ...request, captureId: null },
+    response: { ...response, captureId: null },
+    settlement: { ...settlement, captureId: null },
+  }, trace, 'fixture.initialPreview', true) === null;
+  const changedWireRequestIdRejected = Boolean(initialPreviewIdentityProblem({
+    ...preview,
+    response: { ...response, requestId: 'wire-id-with-null-observer' },
+  }, trace, 'fixture.initialPreview', true));
+  const wrongLedgerIndex = structuredClone(trace);
+  wrongLedgerIndex.nativeRequests[0].index = 7;
+  const wrongLedgerBindingRejected = Boolean(initialPreviewIdentityProblem(
+    preview, wrongLedgerIndex, 'fixture.initialPreview', true,
+  ));
+  const legacyPreview = {
+    owner: { kind: 'preview', attempt: 'P1' },
+    request: { method: 'POST', path: '/preview', requestId: 'legacy-wire', captureId: 'legacy-capture' },
+    response: { status: 200, requestId: 'legacy-wire', captureId: 'legacy-capture' },
+    settlement: { kind: 'http-response', requestId: 'legacy-wire', captureId: 'legacy-capture' },
+  };
+  const legacyCaptureIdStrict = initialPreviewIdentityProblem(
+    legacyPreview, {}, 'fixture.initialPreview', false,
+  ) === null;
+  const wrongLegacyCaptureIdRejected = initialPreviewIdentityProblem({
+    ...legacyPreview,
+    response: { ...legacyPreview.response, captureId: 'different-legacy-capture' },
+  }, {}, 'fixture.initialPreview', false) !== null;
+  return cdaAccepted && wrongResponseRejected && wrongOwnerRejected && wrongSettlementRejected &&
+    missingBrowserRequestIdRejected && missingOwnerBrowserRequestIdRejected &&
+    missingResponseBrowserRequestIdRejected && missingSettlementBrowserRequestIdRejected &&
+    captureIdAliasRejected && explicitNullCaptureIdsAccepted && changedWireRequestIdRejected &&
+    wrongLedgerBindingRejected && legacyCaptureIdStrict &&
+    wrongLegacyCaptureIdRejected;
+};
+const cdaGroupCreateTargetIdentityTest = () => {
+  const cdaTrace = payload?.traces?.find(trace => trace.name === 'cda-builder-group-related-source');
+  const retainedAction = cdaTrace?.actions?.[6];
+  const action = retainedAction?.label === 'Preview' &&
+      retainedAction.groupLifecycle?.candidateIntent?.kind === 'create'
+    ? structuredClone(retainedAction)
+    : {
+      label: 'Preview',
+      request: { method: 'POST', path: '/construction-proposals', browserRequestId: 'create-preview-self-test' },
+      groupLifecycle: {
+        mountEpoch: 2, documentTimeOrigin: 3000,
+        owner: { mountEpoch: 2, documentTimeOrigin: 3000, browserRequestId: 'create-preview-self-test' },
+        savedBefore: {
+          explorerId: 'explorer-self-test', group: null, relatedSource: null,
+          outputId: 'builder-output-self-test', draftVersion: 2, draftDigest: 'draft-before-self-test',
+          workspace: { documents: [{ output: { id: 'builder-output-self-test' }, columns: [], construction: { steps: [] } }] },
+        },
+        candidateIntent: {
+          kind: 'create', targetStepId: 'new-group-self-test', base: null,
+          proposed: { stepId: 'new-group-self-test', keys: ['key-self-test'], aggregate: 'COUNT_ROWS' },
+          rawProposalBody: {
+            changedStepId: 'new-group-self-test',
+            candidateConstruction: { steps: [{
+              id: 'new-group-self-test', operation: { kind: 'GROUP', group: {
+                keys: [{ inputColumnId: 'key-self-test' }], aggregates: [{ operation: 'COUNT_ROWS' }],
+              } }, outputs: [{ id: 'group-output-self-test' }],
+            }] },
+          },
+        },
+      },
+    };
+  const lifecycle = action.groupLifecycle;
+  const intent = lifecycle.candidateIntent;
+  const options = [5, true, ['COUNT_ROWS', 'COUNT_DISTINCT'], false, true];
+  const shapeAccepted = groupLifecycleShapeProblem(action, 'fixture', true, ...options) === null;
+  const target = intent.targetStepId;
+  const proposedStep = intent.proposed.stepId;
+  const bodyTarget = intent.rawProposalBody.changedStepId;
+  const savedSteps = lifecycle.savedBefore.workspace.documents
+    .find(document => document.output?.id === lifecycle.savedBefore.outputId)?.construction?.steps ?? [];
+  const targetAbsentFromSavedBefore = !savedSteps.some(step => step.id === target);
+  const tokens = {
+    stepTokens: new Map([[proposedStep, 'G1']]),
+    keyTokens: new Map((intent.proposed.keys ?? []).map((key, index) => [key, index === 0 ? 'ID' : 'Gender'])),
+  };
+  const tlaIntent = cdaCandidateIntentForTla(intent, tokens.stepTokens, tokens.keyTokens,
+    'fixture.groupLifecycle.candidateIntent', lifecycle.savedBefore);
+  const targetAbstractedToNoStep = tlaIntent.includes('targetStepId |-> "NoStep"');
+  const wrongTarget = structuredClone(action);
+  wrongTarget.groupLifecycle.candidateIntent.targetStepId = 'different-group-self-test';
+  const wrongTargetRejected = Boolean(groupLifecycleShapeProblem(wrongTarget, 'fixture', true, ...options));
+  const missingTarget = structuredClone(action);
+  missingTarget.groupLifecycle.candidateIntent.targetStepId = null;
+  const missingTargetRejected = Boolean(groupLifecycleShapeProblem(missingTarget, 'fixture', true, ...options));
+  const wrongChangedStepId = structuredClone(action);
+  wrongChangedStepId.groupLifecycle.candidateIntent.rawProposalBody.changedStepId = 'different-group-self-test';
+  const wrongChangedStepIdRejected = Boolean(groupLifecycleShapeProblem(wrongChangedStepId, 'fixture', true, ...options));
+  const savedBeforeCollision = structuredClone(action);
+  savedBeforeCollision.groupLifecycle.savedBefore.workspace.documents[0].construction.steps.push({
+    id: target, operation: { kind: 'RELATED_EXPAND' }, outputs: [],
+  });
+  const savedBeforeCollisionRejected = Boolean(groupLifecycleShapeProblem(savedBeforeCollision, 'fixture', true, ...options));
+  return shapeAccepted && typeof target === 'string' && target === proposedStep && target === bodyTarget &&
+    targetAbsentFromSavedBefore && targetAbstractedToNoStep && wrongTargetRejected && missingTargetRejected &&
+    wrongChangedStepIdRejected && savedBeforeCollisionRejected;
+};
+const cdaGroupTokenDomainTest = () => {
+  const trace = payload?.traces?.find(candidate => candidate.name === 'cda-builder-group-related-source');
+  if (!trace) return false;
+  const tokens = collectCdaTokens(trace, contract.journeyCase);
+  const groupIds = new Set();
+  const nonGroupIdentityIds = new Set();
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const addRaw = (set, value) => {
+    if (typeof value === 'string' && value.length > 0) set.add(value);
+  };
+  for (const action of trace.actions ?? []) {
+    const intent = action.groupLifecycle?.candidateIntent;
+    if (record(intent)) {
+      addRaw(groupIds, intent.targetStepId);
+      addRaw(groupIds, intent.base?.stepId);
+      addRaw(groupIds, intent.proposed?.stepId);
+    }
+    for (const lifecycle of [action.groupLifecycle, action.relatedSourceLifecycle, action.rowExpansionLifecycle]) {
+      if (!record(lifecycle)) continue;
+      addRaw(nonGroupIdentityIds, lifecycle.stepId);
+        if (record(lifecycle.candidateIntent) && lifecycle !== action.groupLifecycle) {
+        addRaw(nonGroupIdentityIds, lifecycle.candidateIntent.targetStepId);
+      }
+      for (const saved of [lifecycle.savedBefore, lifecycle.savedAfter]) {
+        if (!record(saved)) continue;
+        addRaw(groupIds, saved.group?.stepId);
+        addRaw(nonGroupIdentityIds, saved.outputId);
+        addRaw(nonGroupIdentityIds, saved.group?.keys?.[0]);
+        const related = saved.relatedSource;
+        if (record(related)) {
+          addRaw(nonGroupIdentityIds, related.stepId);
+          addRaw(nonGroupIdentityIds, related.outputColumnId);
+          addRaw(nonGroupIdentityIds, related.source?.candidateId);
+          addRaw(nonGroupIdentityIds, related.source?.nodeId);
+          for (const hop of related.route ?? []) {
+            addRaw(nonGroupIdentityIds, hop.edgeId);
+            addRaw(nonGroupIdentityIds, hop.fromNodeId);
+            addRaw(nonGroupIdentityIds, hop.toNodeId);
+          }
+        }
+        const document = saved.workspace?.documents?.find(candidate => candidate.output?.id === saved.outputId);
+        for (const column of document?.columns ?? []) {
+          for (const field of ['id', 'columnId', 'column']) addRaw(nonGroupIdentityIds, column?.[field]);
+        }
+        for (const step of document?.construction?.steps ?? []) {
+          if (step.operation?.kind === 'GROUP') addRaw(groupIds, step.id);
+          else addRaw(nonGroupIdentityIds, step.id);
+          for (const output of step.outputs ?? []) addRaw(nonGroupIdentityIds, output?.id);
+        }
+      }
+    }
+  }
+  const actualIds = new Set(tokens.stepTokens.keys());
+  const exactGroupDomain = actualIds.size === groupIds.size && [...groupIds].every(id => actualIds.has(id));
+  const excludesNonGroupIdentity = [...nonGroupIdentityIds].every(id => groupIds.has(id) || !actualIds.has(id));
+  return groupIds.size === 1 && exactGroupDomain && tokens.stepTokens.get([...groupIds][0]) === 'G1' &&
+    excludesNonGroupIdentity && !actualIds.has('None') && !actualIds.has('R1');
+};
+const cdaRowExpansionCandidateRefreshTest = () => {
+  const trace = payload?.traces?.find(candidate => candidate.name === 'cda-builder-group-related-source');
+  const action = trace?.actions?.find(candidate => candidate.label === 'Preview' &&
+    candidate.rowExpansionLifecycle?.stage === 'PatientObservation');
+  const lifecycle = action?.rowExpansionLifecycle;
+  const body = lifecycle?.request?.request;
+  const requestedConstruction = body?.candidateConstruction;
+  const responseConstruction = lifecycle?.response?.candidateConstruction;
+  if (!lifecycle || !Array.isArray(requestedConstruction?.steps) || !Array.isArray(responseConstruction?.steps)) return false;
+  const where = 'fixture.rowExpansionCandidateRefresh';
+  const actualAccepted = cdaRowExpansionCandidateResponseProblem(
+    requestedConstruction, responseConstruction, body.changedStepId, lifecycle.savedBefore,
+    lifecycle.inputStepId, lifecycle.route, where,
+  ) === null;
+  const target = requestedConstruction.steps.find(step => step.id === body.changedStepId);
+  const upstreamStepId = target?.inputs?.find(input => input.kind === 'STEP_OUTPUT')?.stepId;
+  const document = lifecycle.savedBefore.workspace.documents.find(candidate =>
+    candidate.output?.id === lifecycle.savedBefore.outputId);
+  const upstream = document?.construction?.steps?.find(step => step.id === upstreamStepId);
+  const inheritedNullable = upstream?.outputs?.find(output => output.nullable === true);
+  const inheritedIndex = inheritedNullable
+    ? target.outputs.findIndex(output => output.id === inheritedNullable.id)
+    : -1;
+  if (!target || !upstream || inheritedIndex < 0) return false;
+  const reject = (mutate) => {
+    const request = structuredClone(requestedConstruction);
+    const response = structuredClone(responseConstruction);
+    mutate(request, response);
+    return cdaRowExpansionCandidateResponseProblem(
+      request, response, body.changedStepId, lifecycle.savedBefore,
+      lifecycle.inputStepId, lifecycle.route, where,
+    ) !== null;
+  };
+  const wrongInheritedNullableRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs[inheritedIndex].nullable = false;
+  });
+  const missingInheritedNullableRejected = reject((_request, response) => {
+    delete response.steps.at(-1).outputs[inheritedIndex].nullable;
+  });
+  const wrongInheritedLabelRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs[inheritedIndex].label = 'unrelated inherited label';
+  });
+  const wrongInheritedIdRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs[inheritedIndex].id = 'wrong-inherited-output';
+  });
+  const wrongInheritedTypeRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs[inheritedIndex].type = 'integer';
+  });
+  const wrongRequestNullableRejected = reject((request) => {
+    request.steps.at(-1).outputs[inheritedIndex].nullable = false;
+  });
+  const wrongNewOutputIdRejected = reject((request, response) => {
+    const newOutputIndex = request.steps.at(-1).outputs.length - 1;
+    request.steps.at(-1).outputs[newOutputIndex].id = 'wrong-related-record-output';
+    response.steps.at(-1).outputs[newOutputIndex].id = 'wrong-related-record-output';
+  });
+  const wrongNewOutputTypeRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs.at(-1).type = 'integer';
+  });
+  const wrongNewOutputLabelRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs.at(-1).label = 'unrelated new output label';
+  });
+  const wrongNewOutputNameRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs.at(-1).name = 'unrelated_new_output_name';
+  });
+  const wrongNewOutputNullableRejected = reject((_request, response) => {
+    response.steps.at(-1).outputs.at(-1).nullable = false;
+  });
+  const wrongOperationRejected = reject((_request, response) => {
+    response.steps.at(-1).operation.relatedExpand.emptyPolicy = 'EXCLUDE';
+  });
+  const wrongInputRejected = reject((_request, response) => {
+    response.steps.at(-1).inputs[0].stepId = 'wrong-input-step';
+  });
+  const wrongRouteRejected = reject((request, response) => {
+    request.steps.at(-1).operation.relatedExpand.route = [];
+    response.steps.at(-1).operation.relatedExpand.route = [];
+  });
+  const wrongChangedStepRejected = cdaRowExpansionCandidateResponseProblem(
+    requestedConstruction, responseConstruction, 'wrong-changed-step', lifecycle.savedBefore,
+    lifecycle.inputStepId, lifecycle.route, where,
+  ) !== null;
+  return actualAccepted && wrongInheritedNullableRejected && missingInheritedNullableRejected &&
+    wrongInheritedLabelRejected && wrongInheritedIdRejected && wrongInheritedTypeRejected &&
+    wrongRequestNullableRejected && wrongNewOutputIdRejected && wrongNewOutputTypeRejected &&
+    wrongNewOutputLabelRejected && wrongNewOutputNameRejected && wrongNewOutputNullableRejected &&
+    wrongOperationRejected && wrongInputRejected &&
+    wrongRouteRejected && wrongChangedStepRejected;
+};
+const cdaGroupCandidateOutputPropagationTest = () => {
+  const trace = payload?.traces?.find(candidate => candidate.name === 'cda-builder-group-related-source');
+  const retained = trace?.actions?.[23];
+  if (retained?.label !== 'PreviewComplete' || !retained.groupLifecycle?.candidateIntent ||
+      !retained.request?.request?.candidateConstruction || !retained.response?.candidateConstruction) return false;
+  const journeyCase = contract.journeyCase;
+  const acceptedActual = cdaGroupLifecycleSnapshotProblem(retained, 'fixture.actualGroupOutputPropagation', journeyCase) === null;
+  const makeCustomCandidate = () => {
+    const action = structuredClone(retained);
+    const lifecycle = action.groupLifecycle;
+    const intent = lifecycle.candidateIntent;
+    const savedDocument = lifecycle.savedBefore.workspace.documents.find((document) =>
+      document.output?.id === lifecycle.savedBefore.outputId);
+    const savedGroupStep = savedDocument?.construction?.steps?.find((step) =>
+      step.id === intent.targetStepId && step.operation?.kind === 'GROUP');
+    const affectedOutputId = savedGroupStep?.operation?.group?.aggregates?.[0]?.outputColumnId;
+    const findStep = (construction, predicate) => construction.steps.find(predicate);
+    const requested = action.request.request.candidateConstruction;
+    const responded = action.response.candidateConstruction;
+    const requestedGroupStep = findStep(requested, step => step.id === intent.targetStepId && step.operation?.kind === 'GROUP');
+    const responseGroupStep = findStep(responded, step => step.id === intent.targetStepId && step.operation?.kind === 'GROUP');
+    const requestedRelatedStep = findStep(requested, step => step.operation?.kind === 'RELATED_SOURCE' &&
+      step.inputs?.length === 1 && step.inputs[0]?.kind === 'STEP_OUTPUT' && step.inputs[0]?.stepId === intent.targetStepId);
+    const responseRelatedStep = findStep(responded, step => step.operation?.kind === 'RELATED_SOURCE' &&
+      step.inputs?.length === 1 && step.inputs[0]?.kind === 'STEP_OUTPUT' && step.inputs[0]?.stepId === intent.targetStepId);
+    const requestedGroupOutputs = requestedGroupStep?.outputs?.filter(output => output.id === affectedOutputId) ?? [];
+    const responseGroupOutputs = responseGroupStep?.outputs?.filter(output => output.id === affectedOutputId) ?? [];
+    const requestedRelatedOutputs = requestedRelatedStep?.outputs?.filter(output => output.id === affectedOutputId) ?? [];
+    const responseRelatedOutputs = responseRelatedStep?.outputs?.filter(output => output.id === affectedOutputId) ?? [];
+    if (!savedGroupStep || requestedGroupOutputs.length !== 1 || responseGroupOutputs.length !== 1 ||
+        requestedRelatedOutputs.length !== 1 || responseRelatedOutputs.length !== 1) return null;
+    const authoredName = 'authored custom aggregate name';
+    const authoredLabel = 'Authored custom aggregate label';
+    requestedGroupOutputs[0].name = authoredName;
+    requestedGroupOutputs[0].label = authoredLabel;
+    responseGroupOutputs[0].name = authoredName;
+    responseGroupOutputs[0].label = authoredLabel;
+    responseRelatedOutputs[0].name = authoredName;
+    responseRelatedOutputs[0].label = authoredLabel;
+    action.request.request.candidateConstruction = requested;
+    action.response.candidateConstruction = responded;
+    intent.rawProposalBody.candidateConstruction = structuredClone(requested);
+    return action;
+  };
+  const customAction = makeCustomCandidate();
+  if (!customAction) return false;
+  const acceptedCustom = cdaGroupLifecycleSnapshotProblem(
+    customAction, 'fixture.customGroupOutputPropagation', journeyCase,
+  ) === null;
+  const mutationRejected = (mutate) => {
+    const action = structuredClone(customAction);
+    mutate(action);
+    return cdaGroupLifecycleSnapshotProblem(action, 'fixture.mutatedGroupOutputPropagation', journeyCase) !== null;
+  };
+  const indexOfOutput = (action, stepKind, outputId) => action.response.candidateConstruction.steps.findIndex(step =>
+    step.operation?.kind === stepKind && step.outputs?.some(output => output.id === outputId));
+  const customLifecycle = customAction.groupLifecycle;
+  const customSavedDocument = customLifecycle.savedBefore.workspace.documents.find((document) =>
+    document.output?.id === customLifecycle.savedBefore.outputId);
+  const customSavedGroup = customSavedDocument.construction.steps.find(step =>
+    step.id === customLifecycle.candidateIntent.targetStepId && step.operation?.kind === 'GROUP');
+  const customOutputId = customSavedGroup.operation.group.aggregates[0].outputColumnId;
+  const relatedIndex = indexOfOutput(customAction, 'RELATED_SOURCE', customOutputId);
+  const groupIndex = indexOfOutput(customAction, 'GROUP', customOutputId);
+  if (relatedIndex < 0 || groupIndex < 0) return false;
+  const defaultOverwriteRejected = mutationRejected(action => {
+    const output = action.response.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId);
+    const original = retained.request.request.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId);
+    output.name = original.name;
+    output.label = original.label;
+  });
+  const unrelatedLabelRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId).label =
+      'Unrelated label';
+  });
+  const changedGroupNameRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[groupIndex].outputs.find(item => item.id === customOutputId).name =
+      'response overwrote authored name';
+  });
+  const changedGroupLabelRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[groupIndex].outputs.find(item => item.id === customOutputId).label =
+      'response overwrote authored label';
+  });
+  const wrongOutputIdRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId).id =
+      'different-output-id';
+  });
+  const wrongOutputTypeRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[relatedIndex].outputs.find(item => item.id === customOutputId).type =
+      'string';
+  });
+  const wrongOperationRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[groupIndex].operation.group.aggregates[0].operation = 'COUNT_DISTINCT';
+  });
+  const wrongGroupInputRejected = mutationRejected(action => {
+    action.response.candidateConstruction.steps[relatedIndex].inputs[0].stepId = 'different-group-step';
+  });
+  return acceptedActual && acceptedCustom && defaultOverwriteRejected && unrelatedLabelRejected &&
+    changedGroupNameRejected && changedGroupLabelRejected && wrongOutputIdRejected &&
+    wrongOutputTypeRejected && wrongOperationRejected && wrongGroupInputRejected;
 };
 const cdaLatePreviewObservationTest = () => {
   const staleRequest = {
@@ -666,6 +1126,31 @@ if (!cdaProposalObserverFlagTest()) {
   process.exit(1);
 }
 console.log('PASS CDA proposal observer flag accepts modeled proposals and rejects unknown false POSTs');
+if (!cdaInitialPreviewIdentityTest()) {
+  console.error('FAIL CDA initial source preview identity must bind browserRequestId and the native ledger while preserving legacy captureId checks');
+  process.exit(1);
+}
+console.log('PASS CDA initial source preview identity binds browserRequestId and ledger index with null wire requestId; legacy captureId remains strict');
+if (!cdaGroupCreateTargetIdentityTest()) {
+  console.error('FAIL CDA Group create target must bind the actual new Group step before abstracting to NoStep');
+  process.exit(1);
+}
+console.log('PASS CDA Group create target binds the actual new Group step and compiles to NoStep');
+if (!cdaGroupTokenDomainTest()) {
+  console.error('FAIL CDA related-source candidate IDs must not consume the finite Group step-token domain');
+  process.exit(1);
+}
+console.log('PASS CDA Group step token domain contains the actual Group identity and excludes related-source candidate IDs');
+if (!cdaRowExpansionCandidateRefreshTest()) {
+  console.error('FAIL CDA row expansion response may refresh only inherited nullable metadata from its saved input stage');
+  process.exit(1);
+}
+console.log('PASS CDA row expansion response refreshes only inherited saved nullable metadata; wrong IDs, inputs, operation, labels, and nullable mutations reject');
+if (!cdaGroupCandidateOutputPropagationTest()) {
+  console.error('FAIL CDA Group custom output metadata must propagate only to its bound RELATED_SOURCE output');
+  process.exit(1);
+}
+console.log('PASS CDA Group custom name/label propagates to the bound RELATED_SOURCE output; wrong/default metadata, identity, type, operation, and input mutations reject');
 if (!cdaLatePreviewObservationTest()) {
   console.error('FAIL CDA late preview observation binds the canonical timestamp, actual owner, and distinct event mounts');
   process.exit(1);
@@ -2180,7 +2665,7 @@ if (journeyOnly) {
         return preview;
       };
 
-      mutateCda('missing-related-snapshot', 'must preserve explorerId, group, relatedSource', trace => {
+      mutateCda('missing-related-snapshot', 'relatedSource must explicitly preserve the actual related binding or null', trace => {
         delete relatedPreview(trace).relatedSourceLifecycle.savedAfter.relatedSource;
       });
       mutateCda('wrong-related-input-group-binding', 'candidateIntent.proposed must match', trace => {
@@ -2254,7 +2739,7 @@ if (journeyOnly) {
         const action = relationCancel(trace);
         action.relatedSourceLifecycle.savedAfter.draftDigest += '-same-version-self-test';
       });
-      mutateCda('duplicate-mutating-request-id', 'browserRequestId duplicates another observed native request', trace => {
+      mutateCda('duplicate-mutating-request-id', 'mutating request identity', trace => {
         const applies = trace.actions.filter(action => action.label === 'RelatedSourceApply');
         applies[1].request.browserRequestId = applies[0].request.browserRequestId;
         applies[1].response.browserRequestId = applies[0].request.browserRequestId;
@@ -2307,7 +2792,7 @@ if (journeyOnly) {
         const action = relationApply(trace);
         trace.nativeRequests = trace.nativeRequests.filter(entry => entry.browserRequestId !== action.request.browserRequestId);
       });
-      mutateCda('missing-native-request-ledger', '.nativeRequests must preserve the complete native observer request ledger', trace => {
+      mutateCda('missing-native-request-ledger', 'initialPreview must retain the complete native request ledger for browserRequestId binding', trace => {
         delete trace.nativeRequests;
       });
       mutateCda('native-ledger-unknown-mutating-route', 'unknown mutating request', trace => {

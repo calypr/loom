@@ -288,7 +288,35 @@ function savedGroupProjectionProblem(saved, where, allowedAggregates = ['COUNT_R
   return null;
 }
 
-function candidateIntentProblem(intent, where, allowedAggregates = ['COUNT_ROWS']) {
+function cdaCreateGroupTargetStepProblem(intent, where, savedBefore = undefined) {
+  if (!isPlainObject(intent) || intent.kind !== 'create') return null;
+  if (typeof intent.targetStepId !== 'string' || intent.targetStepId.trim().length === 0 ||
+      intent.targetStepId !== intent.proposed?.stepId) {
+    return where + '.targetStepId must match the actual proposed new Group stepId';
+  }
+  const body = intent.rawProposalBody;
+  const steps = body?.candidateConstruction?.steps;
+  const matchingGroups = Array.isArray(steps)
+    ? steps.filter((step) => step?.id === intent.targetStepId && step?.operation?.kind === 'GROUP')
+    : [];
+  if (body?.changedStepId !== intent.targetStepId || matchingGroups.length !== 1) {
+    return where + '.targetStepId must match changedStepId and exactly one proposed GROUP step';
+  }
+  if (savedBefore !== undefined) {
+    if (!isPlainObject(savedBefore) || savedBefore.group !== null) {
+      return where + ' create intent requires a savedBefore projection with no Group';
+    }
+    const selected = savedBuilderDocument(savedBefore, where + '.savedBefore');
+    if (selected.problem) return selected.problem;
+    const savedSteps = selected.document.construction?.steps ?? [];
+    if (savedSteps.some((step) => step?.id === intent.targetStepId)) {
+      return where + '.targetStepId must be new and absent from the savedBefore construction';
+    }
+  }
+  return null;
+}
+
+function candidateIntentProblem(intent, where, allowedAggregates = ['COUNT_ROWS'], allowCdaCreateTargetStep = false, savedBefore = undefined) {
   if (!isPlainObject(intent)) return where + ' must be an object';
   if (!['create', 'edit', 'remove'].includes(intent.kind)) return where + '.kind must be create, edit, or remove';
   if (intent.targetStepId !== null && (typeof intent.targetStepId !== 'string' || intent.targetStepId.trim().length === 0)) {
@@ -303,8 +331,16 @@ function candidateIntentProblem(intent, where, allowedAggregates = ['COUNT_ROWS'
     const problem = groupProjectionProblem(intent[field], where + '.' + field, allowedAggregates);
     if (problem) return problem;
   }
-  if (intent.kind === 'create' && (intent.targetStepId !== null || intent.base !== null || intent.proposed === null)) {
-    return where + ' create must have a null target/base and a proposed Group';
+  if (intent.kind === 'create') {
+    if (intent.base !== null || intent.proposed === null) {
+      return where + ' create must have no saved base and a proposed Group';
+    }
+    if (allowCdaCreateTargetStep) {
+      const targetProblem = cdaCreateGroupTargetStepProblem(intent, where, savedBefore);
+      if (targetProblem) return targetProblem;
+    } else if (intent.targetStepId !== null) {
+      return where + ' create must have a null target/base and a proposed Group';
+    }
   }
   if (intent.kind === 'edit' && (intent.targetStepId === null || intent.base === null || intent.proposed === null)) {
     return where + ' edit must have a target, saved base Group, and proposed Group';
@@ -361,11 +397,17 @@ function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, 
     }
   }
   if (action.label === 'Preview') {
-    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
+    const problem = candidateIntentProblem(
+      lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates,
+      cdaJourneyCase, lifecycle.savedBefore,
+    );
     if (problem) return problem;
   }
   if (BUILDER_GROUP_SETTLEMENT_LABELS.has(action.label)) {
-    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
+    const problem = candidateIntentProblem(
+      lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates,
+      cdaJourneyCase, lifecycle.savedBefore,
+    );
     if (problem) return problem;
   }
   if (BUILDER_GROUP_APPLY_LABELS.has(action.label) || BUILDER_GROUP_CANCEL_LABELS.has(action.label) || action.label === 'Reload') {
@@ -377,7 +419,10 @@ function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, 
   if (BUILDER_GROUP_APPLY_LABELS.has(action.label) || action.label === 'GroupRemovalCancel') {
     const ownerProblemText = previewOwnerProjectionProblem(lifecycle.candidateOwner, where + '.groupLifecycle.candidateOwner', false, maxMountEpoch, allowBrowserRequestId);
     if (ownerProblemText) return ownerProblemText;
-    const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
+    const problem = candidateIntentProblem(
+      lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates,
+      cdaJourneyCase, lifecycle.savedBefore,
+    );
     if (problem) return problem;
   }
   if (action.label === 'GroupEditCancel') {
@@ -393,7 +438,10 @@ function groupLifecycleShapeProblem(action, where, required, maxMountEpoch = 2, 
       return where + '.groupLifecycle.candidateIntent must explicitly preserve the proposal intent or null';
     }
     if (lifecycle.candidateIntent !== null) {
-      const problem = candidateIntentProblem(lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates);
+      const problem = candidateIntentProblem(
+        lifecycle.candidateIntent, where + '.groupLifecycle.candidateIntent', allowedAggregates,
+        cdaJourneyCase, lifecycle.savedBefore,
+      );
       if (problem) return problem;
     }
   }
@@ -993,6 +1041,158 @@ function rowExpansionLifecycleShapeProblem(action, where, required, journeyCase)
   return null;
 }
 
+function cdaGroupCandidateResponseProblem(intent, savedBefore, requestedConstruction, responseConstruction, where) {
+  const mismatch = where + ' native response candidate must match the actual proposal request construction';
+  const countRowsEdit = intent?.kind === 'edit' && intent.base?.aggregate === 'COUNT_DISTINCT' &&
+    intent.proposed?.aggregate === 'COUNT_ROWS';
+  if (!countRowsEdit && canonicalJson(responseConstruction) === canonicalJson(requestedConstruction)) return null;
+  if (!isPlainObject(intent) || intent.kind !== 'edit' || intent.base?.aggregate !== 'COUNT_DISTINCT' ||
+      intent.proposed?.aggregate !== 'COUNT_ROWS' || !isPlainObject(savedBefore) ||
+      savedBefore.group?.aggregate !== 'COUNT_DISTINCT' ||
+      canonicalJson(intent.base) !== canonicalJson(savedBefore.group) ||
+      canonicalJson(intent.rawProposalBody?.candidateConstruction) !== canonicalJson(requestedConstruction) ||
+      !Array.isArray(requestedConstruction?.steps) || !Array.isArray(responseConstruction?.steps) ||
+      requestedConstruction.steps.length !== responseConstruction.steps.length) {
+    return mismatch;
+  }
+  const beforeDocument = savedBuilderDocument(savedBefore, where + '.savedBefore');
+  if (beforeDocument.problem) return beforeDocument.problem;
+  const savedGroupSteps = (beforeDocument.document.construction?.steps ?? []).filter((step) =>
+    step?.id === savedBefore.group.stepId && step?.operation?.kind === 'GROUP');
+  const requestedGroupSteps = requestedConstruction.steps.filter((step) =>
+    step?.id === intent.targetStepId && step?.operation?.kind === 'GROUP');
+  const responseGroupSteps = responseConstruction.steps.filter((step) =>
+    step?.id === intent.targetStepId && step?.operation?.kind === 'GROUP');
+  if (savedGroupSteps.length !== 1 || requestedGroupSteps.length !== 1 || responseGroupSteps.length !== 1 ||
+      intent.targetStepId !== savedBefore.group.stepId || intent.proposed.stepId !== intent.targetStepId) {
+    return mismatch;
+  }
+  const savedGroupStep = savedGroupSteps[0];
+  const requestedGroupStep = requestedGroupSteps[0];
+  const responseGroupStep = responseGroupSteps[0];
+  const savedGroupOperation = savedGroupStep.operation.group;
+  const requestedGroupOperation = requestedGroupStep.operation.group;
+  const responseGroupOperation = responseGroupStep.operation.group;
+  const savedAggregates = savedGroupOperation?.aggregates ?? [];
+  const requestedAggregates = requestedGroupOperation?.aggregates ?? [];
+  const responseAggregates = responseGroupOperation?.aggregates ?? [];
+  if (savedAggregates.length !== 1 || savedAggregates[0]?.operation !== 'COUNT_DISTINCT' ||
+      requestedAggregates.length !== 1 || requestedAggregates[0]?.operation !== 'COUNT_ROWS' ||
+      responseAggregates.length !== 1 || responseAggregates[0]?.operation !== 'COUNT_ROWS' ||
+      requestedAggregates[0]?.inputColumnId !== undefined ||
+      canonicalJson(requestedGroupStep) !== canonicalJson(responseGroupStep)) {
+    return mismatch;
+  }
+  const affectedOutputId = savedAggregates[0].outputColumnId;
+  if (typeof affectedOutputId !== 'string' || requestedAggregates[0].outputColumnId !== affectedOutputId ||
+      responseAggregates[0].outputColumnId !== affectedOutputId) {
+    return mismatch;
+  }
+  const savedKeys = (savedGroupOperation?.keys ?? []).map((key) => typeof key === 'string' ? key : key?.inputColumnId);
+  const requestedKeys = (requestedGroupOperation?.keys ?? []).map((key) => typeof key === 'string' ? key : key?.inputColumnId);
+  const proposedKeys = (intent.proposed.keys ?? []).map((key) => typeof key === 'string' ? key : key?.inputColumnId);
+  if (!Array.isArray(savedGroupOperation?.keys) || !Array.isArray(requestedGroupOperation?.keys) ||
+      canonicalJson(savedKeys) !== canonicalJson(requestedKeys) ||
+      canonicalJson(requestedKeys) !== canonicalJson(proposedKeys)) {
+    return mismatch;
+  }
+  const oldGroupOperation = structuredClone(savedGroupOperation);
+  const newGroupOperation = structuredClone(requestedGroupOperation);
+  delete oldGroupOperation.aggregates;
+  delete newGroupOperation.aggregates;
+  const oldStepWithoutOutputs = structuredClone(savedGroupStep);
+  const requestedStepWithoutOutputs = structuredClone(requestedGroupStep);
+  delete oldStepWithoutOutputs.outputs;
+  delete requestedStepWithoutOutputs.outputs;
+  oldStepWithoutOutputs.operation.group = oldGroupOperation;
+  requestedStepWithoutOutputs.operation.group = newGroupOperation;
+  if (canonicalJson(oldStepWithoutOutputs) !== canonicalJson(requestedStepWithoutOutputs)) return mismatch;
+
+  const oldAggregateShape = structuredClone(savedAggregates[0]);
+  const requestedAggregateShape = structuredClone(requestedAggregates[0]);
+  delete oldAggregateShape.operation;
+  delete oldAggregateShape.inputColumnId;
+  delete requestedAggregateShape.operation;
+  delete requestedAggregateShape.inputColumnId;
+  if (canonicalJson(oldAggregateShape) !== canonicalJson(requestedAggregateShape)) return mismatch;
+
+  const savedGroupOutputs = savedGroupStep.outputs ?? [];
+  const requestedGroupOutputs = requestedGroupStep.outputs ?? [];
+  if (savedGroupOutputs.length !== requestedGroupOutputs.length) return mismatch;
+  let changedAggregateOutput = false;
+  for (let outputIndex = 0; outputIndex < savedGroupOutputs.length; outputIndex += 1) {
+    const savedOutput = savedGroupOutputs[outputIndex];
+    const requestedOutput = requestedGroupOutputs[outputIndex];
+    if (savedOutput?.id !== requestedOutput?.id) return mismatch;
+    if (savedOutput.id === affectedOutputId) {
+      const savedComparable = { ...savedOutput };
+      const requestedComparable = { ...requestedOutput };
+      delete savedComparable.name;
+      delete savedComparable.label;
+      delete requestedComparable.name;
+      delete requestedComparable.label;
+      if (canonicalJson(savedComparable) !== canonicalJson(requestedComparable)) return mismatch;
+      changedAggregateOutput = true;
+    } else if (canonicalJson(savedOutput) !== canonicalJson(requestedOutput)) {
+      return mismatch;
+    }
+  }
+  if (!changedAggregateOutput) return mismatch;
+  const groupOutputMatches = requestedGroupOutputs.filter((output) => output?.id === affectedOutputId);
+  const responseGroupOutputMatches = (responseGroupStep.outputs ?? []).filter((output) => output?.id === affectedOutputId);
+  if (groupOutputMatches.length !== 1 || responseGroupOutputMatches.length !== 1 ||
+      canonicalJson(groupOutputMatches[0]) !== canonicalJson(responseGroupOutputMatches[0])) return mismatch;
+  const groupOutput = responseGroupOutputMatches[0];
+  const groupStepIndex = requestedConstruction.steps.indexOf(requestedGroupStep);
+  const relatedStepIndexes = [];
+  for (let stepIndex = groupStepIndex + 1; stepIndex < requestedConstruction.steps.length; stepIndex += 1) {
+    const step = requestedConstruction.steps[stepIndex];
+    const inputs = step?.inputs;
+    if (step?.operation?.kind === 'RELATED_SOURCE' && Array.isArray(inputs) && inputs.length === 1 &&
+        inputs[0]?.kind === 'STEP_OUTPUT' && inputs[0]?.stepId === intent.targetStepId &&
+        (step.outputs ?? []).some((output) => output?.id === affectedOutputId)) {
+      relatedStepIndexes.push(stepIndex);
+    }
+  }
+  if (relatedStepIndexes.length !== 1) return mismatch;
+  const relatedStepIndex = relatedStepIndexes[0];
+
+  for (let stepIndex = 0; stepIndex < requestedConstruction.steps.length; stepIndex += 1) {
+    const requestedStep = requestedConstruction.steps[stepIndex];
+    const responseStep = responseConstruction.steps[stepIndex];
+    if (!isPlainObject(requestedStep) || !isPlainObject(responseStep) ||
+        !Array.isArray(requestedStep.outputs) || !Array.isArray(responseStep.outputs) ||
+        requestedStep.outputs.length !== responseStep.outputs.length) {
+      return mismatch;
+    }
+    const requestedRest = { ...requestedStep };
+    const responseRest = { ...responseStep };
+    delete requestedRest.outputs;
+    delete responseRest.outputs;
+    if (canonicalJson(requestedRest) !== canonicalJson(responseRest)) return mismatch;
+    for (let outputIndex = 0; outputIndex < requestedStep.outputs.length; outputIndex += 1) {
+      const requestedOutput = requestedStep.outputs[outputIndex];
+      const responseOutput = responseStep.outputs[outputIndex];
+      if (requestedOutput?.id !== responseOutput?.id) return mismatch;
+      if (stepIndex === relatedStepIndex && requestedOutput.id === affectedOutputId) {
+        const requestedComparable = { ...requestedOutput };
+        const responseComparable = { ...responseOutput };
+        delete requestedComparable.name;
+        delete requestedComparable.label;
+        delete responseComparable.name;
+        delete responseComparable.label;
+        if (canonicalJson(requestedComparable) !== canonicalJson(responseComparable) ||
+            responseOutput.name !== groupOutput.name || responseOutput.label !== groupOutput.label) {
+          return mismatch;
+        }
+      } else if (canonicalJson(requestedOutput) !== canonicalJson(responseOutput)) {
+        return mismatch;
+      }
+    }
+  }
+  return null;
+}
+
 function cdaGroupLifecycleSnapshotProblem(action, where, journeyCase) {
   const lifecycle = action.groupLifecycle;
   if (!isPlainObject(lifecycle)) return null;
@@ -1006,14 +1206,27 @@ function cdaGroupLifecycleSnapshotProblem(action, where, journeyCase) {
       where + '.groupLifecycle.candidateIntent',
     );
     if (rawBodyProblem) return rawBodyProblem;
+    if (journeyCase) {
+      const targetProblem = cdaCreateGroupTargetStepProblem(
+        lifecycle.candidateIntent,
+        where + '.groupLifecycle.candidateIntent',
+        lifecycle.savedBefore,
+      );
+      if (targetProblem) return targetProblem;
+    }
     if (!isPlainObject(action.request?.request) ||
         canonicalJson(lifecycle.candidateIntent.rawProposalBody) !== canonicalJson(action.request.request)) {
       return where + '.groupLifecycle.candidateIntent.rawProposalBody must match the actual native proposal request body';
     }
-    if (action.response?.candidateConstruction !== undefined &&
-        canonicalJson(action.response.candidateConstruction) !==
-          canonicalJson(action.request.request.candidateConstruction)) {
-      return where + '.groupLifecycle native response candidate must match the actual proposal request construction';
+    if (action.response?.candidateConstruction !== undefined) {
+      const responseCandidateProblem = cdaGroupCandidateResponseProblem(
+        lifecycle.candidateIntent,
+        lifecycle.savedBefore,
+        action.request.request.candidateConstruction,
+        action.response.candidateConstruction,
+        where + '.groupLifecycle',
+      );
+      if (responseCandidateProblem) return responseCandidateProblem;
     }
   }
   const unavailablePairProblem = cdaSnapshotPairUnavailableProblem(action, lifecycle, where + '.groupLifecycle');
@@ -1292,7 +1505,10 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
         return where + '.actions[' + actionIndex + '] wire requestId is already mapped to ' +
           priorWireRequest.label + ' at action ' + priorWireRequest.actionIndex;
       }
-      wireRequestIDs.set(wireRequestID, { label, actionIndex });
+      wireRequestIDs.set(wireRequestID, {
+        label, actionIndex, method: request.method, path: request.path, isMutation: request.isMutation,
+        readOnlySupportKind: null,
+      });
     }
     classifiedNativeRequests.set(request.browserRequestId, {
       method: request.method,
@@ -1395,13 +1611,26 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
         }
         captureRequestIDs.set(supportRequest.captureId, { label: eventKind, actionIndex: -1 });
       }
-      if (typeof wireRequestID === 'string' && wireRequestID.length > 0 && wireRequestIDs.has(wireRequestID)) {
-        return { message: where + '.unmodeledEvents wire requestId duplicates a modeled request' };
+      if (typeof wireRequestID === 'string' && wireRequestID.length > 0) {
+        const priorWireRequest = wireRequestIDs.get(wireRequestID);
+        if (priorWireRequest) {
+          const allowedReconcileReuse = eventKind === 'draft-reconcile-read' &&
+            priorWireRequest.readOnlySupportKind === 'draft-reconcile-read' &&
+            supportRoute.method === 'POST' && supportRoute.pathSuffix === '/reconcile' &&
+            method === priorWireRequest.method && path === priorWireRequest.path &&
+            method === 'POST' && path === '/reconcile' && supportRequest.isMutation === false &&
+            priorWireRequest.isMutation === false;
+          if (!allowedReconcileReuse) {
+            return { message: where + '.unmodeledEvents wire requestId may be reused only by distinct read-only POST /reconcile support requests' };
+          }
+        } else {
+          wireRequestIDs.set(wireRequestID, {
+            label: eventKind, actionIndex: -1, method, path, isMutation: false,
+            readOnlySupportKind: eventKind,
+          });
+        }
       }
       unmodeledRequestIDs.add(requestID);
-      if (typeof wireRequestID === 'string' && wireRequestID.length > 0) {
-        wireRequestIDs.set(wireRequestID, { label: eventKind, actionIndex: -1 });
-      }
       classifiedNativeRequests.set(supportRequest.browserRequestId, {
         method,
         path,
@@ -1417,7 +1646,7 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
     }
   }
   const nativeBrowserIDs = new Set();
-  const nativeWireIDs = new Set();
+  const nativeWireIDs = new Map();
   const nativePathBases = new Set();
   const supportRoutesBySuffix = new Map(Object.entries(contract.readOnlySupportRoutes ?? {})
     .map(([kind, route]) => [route.method + ' ' + route.pathSuffix, kind]));
@@ -1432,12 +1661,6 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
       return { message: where + '.nativeRequests browserRequestId must be unique across the complete observer ledger' };
     }
     nativeBrowserIDs.add(entry.browserRequestId);
-    if (typeof entry.requestId === 'string' && entry.requestId.length > 0) {
-      if (nativeWireIDs.has(entry.requestId)) {
-        return { message: where + '.nativeRequests wire requestId must be unique across the complete observer ledger' };
-      }
-      nativeWireIDs.add(entry.requestId);
-    }
     const pathSuffix = cdaNativePathSuffix(entry.path);
     if (!pathSuffix) return { message: where + '.nativeRequests[' + nativeIndex + '].path must be an owned absolute authoring route' };
     const pathBase = cdaNativePathBase(entry.path);
@@ -1455,6 +1678,29 @@ function cdaMutatingRequestCoverageProblem(trace, where, journeyCase, contract) 
     }
     if (!classified) {
       return { message: where + '.nativeRequests contains an observed request with no modeled action or explicit read-only support binding' };
+    }
+    if (typeof entry.requestId === 'string' && entry.requestId.length > 0) {
+      const supportKind = supportRoutesBySuffix.get(entry.method + ' ' + pathSuffix);
+      const readOnlySupportKind = !entry.isMutation && !modeledProposalRequest &&
+        journeyCase.readOnlySupportKinds.includes(supportKind) && classified.label === supportKind
+        ? supportKind
+        : null;
+      const priorWireRequest = nativeWireIDs.get(entry.requestId);
+      if (priorWireRequest) {
+        const allowedReconcileReuse = readOnlySupportKind === 'draft-reconcile-read' &&
+          priorWireRequest.readOnlySupportKind === 'draft-reconcile-read' &&
+          entry.method === priorWireRequest.method && pathSuffix === priorWireRequest.pathSuffix &&
+          entry.method === 'POST' && pathSuffix === '/reconcile' &&
+          entry.isMutation === false && priorWireRequest.isMutation === false;
+        if (!allowedReconcileReuse) {
+          return { message: where + '.nativeRequests wire requestId may be reused only by distinct read-only POST /reconcile support requests' };
+        }
+      } else {
+        nativeWireIDs.set(entry.requestId, {
+          browserRequestId: entry.browserRequestId, method: entry.method, pathSuffix,
+          isMutation: entry.isMutation, readOnlySupportKind,
+        });
+      }
     }
     const classifiedRequestId = typeof classified.requestId === 'string' ? classified.requestId : null;
     const ledgerRequestId = typeof entry.requestId === 'string' ? entry.requestId : null;
@@ -1647,9 +1893,17 @@ function cdaRowExpansionConsistencyProblem(trace, where, journeyCase) {
     if (candidateResponse.problem) return { message: candidateResponse.problem };
     const candidateStep = candidateRequest.step;
     const responseStep = candidateResponse.step;
-    if (canonicalJson(candidateStep) !== canonicalJson(responseStep) ||
-        body.changedStepId !== startLifecycle.stepId) {
+    const candidateResponseProblem = cdaRowExpansionCandidateResponseProblem(
+      body.candidateConstruction, previewResponse.candidateConstruction, body.changedStepId,
+      startLifecycle.savedBefore, startLifecycle.inputStepId, startLifecycle.route,
+      where + '.actions[' + settlement.index + '].rowExpansionLifecycle',
+    );
+    if (candidateResponseProblem || body.changedStepId !== startLifecycle.stepId) {
+      if (candidateResponseProblem) return { message: candidateResponseProblem };
       return { message: where + ' row expansion raw proposal body and response must retain the same changed step' };
+    }
+    if (previewResponse.changedStepId !== body.changedStepId) {
+      return { message: where + ' row expansion response must echo the exact request changedStepId' };
     }
     const rawRoute = candidateStep.operation.relatedExpand.route;
     if (canonicalJson(rawRoute) !== canonicalJson(startLifecycle.route)) {
@@ -1678,8 +1932,8 @@ function cdaRowExpansionConsistencyProblem(trace, where, journeyCase) {
     const afterSteps = afterDocument.document.construction?.steps ?? [];
     const savedStepMatches = afterSteps.filter((step) => step.id === startLifecycle.stepId && step.operation?.kind === 'RELATED_EXPAND');
     if (beforeStepCount !== 0 || savedStepMatches.length !== 1 ||
-        canonicalJson(savedStepMatches[0]) !== canonicalJson(candidateStep)) {
-      return { message: where + ' applied row expansion must persist the exact proposed step in the selected Builder workspace' };
+        canonicalJson(savedStepMatches[0]) !== canonicalJson(responseStep)) {
+      return { message: where + ' applied row expansion must persist the exact native response candidate step in the selected Builder workspace' };
     }
     const applyCommands = applied.action.request?.request?.commands;
     if (!Array.isArray(applyCommands) || !applyCommands.some((command) =>
@@ -1695,6 +1949,115 @@ function cdaRowExpansionConsistencyProblem(trace, where, journeyCase) {
     priorAfter = after;
   }
   return null;
+}
+
+function cdaRowExpansionCandidateStepProblem(requestedStep, responseStep, savedBefore, expectedInputStepId, expectedRoute, where) {
+  const mismatch = where + ' row expansion response may refresh only omitted nullable metadata from its saved input stage';
+  if (!isPlainObject(requestedStep) || !isPlainObject(responseStep) ||
+      requestedStep.operation?.kind !== 'RELATED_EXPAND' || responseStep.operation?.kind !== 'RELATED_EXPAND' ||
+      canonicalJson(requestedStep.operation.relatedExpand?.route) !== canonicalJson(expectedRoute) ||
+      !Array.isArray(requestedStep.outputs) || !Array.isArray(responseStep.outputs) ||
+      requestedStep.outputs.length !== responseStep.outputs.length) {
+    return mismatch;
+  }
+  if (expectedInputStepId === null) {
+    return Array.isArray(requestedStep.inputs) && requestedStep.inputs.length === 1 &&
+      requestedStep.inputs[0]?.kind === 'SOURCE_PROJECTION' &&
+      canonicalJson(requestedStep) === canonicalJson(responseStep)
+      ? null
+      : mismatch;
+  }
+  if (typeof expectedInputStepId !== 'string' || !Array.isArray(requestedStep.inputs) ||
+      requestedStep.inputs.length !== 1 || requestedStep.inputs[0]?.kind !== 'STEP_OUTPUT' ||
+      requestedStep.inputs[0]?.stepId !== expectedInputStepId) return mismatch;
+  const selected = savedBuilderDocument(savedBefore, where + '.savedBefore');
+  if (selected.problem) return selected.problem;
+  const inputStepId = requestedStep.inputs[0].stepId;
+  const inputSteps = (selected.document.construction?.steps ?? []).filter((step) => step?.id === inputStepId);
+  const savedSteps = selected.document.construction?.steps ?? [];
+  if (inputSteps.length !== 1 || savedSteps.at(-1)?.id !== inputStepId || !Array.isArray(inputSteps[0].outputs)) return mismatch;
+  const inputOutputs = inputSteps[0].outputs;
+  const relatedRecordColumnId = requestedStep.operation.relatedExpand?.relatedRecordColumnId;
+  if (typeof relatedRecordColumnId !== 'string' || relatedRecordColumnId.length === 0 ||
+      inputOutputs.some((output) => output?.id === relatedRecordColumnId) ||
+      requestedStep.outputs.length !== inputOutputs.length + 1) {
+    return mismatch;
+  }
+  const requestedRest = structuredClone(requestedStep);
+  const responseRest = structuredClone(responseStep);
+  delete requestedRest.outputs;
+  delete responseRest.outputs;
+  if (canonicalJson(requestedRest) !== canonicalJson(responseRest)) return mismatch;
+  const requestedById = new Map();
+  const responseById = new Map();
+  for (const [outputs, byId] of [[requestedStep.outputs, requestedById], [responseStep.outputs, responseById]]) {
+    for (const output of outputs) {
+      if (!isPlainObject(output) || typeof output.id !== 'string' || byId.has(output.id)) return mismatch;
+      byId.set(output.id, output);
+    }
+  }
+  const orderedIds = [...inputOutputs.map((output) => output?.id), relatedRecordColumnId];
+  if (orderedIds.some((id) => typeof id !== 'string') ||
+      canonicalJson(requestedStep.outputs.map((output) => output.id)) !== canonicalJson(orderedIds) ||
+      canonicalJson(responseStep.outputs.map((output) => output.id)) !== canonicalJson(orderedIds)) return mismatch;
+  for (const savedOutput of inputOutputs) {
+    if (!isPlainObject(savedOutput) || typeof savedOutput.id !== 'string') return mismatch;
+    const requestedOutput = requestedById.get(savedOutput.id);
+    const responseOutput = responseById.get(savedOutput.id);
+    if (canonicalJson(responseOutput) !== canonicalJson(savedOutput)) return mismatch;
+    if (canonicalJson(requestedOutput) !== canonicalJson(savedOutput)) {
+      const inputStep = inputSteps[0];
+      if (savedOutput.nullable !== true || Object.hasOwn(requestedOutput, 'nullable') ||
+          inputStep.operation?.kind !== 'RELATED_EXPAND' ||
+          inputStep.operation.relatedExpand?.emptyPolicy !== 'PRESERVE_PARENT' ||
+          inputStep.operation.relatedExpand?.relatedRecordColumnId !== savedOutput.id) return mismatch;
+      const requestWithSavedNullable = structuredClone(requestedOutput);
+      requestWithSavedNullable.nullable = true;
+      if (canonicalJson(requestWithSavedNullable) !== canonicalJson(savedOutput)) return mismatch;
+    }
+  }
+  const newRequestOutput = requestedById.get(relatedRecordColumnId);
+  const newResponseOutput = responseById.get(relatedRecordColumnId);
+  if (!newRequestOutput || !newResponseOutput ||
+      canonicalJson(newRequestOutput) !== canonicalJson(newResponseOutput) ||
+      newResponseOutput.nullable !== (requestedStep.operation.relatedExpand.emptyPolicy === 'PRESERVE_PARENT')) {
+    return mismatch;
+  }
+  return null;
+}
+
+function cdaRowExpansionCandidateResponseProblem(requestedConstruction, responseConstruction, changedStepId,
+  savedBefore, expectedInputStepId, expectedRoute, where) {
+  const mismatch = where + ' must retain one unique appended RELATED_EXPAND delta and its exact saved input schema';
+  if (!isPlainObject(requestedConstruction) || !isPlainObject(responseConstruction) ||
+      !Array.isArray(requestedConstruction.steps) || !Array.isArray(responseConstruction.steps) ||
+      typeof changedStepId !== 'string' || changedStepId.length === 0 ||
+      requestedConstruction.steps.length !== responseConstruction.steps.length) {
+    return mismatch;
+  }
+  const selected = savedBuilderDocument(savedBefore, where + '.savedBefore');
+  if (selected.problem) return selected.problem;
+  const savedSteps = selected.document.construction?.steps ?? [];
+  if (requestedConstruction.steps.length !== savedSteps.length + 1 ||
+      savedSteps.some((step) => step?.id === changedStepId) ||
+      requestedConstruction.steps[savedSteps.length]?.id !== changedStepId ||
+      responseConstruction.steps[savedSteps.length]?.id !== changedStepId) {
+    return mismatch;
+  }
+  for (let index = 0; index < savedSteps.length; index += 1) {
+    if (canonicalJson(requestedConstruction.steps[index]) !== canonicalJson(savedSteps[index]) ||
+        canonicalJson(responseConstruction.steps[index]) !== canonicalJson(savedSteps[index])) {
+      return mismatch;
+    }
+  }
+  const requestDeltas = requestedConstruction.steps.filter((step) => step?.id === changedStepId &&
+    step?.operation?.kind === 'RELATED_EXPAND');
+  const responseDeltas = responseConstruction.steps.filter((step) => step?.id === changedStepId &&
+    step?.operation?.kind === 'RELATED_EXPAND');
+  if (requestDeltas.length !== 1 || responseDeltas.length !== 1) return mismatch;
+  return cdaRowExpansionCandidateStepProblem(
+    requestDeltas[0], responseDeltas[0], savedBefore, expectedInputStepId, expectedRoute, where,
+  );
 }
 
 function cdaJourneyLifecycleConsistencyProblem(trace, where, journeyCase, contract) {
@@ -2155,6 +2518,14 @@ function journeyGroupLifecycleConsistencyProblem(trace, where, enabled, {
     }
     const intentProblem = addIntent(lifecycle.candidateIntent, actionWhere);
     if (intentProblem) return { message: intentProblem, actionIndex };
+    if (cdaJourneyCase) {
+      const targetProblem = cdaCreateGroupTargetStepProblem(
+        lifecycle.candidateIntent,
+        actionWhere + '.groupLifecycle.candidateIntent',
+        lifecycle.savedBefore,
+      );
+      if (targetProblem) return { message: targetProblem, actionIndex };
+    }
     for (const field of ['savedBefore', 'savedAfter']) {
       const saved = lifecycle[field];
       if (!isPlainObject(saved)) continue;
@@ -2536,7 +2907,7 @@ function requestProblem(request, where) {
   if (request.requestId !== undefined && request.requestId !== null && typeof request.requestId !== 'string') {
     return where + '.requestId must be a string or null when present';
   }
-  if (request.captureId !== undefined && typeof request.captureId !== 'string') return where + '.captureId must be a string when present';
+  if (request.captureId !== undefined && request.captureId !== null && typeof request.captureId !== 'string') return where + '.captureId must be a string or null when present';
   if (request.commandId !== undefined && request.commandId !== null && typeof request.commandId !== 'string') return where + '.commandId must be a string or null when present';
   if (request.browserRequestId !== undefined && typeof request.browserRequestId !== 'string') return where + '.browserRequestId must be a string when present';
   return null;
@@ -2548,7 +2919,7 @@ function responseProblem(response, where) {
     return where + '.status must be a string or number';
   }
   if (response.requestId !== undefined && response.requestId !== null && typeof response.requestId !== 'string') return where + '.requestId must be a string or null when present';
-  if (response.captureId !== undefined && typeof response.captureId !== 'string') return where + '.captureId must be a string when present';
+  if (response.captureId !== undefined && response.captureId !== null && typeof response.captureId !== 'string') return where + '.captureId must be a string or null when present';
   if (response.commandId !== undefined && response.commandId !== null && typeof response.commandId !== 'string') return where + '.commandId must be a string or null when present';
   if (response.browserRequestId !== undefined && typeof response.browserRequestId !== 'string') return where + '.browserRequestId must be a string when present';
   if (response.proposalId !== undefined && response.proposalId !== null && typeof response.proposalId !== 'string') {
@@ -2586,6 +2957,71 @@ function observedRequestKey(value) {
   if (!isPlainObject(value)) return null;
   if (typeof value.captureId === 'string' && value.captureId.length > 0) return 'capture:' + value.captureId;
   if (typeof value.browserRequestId === 'string' && value.browserRequestId.length > 0) return 'browser:' + value.browserRequestId;
+  return null;
+}
+
+function initialPreviewIdentityProblem(initialPreview, trace, where, cdaRelatedCase) {
+  const request = initialPreview.request;
+  const response = initialPreview.response;
+  const settlement = initialPreview.settlement;
+  if (!cdaRelatedCase) {
+    const captureId = request.captureId;
+    if (typeof captureId !== 'string' || captureId.length === 0 ||
+        response.captureId !== captureId || settlement.captureId !== captureId ||
+        settlement.kind !== 'http-response') {
+      return where + ' request/response captureId must be present and identical';
+    }
+    if (request.requestId !== null && response.requestId !== null && request.requestId !== response.requestId) {
+      return where + ' non-null wire requestIds do not match';
+    }
+    return null;
+  }
+
+  const browserRequestId = initialPreview.owner?.browserRequestId;
+  const records = [initialPreview.owner, request, response, settlement];
+  if (typeof browserRequestId !== 'string' || browserRequestId.length === 0 ||
+      records.some((record) => typeof record?.browserRequestId !== 'string' ||
+        record.browserRequestId.length === 0 || record.browserRequestId !== browserRequestId)) {
+    return where + ' owner, request, response, and settlement must preserve the same actual browserRequestId';
+  }
+  if (settlement.kind !== 'http-response') {
+    return where + ' settlement must preserve the actual http-response';
+  }
+  if (records.some((record) => record.captureId !== null && record.captureId !== undefined)) {
+    return where + ' must preserve captureId as absent or null rather than aliasing browserRequestId';
+  }
+  if (records.some((record) => record.requestId !== request.requestId)) {
+    return where + ' request, response, owner, and settlement must preserve the same raw wire requestId value';
+  }
+  if (!Array.isArray(trace.nativeRequests)) {
+    return where + ' must retain the complete native request ledger for browserRequestId binding';
+  }
+  const ledgerMatches = trace.nativeRequests.filter((entry) => entry?.browserRequestId === browserRequestId);
+  if (ledgerMatches.length !== 1) {
+    return where + ' browserRequestId must identify exactly one native request ledger entry';
+  }
+  const ledger = ledgerMatches[0];
+  if (!Number.isInteger(request.index) || request.index < 0 || ledger.index !== request.index ||
+      request.method !== 'POST' || request.path !== '/preview' ||
+      ledger.method !== request.method || cdaNativePathSuffix(ledger.path) !== request.path ||
+      ledger.startedAt !== request.startedAt || ledger.isMutation !== request.isMutation ||
+      ledger.requestId !== request.requestId) {
+    return where + ' request must match its exact native request ledger entry and observer index';
+  }
+  if (request.isMutation !== false) {
+    return where + ' source-table preview request must preserve the observer non-mutating flag';
+  }
+  for (const record of [initialPreview.owner, response, settlement]) {
+    if (record.index !== undefined && record.index !== request.index) {
+      return where + ' exposed request observer indices do not match';
+    }
+    if (record.method !== undefined && record.method !== request.method) {
+      return where + ' exposed request methods do not match';
+    }
+    if (record.path !== undefined && record.path !== request.path) {
+      return where + ' exposed request paths do not match';
+    }
+  }
   return null;
 }
 
@@ -3249,18 +3685,10 @@ function traceShapeProblem(trace, index, contract, events) {
         return { message: where + '.initialPreview ready evidence requires rendered source and response rows' };
       }
     }
-    const captureId = trace.initialPreview.request.captureId;
-    const requestId = trace.initialPreview.request.requestId;
-    const responseRequestId = trace.initialPreview.response.requestId;
-    if (typeof captureId !== 'string' || captureId.length === 0 ||
-        trace.initialPreview.response.captureId !== captureId ||
-        trace.initialPreview.settlement.captureId !== captureId ||
-        trace.initialPreview.settlement.kind !== 'http-response') {
-      return { message: where + '.initialPreview request/response captureId must be present and identical' };
-    }
-    if (requestId !== null && responseRequestId !== null && requestId !== responseRequestId) {
-      return { message: where + '.initialPreview non-null wire requestIds do not match' };
-    }
+    const identityProblem = initialPreviewIdentityProblem(
+      trace.initialPreview, trace, where + '.initialPreview', hasCdaRelatedCase,
+    );
+    if (identityProblem) return { message: identityProblem };
   }
   if (trace.model === 'BuilderJourney' && trace.initialObservation.tablePreviewStatus === 'ready' && !trace.initialPreview) {
     return { message: where + '.initialPreview is required for an observed ready source table preview' };
@@ -4062,8 +4490,8 @@ function collectCdaTokens(trace, journeyCase) {
       if (!isPlainObject(lifecycle)) continue;
       addGroup(lifecycle.savedBefore?.group);
       addGroup(lifecycle.savedAfter?.group);
-      addGroupIntent(lifecycle.candidateIntent);
     }
+    addGroupIntent(action.groupLifecycle?.candidateIntent);
     if (action.label === 'Reload' && isPlainObject(action.groupLifecycle)) {
       addGroup(cdaMountedGroupProjectionForTla(
         action.groupLifecycle.mountedGroup,
@@ -4198,6 +4626,15 @@ function candidateIntentForTla(intent, stepTokens, keyTokens) {
     ', proposed |-> ' + groupRecordForTla(intent.proposed, stepTokens, keyTokens) + ']';
 }
 
+function cdaCandidateIntentForTla(intent, stepTokens, keyTokens, where, savedBefore) {
+  if (!isPlainObject(intent) || intent.kind !== 'create') {
+    return candidateIntentForTla(intent, stepTokens, keyTokens);
+  }
+  const targetProblem = cdaCreateGroupTargetStepProblem(intent, where, savedBefore);
+  if (targetProblem) fail(targetProblem);
+  return candidateIntentForTla({ ...intent, targetStepId: null }, stepTokens, keyTokens);
+}
+
 function tlaCaptureToken(value) {
   if (typeof value !== 'string' || !/^c(?:[1-9]|1[0-2])$/.test(value)) {
     fail('mapped Group capture token is outside the finite c1..c12 domain');
@@ -4282,7 +4719,10 @@ function cdaLifecycleRecords(trace, tokens, journeyCase) {
       ? cdaRelatedIntentForTla(lifecycle.candidateIntent, tokens)
       : action.rowExpansionLifecycle
         ? cdaRowExpansionIntentForTla(lifecycle)
-        : candidateIntentForTla(lifecycle.candidateIntent, tokens.stepTokens, tokens.keyTokens);
+        : cdaCandidateIntentForTla(
+          lifecycle.candidateIntent, tokens.stepTokens, tokens.keyTokens,
+          where + '.groupLifecycle.candidateIntent', lifecycle.savedBefore,
+        );
     const mountedGroupProjection = action.label === 'Reload' && isPlainObject(action.groupLifecycle)
       ? cdaMountedGroupProjectionForTla(
         action.groupLifecycle.mountedGroup,
@@ -5222,13 +5662,16 @@ async function main() {
 export {
   builderColumnLabelForId,
   cdaGroupLifecycleSnapshotProblem,
+  cdaRowExpansionCandidateResponseProblem,
   cdaGroupProjectionForTla,
+  cdaCandidateIntentForTla,
   cdaLifecycleRecords,
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
   collectCdaTokens,
   groupLifecycleShapeProblem,
+  initialPreviewIdentityProblem,
   journeyGroupLifecycleConsistencyProblem,
   mountedGroupKeyLabelsProblem,
   mountedRelatedSourceProblem,
