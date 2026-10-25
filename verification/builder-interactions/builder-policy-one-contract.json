@@ -136,7 +136,7 @@
     "nativeCaseKey": "builder-authoring/patient-one-disagreement",
     "traceName": "builder-authoring:patient-one-disagreement",
     "model": "PolicyOneDisagreement",
-    "coverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes.",
+    "coverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
     "exactActionCounts": true,
     "requiredMutationControlNames": [
       "wrong-owner",
