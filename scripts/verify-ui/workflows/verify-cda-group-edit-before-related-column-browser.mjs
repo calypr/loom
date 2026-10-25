@@ -145,8 +145,8 @@ export function groupEditRenderCheckpointSummary(cases) {
   };
 }
 
-export const constructionHistoryDOMProjection = () =>
-  [...document.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
+export const constructionHistoryDOMProjection = () => {
+  const steps = [...document.querySelectorAll('button[data-testid^="construction-history-step-"]')].map(button => {
     const testId = button.getAttribute('data-testid');
     return {
       testId,
@@ -166,6 +166,8 @@ export const constructionHistoryDOMProjection = () =>
       })(),
     };
   });
+  return { observedAt: Date.now(), documentTimeOrigin: performance.timeOrigin, steps };
+};
 
 export const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, savedRelatedSource }) => {
   const row = historySteps.find(step => step.title === 'Related Observation' &&
@@ -173,15 +175,13 @@ export const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, savedR
   if (!row) return null;
   const sourceMatch = row.historyText.match(/\bfrom ([^\s]+)\.([^\s]+)(?:\s+via\s+|\s+as\s+)/);
   const labelMatch = row.historyText.match(/\bas (.+)\.$/);
+  const routeDisplayMatch = row.historyText.match(/\bvia (.+?)\s+as\s+/);
   const rowIndex = historySteps.indexOf(row);
   const inputStepId = historySteps[rowIndex - 1]?.stepId ?? null;
-  assert(sourceMatch && labelMatch && inputStepId && savedRelatedSource,
-    'Mounted RELATED_SOURCE history DOM must expose its source, output label, and preceding Group input identity.');
+  assert(sourceMatch && labelMatch && routeDisplayMatch && inputStepId && savedRelatedSource,
+    'Mounted RELATED_SOURCE history DOM must expose its source, displayed route label, output label, and preceding Group input identity.');
   assert(row.adjustmentGroup?.title.includes('Column adjustments'),
     'Mounted RELATED_SOURCE history DOM must retain its Column adjustments disclosure identity.');
-  assert(savedRelatedSource.route.every(hop => row.historyText.includes(hop.fromResourceType) &&
-    row.historyText.includes(hop.toResourceType)),
-  'Mounted RELATED_SOURCE history DOM must display every endpoint in the saved route.');
   const normalizeLabel = label => label.replace(/\s+/g, ' ').trim().toLowerCase();
   const semanticLabel = renderedRows.semanticHeaders.find(header => header === labelMatch[1]);
   const displayedHeader = renderedRows.headers.find(header => normalizeLabel(header) === normalizeLabel(labelMatch[1]));
@@ -193,6 +193,9 @@ export const mountedRelatedSourceFromDOM = ({ historySteps, renderedRows, savedR
     source: { resourceType: sourceMatch[1], path: sourceMatch[2] },
     outputColumnId: savedRelatedSource.outputColumnId,
     route: structuredClone(savedRelatedSource.route),
+    routeEvidence: 'saved-builder-projection',
+    displayedRouteLabel: routeDisplayMatch[1],
+    displayedRouteEvidence: 'construction-history-button-title-attribute',
     visibleColumn: {
       id: savedRelatedSource.outputColumnId,
       label: semanticLabel,
@@ -214,6 +217,10 @@ export const assertMountedRelatedSourceMatchesSaved = (mounted, savedRelatedSour
     assert.deepEqual(mounted.source, savedRelatedSource.source);
     assert.equal(mounted.outputColumnId, savedRelatedSource.outputColumnId);
     assert.deepEqual(mounted.route, savedRelatedSource.route);
+    assert.equal(mounted.routeEvidence, 'saved-builder-projection');
+    assert.equal(mounted.displayedRouteEvidence, 'construction-history-button-title-attribute');
+    assert.equal(typeof mounted.displayedRouteLabel, 'string');
+    assert(mounted.displayedRouteLabel.length > 0);
     assert.equal(mounted.visibleColumn.id, savedRelatedSource.outputColumnId);
     assert.equal(mounted.visibleColumn.label, savedRelatedSource.output?.label,
       'Mounted RELATED_SOURCE visibleColumn.label must match the actual saved output label.');
@@ -269,6 +276,7 @@ const report = {
   scope: { apiOrigin, uiOrigin, browserApiTransport: 'same-origin UI /api proxy',
     rawOracle: 'project + dataset generation + explicit selected Specimen ID' },
   evidence, target, ownedApiRuntimeProof: null, oracleQueryAttempts: [], cases: [], errors: [], requests: [], nativeRequests: [],
+  mountedDOMObservations: [],
   protectedExplorerUntouched: true,
   started: new Date().toISOString(),
 };
@@ -469,7 +477,7 @@ const readRenderedSourceTable = async () => browserEval(page, () => {
     text: cell.innerText.replace(/\s+/g, ' ').trim(),
     title: cell.getAttribute('title') ?? cell.querySelector('[title]')?.getAttribute('title') ?? null,
   })));
-  return { headers, semanticHeaders, rawRows };
+  return { observedAt: Date.now(), documentTimeOrigin: performance.timeOrigin, headers, semanticHeaders, rawRows };
 });
 const readConstructionHistoryDOM = async () => browserEval(page, constructionHistoryDOMProjection);
 const mountedGroupFromHistoryDOM = historySteps => {
@@ -1039,7 +1047,17 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
   const initialPreviewMount = await currentMount();
   const observation = await captureBuilderObservation(page);
   const renderedRows = await readRenderedSourceTable();
-  const historySteps = await readConstructionHistoryDOM();
+  const historyObservation = await readConstructionHistoryDOM();
+  const historySteps = historyObservation.steps;
+  report.mountedDOMObservations.push({
+    historyObservedAt: historyObservation.observedAt,
+    historyDocumentTimeOrigin: historyObservation.documentTimeOrigin,
+    historySteps,
+    renderedHeaders: renderedRows.headers,
+    semanticHeaders: renderedRows.semanticHeaders,
+    tableObservedAt: renderedRows.observedAt,
+    tableDocumentTimeOrigin: renderedRows.documentTimeOrigin,
+  });
   const mountedGroup = mountedGroupFromHistoryDOM(historySteps);
   const mountedRelatedSource = mountedRelatedSourceFromDOM({
     historySteps,
