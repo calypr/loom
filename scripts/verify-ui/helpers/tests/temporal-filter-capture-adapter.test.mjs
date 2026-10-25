@@ -117,3 +117,26 @@ test('adapter schema fixture retains failed read-only request diagnostics', () =
   assert.equal(request.responseCaptureComplete, true);
   assert.equal(request.responseBodyCaptured, false);
 });
+
+test('adapter schema fixture evidence follows the ordered lifecycle timestamps and read indexes', () => {
+  const capture = makeTemporalFilterJourneyCaptureFixture('date');
+  const sorted = values => assert.deepEqual(values, [...values].sort((left, right) => left - right));
+  sorted(capture.requestEvents.map(event => event.atMonotonicMs));
+  sorted(capture.builderReads.map(read => read.capturedAtMonotonicMs));
+  sorted(capture.domObservations.map(observation => observation.capturedAtMonotonicMs));
+  sorted(capture.steps.map(step => step.atMonotonicMs));
+  for (const step of capture.steps) {
+    if (step.beforeReadIndex !== null) {
+      assert(capture.builderReads[step.beforeReadIndex].capturedAtMonotonicMs <= step.atMonotonicMs,
+        `${step.label} before read must precede its semantic event.`);
+    }
+    if (step.requestCaptureId && step.afterReadIndex !== null) {
+      assert(capture.builderReads[step.afterReadIndex].capturedAtMonotonicMs >= step.atMonotonicMs,
+        `${step.label} post-request read must follow its request event.`);
+    }
+    if (step.requestCaptureId && step.domObservationIndex !== null) {
+      assert(capture.domObservations[step.domObservationIndex].capturedAtMonotonicMs > step.atMonotonicMs,
+        `${step.label} DOM observation must follow its request event.`);
+    }
+  }
+});

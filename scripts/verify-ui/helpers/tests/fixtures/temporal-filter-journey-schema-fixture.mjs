@@ -36,6 +36,7 @@ const CASES = Object.freeze({
 const clone = value => structuredClone(value);
 export const TEMPORAL_FILTER_FIXTURE_BASE_TIME = 1_000;
 const baseTime = TEMPORAL_FILTER_FIXTURE_BASE_TIME;
+const epochOffset = 1_700_000_000_000;
 
 const makeFilterStep = (stepId, spec, predicate = spec.savedValue) => ({
   id: stepId,
@@ -87,26 +88,34 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     removed: [makeDocument(spec, true)],
   };
   const builderStates = [
-    ['blank', 1, 'draft-1', 1], ['blank', 1, 'draft-1', 1],
-    ['root', 2, 'draft-2', 1], ['root', 2, 'draft-2', 1],
-    ['temporal', 3, 'draft-3', 1], ['temporal', 3, 'draft-3', 1],
-    ['temporal', 3, 'draft-3', 1], ['temporal', 3, 'draft-3', 2],
-    ['temporal', 3, 'draft-3', 2], ['initial', 4, 'draft-4', 2],
-    ['initial', 4, 'draft-4', 3], ['initial', 4, 'draft-4', 3],
-    ['initial', 4, 'draft-4', 3], ['edited', 5, 'draft-5', 3],
-    ['edited', 5, 'draft-5', 4], ['edited', 5, 'draft-5', 4],
-    ['edited', 5, 'draft-5', 4], ['removed', 6, 'draft-6', 4],
-    ['removed', 6, 'draft-6', 5],
+    ['blank', 1, 'draft-1', 1, 1005, 1010],
+    ['blank', 1, 'draft-1', 1, 1015, 1020],
+    ['root', 2, 'draft-2', 1, 1035, 1040],
+    ['root', 2, 'draft-2', 1, 1055, 1060],
+    ['temporal', 3, 'draft-3', 1, 1085, 1090],
+    ['temporal', 3, 'draft-3', 1, 1105, 1110],
+    ['temporal', 3, 'draft-3', 1, 1135, 1140],
+    ['temporal', 3, 'draft-3', 2, 1155, 1160],
+    ['temporal', 3, 'draft-3', 2, 1195, 1200],
+    ['initial', 4, 'draft-4', 2, 1225, 1230],
+    ['initial', 4, 'draft-4', 3, 1245, 1250],
+    ['initial', 4, 'draft-4', 3, 1265, 1270],
+    ['initial', 4, 'draft-4', 3, 1315, 1320],
+    ['edited', 5, 'draft-5', 3, 1345, 1350],
+    ['edited', 5, 'draft-5', 4, 1365, 1370],
+    ['edited', 5, 'draft-5', 4, 1405, 1410],
+    ['removed', 6, 'draft-6', 4, 1425, 1430],
+    ['removed', 6, 'draft-6', 5, 1445, 1450],
   ];
-  const builderReads = builderStates.map(([state, draftVersion, draftDigest, epoch], index) => ({
+  const builderReads = builderStates.map(([state, draftVersion, draftDigest, epoch, requestAt, capturedAt], index) => ({
     readId: `schema-fixture-builder-read-${index}`,
     requestId: `schema-fixture-api-read-${index}`,
     status: 200,
-    requestStartedAtMonotonicMs: baseTime + index * 10,
-    requestStartedAtEpochMs: baseTime + index * 10,
+    requestStartedAtMonotonicMs: requestAt,
+    requestStartedAtEpochMs: epochOffset + requestAt,
     requestMountEpoch: epoch,
-    capturedAtMonotonicMs: baseTime + index * 10 + 2,
-    capturedAtEpochMs: baseTime + index * 10 + 2,
+    capturedAtMonotonicMs: capturedAt,
+    capturedAtEpochMs: epochOffset + capturedAt,
     mountEpoch: epoch,
     catalogGeneration: 'basic-temporal-generation',
     draftVersion,
@@ -116,9 +125,11 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
 
   const requestEvents = [];
   const addRequest = ({ name, path, body, response, isMutation, status = 200, mountEpoch = 1,
+    atMonotonicMs = baseTime + requestEvents.length * 10,
     failure = null, readCancellationDiagnostic = false, responseCapture = 'captured', responseCaptureComplete = true,
     responseBodyCaptured = true }) => {
     const captureId = `schema-fixture-browser-request-${name}`;
+    const atEpochMs = epochOffset + atMonotonicMs;
     requestEvents.push({
       browserRequestId: captureId,
       requestId: `schema-fixture-raw-request-${name}`,
@@ -127,16 +138,16 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       status,
       request: clone(body),
       response: clone(response),
-      startedAt: baseTime + requestEvents.length * 10,
-      completedAt: baseTime + requestEvents.length * 10 + 1,
+      startedAt: atEpochMs,
+      completedAt: atEpochMs + 1,
       isMutation,
       failure: clone(failure),
       readCancellationDiagnostic,
       responseCapture,
       responseCaptureComplete,
       responseBodyCaptured,
-      atMonotonicMs: baseTime + requestEvents.length * 10,
-      atEpochMs: baseTime + requestEvents.length * 10,
+      atMonotonicMs,
+      atEpochMs,
       mountEpoch,
     });
     return captureId;
@@ -149,12 +160,13 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
   const choiceSelection = { choiceId: 'temporal-field-choice', form: 'VALUE' };
   const explorerRequestId = addRequest({
     name: 'explorer-create', path: '/api/v1/projects/loom_dev_verify_temporal/explorers',
-    body: { title: 'temporal fixture Explorer' }, response: { explorerId: 'explorer-temporal' }, isMutation: true, status: 201,
+    body: { title: 'temporal fixture Explorer' }, response: { explorerId: 'explorer-temporal' },
+    isMutation: true, status: 201, atMonotonicMs: 1000,
   });
   const sourceRequestId = addRequest({ name: 'source-table', path: commandPath,
     body: { commandId: 'source-table-command', snapshotToken: 'source-table-snapshot',
       expectedDraftVersion: 1, expectedDraftDigest: 'draft-1', commands: [{ type: 'CREATE_TABLE' }] },
-    response: { accepted: true }, isMutation: true });
+    response: { accepted: true }, isMutation: true, atMonotonicMs: 1030 });
   const choiceProposalId = addRequest({ name: 'choice-proposal', path: choiceProposalPath,
     body: { commandId: choiceCommandId, snapshotToken: choiceSnapshotToken,
       expectedDraftVersion: 2, expectedDraftDigest: 'draft-2', outputId, constructionChoices: [choiceSelection] },
@@ -162,14 +174,14 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       draftVersion: 2, draftDigest: 'draft-2', outputId,
       constructionChoices: [choiceSelection], candidateWorkspaceDigest: 'choice-candidate-workspace',
       candidateColumnIds: [spec.temporalColumnId], previewStatus: 'READY', previewDurationMs: 1,
-      preview: { receiptId: 'column-receipt', outputId } }, isMutation: false });
+      preview: { receiptId: 'column-receipt', outputId } }, isMutation: false, atMonotonicMs: 1070 });
   const choiceApplyId = addRequest({ name: 'choice-apply', path: commandPath,
     body: { commandId: choiceCommandId, snapshotToken: choiceSnapshotToken,
       expectedDraftVersion: 2, expectedDraftDigest: 'draft-2', commands: [{
         type: 'APPLY_CONSTRUCTION_CHOICE', outputId, constructionChoice: choiceSelection,
-      }] }, response: { accepted: true }, isMutation: true });
+      }] }, response: { accepted: true }, isMutation: true, atMonotonicMs: 1080 });
 
-  const addFilterProposal = (name, intent, specValue, stepId, epoch, draftVersion, draftDigest) => {
+  const addFilterProposal = (name, intent, specValue, stepId, epoch, draftVersion, draftDigest, atMonotonicMs) => {
     const predicate = clone(specValue.requestValue);
     const requestCandidate = filterConstruction(spec, intent, predicate);
     const responseCandidate = filterConstruction(spec, intent,
@@ -194,39 +206,41 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       },
       isMutation: false,
       mountEpoch: epoch,
+      atMonotonicMs,
     });
   };
   const firstProposalId = addFilterProposal('first-create', 'create', spec.initial,
-    'candidate-create-filter', 1, 3, 'draft-3');
+    'candidate-create-filter', 1, 3, 'draft-3', 1120);
   const secondProposalId = addFilterProposal('second-create-proposal', 'create', spec.initial,
-    'saved-filter-step', 2, 3, 'draft-3');
+    'saved-filter-step', 2, 3, 'draft-3', 1180);
   const applyCreateId = addRequest({ name: 'create-apply-command', path: commandPath,
     body: { expectedDraftVersion: 3, expectedDraftDigest: 'draft-3', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-second-create-proposal',
-    }] }, response: { accepted: true }, isMutation: true, mountEpoch: 2 });
+    }] }, response: { accepted: true }, isMutation: true, mountEpoch: 2, atMonotonicMs: 1220 });
   const editOpenCancellationId = addRequest({ name: 'edit-open-cancellation', path: proposalPath,
     body: { outputId, expectedDraftVersion: 4, expectedDraftDigest: 'draft-4' }, response: null,
-    isMutation: false, status: null, mountEpoch: 3,
+    isMutation: false, status: null, mountEpoch: 3, atMonotonicMs: 1280,
     failure: { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true },
     readCancellationDiagnostic: true, responseCapture: 'not-configured', responseBodyCaptured: false });
-  const editProposalId = addFilterProposal('edit', 'edit', spec.edited, 'saved-filter-step', 3, 4, 'draft-4');
+  const editProposalId = addFilterProposal('edit', 'edit', spec.edited, 'saved-filter-step', 3, 4, 'draft-4', 1300);
   const applyEditId = addRequest({ name: 'apply-edit', path: commandPath,
     body: { expectedDraftVersion: 4, expectedDraftDigest: 'draft-4', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-edit',
-    }] }, response: { accepted: true }, isMutation: true, mountEpoch: 3 });
+    }] }, response: { accepted: true }, isMutation: true, mountEpoch: 3, atMonotonicMs: 1340 });
   const removeProposalId = addFilterProposal('remove', 'remove', spec.edited,
-    'saved-filter-step', 4, 5, 'draft-5');
+    'saved-filter-step', 4, 5, 'draft-5', 1390);
   const applyRemoveId = addRequest({ name: 'apply-remove', path: commandPath,
     body: { expectedDraftVersion: 5, expectedDraftDigest: 'draft-5', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-remove',
-    }] }, response: { accepted: true }, isMutation: true, mountEpoch: 4 });
+    }] }, response: { accepted: true }, isMutation: true, mountEpoch: 4, atMonotonicMs: 1420 });
 
   const domObservations = [];
   const addDOM = ({ epoch, proposalId = null, receiptId = null, status = null, columnId = null,
-    inputType = null, inputValue = null, operator = null, rowIds }) => {
+    inputType = null, inputValue = null, operator = null, rowIds, atMonotonicMs }) => {
+    const capturedAtMonotonicMs = atMonotonicMs ?? baseTime + domObservations.length * 10;
     domObservations.push({
-      capturedAtMonotonicMs: baseTime + domObservations.length * 10,
-      capturedAtEpochMs: baseTime + domObservations.length * 10,
+      capturedAtMonotonicMs,
+      capturedAtEpochMs: epochOffset + capturedAtMonotonicMs,
       mountEpoch: epoch,
       proposalStatus: status,
       proposalId,
@@ -242,29 +256,29 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
   };
   const allIDs = spec.rows.map(row => row.id);
   const domIndexes = {
-    source: addDOM({ epoch: 1, rowIds: allIDs }),
-    column: addDOM({ epoch: 1, rowIds: allIDs }),
+    source: addDOM({ epoch: 1, rowIds: allIDs, atMonotonicMs: 1050 }),
+    column: addDOM({ epoch: 1, rowIds: allIDs, atMonotonicMs: 1100 }),
     proposeFirst: addDOM({ epoch: 1, proposalId: 'proposal-first-create', receiptId: 'proposal-first-create',
       status: 'ready', columnId: spec.temporalColumnId, inputType: spec.inputType, inputValue: spec.initial.inputValue,
-      operator: spec.initial.operator, rowIds: spec.initial.ids }),
-    cancel: addDOM({ epoch: 1, rowIds: allIDs }),
-    reloadCancel: addDOM({ epoch: 2, rowIds: allIDs }),
+      operator: spec.initial.operator, rowIds: spec.initial.ids, atMonotonicMs: 1130 }),
+    cancel: addDOM({ epoch: 1, rowIds: allIDs, atMonotonicMs: 1150 }),
+    reloadCancel: addDOM({ epoch: 2, rowIds: allIDs, atMonotonicMs: 1170 }),
     proposeCreate: addDOM({ epoch: 2, proposalId: 'proposal-second-create-proposal', receiptId: 'proposal-second-create-proposal',
       status: 'ready', columnId: spec.temporalColumnId, inputType: spec.inputType, inputValue: spec.initial.inputValue,
-      operator: spec.initial.operator, rowIds: spec.initial.ids }),
-    applyCreate: addDOM({ epoch: 2, rowIds: spec.initial.ids }),
-    reloadCreate: addDOM({ epoch: 3, rowIds: spec.initial.ids }),
+      operator: spec.initial.operator, rowIds: spec.initial.ids, atMonotonicMs: 1190 }),
+    applyCreate: addDOM({ epoch: 2, rowIds: spec.initial.ids, atMonotonicMs: 1240 }),
+    reloadCreate: addDOM({ epoch: 3, rowIds: spec.initial.ids, atMonotonicMs: 1260 }),
     editOpened: addDOM({ epoch: 3, columnId: spec.temporalColumnId, inputType: spec.inputType,
-      inputValue: spec.initial.inputValue, operator: spec.initial.operator, rowIds: spec.initial.ids }),
+      inputValue: spec.initial.inputValue, operator: spec.initial.operator, rowIds: spec.initial.ids, atMonotonicMs: 1290 }),
     proposeEdit: addDOM({ epoch: 3, proposalId: 'proposal-edit', receiptId: 'proposal-edit', status: 'ready',
       columnId: spec.temporalColumnId, inputType: spec.inputType, inputValue: spec.edited.inputValue,
-      operator: spec.edited.operator, rowIds: spec.edited.ids }),
-    applyEdit: addDOM({ epoch: 3, rowIds: spec.edited.ids }),
-    reloadEdit: addDOM({ epoch: 4, rowIds: spec.edited.ids }),
+      operator: spec.edited.operator, rowIds: spec.edited.ids, atMonotonicMs: 1310 }),
+    applyEdit: addDOM({ epoch: 3, rowIds: spec.edited.ids, atMonotonicMs: 1360 }),
+    reloadEdit: addDOM({ epoch: 4, rowIds: spec.edited.ids, atMonotonicMs: 1380 }),
     proposeRemove: addDOM({ epoch: 4, proposalId: 'proposal-remove', receiptId: 'proposal-remove',
-      status: 'ready', rowIds: allIDs }),
-    remove: addDOM({ epoch: 4, rowIds: allIDs }),
-    reloadRemove: addDOM({ epoch: 5, rowIds: allIDs }),
+      status: 'ready', rowIds: allIDs, atMonotonicMs: 1400 }),
+    remove: addDOM({ epoch: 4, rowIds: allIDs, atMonotonicMs: 1440 }),
+    reloadRemove: addDOM({ epoch: 5, rowIds: allIDs, atMonotonicMs: 1460 }),
   };
 
   const step = (label, { requestCaptureId = null, proposalCaptureIds = [], beforeReadIndex = null,
@@ -309,10 +323,10 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       domObservationIndex: domIndexes.applyEdit, mountEpoch: 3 }),
     step('Reload', { beforeReadIndex: 13, afterReadIndex: 14, domObservationIndex: domIndexes.reloadEdit, mountEpoch: 4 }),
     step('FilterProposed(remove)', { requestCaptureId: removeProposalId, proposalCaptureIds: [removeProposalId],
-      beforeReadIndex: 15, domObservationIndex: domIndexes.proposeRemove, mountEpoch: 4 }),
-    step('FilterRemoved', { requestCaptureId: applyRemoveId, beforeReadIndex: 16, afterReadIndex: 17,
+      beforeReadIndex: 14, domObservationIndex: domIndexes.proposeRemove, mountEpoch: 4 }),
+    step('FilterRemoved', { requestCaptureId: applyRemoveId, beforeReadIndex: 15, afterReadIndex: 16,
       domObservationIndex: domIndexes.remove, mountEpoch: 4 }),
-    step('Reload', { beforeReadIndex: 17, afterReadIndex: 18, domObservationIndex: domIndexes.reloadRemove, mountEpoch: 5 }),
+    step('Reload', { beforeReadIndex: 16, afterReadIndex: 17, domObservationIndex: domIndexes.reloadRemove, mountEpoch: 5 }),
   ];
 
   return {
