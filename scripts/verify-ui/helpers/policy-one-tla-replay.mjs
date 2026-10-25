@@ -628,13 +628,14 @@ function validateTraceShape(trace) {
   }
   assert.equal(new Set(transportEventIndices).size, transportEventIndices.length,
     'each observed transport request and terminal must have a distinct event index');
-  assert.deepEqual([...transportEventIndices].sort((left, right) => left - right),
+  const orderedTransportEventIndices = [...transportEventIndices].sort((left, right) => left - right);
+  assert.deepEqual(orderedTransportEventIndices,
     Array.from({ length: transportEventIndices.length }, (_, index) => index + 1),
     'transport ledger must retain every actual request and terminal event in its scope');
   const pendingRows = trace.transportLedger.filter(entry => entry.settlement === 'pending');
   assert.equal(formalExit.afterTransportIndex, trace.transportLedger.length,
     'formal exit must follow every captured physical request');
-  assert.equal(formalExit.afterEventIndex, transportEventIndices.at(-1) ?? 0,
+  assert.equal(formalExit.afterEventIndex, orderedTransportEventIndices.at(-1) ?? 0,
     'formal exit must match the last actual request or terminal event');
   assert.deepEqual(formalExit.pendingTransportIndices, pendingRows.map(entry => entry.transportIndex),
     'formal exit must match the exact pending raw transport set');

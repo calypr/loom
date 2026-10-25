@@ -584,6 +584,7 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   previewResponseReceiptId,
   setupReceiptCase = 'none',
   pendingSupportReads = false,
+  reversedSupportCompletionOrder = false,
 } = {}) => {
   assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh',
     'owner-change-before-response'].includes(sourceReceiptCase),
@@ -1068,6 +1069,52 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
       formalPreviewRequest, formalPreviewResponse, {
         requestEventIndex: nextEventIndex, settlementEventIndex: nextEventIndex + 1,
       }));
+  }
+  if (reversedSupportCompletionOrder) {
+    const ownerScope = input.context.transportCaptures.find(capture =>
+      capture.requestCaptureId === 'capture-group-preview')?.ownerScope;
+    assert(ownerScope, 'synthetic read responses require the observed formal actor scope');
+    const transportOffset = Math.max(...input.context.transportCaptures.map(capture => capture.transportIndex));
+    const eventOffset = Math.max(...input.context.transportCaptures.flatMap(capture => [
+      capture.requestEventIndex, capture.settlementEventIndex,
+    ]));
+    const supportRequest = (transportIndex, path, requestId, body) => ({
+      method: 'POST', path, requestId, captureId: null, transportIndex, body,
+    });
+    const inventoryRequest = supportRequest(transportOffset + 1, 'semantic-inventory',
+      'feature-catalog-reverse-completion', {
+        outputId: input.expected.outputId,
+        snapshotToken: input.context.initialObservation.snapshotToken,
+        rowRoot: 'Patient',
+        limit: 50,
+        selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      });
+    const capabilitiesRequest = supportRequest(transportOffset + 2, 'construction-capabilities',
+      'construction-capabilities-reverse-completion', {
+        outputId: input.expected.outputId,
+        snapshotToken: input.context.initialObservation.snapshotToken,
+        expectedDraftVersion: input.context.initialObservation.draftVersion,
+        expectedDraftDigest: input.context.initialObservation.draftDigest,
+        stageId: 'source_projection',
+      });
+    input.context.transportCaptures.push(
+      testTransportCapture(transportOffset + 1, inventoryRequest, {
+        status: 200,
+        requestId: inventoryRequest.requestId,
+        body: { outputId: input.expected.outputId, fields: [] },
+      }, {
+        requestEventIndex: eventOffset + 1,
+        settlementEventIndex: eventOffset + 4,
+      }),
+      testTransportCapture(transportOffset + 2, capabilitiesRequest, {
+        status: 200,
+        requestId: capabilitiesRequest.requestId,
+        body: { outputId: input.expected.outputId, capabilities: [] },
+      }, {
+        requestEventIndex: eventOffset + 2,
+        settlementEventIndex: eventOffset + 3,
+      }),
+    );
   }
   if (pendingSupportReads) {
     const ownerScope = input.context.transportCaptures.find(capture =>
