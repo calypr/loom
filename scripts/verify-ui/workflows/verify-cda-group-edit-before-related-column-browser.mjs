@@ -58,6 +58,33 @@ export const groupEditRenderCheckpointNames = Object.freeze([
   'apply-remove-RELATED_SOURCE-to-restore-Group',
   'reload-final-Group-source-restoration',
 ]);
+export const savedColumnLabelsForIds = (document, columnIds) => {
+  assert(Array.isArray(document?.columns) && Array.isArray(document?.construction?.steps),
+    'Saved Builder document must include source columns and construction steps.');
+  assert(Array.isArray(columnIds), 'Saved Group keys must be an array of column IDs.');
+  const labelsById = new Map();
+  const addLabel = (column, source) => {
+    const id = column?.columnId ?? column?.id;
+    const label = column?.label;
+    if (typeof id !== 'string' || id.length === 0 || typeof label !== 'string' || label.length === 0) return;
+    if (labelsById.has(id)) {
+      assert.equal(labelsById.get(id), label,
+        `Saved Builder column ID ${id} has conflicting labels across ${source}.`);
+    } else {
+      labelsById.set(id, label);
+    }
+  };
+  for (const column of document.columns) addLabel(column, 'source columns and construction outputs');
+  for (const step of document.construction.steps) {
+    for (const output of step.outputs ?? []) addLabel(output, 'source columns and construction outputs');
+  }
+  return columnIds.map(id => {
+    assert(typeof id === 'string' && id.length > 0, 'Saved Group key must retain its actual column ID.');
+    const label = labelsById.get(id);
+    assert(label, `Saved Group key column ID ${id} must resolve in saved source columns or construction outputs.`);
+    return label;
+  });
+};
 const cdaJourneyReadOnlyRoutes = new Map([
   ['GET /builder', { kind: 'builder-read', reason: 'The journey model records saved workspace snapshots on Reload actions; Builder reads supply those snapshots.' }],
   ['GET /capability', { kind: 'capability-read', reason: 'The journey model does not own capability discovery.' }],
@@ -976,8 +1003,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
   assert.equal(mountedGroup?.stepId ?? null, savedAfter.group?.stepId ?? null,
     'The mounted Group history identity must match the independently read saved Group step.');
   if (mountedGroup && savedAfter.group) {
-    const savedKeyLabels = savedAfter.group.keys.map(key =>
-      doc(builder).columns.find(column => (column.columnId ?? column.id) === key)?.label ?? null);
+    const savedKeyLabels = savedColumnLabelsForIds(doc(builder), savedAfter.group.keys);
     assert.deepEqual(mountedGroup.keys, savedKeyLabels,
       'The mounted Group history key labels must match the independently read saved key identities.');
     assert.equal(mountedGroup.aggregate, savedAfter.group.aggregate,

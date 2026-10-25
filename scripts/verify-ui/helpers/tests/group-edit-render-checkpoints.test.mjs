@@ -6,6 +6,7 @@ import {
   groupEditRenderCheckpointSummary,
   isProtectedExplorerRequestPath,
   recordGroupEditActionToRender,
+  savedColumnLabelsForIds,
 } from '../../workflows/verify-cda-group-edit-before-related-column-browser.mjs';
 
 const completeCheckpoints = () => groupEditRenderCheckpointNames.map((name) => ({ name, durationMs: 4999 }));
@@ -51,4 +52,41 @@ test('Group edit performance summary rejects missing, wrong, duplicate, and over
   const slowSummary = groupEditRenderCheckpointSummary(slow);
   assert.equal(slowSummary.status, 'failed');
   assert.deepEqual(slowSummary.overBudget, [{ name: groupEditRenderCheckpointNames[0], durationMs: 5001 }]);
+});
+
+test('saved Group labels resolve from source columns and expansion step outputs', () => {
+  const savedDocument = {
+    columns: [{ columnId: 'root-source-id', label: 'Specimen ID' }],
+    construction: {
+      steps: [{
+        id: 'saved-expansion',
+        operation: { kind: 'RELATED_EXPAND' },
+        outputs: [{ id: 'related-record-id', label: 'Patient FHIR resource ID' }],
+      }],
+    },
+  };
+  assert.deepEqual(savedColumnLabelsForIds(savedDocument, ['root-source-id', 'related-record-id']),
+    ['Specimen ID', 'Patient FHIR resource ID']);
+});
+
+test('saved Group label resolution rejects missing and conflicting column identities', () => {
+  const savedDocument = {
+    columns: [{ columnId: 'root-source-id', label: 'Specimen ID' }],
+    construction: {
+      steps: [{
+        id: 'saved-expansion',
+        operation: { kind: 'RELATED_EXPAND' },
+        outputs: [{ id: 'related-record-id', label: 'Patient FHIR resource ID' }],
+      }],
+    },
+  };
+  assert.throws(() => savedColumnLabelsForIds(savedDocument, ['missing-column-id']), /must resolve/);
+  assert.throws(() => savedColumnLabelsForIds({
+    ...savedDocument,
+    construction: { steps: [...savedDocument.construction.steps, {
+      id: 'conflicting-output',
+      operation: { kind: 'RELATED_EXPAND' },
+      outputs: [{ id: 'root-source-id', label: 'Conflicting label' }],
+    }] },
+  }, ['root-source-id']), /conflicting labels/);
 });
