@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createTemporalFilterCapture } from '../temporal-filter-capture.mjs';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
@@ -7,6 +8,84 @@ import {
   makeTemporalFilterJourneyCaptureFixture,
   TEMPORAL_FILTER_FIXTURE_BASE_TIME,
 } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
+
+test('Temporal lifecycle recorder is installed before the first navigation can issue authoring requests', () => {
+  const source = readFileSync(new URL('../../workflows/basic-temporal-filter.mjs', import.meta.url), 'utf8');
+  const captureStart = source.indexOf('createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 0 })');
+  const firstNavigation = source.indexOf('await page.goto(');
+  assert(captureStart >= 0 && firstNavigation >= 0 && captureStart < firstNavigation,
+    'Capture event handlers must be installed before the bootstrap Builder navigation starts.');
+});
+
+test('capture retains and drains a construction-capabilities request that settles after first navigation', async () => {
+  const page = new EventEmitter();
+  const mainFrame = {};
+  page.mainFrame = () => mainFrame;
+  const request = {};
+  const now = Date.now();
+  const entry = {
+    index: 0,
+    browserRequestId: 'bootstrap-construction-capabilities',
+    requestId: 'builder-bootstrap-1',
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_verify_temporal/explorers/bootstrap-temporal/authoring/v2/construction-capabilities',
+    status: 200,
+    request: { outputId: 'bootstrap-output' },
+    response: { capabilities: [] },
+    startedAt: now,
+    responseReceivedAt: null,
+    completedAt: null,
+    responseMountEpoch: null,
+    failureMountEpoch: null,
+    isMutation: false,
+    failure: null,
+    readCancellationDiagnostic: false,
+    responseCapture: 'pending',
+    responseCaptureComplete: false,
+    responseBodyCaptured: false,
+    atMonotonicMs: 10,
+    atEpochMs: now,
+    mountEpoch: 0,
+  };
+  let settled = false;
+  let waitForSettlement;
+  const networkObserver = {
+    requests: [],
+    byRequest: new Map(),
+    requestBody: observed => observed.request,
+    responseBody: observed => observed.response,
+    waitForResponse: async (predicate, { fromIndex = 0 } = {}) => {
+      const observed = networkObserver.requests.slice(fromIndex).find(predicate);
+      assert(observed, 'The pending bootstrap request must be present in the network observer ledger.');
+      if (settled) return observed;
+      return new Promise(resolve => { waitForSettlement = () => resolve(observed); });
+    },
+  };
+  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 0 });
+  networkObserver.requests.push(entry);
+  networkObserver.byRequest.set(request, entry);
+  page.emit('request', request);
+  page.emit('framenavigated', mainFrame);
+  const finished = capture.finish({ resourceType: 'Patient', bootstrapExplorerId: 'bootstrap-temporal' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false, 'Capture.finish must wait for the outstanding request instead of dropping it.');
+  assert.equal(typeof waitForSettlement, 'function', 'Capture.finish must register for the request settlement.');
+  entry.responseReceivedAt = now + 1;
+  entry.completedAt = now + 2;
+  entry.responseMountEpoch = 1;
+  entry.responseCapture = 'captured';
+  entry.responseCaptureComplete = true;
+  entry.responseBodyCaptured = true;
+  settled = true;
+  page.emit('response', { request: () => request });
+  waitForSettlement();
+
+  const raw = await finished;
+  assert.deepEqual(raw.requestEvents.map(observed => observed.browserRequestId), ['bootstrap-construction-capabilities']);
+  assert.equal(raw.requestEvents[0].mountEpoch, 0);
+  assert.equal(raw.requestEvents[0].responseMountEpoch, 1);
+  assert.equal(raw.requestEvents[0].status, 200);
+});
 
 test('capture windows retain late reconcile IDs and their response-mount DOM evidence', async () => {
   const page = new EventEmitter();

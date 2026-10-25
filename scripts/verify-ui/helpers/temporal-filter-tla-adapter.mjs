@@ -452,8 +452,9 @@ const supportedPureRead = (capture, request) => {
   const projectRoot = `/api/v1/projects/${encodeURIComponent(capture.project)}`;
   const explorersRoot = `${projectRoot}/explorers`;
   if (path === explorersRoot) return true;
-  const explorerId = explorerIdFrom(capture);
-  if (explorerId) {
+  const explorerIds = new Set([explorerIdFrom(capture), capture.bootstrapExplorerId]
+    .filter(value => typeof value === 'string' && value.length > 0));
+  for (const explorerId of explorerIds) {
     if (path === `${explorersRoot}/${encodeURIComponent(explorerId)}`) return true;
     const authoringRoot = `${explorersRoot}/${encodeURIComponent(explorerId)}/authoring/v2`;
     if (path === `${authoringRoot}/builder`) return true;
@@ -462,9 +463,9 @@ const supportedPureRead = (capture, request) => {
   return /^\/api\/v1\/datasets\/[^/]+\/generations\/[^/]+$/u.test(path);
 };
 
-const READ_ONLY_TEMPORAL_ENDPOINTS = Object.freeze(READ_ONLY_POST_PATH_SUFFIXES
+const READ_ONLY_TEMPORAL_ENDPOINTS = Object.freeze([...READ_ONLY_POST_PATH_SUFFIXES
   .filter(suffix => suffix.startsWith('/authoring/v2/'))
-  .map(suffix => suffix.slice('/authoring/v2'.length)));
+  .map(suffix => suffix.slice('/authoring/v2'.length)), '/capability']);
 
 const RECONCILE_STALE_CODES = new Set([
   'STALE_CATALOG_SNAPSHOT',
@@ -788,6 +789,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
     'Raw temporal evidence must retain the exact fixture fingerprint.');
   assert(lifecycle.fixturePath && lifecycle.project?.startsWith('loom_dev_verify_') && lifecycle.generation,
     'Raw temporal evidence must retain the run-owned fixture project and generation.');
+  assert(typeof lifecycle.bootstrapExplorerId === 'string' && lifecycle.bootstrapExplorerId.length > 0,
+    'Raw temporal evidence must retain the bootstrap Explorer whose first-navigation reads are scoped.');
   assert(lifecycle.outputId && lifecycle.temporalColumnId,
     'Raw temporal evidence must retain its actual output and temporal-column IDs.');
   assert.deepEqual(lifecycle.rows, contract.rows,
@@ -1122,8 +1125,19 @@ export const validateTemporalFilterJourneyTrace = trace => {
   assert.deepEqual(trace.initialObservation.workspaceDocuments, firstActionRead.workspaceDocuments);
 
   const timeOrigin = {
-    monotonicMs: Math.min(...trace.actions.map(event => event.atMonotonicMs)),
-    epochMs: Math.min(...trace.actions.map(event => event.atEpochMs)),
+    monotonicMs: Math.min(
+      ...trace.actions.map(event => event.atMonotonicMs),
+      ...rawRequests.map(request => request.atMonotonicMs),
+      ...lifecycle.builderReads.flatMap(read => [read.requestStartedAtMonotonicMs, read.capturedAtMonotonicMs]),
+      ...lifecycle.domObservations.map(observation => observation.capturedAtMonotonicMs),
+    ),
+    epochMs: Math.min(
+      ...trace.actions.map(event => event.atEpochMs),
+      ...rawRequests.flatMap(request => [request.startedAt, request.responseReceivedAt, request.completedAt])
+        .filter(Number.isFinite),
+      ...lifecycle.builderReads.flatMap(read => [read.requestStartedAtEpochMs, read.capturedAtEpochMs]),
+      ...lifecycle.domObservations.map(observation => observation.capturedAtEpochMs),
+    ),
   };
   const rawStepByActionIndex = lifecycle.steps;
   const initialMountEpoch = trace.actions[0].mountEpoch;

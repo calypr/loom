@@ -93,10 +93,10 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   const explorerCollectionPath = `/api/v1/projects/${encodeURIComponent(project)}/explorers`;
   const uiOrigin = new URL(target.uiUrl).origin;
   const title = `Verify ${context.runID.slice(-10)} ${contract.resourceType} ${contract.fieldPath} filter`;
+  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 0 });
   await page.goto(browserURL(target, project, target.bootstrapExplorerId, 'builder'), {
     waitUntil: 'domcontentloaded', timeout: ACTION_TIMEOUT_MS,
   });
-  const capture = createTemporalFilterCapture({ page, networkObserver, initialMountEpoch: 1 });
   let reconcileCursor = networkObserver.requests.length;
   const createFromIndex = networkObserver.requests.length;
   const createRequest = capture.waitForRequest(entry => entry.method === 'POST' &&
@@ -774,6 +774,7 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     sourceFingerprint: context.sourceAtStart?.fingerprint ?? report.target.sourceFingerprint ?? null,
     project,
     generation: target.fixtureGeneration,
+    bootstrapExplorerId: target.bootstrapExplorerId,
     resourceType: contract.resourceType,
     fieldPath: contract.fieldPath,
     fixturePath: oracle.path,

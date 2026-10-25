@@ -372,6 +372,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
     fieldPath: spec.fieldPath,
     fixturePath: `testdata/basic-temporal-filter/${spec.resourceType}.ndjson`,
     fixtureSha256: 'c'.repeat(64),
+    bootstrapExplorerId: 'schema-fixture-bootstrap-explorer',
     rows: clone(spec.rows),
     ids: spec.rows.map(row => row.id),
     outputId,

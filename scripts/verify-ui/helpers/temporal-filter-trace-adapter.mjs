@@ -163,6 +163,8 @@ const assertCaseIdentity = capture => {
   assert.equal(capture.scenario, 'basic-temporal-filter');
   assert.equal(capture.project?.startsWith('loom_dev_verify_'), true, 'Trace must retain its run-owned fixture project.');
   assert(capture.generation, 'Trace must retain its fixture generation.');
+  assert(typeof capture.bootstrapExplorerId === 'string' && capture.bootstrapExplorerId.length > 0,
+    'Trace must retain the actual bootstrap Explorer identity for first-navigation reads.');
   assert.match(capture.sourceCommit ?? '', /^[a-f0-9]{40}$/, 'Trace must retain the exact source commit.');
   assert.match(capture.sourceFingerprint?.sha256 ?? '', /^[a-f0-9]{64}$/,
     'Trace must retain the watched source fingerprint.');

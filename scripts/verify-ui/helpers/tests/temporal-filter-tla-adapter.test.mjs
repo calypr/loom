@@ -72,6 +72,62 @@ test('DATE and DATE_TIME native contracts bind the exact TLA action/event chrono
   }
 });
 
+test('compiler and TLA retain read-only bootstrap capability requests before the first semantic action', { timeout: 30_000 }, () => {
+  const capture = makeTemporalFilterJourneyCaptureFixture('date');
+  const bootstrapExplorer = capture.bootstrapExplorerId;
+  const firstEpoch = Math.min(...capture.requestEvents.map(request => request.startedAt)) - 10;
+  const firstMonotonic = Math.min(...capture.requestEvents.map(request => request.atMonotonicMs)) - 10;
+  const bootstrapRequests = [
+    {
+      browserRequestId: 'schema-fixture-bootstrap-capability-get',
+      requestId: 'builder-bootstrap-capability-1',
+      method: 'GET',
+      path: `/api/v1/projects/${capture.project}/explorers/${bootstrapExplorer}/authoring/v2/capability`,
+      request: null,
+      response: {},
+      startedAt: firstEpoch,
+      atMonotonicMs: firstMonotonic,
+      atEpochMs: firstEpoch,
+    },
+    {
+      browserRequestId: 'schema-fixture-bootstrap-construction-capabilities',
+      requestId: 'builder-bootstrap-capabilities-1',
+      method: 'POST',
+      path: `/api/v1/projects/${capture.project}/explorers/${bootstrapExplorer}/authoring/v2/construction-capabilities`,
+      request: { outputId: 'bootstrap-output' },
+      response: { capabilities: [] },
+      startedAt: firstEpoch + 3,
+      atMonotonicMs: firstMonotonic + 3,
+      atEpochMs: firstEpoch + 3,
+    },
+  ].map((request, index) => ({
+    index,
+    ...request,
+    status: 200,
+    responseReceivedAt: request.startedAt + 1,
+    completedAt: request.startedAt + 2,
+    responseMountEpoch: 1,
+    failureMountEpoch: null,
+    isMutation: false,
+    failure: null,
+    readCancellationDiagnostic: false,
+    responseCapture: 'captured',
+    responseCaptureComplete: true,
+    responseBodyCaptured: true,
+    mountEpoch: 0,
+  }));
+  capture.requestEvents = [...bootstrapRequests, ...capture.requestEvents]
+    .map((request, index) => ({ ...request, index }));
+
+  const trace = adaptTemporalFilterJourney(capture);
+  const input = validateTemporalFilterJourneyTrace(trace);
+  assert.deepEqual(input.pureReadCaptureIds.slice(0, 2), bootstrapRequests.map(request => request.browserRequestId));
+  assert.equal(input.observedRequests.find(request => request.captureId === bootstrapRequests[0].browserRequestId).startedAt, 0,
+    'TLA relative time origin must include the request that began before the first semantic action.');
+  const result = runTlc(trace, 'BootstrapCapabilityRequests');
+  assert.equal(result.status, 0, result.output);
+});
+
 const runTlc = (trace, moduleSuffix, { mutateModel } = {}) => {
   assert(tlcJar, 'Set TLA2TOOLS_JAR to the verified TLC 1.7.4 jar for this focused check.');
   const compiled = compileTemporalFilterJourneyTrace(trace, { moduleName: `TemporalFilter${moduleSuffix}` });
