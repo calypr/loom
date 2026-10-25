@@ -19,7 +19,7 @@ const write = (root, file, value) => {
   writeFileSync(target, value);
 };
 
-function fixture({ secondFamily = false } = {}) {
+function fixture({ ignoreLoader = false } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'mjs-focused-migration-'));
   const files = new Map();
   const claims = [];
@@ -45,7 +45,8 @@ function fixture({ secondFamily = false } = {}) {
     assertions.push({ sourceAssertionId: `source:${file}:L1:assertion`, semanticClaimId: claimId, evidenceKind: 'test-assertion', sourceLines: [1] });
   };
   addTest(sourcePath, 'claim-a', files.get(sourcePath));
-  files.set(registryPath, `import attachmentData from './mjs-focused-check-attachments.json' with { type: 'json' };\nexport const registry = [{ id: 'scenario-a', script: 'unrelated.mjs', cases: { 'case-a': { playwrightTest: '${specPath}', requiredChecks: ['exact registered check'] } } }];\nfor (const attachment of attachmentData.attachments) { const scenario = registry.find((entry) => entry.id === attachment.scenarioId); scenario.cases[attachment.caseId].focusedChecks = attachment.focusedChecks; }\nexport const caseNamesFor = scenario => Object.keys(scenario.cases);\nexport const scenarioCaseFor = (scenario, name) => ({ ...scenario.cases[name], caseName: name, requiredChecks: scenario.cases[name].requiredChecks });\n`);
+  const attachmentLoader = ignoreLoader ? '' : `for (const attachment of attachmentData.attachments) { const scenario = registry.find((entry) => entry.id === attachment.scenarioId); scenario.cases[attachment.caseId].focusedChecks = attachment.focusedChecks; }\n`;
+  files.set(registryPath, `import attachmentData from './mjs-focused-check-attachments.json' with { type: 'json' };\nexport const registry = [{ id: 'scenario-a', script: 'unrelated.mjs', cases: { 'case-a': { playwrightTest: '${specPath}', requiredChecks: ['exact registered check'] } } }];\n${attachmentLoader}export const caseNamesFor = scenario => Object.keys(scenario.cases);\nexport const scenarioCaseFor = (scenario, name) => ({ ...scenario.cases[name], caseName: name, requiredChecks: scenario.cases[name].requiredChecks });\n`);
   rows.push([registryPath, 'tool-or-module', 'runtime-module']);
   const edge = (source, target, specifier) => ({ kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: source, targetPath: target, specifier, line: 1, column: 1 });
   const connections = new Map([
@@ -179,6 +180,22 @@ test('apply rejects a source hash that changed after plan and writes nothing', (
     const result = invoke(state.root, '--apply', '--plan-token', proposed.planToken);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /stale source hash/);
+    assert.deepEqual([readFileSync(attachmentPath), readFileSync(catalogPath)], before);
+  } finally {
+    cleanup(state.root);
+  }
+});
+
+test('apply restores attachment and catalogue bytes when the fresh registry ignores the JSON', () => {
+  const state = fixture({ ignoreLoader: true });
+  try {
+    const proposed = plan(state.root);
+    const attachmentPath = path.join(state.root, 'scripts/verify-ui/mjs-focused-check-attachments.json');
+    const catalogPath = path.join(state.root, 'verification/builder-interactions/mjs-source-semantics.json');
+    const before = [readFileSync(attachmentPath), readFileSync(catalogPath)];
+    const applied = invoke(state.root, '--apply', '--plan-token', proposed.planToken);
+    assert.notEqual(applied.status, 0);
+    assert.match(applied.stderr, /fresh registry import does not consume exact focused attachment/);
     assert.deepEqual([readFileSync(attachmentPath), readFileSync(catalogPath)], before);
   } finally {
     cleanup(state.root);
