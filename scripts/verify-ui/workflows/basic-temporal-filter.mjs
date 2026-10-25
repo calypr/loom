@@ -275,146 +275,199 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
   await act('open Add columns for the temporal source field', addColumnsButton, () => addColumnsButton.click(), {
     after: () => page.locator('[aria-label="Add columns editor"]').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
   });
-  const fieldsTab = page.getByRole('button', { name: 'Fields and related data', exact: true });
-  await act('open Fields and related data', fieldsTab, () => fieldsTab.click(), {
-    after: async () => assert.equal(await fieldsTab.getAttribute('aria-pressed'), 'true'),
+  const fieldsTab = page.getByRole('tab', { name: 'Other fields', exact: true });
+  await act('open Other fields for the temporal source field', fieldsTab, () => fieldsTab.click(), {
+    after: async () => assert.equal(await fieldsTab.getAttribute('aria-selected'), 'true'),
   });
-  const search = page.getByRole('searchbox', { name: 'Search features by field name, concept, or code' });
+  const search = page.getByRole('searchbox', { name: 'Search dataset fields by name or type', exact: true });
   await act(`search ${contract.resourceType}.${contract.fieldPath}`, search, () => search.fill(contract.fieldPath), {
     editable: true,
     after: async () => assert.equal(await search.inputValue(), contract.fieldPath),
   });
   const searchButton = page.getByRole('button', { name: 'Search', exact: true });
-  await act(`show raw ${contract.fieldPath} field choices`, searchButton, () => searchButton.click(), {
-    after: () => page.getByText('Raw FHIR fields (advanced)', { exact: true }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  const fieldChoiceButton = page.getByRole('button', {
+    name: `Select ${contract.resourceType}.${contract.fieldPath}`, exact: true,
   });
-  const rawFields = page.getByText('Raw FHIR fields (advanced)', { exact: true });
-  const fieldCheckbox = page.getByRole('checkbox', { name: `Select ${contract.resourceType}.${contract.fieldPath}`, exact: true });
-  if (await fieldCheckbox.count() === 0) {
-    await act('open raw FHIR field choices', rawFields, () => rawFields.click(), {
-      after: () => fieldCheckbox.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
-    });
-  } else if (!await fieldCheckbox.isVisible()) {
-    await act('open raw FHIR field choices', rawFields, () => rawFields.click(), {
-      after: () => fieldCheckbox.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
-    });
-  }
-  await act(`select ${contract.resourceType}.${contract.fieldPath}`, fieldCheckbox,
-    () => fieldCheckbox.check(), { after: async () => assert.equal(await fieldCheckbox.isChecked(), true) });
+  await act(`show ${contract.fieldPath} field choice`, searchButton, () => searchButton.click(), {
+    after: () => fieldChoiceButton.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }),
+  });
+  await act(`select ${contract.resourceType}.${contract.fieldPath}`, fieldChoiceButton, () => fieldChoiceButton.click(), {
+    after: async () => assert.equal(await fieldChoiceButton.getAttribute('aria-pressed'), 'true'),
+  });
+
   const addSelected = page.getByRole('button', { name: 'Add 1 selected feature', exact: true });
-  let fieldProposal;
-  let choiceProposalFromIndex;
+  const builderBeforeFieldAdd = await readBuilder();
+  const builderBeforeFieldAddReadIndex = capture.builderReads.length - 1;
+  assert.equal(builderBeforeFieldAdd.draftDigest, builderAfterRoot.draftDigest,
+    'Selecting a source field must leave the saved root draft unchanged.');
+  const choiceProposalFromIndex = networkObserver.requests.length;
   let choiceProposalPromise;
-  const choiceProposalPanel = page.getByTestId('construction-choice-proposal-panel');
-  const applyField = choiceProposalPanel.getByRole('button', { name: 'Apply columns', exact: true });
-  await act(`preview native ${contract.fieldPath} column`, addSelected,
-    async (_control, { remainingTimeout }) => {
-      choiceProposalFromIndex = networkObserver.requests.length;
-      choiceProposalPromise = page.waitForResponse(response => {
-        const request = response.request();
-        const url = new URL(response.url());
-        return request.method() === 'POST' && url.origin === uiOrigin &&
-          url.pathname === `${browserExplorerRoot}/authoring/v2/construction-choice-proposals` &&
-          requestBody(request)?.outputId === outputId;
-      }, { timeout: remainingTimeout() });
-      await addSelected.click({ timeout: remainingTimeout() });
-    }, {
-    after: async ({ remainingTimeout }) => {
-      const response = await choiceProposalPromise;
-      assert.equal(response.status(), 200, `Raw field proposal returned HTTP ${response.status()}.`);
-      fieldProposal = await response.json();
-      assert.equal(fieldProposal.outputId, outputId, 'Field proposal must target the exact native output.');
-      assert.equal(fieldProposal.previewStatus, 'READY', 'Field proposal must be ready before Apply.');
-      assert.equal(fieldProposal.preview.outputId, outputId, 'Field preview must target the exact native output.');
-      assert(fieldProposal.preview.receiptId, 'Field proposal must carry its exact preview receipt.');
-      assert.equal(fieldProposal.preview.rowCount, oracle.rows.length, 'Field proposal must retain the exact source row count.');
-      const proposedColumnIDs = fieldProposal.candidateColumnIds;
-      assert(Array.isArray(proposedColumnIDs) && proposedColumnIDs.length === 1,
-        'The field proposal must add exactly one temporal field column.');
-      const proposalColumn = fieldProposal.preview.columns.find(column => column.column === proposedColumnIDs[0]);
-      assert(proposalColumn?.label, 'Field proposal must identify its visible temporal column label.');
-      await page.waitForFunction(({ receiptId, expectedOutputId }) => {
-        const panel = document.querySelector('[data-testid="construction-choice-proposal-panel"]');
-        const preview = document.querySelector('[data-testid="construction-proposal-preview"]');
-        return Boolean(panel?.dataset.proposalStatus === 'ready' &&
-          preview?.dataset.previewStatus === 'ready' &&
-          preview.dataset.previewReceiptId === receiptId &&
-          preview.dataset.previewOutputId === expectedOutputId);
-      }, { receiptId: fieldProposal.preview.receiptId, expectedOutputId: outputId }, { timeout: remainingTimeout() });
-      const proposalPreview = await snapshotTable(page.locator(proposalPreviewSelector));
-      const idIndex = proposalPreview.headers.findIndex(value => header(value) === `${contract.resourceType.toLowerCase()} id`);
-      const valueIndex = proposalPreview.headers.findIndex(value => header(value) === header(proposalColumn.label));
-      assert(idIndex >= 0 && valueIndex >= 0, `Candidate Preview must visibly render the ID and ${proposalColumn.label} columns.`);
-      const actualRows = proposalPreview.rows.map(row => [row[idIndex], row[valueIndex]])
-        .sort((left, right) => left[0].localeCompare(right[0]));
-      const expectedRows = oracle.rows.map(row => [row.id, row.value]);
-      assert.deepEqual(actualRows, expectedRows, 'Candidate field Preview must preserve exact IDs and literal temporal values.');
-      await choiceProposalPanel.waitFor({ state: 'visible', timeout: remainingTimeout() });
-      await applyField.waitFor({ state: 'visible', timeout: remainingTimeout() });
-    },
-  });
-  const choiceProposalRequests = capture.requestsSince(choiceProposalFromIndex, entry =>
-    entry.method === 'POST' && entry.path.endsWith('/construction-choice-proposals'));
-  await capture.settleRequests(choiceProposalRequests);
-  const fieldProposalEntryMatches = choiceProposalRequests.filter(entry =>
-    entry.response?.preview?.receiptId === fieldProposal.preview.receiptId &&
-    entry.request?.outputId === outputId);
-  assert.equal(fieldProposalEntryMatches.length, 1, 'Raw field proposal must bind one actual observer response capture.');
-  const builderBeforeFieldApply = await readBuilder();
-  const builderBeforeFieldApplyReadIndex = capture.builderReads.length - 1;
-  assert.equal(builderBeforeFieldApply.draftDigest, builderAfterRoot.draftDigest,
-    'Read-only field proposal must leave the exact saved source draft unchanged.');
-  const applyFieldFromIndex = networkObserver.requests.length;
-  const applyFieldCommand = page.waitForResponse(response => {
-    const request = response.request();
-    return new URL(response.url()).pathname === commandPath && request.method() === 'POST' &&
-      requestBody(request)?.commands?.some(command => command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId);
-  }, { timeout: ACTION_TIMEOUT_MS });
+  let applyFieldCommandPromise;
+  let fieldChoiceProposal;
   let savedBuilder = builderAfterRoot;
   let savedDocument = rootDocument;
   let temporalColumn;
-  await act(`apply ${contract.fieldPath} as a native output column`, applyField, () => applyField.click(), {
-    after: async () => {
-      const response = await applyFieldCommand;
-      assert.equal(response.status(), 200, `Apply columns returned HTTP ${response.status()}.`);
-      await page.getByTestId('construction-choice-proposal-panel').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS });
-      savedBuilder = await readBuilder();
-      savedDocument = documentForOutput(savedBuilder, outputId);
-      temporalColumn = columnForPath(savedDocument, contract.fieldPath);
-      const savedGrid = await waitSavedRows(expectedAllIDs, outputId);
-      const valueIndex = savedGrid.headers.findIndex(value => header(value) === header(temporalColumn.label));
-      assert(valueIndex >= 0, `Saved table must visibly render ${temporalColumn.label}.`);
-      const actualRows = savedGrid.rows.map(row => [row[savedGrid.headers.findIndex(value => header(value) === `${contract.resourceType.toLowerCase()} id`)], row[valueIndex]])
-        .sort((left, right) => left[0].localeCompare(right[0]));
-      assert.deepEqual(actualRows, expectedBefore, 'Applied source column must show exact literal values and identities.');
-    },
-  });
-  check('correctness', `native ${contract.fieldPath} column keeps exact source values and identities`, true,
-    { outputId, columnId: temporalColumn.columnId, label: temporalColumn.label, type: temporalColumn.type, rows: expectedBefore });
-
-  const applyFieldEntries = capture.requestsSince(applyFieldFromIndex, entry => entry.method === 'POST' &&
-    entry.path === commandPath && entry.request?.commands?.some(command =>
-      command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId));
-  await capture.settleRequests(applyFieldEntries);
-  assert.equal(applyFieldEntries.length, 1, 'Applying the field choice must make one captured native command.');
-  const appliedColumnDomObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
-  await recordStep({ label: 'TemporalColumnApplied', requestEntry: applyFieldEntries[0],
-    proposalCaptureIds: choiceProposalRequests.map(entry => entry.browserRequestId),
-    beforeReadIndex: builderBeforeFieldApplyReadIndex, afterReadIndex: capture.builderReads.length - 1,
-    domObservationIndex: appliedColumnDomObservationIndex });
-
-  const closeAddColumns = page.getByTestId('construction-close-operation-editor');
-  await act(`return to the table after adding ${contract.fieldPath}`, closeAddColumns,
-    () => closeAddColumns.click(), {
+  await act(`add ${contract.fieldPath} as a native output column`, addSelected,
+    async (_control, { remainingTimeout }) => {
+      const choiceProposalPath = `${browserExplorerRoot}/authoring/v2/construction-choice-proposals`;
+      choiceProposalPromise = page.waitForResponse(response => {
+        const request = response.request();
+        const url = new URL(response.url());
+        const body = requestBody(request);
+        return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === choiceProposalPath &&
+          body?.outputId === outputId && body.constructionChoices?.some(choice =>
+            choice.form === 'VALUE' && choice.title === contract.fieldLabel);
+      }, { timeout: remainingTimeout() });
+      applyFieldCommandPromise = page.waitForResponse(response => {
+        const request = response.request();
+        const url = new URL(response.url());
+        return request.method() === 'POST' && url.origin === uiOrigin && url.pathname === commandPath &&
+          requestBody(request)?.commands?.some(command =>
+            command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId);
+      }, { timeout: remainingTimeout() });
+      await addSelected.click({ timeout: remainingTimeout() });
+    }, {
       after: async ({ remainingTimeout }) => {
-        await page.locator('[aria-label="Add columns editor"]').waitFor({
-          state: 'detached', timeout: remainingTimeout(),
-        });
+        const proposalResponse = await choiceProposalPromise;
+        assert.equal(proposalResponse.status(), 200,
+          `Native field-choice proposal returned HTTP ${proposalResponse.status()}.`);
+        fieldChoiceProposal = await proposalResponse.json();
+        assert.equal(fieldChoiceProposal.outputId, outputId,
+          'Field-choice response must target the exact native output.');
+        assert.equal(fieldChoiceProposal.draftVersion, builderBeforeFieldAdd.draftVersion,
+          'Field-choice response must use the exact pre-add Builder version.');
+        assert.equal(fieldChoiceProposal.draftDigest, builderBeforeFieldAdd.draftDigest,
+          'Field-choice response must use the exact pre-add Builder digest.');
+        assert.equal(fieldChoiceProposal.previewStatus, 'READY',
+          'Field-choice response must report its actual preview as ready.');
+        assert.equal(fieldChoiceProposal.preview?.outputId, outputId,
+          'Field-choice response preview must retain the exact native output.');
+        assert.equal(fieldChoiceProposal.preview?.rowCount, oracle.rows.length,
+          'Field-choice response must retain the exact source row count.');
+        assert.equal(fieldChoiceProposal.constructionChoices?.length, 1,
+          'Field-choice response must retain one actual selected source choice.');
+        assert.equal(fieldChoiceProposal.constructionChoices[0]?.form, 'VALUE');
+        assert.equal(fieldChoiceProposal.constructionChoices[0]?.title, contract.fieldLabel);
+        assert(fieldChoiceProposal.constructionChoices[0]?.choiceId,
+          'Field-choice response must retain the exact source choice identity.');
+        assert(Array.isArray(fieldChoiceProposal.candidateColumnIds) &&
+          fieldChoiceProposal.candidateColumnIds.length === 1,
+        'The selected field response must identify exactly one candidate output column.');
+        const proposedColumn = fieldChoiceProposal.preview.columns.find(column =>
+          fieldChoiceProposal.candidateColumnIds.includes(column.column));
+        assert.equal(proposedColumn?.sourceResourceType, contract.resourceType,
+          'Field-choice response must identify the exact source resource type.');
+        assert.equal(proposedColumn?.sourcePath, contract.fieldPath,
+          'Field-choice response must identify the exact source field path.');
+        assert.equal(proposedColumn?.label, contract.fieldLabel,
+          'Field-choice response must retain the exact native field label.');
+        assert(fieldChoiceProposal.preview.receiptId,
+          'Field-choice response must retain its exact preview receipt.');
+
+        const applyFieldResponse = await applyFieldCommandPromise;
+        assert.equal(applyFieldResponse.status(), 200,
+          `Applying the selected source field returned HTTP ${applyFieldResponse.status()}.`);
+        const applyFieldResponseBody = await applyFieldResponse.json();
+        assert.equal(applyFieldResponseBody.commandId, fieldChoiceProposal.commandId,
+          'The auto-apply command must belong to the captured field-choice request.');
+        assert.equal(applyFieldResponseBody.draftVersion, builderBeforeFieldAdd.draftVersion + 1,
+          'Applying the field must advance the saved draft by exactly one version.');
+        assert.equal(applyFieldResponseBody.draftDigest, fieldChoiceProposal.candidateWorkspaceDigest,
+          'Auto-apply must save the exact workspace produced by the captured field-choice response.');
+        assert.equal(applyFieldResponseBody.results?.length, 1,
+          'Auto-apply response must retain exactly one result for the selected field.');
+        assert(applyFieldResponseBody.results[0].outputId === outputId &&
+          applyFieldResponseBody.results[0].type === 'COLUMN_ADDED' &&
+          fieldChoiceProposal.candidateColumnIds.includes(applyFieldResponseBody.results[0].column),
+        'Auto-apply response must confirm the exact candidate column was added.');
+
+        await page.waitForFunction(({ expectedOutputId, expectedDraftVersion }) => {
+          const preview = document.querySelector('[data-testid="construction-preview"]');
+          return Boolean(!document.querySelector('[aria-label="Add columns editor"]') &&
+            preview?.dataset.previewStatus === 'ready' &&
+            preview.dataset.previewOutputId === expectedOutputId &&
+            Number(preview.dataset.currentDraftVersion) === expectedDraftVersion);
+        }, { expectedOutputId: outputId, expectedDraftVersion: applyFieldResponseBody.draftVersion },
+        { timeout: remainingTimeout() });
         await page.getByTestId('construction-action-keep-rows').waitFor({
           state: 'visible', timeout: remainingTimeout(),
         });
+        savedBuilder = await readBuilder();
+        assert.equal(savedBuilder.draftVersion, applyFieldResponseBody.draftVersion,
+          'Post-settlement Builder read must observe the field-add command version.');
+        assert.equal(savedBuilder.draftDigest, applyFieldResponseBody.draftDigest,
+          'Post-settlement Builder read must observe the exact field-add command digest.');
+        savedDocument = documentForOutput(savedBuilder, outputId);
+        temporalColumn = columnForPath(savedDocument, contract.fieldPath);
+        assert(fieldChoiceProposal.candidateColumnIds.includes(temporalColumn.column),
+          'The persisted source field must retain the candidate column identity returned by the response.');
+        if (contract.filterValueKind === 'DATE') {
+          assert.equal(temporalColumn.logicalType, 'date', 'Patient.birthDate must persist as a date column.');
+        }
+        const savedGrid = await waitSavedRows(expectedAllIDs, outputId, remainingTimeout());
+        const savedIDIndex = findRenderedBuilderHeaderIndex(savedGrid.headers, `${contract.resourceType.toLowerCase()} id`);
+        const savedValueIndex = findRenderedBuilderHeaderIndex(savedGrid.headers, contract.fieldLabel);
+        assert(savedIDIndex >= 0 && savedValueIndex >= 0,
+          `Saved table must visibly render the exact ID and ${contract.fieldLabel} columns.`);
+        const actualRows = savedGrid.rows.map(row => [row[savedIDIndex], row[savedValueIndex]])
+          .sort((left, right) => left[0].localeCompare(right[0]));
+        assert.deepEqual(actualRows, expectedBefore,
+          'Saved table must show the exact literal source values and record identities.');
       },
     });
+  const choiceProposalRequests = capture.requestsSince(choiceProposalFromIndex, entry =>
+    entry.method === 'POST' && entry.path.endsWith('/construction-choice-proposals'));
+  await capture.settleRequests(choiceProposalRequests);
+  const fieldChoiceProposalEntryMatches = choiceProposalRequests.filter(entry =>
+    entry.request?.commandId === fieldChoiceProposal.commandId &&
+    entry.response?.commandId === fieldChoiceProposal.commandId &&
+    entry.request?.outputId === outputId && entry.response?.outputId === outputId &&
+    entry.response?.previewStatus === 'READY' &&
+    entry.request?.constructionChoices?.some(choice => choice.form === 'VALUE' &&
+      choice.title === contract.fieldLabel &&
+      choice.choiceId === fieldChoiceProposal.constructionChoices?.[0]?.choiceId));
+  assert.equal(fieldChoiceProposalEntryMatches.length, 1,
+    'Field-choice response must bind one actual observer request with its own command ID and field choice.');
+  const fieldChoiceProposalEntry = fieldChoiceProposalEntryMatches[0];
+  assert.equal(fieldChoiceProposalEntry.request.expectedDraftVersion, builderBeforeFieldAdd.draftVersion,
+    'Field-choice request must retain its exact pre-add Builder version.');
+  assert.equal(fieldChoiceProposalEntry.request.expectedDraftDigest, builderBeforeFieldAdd.draftDigest,
+    'Field-choice request must retain its exact pre-add Builder digest.');
+  check('correctness', `native ${contract.fieldPath} choice response is ready for the exact output`, true,
+    { outputId, commandId: fieldChoiceProposal.commandId, candidateColumnIds: fieldChoiceProposal.candidateColumnIds,
+      previewReceiptId: fieldChoiceProposal.preview.receiptId, rowCount: fieldChoiceProposal.preview.rowCount });
+  check('correctness', `native ${contract.fieldPath} column keeps exact source values and identities`, true,
+    { outputId, columnId: temporalColumn.columnId, label: temporalColumn.label,
+      type: temporalColumn.logicalType, rows: expectedBefore });
+
+  const applyFieldEntries = capture.requestsSince(choiceProposalFromIndex, entry => entry.method === 'POST' &&
+    entry.path === commandPath && entry.request?.commands?.some(command =>
+      command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId));
+  await capture.settleRequests(applyFieldEntries);
+  assert.equal(applyFieldEntries.length, 1, 'Adding the field must make one captured native choice command.');
+  const applyFieldEntry = applyFieldEntries[0];
+  assert.equal(applyFieldEntry.request.commands.length, 1,
+    'The field-add command must not bundle an unmodeled second operation.');
+  const appliedChoice = applyFieldEntry.request.commands.find(command =>
+    command.type === 'APPLY_CONSTRUCTION_CHOICE' && command.outputId === outputId);
+  assert.equal(fieldChoiceProposalEntry.request.constructionChoices.length, 1,
+    'The captured request must contain exactly one source field choice.');
+  assert.equal(applyFieldEntry.request.commandId, fieldChoiceProposal.commandId,
+    'The captured apply command must retain the proposal request command ID.');
+  assert.equal(applyFieldEntry.request.expectedDraftVersion, builderBeforeFieldAdd.draftVersion,
+    'Apply command must use the exact pre-add Builder version.');
+  assert.equal(applyFieldEntry.request.expectedDraftDigest, builderBeforeFieldAdd.draftDigest,
+    'Apply command must use the exact pre-add Builder digest.');
+  assert.equal(appliedChoice.constructionChoice.choiceId,
+    fieldChoiceProposalEntry.request.constructionChoices[0].choiceId,
+    'The captured apply command must consume the exact selected field choice.');
+  assert.equal(applyFieldEntry.response?.draftDigest, savedBuilder.draftDigest,
+    'Captured auto-apply response must bind the exact post-settlement Builder digest.');
+  const appliedFieldDomObservationIndex = await capture.captureDOM({ resourceType: contract.resourceType });
+  await recordStep({ label: 'TemporalColumnApplied', requestEntry: applyFieldEntry,
+    proposalCaptureIds: choiceProposalRequests.map(entry => entry.browserRequestId),
+    beforeReadIndex: builderBeforeFieldAddReadIndex, afterReadIndex: capture.builderReads.length - 1,
+    domObservationIndex: appliedFieldDomObservationIndex });
 
   const readFilter = async expected => {
     const current = await readBuilder();
