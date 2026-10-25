@@ -79,7 +79,7 @@
       "traceName": "builder-authoring:group-entry",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs, scripts/verify-ui/workflows/builder-group-entry.mjs, verification/builder-interactions/builder-journey-audit.json",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
       "recordedAt": "2026-10-23T00:23:20.950Z",
       "sourceIdentity": {
         "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
@@ -132,7 +132,7 @@
       "traceName": "journey/edit-remove-reload-basic-budget",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: verification/builder-interactions/builder-journey-audit.json",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
       "recordedAt": null,
       "sourceIdentity": {
         "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
@@ -176,7 +176,7 @@
       "traceName": "builder-authoring:group-entry-raw-basic",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: verification/builder-interactions/builder-journey-audit.json",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
       "recordedAt": "2026-10-23T00:52:04.753Z",
       "sourceIdentity": {
         "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
@@ -282,7 +282,7 @@
       "traceName": "builder-authoring:group-entry-raw-basic",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source bytes changed within the 76-file historical source scope: scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs, scripts/verify-ui/workflows/builder-group-entry.mjs, verification/builder-interactions/builder-journey-audit.json",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 77 current files (added: verification/builder-interactions/BuilderJourneyGroupSafety.cfg; removed: none)",
       "recordedAt": "2026-10-23T00:24:27.787Z",
       "sourceIdentity": {
         "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",

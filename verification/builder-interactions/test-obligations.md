@@ -6,11 +6,11 @@ Status: generated from the TLA models and existing test metadata.
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
 676 are currently tracked; 2 baseline files have retained tombstones.
-13171 semantic claims are defined once; 9239 source occurrences are direct test assertions, out of 18979 total labeled occurrences.
-9740 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
+13177 semantic claims are defined once; 9248 source occurrences are direct test assertions, out of 18994 total labeled occurrences.
+9746 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
 678 catalog records have source-review evidence; 678 MJS records remain runtime-unverified.
-68 files are classified as independent tool/module purposes; 292 MJS files and 5316 semantic claims have no canonical journey mapping.
-`role` and `testLayer` are source-reviewed classifications. `roleHint` and static references are generated path/search hints.
+68 files are classified as independent tool/module purposes; 292 MJS files and 5322 semantic claims have no canonical journey mapping.
+`role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
 | --- | ---: |
@@ -174,7 +174,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files with a canonical case mapping | 7 |
 | Tool/module files without a canonical case mapping | 61 |
 | All MJS files without a canonical case mapping | 292 |
-| Semantic claims without a canonical case mapping | 5316 |
+| Semantic claims without a canonical case mapping | 5322 |
 
 ### Explicit formal links
 
@@ -278,7 +278,7 @@ These are source associations, not passing runs. Model actions, invariants, sche
 
 Disposition labels and replacement evidence come from the source catalog. They do not turn a candidate into runtime proof; independent oracles and replacement gates remain explicit in purpose, evidence, and any nonempty gap.
 
-The file catalog is source-reviewed and hash-bound to a reviewed source revision. Static import and path mentions remain candidates, not proof of reachability; dynamic and manual invocation uncertainty is recorded separately. Semantic claims, journey mappings, and formal bindings describe intended associations. Every MJS runtime status is unverified unless an exact current artifact is joined to its source SHA; labels do not prove execution or model refinement. Retirement rows preserve their source and replacement references.
+The source catalog is hash-bound to reviewed revisions; currentSha256 records each active file at generation time. Configured focused commands and sourceFiles are separate registry connections; sourceFiles and literal import candidates are not execution evidence. Only an explicit per-case summary with a passed focused group, exact planned command stage, unchanged complete inputs, and matching current input hashes records focused-command-passed for the command test file. This never upgrades a case, journey, or formal-model result. Semantic claims and formal bindings remain intended associations; retired rows preserve their source and replacement references.
 
 ## Summary
 
