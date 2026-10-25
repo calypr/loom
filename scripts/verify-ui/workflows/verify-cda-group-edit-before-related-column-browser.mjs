@@ -179,6 +179,10 @@ let journeyTraceStarted = false;
 const capturedProposalBrowserRequestIds = new Set();
 const capturedApplyBrowserRequestIds = new Set();
 const proposalMounts = new Map();
+const applyMounts = new Map();
+const proposalSettlementMounts = new Map();
+const documentEpochByTimeOrigin = new Map();
+const settlementMountWaiters = new Map();
 const oracleQueries = [];
 const recordLifecycleCheck = (dimension, name, passed, checkEvidence = {}) =>
   cda.check(dimension, name, passed, checkEvidence);
@@ -303,13 +307,32 @@ const currentMount = async () => {
   const actualTimeOrigin = await page.evaluate(() => performance.timeOrigin);
   assert(Number.isFinite(actualTimeOrigin) && actualTimeOrigin > 0,
     'Builder journey must read the current document performance.timeOrigin from the page.');
-  if (documentTimeOrigin === null) {
-    documentTimeOrigin = actualTimeOrigin;
-  } else if (documentTimeOrigin !== actualTimeOrigin) {
-    mountEpoch += 1;
-    documentTimeOrigin = actualTimeOrigin;
+  if (!documentEpochByTimeOrigin.has(actualTimeOrigin)) {
+    documentEpochByTimeOrigin.set(actualTimeOrigin, documentEpochByTimeOrigin.size);
   }
+  mountEpoch = documentEpochByTimeOrigin.get(actualTimeOrigin);
+  documentTimeOrigin = actualTimeOrigin;
   return { mountEpoch, documentTimeOrigin };
+};
+const captureCurrentMount = () => currentMount()
+  .then(mount => ({ mount }), error => ({ error }));
+const awaitCapturedMount = async (mounts, browserRequestId) => {
+  const captured = mounts.get(browserRequestId);
+  assert(captured, `Browser request ${browserRequestId} must retain its request-time mount observation.`);
+  const result = await captured;
+  if (result.error) throw result.error;
+  return result.mount;
+};
+const awaitSettlementMount = async browserRequestId => {
+  if (!proposalSettlementMounts.has(browserRequestId)) {
+    return new Promise((resolve, reject) => {
+      settlementMountWaiters.set(browserRequestId, { resolve, reject });
+    });
+  }
+  const captured = proposalSettlementMounts.get(browserRequestId);
+  const result = await captured;
+  if (result.error) throw result.error;
+  return result.mount;
 };
 const readRenderedSourceTable = async () => browserEval(page, () => {
   const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
@@ -418,7 +441,9 @@ const savedBuilderProjection = state => ({
   draftDigest: state.draftDigest,
 });
 const nativeRequestRecord = entry => {
-  const requestPath = entry.path.split('/authoring/v2/')[1] ?? entry.path;
+  const requestPathSuffix = entry.path.split('/authoring/v2/')[1];
+  assert(requestPathSuffix, `Native request ${entry.browserRequestId} must retain its /authoring/v2/ route.`);
+  const requestPath = `/${requestPathSuffix.replace(/^\/+/, '')}`;
   const body = entry.request === undefined ? null : structuredClone(entry.request);
   const captureId = typeof body?.captureId === 'string' && body.captureId.length > 0 ? body.captureId : undefined;
   return {
@@ -478,11 +503,13 @@ const nativeSettlementRecord = entry => ({
   ...(entry.responseReceivedAt === undefined ? {} : { responseReceivedAt: entry.responseReceivedAt }),
   ...(entry.completedAt === undefined ? {} : { completedAt: entry.completedAt }),
 });
-const ownerForProposal = (entry, attempt, kind = 'proposal') => ({
+const ownerForProposal = (entry, attempt, mount, kind = 'proposal') => ({
   kind,
   attempt,
   browserRequestId: entry.browserRequestId,
   requestId: entry.requestId ?? null,
+  mountEpoch: mount.mountEpoch,
+  documentTimeOrigin: mount.documentTimeOrigin,
   ...(typeof entry.request?.captureId === 'string' ? { captureId: entry.request.captureId } : {}),
 });
 const groupCandidateIntent = (entry, savedBefore) => {
@@ -569,13 +596,14 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
   for (const [index, entry] of unrecorded.entries()) {
     capturedProposalBrowserRequestIds.add(entry.browserRequestId);
     const ownerAttempt = index === 0 ? attempt : 'P2';
-    const owner = ownerForProposal(entry, ownerAttempt);
-    const mount = proposalMounts.get(entry.browserRequestId);
-    assert(mount && Number.isInteger(mount.mountEpoch) && Number.isFinite(mount.documentTimeOrigin),
+    const mount = await awaitCapturedMount(proposalMounts, entry.browserRequestId);
+    assert(Number.isInteger(mount.mountEpoch) && Number.isFinite(mount.documentTimeOrigin),
       `Observed proposal ${entry.browserRequestId} must retain its actual page mount and timeOrigin.`);
+    const owner = ownerForProposal(entry, ownerAttempt, mount);
     const request = nativeRequestRecord(entry);
     const response = Number.isInteger(entry.status) ? nativeResponseRecord(entry) : null;
     const settlement = nativeSettlementRecord(entry);
+    const settlementMount = await awaitSettlementMount(entry.browserRequestId);
     const capture = { owner, request, response, settlement, renderedObservation };
     const entryState = builderStateForProposal(entry, state);
     const entryCaptureKind = proposalCaptureKind(entry, entryState);
@@ -596,6 +624,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
         request,
         response,
         settlement,
+        settlementObservedEpoch: settlementMount.mountEpoch,
         renderedObservation,
         savedGroupInput: groupProjection(entryState),
         savedBefore: before,
@@ -608,6 +637,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
           label: 'RelatedSourcePreview',
           event: 'related-source-preview',
           ...capture,
+          observedEpoch: settlementMount.mountEpoch,
           observation: pageObservation,
           relatedSourceLifecycle: capture.relatedSourceLifecycle,
         },
@@ -653,6 +683,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       capture.savedBeforeTable = beforeTable;
       capture.mountEpoch = mount.mountEpoch;
       capture.expandRowsLifecycle = {
+        ...mount,
         stage: stageToken,
         stepId: expandedStep.id,
         inputStepId: expandedStep.inputs?.find(input => input.kind === 'STEP_OUTPUT')?.stepId ?? null,
@@ -670,9 +701,9 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       event: 'preview',
       owner,
       request,
+      observedEpoch: mount.mountEpoch,
       observation: pageObservation,
       renderedObservation,
-      ...(capture.mountEpoch === undefined ? {} : { observedEpoch: capture.mountEpoch }),
       ...(capture.groupLifecycle ? { groupLifecycle: capture.groupLifecycle } : {}),
       ...(capture.expandRowsLifecycle ? { rowExpansionLifecycle: capture.expandRowsLifecycle } : {}),
     };
@@ -695,6 +726,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       request,
       response,
       settlement,
+      observedEpoch: settlementMount.mountEpoch,
       observation: pageObservation,
       renderedObservation,
       ...(capture.groupLifecycle ? { groupLifecycle: capture.groupLifecycle } : {}),
@@ -768,6 +800,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
   const binding = assertSourceBinding(builder, selectedPopulationRoute);
   assert.equal(binding.output.id, outputId);
   const preview = await expectedPreview(expectedRows, { requestStart, expectedBuilder: builder, label, startedAt });
+  const initialPreviewMount = await currentMount();
   const observation = await captureBuilderObservation(page);
   const renderedRows = await readRenderedSourceTable();
   const historySteps = await readConstructionHistoryDOM();
@@ -801,7 +834,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
     journeyTraceStarted = true;
     journeyTrace.initialObservation = observation;
     journeyTrace.initialPreview = {
-      owner: ownerForProposal(preview.request, 'P1', 'preview'),
+      owner: ownerForProposal(preview.request, 'P1', initialPreviewMount, 'preview'),
       request: nativeRequestRecord(preview.request),
       response: nativeResponseRecord(preview.request),
       settlement: nativeSettlementRecord(preview.request),
@@ -873,6 +906,9 @@ const mountedRows = async (expectedRows, columnCount = expectedRows[0]?.length ?
     'Rendered preview array indicators must match the complete raw row values');
 };
 let nativeCapture;
+let nativeRequestListener;
+let nativeResponseListener;
+let nativeRequestFailedListener;
 const installBrowserCapture = async () => {
   nativeCapture = captureCDARequests(page, {
     apiOrigin,
@@ -892,15 +928,40 @@ const installBrowserCapture = async () => {
     }
     report.errors.push({ kind: 'console', text: message.text() });
   });
-  page.on('request', request => {
+  nativeRequestListener = request => {
     let url;
     try { url = new URL(request.url()); } catch { return; }
     if (isProtectedExplorerRequestPath(url.pathname, root, protectedExplorer)) report.protectedExplorerUntouched = false;
     const entry = nativeCapture.observer.byRequest.get(request);
-    if (entry?.path === `${base}/construction-proposals` && entry.request?.outputId === outputId) {
-      proposalMounts.set(entry.browserRequestId, { mountEpoch, documentTimeOrigin });
+    if (!entry) return;
+    if (entry.path === `${base}/construction-proposals`) {
+      proposalMounts.set(entry.browserRequestId, captureCurrentMount());
     }
-  });
+    if (entry.path === `${base}/commands` && entry.request?.commands?.some(command =>
+      command.type === 'APPLY_CONSTRUCTION_PROPOSAL')) {
+      applyMounts.set(entry.browserRequestId, captureCurrentMount());
+    }
+  };
+  const captureSettlementMount = request => {
+    const entry = nativeCapture.observer.byRequest.get(request);
+    if (!entry || !(entry.path === `${base}/construction-proposals` ||
+      (entry.path === `${base}/commands` && entry.request?.commands?.some(command =>
+        command.type === 'APPLY_CONSTRUCTION_PROPOSAL')))) return;
+    const captured = captureCurrentMount();
+    proposalSettlementMounts.set(entry.browserRequestId, captured);
+    void captured.then(result => {
+      const waiter = settlementMountWaiters.get(entry.browserRequestId);
+      if (waiter) {
+        settlementMountWaiters.delete(entry.browserRequestId);
+        result.error ? waiter.reject(result.error) : waiter.resolve(result.mount);
+      }
+    });
+  };
+  nativeResponseListener = response => captureSettlementMount(response.request());
+  nativeRequestFailedListener = request => captureSettlementMount(request);
+  page.on('request', nativeRequestListener);
+  page.on('response', nativeResponseListener);
+  page.on('requestfailed', nativeRequestFailedListener);
 };
 const assertDraftRequest = (entry, state, label) => {
   assert(entry, `${label} must use the native Browser request`);
@@ -981,6 +1042,8 @@ const recordRelatedSourceApply = async ({ proposal, applyRequest, savedBefore, s
   const lifecycle = proposal.journeyCapture.relatedSourceLifecycle;
   assert(lifecycle, 'RELATED_SOURCE Apply must bind to the exact captured proposal owner.');
   capturedApplyBrowserRequestIds.add(applyRequest.browserRequestId);
+  const applyMount = await awaitCapturedMount(applyMounts, applyRequest.browserRequestId);
+  const settlementMount = await awaitSettlementMount(applyRequest.browserRequestId);
   const observation = await captureBuilderObservation(page);
   journeyTrace.actions.push({
     label: 'RelatedSourceApply',
@@ -989,6 +1052,8 @@ const recordRelatedSourceApply = async ({ proposal, applyRequest, savedBefore, s
       kind: 'apply',
       attempt: proposal.journeyCapture.owner.attempt,
       browserRequestId: applyRequest.browserRequestId,
+      mountEpoch: applyMount.mountEpoch,
+      documentTimeOrigin: applyMount.documentTimeOrigin,
       requestId: applyRequest.requestId ?? null,
       ...(typeof applyRequest.request?.captureId === 'string' ? { captureId: applyRequest.request.captureId } : {}),
       ...(typeof applyRequest.request?.commandId === 'string' ? { commandId: applyRequest.request.commandId } : {}),
@@ -996,6 +1061,7 @@ const recordRelatedSourceApply = async ({ proposal, applyRequest, savedBefore, s
     request: nativeRequestRecord(applyRequest),
     response: nativeResponseRecord(applyRequest),
     settlement: nativeSettlementRecord(applyRequest),
+    observedEpoch: settlementMount.mountEpoch,
     observation,
     relatedSourceLifecycle: {
       ...lifecycle,
@@ -1007,11 +1073,13 @@ const recordRelatedSourceApply = async ({ proposal, applyRequest, savedBefore, s
 const recordRelatedSourceCancel = async ({ proposal, savedBefore, savedAfter, observedAt }) => {
   const lifecycle = proposal.journeyCapture.relatedSourceLifecycle;
   assert(lifecycle, 'RELATED_SOURCE Cancel must bind to the exact captured proposal owner.');
+  const observedMount = await currentMount();
   const observation = await captureBuilderObservation(page);
   journeyTrace.actions.push({
     label: 'RelatedSourceCancel',
     event: 'related-source-cancel',
     observedAt,
+    observedEpoch: observedMount.mountEpoch,
     owner: proposal.journeyCapture.owner,
     request: lifecycle.request,
     response: lifecycle.response,
@@ -1034,6 +1102,7 @@ const recordGroupEditCancel = async ({ proposal, savedBefore, savedAfter, observ
     label: 'GroupEditCancel',
     event: 'group-edit-cancel',
     observedAt,
+    observedEpoch: mount.mountEpoch,
     observation,
     groupLifecycle: {
       ...mount,
@@ -1057,11 +1126,13 @@ const applyGroupProposal = async (proposal, savedBefore, expectedRows, label, { 
   assertDraftRequest(applyRequest, savedBefore, label);
   assert(applyRequest.request.commands.some((item) => item.proposalId === proposalResponse.proposalId));
   capturedApplyBrowserRequestIds.add(applyRequest.browserRequestId);
+  const applyMount = await awaitCapturedMount(applyMounts, applyRequest.browserRequestId);
+  const settlementMount = await awaitSettlementMount(applyRequest.browserRequestId);
   builder = await api(base + '/builder');
   assert.equal(builder.draftVersion, proposalResponse.draftVersion + 1);
   assert.equal(builder.draftDigest, proposalResponse.candidateWorkspaceDigest);
   const observation = await captureBuilderObservation(page);
-  const mount = await currentMount();
+  const mount = settlementMount;
   const request = nativeRequestRecord(applyRequest);
   const response = nativeResponseRecord(applyRequest);
   const settlement = nativeSettlementRecord(applyRequest);
@@ -1069,6 +1140,8 @@ const applyGroupProposal = async (proposal, savedBefore, expectedRows, label, { 
     kind: 'apply',
     attempt: proposal.journeyCapture.owner.attempt,
     browserRequestId: applyRequest.browserRequestId,
+    mountEpoch: applyMount.mountEpoch,
+    documentTimeOrigin: applyMount.documentTimeOrigin,
     requestId: applyRequest.requestId ?? null,
     ...(typeof applyRequest.request?.captureId === 'string' ? { captureId: applyRequest.request.captureId } : {}),
     ...(typeof applyRequest.request?.commandId === 'string' ? { commandId: applyRequest.request.commandId } : {}),
@@ -1100,7 +1173,7 @@ const applyGroupProposal = async (proposal, savedBefore, expectedRows, label, { 
       response,
       settlement,
       observation,
-      observedEpoch: proposal.journeyCapture.mountEpoch,
+      observedEpoch: settlementMount.mountEpoch,
       savedBeforeTable: proposal.journeyCapture.savedBeforeTable,
       savedAfterTable: await readRenderedSourceTable(),
       rowExpansionLifecycle: {
@@ -1120,6 +1193,7 @@ const applyGroupProposal = async (proposal, savedBefore, expectedRows, label, { 
       response,
       settlement,
       observation,
+      observedEpoch: settlementMount.mountEpoch,
       groupLifecycle: {
         ...mount,
         candidateIntent: lifecycle.candidateIntent,
@@ -1793,8 +1867,8 @@ FOR s IN (
     for (const action of journeyTrace.actions) {
       const actionKind = action.relatedSourceLifecycle ? 'relatedSource'
         : action.rowExpansionLifecycle ? 'expandRows'
-          : action.groupLifecycle && action.request?.path === 'construction-proposals' ? 'group' : null;
-      const proposalRequest = action.request?.path === 'construction-proposals'
+          : action.groupLifecycle && action.request?.path === '/construction-proposals' ? 'group' : null;
+      const proposalRequest = action.request?.path === '/construction-proposals'
         ? action.request
         : action.relatedSourceLifecycle?.request;
       const body = proposalRequest?.body;
@@ -1891,6 +1965,7 @@ FOR s IN (
       path: route,
       browserRequestId: entry.browserRequestId,
       requestId: entry.requestId ?? null,
+      isMutation: entry.isMutation,
     });
     readOnlySupport.set(support.kind, events);
   }
@@ -1932,6 +2007,9 @@ FOR s IN (
   throw error;
 } finally {
   await nativeCapture?.stop();
+  if (nativeRequestListener) page.off('request', nativeRequestListener);
+  if (nativeResponseListener) page.off('response', nativeResponseListener);
+  if (nativeRequestFailedListener) page.off('requestfailed', nativeRequestFailedListener);
   report.finished = new Date().toISOString();
   await cda.attachReport('group-edit-before-related-column', report);
 }
