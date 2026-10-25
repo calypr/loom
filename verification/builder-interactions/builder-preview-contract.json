@@ -39,12 +39,12 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "f3b972422c0f8b439aa33d3981c44eb0b0c2bea32575be7339c824b1f30bace3",
+      "sha256": "17317d01376c4a3307aaa7c0e94cda372764fafdee5ade7aff711748d3973240",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "4c9d3f2ce39f8213b1ab1393b04bb29ffc1163588ad9cc6b4b36d18750d78e15",
+      "sha256": "5a79a0f0113c70fdb081be20a908a9ac107b24fdccc508b336b2ada583509761",
       "contract": "Trace mutation controls for request ownership, Group persistence and reload keys/step, stale candidates and capture owners, exact action counts, and generic non-Group routes."
     },
     {
@@ -464,7 +464,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-      "sha256": "864c1a02d0a7c6a433f6612464c7874bd78491620e4438ac1a6a7d4c51de1983",
+      "sha256": "9e7cda7cf7e23c5a756488b24e5b0ad01733d243daa65a503c2f591e59e6faa8",
       "contract": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow."
     },
     {
