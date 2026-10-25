@@ -76,6 +76,21 @@ const expectedCdaMutationControlNames = (journeyCase, trace) => [
   ...(journeyCase.requiredMutationControlNames ?? []),
   ...observedCdaOwnerEpochs(trace).map(epoch => journeyCase.observedOwnerEpochControlPrefix + epoch),
 ];
+const policyNativeJourneySelfTestReceipt = ({
+  registration, tracePath, traceSha256, selfTestReportPath, allPassed, mutationControlResults,
+}) => ({
+  traceName: registration?.traceName ?? null,
+  nativeCaseKey: registration?.nativeCaseKey ?? null,
+  model: registration?.model ?? null,
+  captureAdapter: registration?.captureAdapter ?? null,
+  captureKind: registration?.captureKind ?? 'builder-policy-one-native-lifecycle',
+  tracePath,
+  traceSha256,
+  selfTestReportPath,
+  status: allPassed ? 'pass' : 'fail',
+  requiredMutationControlNames: [...(registration?.requiredMutationControlNames ?? [])],
+  mutationControls: mutationControlResults,
+});
 const selfTestReceiptProblem = (receipt, expected) => {
   if (!receipt || receipt.traceName !== expected.traceName || receipt.nativeCaseKey !== expected.nativeCaseKey ||
       receipt.tracePath !== expected.tracePath || !/^[0-9a-f]{64}$/.test(receipt.traceSha256 ?? '') ||
@@ -110,7 +125,31 @@ const selfTestReceiptWriterTest = () => {
   const missingOutputRejected = selfTestReceiptProblem({ ...fixture, selfTestReportPath: undefined }, expected) !== null;
   const wrongOutputRejected = selfTestReceiptProblem({ ...fixture, selfTestReportPath: '/tmp/other.json' }, expected) !== null;
   const duplicateStatusRejected = selfTestReceiptProblem({ ...fixture, selfTestStatus: 'pass' }, expected) !== null;
-  return validAccepted && missingOutputRejected && wrongOutputRejected && duplicateStatusRejected;
+  const policyExpected = {
+    traceName: 'builder-authoring:patient-one-disagreement',
+    nativeCaseKey: 'builder-authoring/patient-one-disagreement',
+    tracePath: '/tmp/policy-trace.json',
+    selfTestReportPath: '/tmp/policy-self-test.json',
+  };
+  const policyReceipt = policyNativeJourneySelfTestReceipt({
+    registration: {
+      ...policyExpected,
+      model: 'PolicyOneDisagreement',
+      captureAdapter: 'policy-one-disagreement-v1',
+      requiredMutationControlNames: ['policy-mutation-fixture'],
+    },
+    tracePath: policyExpected.tracePath,
+    traceSha256: 'b'.repeat(64),
+    selfTestReportPath: policyExpected.selfTestReportPath,
+    allPassed: true,
+    mutationControlResults: [{ name: 'policy-mutation-fixture', status: 'pass' }],
+  });
+  const policyReceiptAccepted = selfTestReceiptProblem(policyReceipt, policyExpected) === null;
+  const missingNativeCaseRejected = selfTestReceiptProblem(
+    { ...policyReceipt, nativeCaseKey: undefined }, policyExpected,
+  ) !== null;
+  return validAccepted && missingOutputRejected && wrongOutputRejected && duplicateStatusRejected &&
+    policyReceiptAccepted && missingNativeCaseRejected;
 };
 const policyMutationControlNamesMatch = (controls, requiredNames) => {
   if (!Array.isArray(controls) || !Array.isArray(requiredNames)) return false;
@@ -327,18 +366,14 @@ const runPolicyNativeJourneySelfTest = async () => {
     console.error('FAIL Policy nativeJourney self-test: ' + (error instanceof Error ? error.message : String(error)));
     return false;
   } finally {
-    const receipt = {
-      traceName: registration?.traceName ?? null,
-      model: registration?.model ?? null,
-      captureAdapter: registration?.captureAdapter ?? null,
-      captureKind: registration?.captureKind ?? 'builder-policy-one-native-lifecycle',
+    const receipt = policyNativeJourneySelfTestReceipt({
+      registration,
       tracePath: tracesPath ? resolve(ROOT, tracesPath) : null,
       traceSha256,
       selfTestReportPath: selfTestOutputPath ? resolve(ROOT, selfTestOutputPath) : null,
-      status: allPassed ? 'pass' : 'fail',
-      requiredMutationControlNames: [...(registration?.requiredMutationControlNames ?? [])],
-      mutationControls: mutationControlResults,
-    };
+      allPassed,
+      mutationControlResults,
+    });
     if (selfTestOutputPath) {
       const absolute = resolve(ROOT, selfTestOutputPath);
       mkdirSync(dirname(absolute), { recursive: true });
