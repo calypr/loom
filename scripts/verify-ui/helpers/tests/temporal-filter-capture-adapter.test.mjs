@@ -95,7 +95,19 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
   const journeyTrace = adaptTemporalFilterJourney(rawCapture);
   assert.equal(journeyTrace.model, 'TemporalFilterJourney');
   assert.equal(journeyTrace.name, 'basic-temporal-filter:date');
+  assert.equal(journeyTrace.captureKind, 'builder-temporal-native-lifecycle');
   assert.equal(journeyTrace.actions.length, 16);
+  assert(journeyTrace.actions.every(action => action.label === action.action),
+    'Every action must expose the exact common label alias expected by the shared verifier.');
+  assert.deepEqual(journeyTrace.nativeRequests, rawCapture.requestEvents.map(request => ({
+    index: request.index,
+    browserRequestId: request.browserRequestId,
+    requestId: request.requestId ?? null,
+    method: request.method,
+    path: request.path,
+    startedAt: request.startedAt,
+    isMutation: request.isMutation,
+  })), 'The common request ledger must retain the actual observer identity and order.');
   assert.deepEqual(journeyTrace.temporalFilterLifecycle, rawCapture);
   assert.equal(journeyTrace.initialObservation.snapshotToken, 'snapshot-1');
   assert(rawCapture.builderReads.every(read => read.snapshotToken === `snapshot-${read.draftVersion}`));
@@ -147,6 +159,32 @@ test('adapter schema fixtures preserve DATE evidence as canonical events without
     'schema-fixture-browser-request-source-table');
   assert.equal(sourceCreate.request.expectedDraftVersion, 1);
   assert.equal(sourceCreate.request.expectedDraftDigest, 'draft-1');
+  const ordinaryProposalRequests = rawCapture.requestEvents.filter(request =>
+    request.method === 'POST' && request.path.endsWith('/construction-proposals'));
+  const ownerActions = journeyTrace.actions.filter(action => action.owner?.kind === 'proposal');
+  assert.deepEqual(ownerActions.map(action => action.owner.browserRequestId).sort(),
+    ordinaryProposalRequests.map(request => request.browserRequestId).sort(),
+    'Every ordinary proposal owner must be derived from its physical observer request.');
+  for (const action of ownerActions) {
+    const request = ordinaryProposalRequests.find(candidate => candidate.browserRequestId === action.owner.browserRequestId);
+    assert.equal(action.owner.mountEpoch, request.mountEpoch);
+  }
+});
+
+test('adapter keeps repeated wire request IDs distinct by observer index and browser request ID', () => {
+  const rawCapture = makeTemporalFilterJourneyCaptureFixture('date');
+  const reconciles = rawCapture.requestEvents.filter(request => request.path.endsWith('/reconcile'));
+  assert(reconciles.length >= 2);
+  reconciles[0].requestId = 'builder-1-1';
+  reconciles[1].requestId = 'builder-1-1';
+  assert.notEqual(reconciles[0].mountEpoch, reconciles[1].mountEpoch);
+  assert.notEqual(reconciles[0].request.draftVersion, reconciles[1].request.draftVersion);
+
+  const journeyTrace = adaptTemporalFilterJourney(rawCapture);
+  const repeatedWireRequests = journeyTrace.nativeRequests.filter(request => request.requestId === 'builder-1-1');
+  assert.equal(repeatedWireRequests.length, 2);
+  assert.notEqual(repeatedWireRequests[0].browserRequestId, repeatedWireRequests[1].browserRequestId);
+  assert.notEqual(repeatedWireRequests[0].index, repeatedWireRequests[1].index);
 });
 
 test('adapter binds each reload to its actual reconcile request, CAS snapshot, and DOM receipt', () => {
@@ -206,6 +244,7 @@ test('adapter retains an unassigned late reconcile and its actual final DOM obse
   rawCapture.finalDOMObservationIndex = rawCapture.domObservations.length - 1;
   rawCapture.lateReconcileCaptureIds = [captureId];
   rawCapture.requestEvents.push({
+    index: rawCapture.requestEvents.length,
     browserRequestId: captureId,
     requestId: 'schema-fixture-raw-request-late-reconcile',
     method: 'POST',
@@ -256,6 +295,7 @@ test('adapter schema fixtures keep DATE_TIME request, response, and saved litera
 test('adapter rejects an observer write that no semantic action consumes', () => {
   const rawCapture = makeTemporalFilterJourneyCaptureFixture('date');
   rawCapture.requestEvents.push({
+    index: rawCapture.requestEvents.length,
     browserRequestId: 'schema-fixture-browser-request-unexpected-write',
     requestId: 'schema-fixture-raw-request-unexpected-write',
     method: 'POST',

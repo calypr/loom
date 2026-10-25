@@ -136,6 +136,7 @@ export const makeTemporalFilterJourneyCaptureFixture = (caseName = 'date') => {
       ? status === null ? null : atEpochMs + 1
       : responseReceivedAt;
     requestEvents.push({
+      index: requestEvents.length,
       browserRequestId: captureId,
       requestId: `schema-fixture-raw-request-${name}`,
       method: 'POST',

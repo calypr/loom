@@ -252,6 +252,7 @@ export const createTemporalFilterCapture = ({ page, networkObserver, initialMoun
     const requestEvents = entries.map(entry => {
       const stamp = requestStamps.get(entry);
       const event = {
+        index: entry.index,
         browserRequestId: entry.browserRequestId,
         ...(typeof entry.requestId === 'string' ? { requestId: entry.requestId } : {}),
         method: entry.method,

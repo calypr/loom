@@ -7,7 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
-import { compileTemporalFilterJourneyTrace, validateTemporalFilterJourneyTrace } from '../temporal-filter-tla-adapter.mjs';
+import {
+  compileTemporalFilterJourneyTrace,
+  createTemporalFilterMutationControls,
+  TEMPORAL_FILTER_MUTATION_CONTROL_NAMES,
+  validateTemporalFilterJourneyTrace,
+} from '../temporal-filter-tla-adapter.mjs';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(testDirectory, '../../../../');
@@ -80,6 +85,7 @@ const appendObservedRequest = (capture, {
   };
   capture.requestEvents.push(requestEvent);
   capture.requestEvents.sort((left, right) => left.startedAt - right.startedAt);
+  capture.requestEvents.forEach((request, index) => { request.index = index; });
   return requestEvent.browserRequestId;
 };
 
@@ -153,6 +159,19 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
   missingAction.actions.pop();
   assert.throws(() => compileTemporalFilterJourneyTrace(missingAction), /Every semantic lifecycle action/u);
 
+  const labelMismatch = makeJourney('date');
+  labelMismatch.actions[0].label = 'SourceTableCreated';
+  assert.throws(() => compileTemporalFilterJourneyTrace(labelMismatch), /common label must exactly match/u);
+
+  const rawIndexTamper = makeJourney('date');
+  rawIndexTamper.temporalFilterLifecycle.requestEvents[0].index += 1;
+  assert.throws(() => compileTemporalFilterJourneyTrace(rawIndexTamper), /Common nativeRequests must preserve/u);
+
+  const ownerMismatch = makeJourney('date');
+  const ownedAction = ownerMismatch.actions.find(event => event.owner?.kind === 'proposal');
+  ownedAction.owner.mountEpoch += 1;
+  assert.throws(() => compileTemporalFilterJourneyTrace(ownerMismatch), /common proposal owner must resolve/u);
+
   const missingMutation = makeJourney('date');
   const tableAction = missingMutation.actions.find(event => event.action === 'SourceTableCreated');
   tableAction.request.isMutation = false;
@@ -160,6 +179,7 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
 
   const unknownFalsePost = makeJourney('date');
   unknownFalsePost.temporalFilterLifecycle.requestEvents.push({
+    index: unknownFalsePost.temporalFilterLifecycle.requestEvents.length,
     browserRequestId: 'unclassified-false-post',
     requestId: 'raw-unclassified-false-post',
     method: 'POST',
@@ -176,6 +196,15 @@ test('compiler rejects missing actions, unlinked mutations, unknown read-only PO
     atMonotonicMs: 10,
     atEpochMs: 10,
     mountEpoch: 1,
+  });
+  unknownFalsePost.nativeRequests.push({
+    index: unknownFalsePost.temporalFilterLifecycle.requestEvents.at(-1).index,
+    browserRequestId: 'unclassified-false-post',
+    requestId: 'raw-unclassified-false-post',
+    method: 'POST',
+    path: '/api/v1/projects/loom_dev_verify_temporal/unclassified-read',
+    startedAt: 9,
+    isMutation: false,
   });
   assert.throws(() => compileTemporalFilterJourneyTrace(unknownFalsePost), /no temporal-filter path allowlist entry/u);
 
@@ -647,4 +676,27 @@ test('TLA rejects stale proposal ownership, stale draft CAS, and reordered adapt
   const orderResult = runTlc(wrongOrder, 'WrongOrder');
   assert.notEqual(orderResult.status, 0, orderResult.output);
   assert.match(orderResult.output, /InvSemanticActionOrder is equal to FALSE/u, orderResult.output);
+});
+
+test('Temporal mutation factory returns fixed compiler-valid controls rejected by TLC', { timeout: 60_000 }, () => {
+  assert.deepEqual(TEMPORAL_FILTER_MUTATION_CONTROL_NAMES, [
+    'proposal-owner-drift',
+    'proposal-cas-drift',
+    'semantic-action-order-drift',
+  ]);
+  for (const caseName of ['date', 'date-time']) {
+    const controls = createTemporalFilterMutationControls(makeJourney(caseName));
+    assert.deepEqual(controls.map(control => control.name), TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);
+    for (const control of controls) {
+      assert.equal(control.expectedFailure.stage, 'TLC');
+      validateTemporalFilterJourneyTrace(control.trace);
+      const result = runTlc(control.trace, `${caseName.replace('-', '')}${control.name.replaceAll('-', '')}`);
+      assert.notEqual(result.status, 0, `${caseName} ${control.name} should fail TLC.`);
+      const expectedOutput = control.expectedFailure.invariant === 'Deadlock'
+        ? /Error: Deadlock reached\./u
+        : new RegExp(`${control.expectedFailure.invariant} is equal to FALSE`, 'u');
+      assert.match(result.output, expectedOutput,
+        `${caseName} ${control.name} failed at an unexpected stage:\n${result.output}`);
+    }
+  }
 });

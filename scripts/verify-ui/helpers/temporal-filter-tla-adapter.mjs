@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
 import { READ_ONLY_POST_PATH_SUFFIXES } from './playwright-network-observer.mjs';
+import { TEMPORAL_FILTER_CAPTURE_KIND } from './temporal-filter-trace-adapter.mjs';
 
 const REQUIRED_LABELS = Object.freeze([
   'ExplorerCreated',
@@ -131,6 +132,8 @@ const safeArray = value => Array.isArray(value) ? value : [];
 const without = (value, excluded) => Object.fromEntries(Object.entries(value ?? {}).filter(([key]) => !excluded.has(key)));
 const fieldId = value => value?.columnId ?? value?.id ?? NO;
 const stepId = value => value?.id ?? value?.stepId ?? NO;
+const isOrdinaryProposalRequest = request => request.method === 'POST' &&
+  request.path.endsWith('/construction-proposals');
 const isProposalRequest = request => request.method === 'POST' &&
   PROPOSAL_SUFFIXES.some(suffix => request.path.endsWith(suffix));
 const isReconcileRequest = request => request.method === 'POST' && request.path.endsWith('/reconcile');
@@ -753,6 +756,8 @@ const derivePreviewTransportEvidence = (lifecycle, rawRequests,
 
 export const validateTemporalFilterJourneyTrace = trace => {
   assert(trace && typeof trace === 'object', 'Temporal-filter compiler requires a canonical journey trace.');
+  assert.equal(trace.captureKind, TEMPORAL_FILTER_CAPTURE_KIND,
+    'Temporal-filter trace must identify its native lifecycle capture adapter.');
   assert.equal(trace.model, 'TemporalFilterJourney', 'Canonical trace must select TemporalFilterJourney.');
   const match = /^basic-temporal-filter:(date|date-time)$/u.exec(trace.name ?? '');
   assert(match, `Temporal-filter compiler rejects unregistered trace name ${JSON.stringify(trace.name)}.`);
@@ -790,6 +795,15 @@ export const validateTemporalFilterJourneyTrace = trace => {
   assert(Array.isArray(lifecycle.requestEvents), 'Raw observer request events must remain available.');
   assert(Array.isArray(lifecycle.builderReads) && Array.isArray(lifecycle.domObservations),
     'Raw Builder and DOM evidence must remain available beside the normalized trace.');
+  assert.deepEqual(trace.nativeRequests, lifecycle.requestEvents.map(request => ({
+    index: request.index,
+    browserRequestId: request.browserRequestId,
+    requestId: request.requestId ?? null,
+    method: request.method,
+    path: request.path,
+    startedAt: request.startedAt,
+    isMutation: request.isMutation,
+  })), 'Common nativeRequests must preserve each actual observer index, browser ID, request ID, and start event.');
   assert(Array.isArray(lifecycle.lateReconcileCaptureIds),
     'Raw capture must retain reconcile IDs outside the semantic-step request windows.');
   assert(lifecycle.finalDOMObservationIndex === null ||
@@ -800,6 +814,13 @@ export const validateTemporalFilterJourneyTrace = trace => {
   const actionCounts = countBy(trace.actions.map(event => event.action));
   for (const [label, count] of expectedCounts) assert.equal(actionCounts.get(label), count);
   const rawRequests = lifecycle.requestEvents;
+  const observerIndexes = rawRequests.map(request => request.index);
+  assert(observerIndexes.every(index => Number.isSafeInteger(index) && index >= 0),
+    'Every captured observer request must retain its actual network ledger index.');
+  assert.equal(new Set(observerIndexes).size, observerIndexes.length,
+    'Captured observer network ledger indexes must be unique.');
+  assert(observerIndexes.every((index, position) => position === 0 || index > observerIndexes[position - 1]),
+    'Captured observer requests must remain in their actual ledger order.');
   for (const read of lifecycle.builderReads) {
     assert(Number.isFinite(read.requestStartedAtEpochMs) && Number.isFinite(read.capturedAtEpochMs),
       `Builder read ${read.readId} must retain request-start and body-observation epoch times.`);
@@ -853,6 +874,13 @@ export const validateTemporalFilterJourneyTrace = trace => {
     'Every observed request must retain its actual browser request ID.');
   assert.equal(new Set(captureIds).size, captureIds.length, 'Observer request IDs must be unique.');
   const rawRequestById = new Map(rawRequests.map(request => [request.browserRequestId, request]));
+  const ledgerProposalIds = rawRequests.filter(isOrdinaryProposalRequest)
+    .map(request => request.browserRequestId).sort();
+  const actionOwnerIds = trace.actions.flatMap(event => event.owner?.kind === 'proposal'
+    ? [event.owner.browserRequestId]
+    : []).sort();
+  assert.deepEqual(actionOwnerIds, ledgerProposalIds,
+    'Every ordinary construction-proposal request must have one actual common proposal owner.');
   const actionRequestIds = [];
   const proposalLinks = [];
   const reconcileLinks = [];
@@ -860,6 +888,8 @@ export const validateTemporalFilterJourneyTrace = trace => {
     const event = trace.actions[index];
     const rawStep = lifecycle.steps[index];
     assert.equal(rawStep.label, event.action, `Canonical action ${index} must map to its same-index raw step.`);
+    assert.equal(event.label, event.action,
+      `Canonical action ${index} common label must exactly match its TLA action.`);
     assert.deepEqual(event.reconcileCaptureIds, rawStep.reconcileCaptureIds,
       `${event.action} reconcile request links must remain equal to their raw step references.`);
     assert(Number.isFinite(event.atMonotonicMs) && Number.isFinite(event.atEpochMs),
@@ -948,6 +978,21 @@ export const validateTemporalFilterJourneyTrace = trace => {
       `${event.action} must have the mutation class defined by its semantic transition.`);
     const linkedProposals = safeArray(rawStep.proposalCaptureIds);
     proposalLinks.push(...linkedProposals);
+    const linkedNativeProposals = linkedProposals.map(captureId => rawRequestById.get(captureId))
+      .filter(request => request && isOrdinaryProposalRequest(request));
+    assert(linkedNativeProposals.length <= 1,
+      `${event.action} cannot collapse multiple ordinary proposal owners into one common owner field.`);
+    if (linkedNativeProposals.length === 1) {
+      const ownerRequest = linkedNativeProposals[0];
+      assert.deepEqual(event.owner, {
+        kind: 'proposal',
+        browserRequestId: ownerRequest.browserRequestId,
+        mountEpoch: ownerRequest.mountEpoch,
+      }, `${event.action} common proposal owner must resolve to its actual ordinary proposal request.`);
+    } else {
+      assert.equal(event.owner, undefined,
+        `${event.action} must not claim an ordinary proposal owner without an actual proposal request.`);
+    }
     for (const proposalId of linkedProposals) {
       const request = rawRequestById.get(proposalId);
       assert(request, `${event.action} proposal link must identify a captured observer request.`);
@@ -1273,6 +1318,69 @@ export const compileTemporalFilterJourneyTrace = (trace, { moduleName: requested
     responseTimeBoundary: input.responseTimeBoundary,
     timestampEncoding: input.timestampEncoding,
   };
+};
+
+export const TEMPORAL_FILTER_MUTATION_CONTROL_NAMES = Object.freeze([
+  'proposal-owner-drift',
+  'proposal-cas-drift',
+  'semantic-action-order-drift',
+]);
+
+export const createTemporalFilterMutationControls = trace => {
+  validateTemporalFilterJourneyTrace(trace);
+  const applyMutation = mutator => {
+    const mutatedTrace = structuredClone(trace);
+    const action = mutatedTrace.actions.find(event => event.action === 'FilterApplied(create)');
+    assert(action?.request?.captureId, 'Temporal mutation controls require a captured create-filter command.');
+    const raw = mutatedTrace.temporalFilterLifecycle.requestEvents.find(request =>
+      request.browserRequestId === action.request.captureId);
+    assert(raw, 'Temporal mutation controls must resolve the create-filter command to its actual raw request.');
+    mutator({ mutatedTrace, action, raw });
+    validateTemporalFilterJourneyTrace(mutatedTrace);
+    return mutatedTrace;
+  };
+
+  const proposalOwnerDrift = applyMutation(({ action, raw }) => {
+    const command = action.request.body.commands.find(candidate => candidate.type === 'APPLY_CONSTRUCTION_PROPOSAL');
+    assert(command?.proposalId, 'Create-filter mutation control requires its actual APPLY_CONSTRUCTION_PROPOSAL command.');
+    const wrongProposalId = `unowned-${command.proposalId}`;
+    command.proposalId = wrongProposalId;
+    raw.request.commands.find(candidate => candidate.type === 'APPLY_CONSTRUCTION_PROPOSAL').proposalId = wrongProposalId;
+  });
+
+  const proposalCasDrift = applyMutation(({ action, raw }) => {
+    assert(Number.isInteger(action.request.body.expectedDraftVersion),
+      'Create-filter mutation control requires the actual command draft version.');
+    action.request.body.expectedDraftVersion += 1;
+    raw.request.expectedDraftVersion = action.request.body.expectedDraftVersion;
+  });
+
+  const semanticActionOrderDrift = structuredClone(trace);
+  [semanticActionOrderDrift.actions[3], semanticActionOrderDrift.actions[4]] =
+    [semanticActionOrderDrift.actions[4], semanticActionOrderDrift.actions[3]];
+  [semanticActionOrderDrift.temporalFilterLifecycle.steps[3], semanticActionOrderDrift.temporalFilterLifecycle.steps[4]] =
+    [semanticActionOrderDrift.temporalFilterLifecycle.steps[4], semanticActionOrderDrift.temporalFilterLifecycle.steps[3]];
+  validateTemporalFilterJourneyTrace(semanticActionOrderDrift);
+
+  const controls = [
+    {
+      name: 'proposal-owner-drift',
+      trace: proposalOwnerDrift,
+      expectedFailure: { stage: 'TLC', invariant: 'Deadlock' },
+    },
+    {
+      name: 'proposal-cas-drift',
+      trace: proposalCasDrift,
+      expectedFailure: { stage: 'TLC', invariant: 'Deadlock' },
+    },
+    {
+      name: 'semantic-action-order-drift',
+      trace: semanticActionOrderDrift,
+      expectedFailure: { stage: 'TLC', invariant: 'InvSemanticActionOrder' },
+    },
+  ];
+  assert.deepEqual(controls.map(control => control.name), TEMPORAL_FILTER_MUTATION_CONTROL_NAMES);
+  return controls;
 };
 
 export { REQUIRED_LABELS as TEMPORAL_FILTER_TLA_ACTIONS };

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { BASIC_TEMPORAL_FILTER_CASES } from './basic-temporal-filter-oracle.mjs';
 
+export const TEMPORAL_FILTER_CAPTURE_KIND = 'builder-temporal-native-lifecycle';
+
 const REQUIRED_LABELS = Object.freeze([
   'ExplorerCreated',
   'SourceTableCreated',
@@ -37,6 +39,7 @@ const commandList = body => Array.isArray(body?.commands) ? body.commands : [];
 const commandTypes = body => commandList(body).map(command => command.type);
 const hasCommand = (body, type) => commandTypes(body).includes(type);
 const requestPathIs = (event, suffix) => event.method === 'POST' && event.path.endsWith(suffix);
+const isNativeProposalRequest = request => requestPathIs(request, '/construction-proposals');
 const assertJSONEqual = (actual, expected, message) => assert.deepEqual(actual, expected, message);
 
 const readAt = (capture, index) => {
@@ -177,6 +180,12 @@ const assertCaptureShape = capture => {
   const captureIDs = capture.requestEvents.map(request => request.browserRequestId);
   assert(captureIDs.every(id => typeof id === 'string' && id.length > 0), 'Every request must retain its actual browserRequestId.');
   assert.equal(new Set(captureIDs).size, captureIDs.length, 'Observer browserRequestIds must be unique.');
+  const observerIndexes = capture.requestEvents.map(request => request.index);
+  assert(observerIndexes.every(index => Number.isSafeInteger(index) && index >= 0),
+    'Every observer request must retain its actual network ledger index.');
+  assert.equal(new Set(observerIndexes).size, observerIndexes.length, 'Observer network ledger indexes must be unique.');
+  assert(observerIndexes.every((index, position) => position === 0 || index > observerIndexes[position - 1]),
+    'Captured observer requests must retain their actual ledger order.');
   for (const request of capture.requestEvents) {
     assert(typeof request.method === 'string' && typeof request.path === 'string');
     assert(Number.isFinite(request.atMonotonicMs) && Number.isFinite(request.atEpochMs));
@@ -596,8 +605,28 @@ export const adaptTemporalFilterJourney = capture => {
       'Each captured construction-choice response must retain its actual preview receipt.');
   }
 
+  const actions = events.map(({ requestCaptureId, proposalCaptureIds, ...event }) => {
+    const ordinaryProposalOwners = proposalCaptureIds.map(captureId => rawRequestFor(capture, captureId))
+      .filter(isNativeProposalRequest);
+    assert(ordinaryProposalOwners.length <= 1,
+      `${event.action} cannot collapse multiple ordinary construction-proposal owners into one common owner field.`);
+    const ownerRequest = ordinaryProposalOwners[0];
+    return {
+      ...event,
+      label: event.action,
+      ...(ownerRequest ? {
+        owner: {
+          kind: 'proposal',
+          browserRequestId: ownerRequest.browserRequestId,
+          mountEpoch: ownerRequest.mountEpoch,
+        },
+      } : {}),
+    };
+  });
+
   return {
     name: `basic-temporal-filter:${capture.caseName}`,
+    captureKind: TEMPORAL_FILTER_CAPTURE_KIND,
     model: 'TemporalFilterJourney',
     initialObservation: {
       readId: explorerEvent.after.readId,
@@ -607,7 +636,16 @@ export const adaptTemporalFilterJourney = capture => {
       snapshotToken: explorerEvent.after.snapshotToken,
       mountEpoch: explorerEvent.after.mountEpoch,
     },
-    actions: events.map(({ requestCaptureId, proposalCaptureIds, ...event }) => event),
+    actions,
+    nativeRequests: capture.requestEvents.map(request => ({
+      index: request.index,
+      browserRequestId: request.browserRequestId,
+      requestId: request.requestId ?? null,
+      method: request.method,
+      path: request.path,
+      startedAt: request.startedAt,
+      isMutation: request.isMutation,
+    })),
     unmodeledEvents: [],
     temporalFilterLifecycle: capture,
   };
