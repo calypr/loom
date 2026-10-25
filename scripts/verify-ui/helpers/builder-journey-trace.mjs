@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { scenarioCaseFor } from '../registry.mjs';
 
 const sourceManifestPath = 'verification/builder-interactions/builder-preview-contract.json';
@@ -175,10 +175,16 @@ export const builderJourneyTraceReceiptIdentity = (binding, traceName, scenarioI
 export const builderJourneyReportPaths = ({ captureKind, tracePath, evidenceDirectory, artifactStem, repositoryRoot }) => {
   if (captureKind === 'builder-cda-native-lifecycle') {
     const traceDirectory = dirname(tracePath);
-    return {
-      replayReportPath: join(traceDirectory, `${artifactStem}-tla.json`),
-      selfTestReportPath: join(traceDirectory, `${artifactStem}-self-test.json`),
+    const traceFileStem = basename(tracePath).replace(/\.json$/i, '');
+    assert(traceFileStem.length > 0, 'Native journey trace path must have a file stem.');
+    const paths = {
+      replayReportPath: join(traceDirectory, `${traceFileStem}-tla.json`),
+      selfTestReportPath: join(traceDirectory, `${traceFileStem}-self-test.json`),
     };
+    const existing = [tracePath, paths.replayReportPath, paths.selfTestReportPath].filter(existsSync);
+    assert.equal(existing.length, 0,
+      `Native journey trace and proof outputs must be fresh; choose a fresh trace path (existing: ${existing.join(', ')}).`);
+    return paths;
   }
   if (captureKind === 'builder-group-legacy') {
     return {
@@ -391,7 +397,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
     '--output', replayReportPath,
     '--quiet',
   ];
-  rmSync(replayReportPath, { force: true });
+  if (!isNativeLifecycle) rmSync(replayReportPath, { force: true });
   const replay = spawnSync(process.execPath, replayArgs, {
     cwd: repositoryRoot,
     env: process.env,
@@ -443,7 +449,6 @@ export const writeAndReplayBuilderJourneyTrace = ({
     '--contract', contractPath,
   ];
   if (isNativeLifecycle) selfTestArgs.push('--output', selfTestReportPath);
-  if (isNativeLifecycle) rmSync(selfTestReportPath, { force: true });
   const selfTest = spawnSync(process.execPath, selfTestArgs, {
     cwd: repositoryRoot,
     env: process.env,

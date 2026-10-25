@@ -126,24 +126,46 @@ test('receipt identity keeps legacy and native lifecycle case identities distinc
   });
 });
 
-test('native replay outputs are siblings of the registered trace while legacy outputs stay in report evidence', () => {
+test('native replay outputs are unique trace siblings, reject existing files, and leave legacy evidence paths alone', (t) => {
   const repositoryRoot = '/repo';
   const evidenceDirectory = '/tmp/run-evidence';
   const artifactStem = 'cda-builder-group-related-source';
-  const tracePath = '/repo/.artifacts/builder-journey/cda-builder-group-related-source-trace.json';
-  assert.deepEqual(builderJourneyReportPaths({
+  const directory = mkdtempSync(join(tmpdir(), 'builder-journey-report-paths-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const firstTracePath = join(directory, 'run-a-trace.json');
+  const firstRunPaths = builderJourneyReportPaths({
     captureKind: 'builder-cda-native-lifecycle',
-    tracePath,
+    tracePath: firstTracePath,
     evidenceDirectory,
     artifactStem,
     repositoryRoot,
-  }), {
-    replayReportPath: '/repo/.artifacts/builder-journey/cda-builder-group-related-source-tla.json',
-    selfTestReportPath: '/repo/.artifacts/builder-journey/cda-builder-group-related-source-self-test.json',
   });
+  assert.deepEqual(firstRunPaths, {
+    replayReportPath: join(directory, 'run-a-trace-tla.json'),
+    selfTestReportPath: join(directory, 'run-a-trace-self-test.json'),
+  });
+  const secondRunPaths = builderJourneyReportPaths({
+    captureKind: 'builder-cda-native-lifecycle',
+    tracePath: join(directory, 'run-b-trace.json'),
+    evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+  });
+  assert.notEqual(firstRunPaths.replayReportPath, secondRunPaths.replayReportPath);
+  assert.notEqual(firstRunPaths.selfTestReportPath, secondRunPaths.selfTestReportPath);
+  writeFileSync(firstRunPaths.replayReportPath, '{}\n');
+  assert.throws(() => builderJourneyReportPaths({
+    captureKind: 'builder-cda-native-lifecycle',
+    tracePath: firstTracePath,
+    evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+  }), /must be fresh/);
+
+  const legacyTracePath = '/repo/.artifacts/builder-journey/cda-builder-group-related-source-trace.json';
   assert.deepEqual(builderJourneyReportPaths({
     captureKind: 'builder-group-legacy',
-    tracePath,
+    tracePath: legacyTracePath,
     evidenceDirectory,
     artifactStem,
     repositoryRoot,
