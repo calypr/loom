@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "7edce68978535900312971d890876a97a0066d9459ffc3fb011dfff81cd3ef1b",
+      "sha256": "c3090ae353e3dd8a0dfa8c480b49b7259b65fddee43bea7677b2efac370604f0",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "398004f5aaa8951b03b0a7369d79b58bd584e1fd0d0bfcd6822775f69a459ad9",
+      "sha256": "c4eea7e67bcb157b7f4dd2970f9dbf784823b7c894c2e24620c8c3bcc8bf20cc",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -404,17 +404,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "f1bc13353b202cbdb3dccc2d8208acccee9fea82da95b389081432ac6bbf1d2f",
+      "sha256": "1b8ab14f9a40f702f8cbb1f7e056472ec4ef8ed25a7a848a1a7e60d4acb2c512",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
-      "sha256": "174c6f9466085b0d14055b1292e228c1af5ca7545abd98786b53d0d7363a7527",
+      "sha256": "41e78f280266c38f3b6afcb9767603729ce77f755de9ccb54ce7b89c8c1b52a6",
       "contract": "Focused tests for native Builder trace capture and request-owner evidence."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "74912c41ad53fbacc5d190b180bd97cf4eef5d7a23074f6ced62f6e34fd3da42",
+      "sha256": "2978abc79c4f8fd1deab374547230f3a4db8a81fe9a89dca1fe58ab48defd986",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
@@ -464,7 +464,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
-      "sha256": "7f5038b468e58fa598e420e631355e25a173cfbc9b6aff8c76f45b17a78a0dcc",
+      "sha256": "864c1a02d0a7c6a433f6612464c7874bd78491620e4438ac1a6a7d4c51de1983",
       "contract": "Native CDA Group edit, RELATED_SOURCE lifecycle, reload, and restoration workflow."
     },
     {
@@ -486,6 +486,16 @@
       "path": "ui/apps/demo/src/main.tsx",
       "sha256": "676c59a260d5248a770ba8eba403b2c305efd64ebaee64238f278abbcf459703",
       "contract": "Demo application entry point hosting the native Builder UI."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/construction-operation-diff.mjs",
+      "sha256": "cb8d18be509683e145594c3c9b5e52d7f75b5055b568b5de6ef1c7378001fa76",
+      "contract": "Structural operation comparison that selects actual changed native expansion steps by saved step identity."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs",
+      "sha256": "1979d0842068f12bc468960845523ace734b0d1980a160d35b9d45d136062e91",
+      "contract": "Focused regression for key-order-insensitive native expansion capture and actual changed-step selection."
     }
   ]
 }
