@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "9e98fc2674367a7bda4f5dfb1e3b4f43648427a45cb5e482cccba7102ed0a744",
+      "sha256": "29552d4cd967dc2aaba773d4bc8f99ced80efd0d141fa26060f8d30b28324df0",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -524,17 +524,17 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "9d6d9ea2a377f2346828cc73bcb92fcb801bb56ce53d6e548163dca150dde9f4",
+      "sha256": "cc848e02db7eb5a743fa7f2b9a2f3211a504424de34a59502ce5ef60787691fb",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
-      "sha256": "45ef74b06ecc0a2b015befa91f0a25a99ec5d4bcbbb0dbf1bdde4c256e46cc19",
+      "sha256": "1ed707c3ab633880a825610333e41dfc11369eac4b15957597fa3492daed11f9",
       "contract": "Policy One captured workflow and transport ledger validation."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
-      "sha256": "7b155468de66b627f79f21bb0d8b9b103e0153e3f5a3d3f967c27d4ad0e914ad",
+      "sha256": "cb8722943cb83689ec2465445a8a3e2f4db7bc9324e3c574d80e43a17d9cdb52",
       "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
     },
     {
@@ -554,7 +554,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "c34130d6a9ee4b02ab234c32a030ddbd2e9e8ed243a9afce8864b4d0526c0c79",
+      "sha256": "35a0427e59dfcecbaab7ad1cf914788cb30ed9bb0c86c5bdb3e89dce4efdca1b",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
-      "sha256": "e9d31e2119d68b9db62264984f1b79235f6a8565dc571ba61ae90b698f0d67f5",
+      "sha256": "8b9538a936cc46a030b0ada6f51ca72a37fb1b1065c00e77b8f958dc48690ad2",
       "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
     },
     {

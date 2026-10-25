@@ -14,6 +14,8 @@ import {
   runTlc,
   tlcExecutionReceipt,
 } from '../../../verify-builder-traces.mjs';
+import { inspectNativeLifecycleJourney } from '../../../run-builder-journey.mjs';
+import { scenarioCaseFor } from '../../registry.mjs';
 import {
   builderFormalAdapterForBinding,
   builderFormalAdapterForContract,
@@ -40,6 +42,21 @@ test('registered Policy adapter binds the exact trace, model, case, and controls
   assert.equal(policyContract.nativeJourney.nativeCaseKey, 'builder-authoring/patient-one-disagreement');
   const contractAdapter = builderFormalAdapterForContract(policyContract);
   assert.equal(contractAdapter, adapter);
+});
+
+test('outer native inspector accepts the Policy fixture producer and rejects missing event inventory', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const registeredCase = scenarioCaseFor('builder-authoring', 'patient-one-disagreement');
+  const inspected = inspectNativeLifecycleJourney(trace, registeredCase.journeyTrace);
+  assert.equal(inspected.name, policyContract.nativeJourney.traceName);
+  assert.equal(inspected.model, policyContract.nativeJourney.model);
+  assert.equal(inspected.actionCount, 20);
+  assert.deepEqual(trace.unmodeledEvents, []);
+
+  const missingInventory = structuredClone(trace);
+  delete missingInventory.unmodeledEvents;
+  assert.throws(() => inspectNativeLifecycleJourney(missingInventory, registeredCase.journeyTrace),
+    /unmodeled-event inventory/);
 });
 
 test('TLC retains exact stdout, stderr, and process metadata on success and failure', () => {
