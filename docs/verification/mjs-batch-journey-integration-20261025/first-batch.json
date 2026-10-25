@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "scenario": "builder-authoring",
+      "case": "table-reorder",
+      "target": { "mode": "environment" }
+    },
+    {
+      "scenario": "basic-temporal-filter",
+      "case": "date",
+      "target": { "mode": "environment" }
+    }
+  ]
+}

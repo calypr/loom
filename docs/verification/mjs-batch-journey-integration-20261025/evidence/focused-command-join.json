@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "focused-command-passed",
+  "summaries": [
+    {
+      "caseId": "builder-authoring:table-reorder",
+      "path": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-table-reorder-ODB24O/summary.json",
+      "sha256": "19f8cdffd04183a2d25aa807f9fce024b06393129b44140487943d190a39650b",
+      "mode": "checks-only"
+    },
+    {
+      "caseId": "basic-temporal-filter:date",
+      "path": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-basic-temporal-filter-date-mxALrZ/summary.json",
+      "sha256": "a8a702c820fc4eef74220c701ccb809c80596b592a4b5ba54c2c130229d2b88e",
+      "mode": "checks-only"
+    }
+  ],
+  "executedTests": [
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs",
+      "currentSha256": "ebc1fbf36b0d7487404f43da78d0252631e16ab66a1311f975fb793b99cd67ea",
+      "role": "test",
+      "intendedCases": [
+        {
+          "caseId": "basic-temporal-filter:date",
+          "claims": [
+            {
+              "id": "helper.basic-date-oracle-keeps-literal-patient-ids-and-boundary-expectations",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            },
+            {
+              "id": "helper.basic-date-time-oracle-keeps-literal-observation-identities-at-the-utc-boundary",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            },
+            {
+              "id": "helper.candidate-matching-rejects-a-ready-proposal-for-an-older-temporal-predicate",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            },
+            {
+              "id": "helper.typed-temporal-request-and-saved-values-retain-their-exact-stage-specific-literals",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            }
+          ]
+        },
+        {
+          "caseId": "basic-temporal-filter:date-time",
+          "claims": [
+            {
+              "id": "helper.basic-date-oracle-keeps-literal-patient-ids-and-boundary-expectations",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            },
+            {
+              "id": "helper.basic-date-time-oracle-keeps-literal-observation-identities-at-the-utc-boundary",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            },
+            {
+              "id": "helper.candidate-matching-rejects-a-ready-proposal-for-an-older-temporal-predicate",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            },
+            {
+              "id": "helper.typed-temporal-request-and-saved-values-retain-their-exact-stage-specific-literals",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "basic-temporal-filter-oracle"
+              ]
+            }
+          ]
+        }
+      ],
+      "evidence": {
+        "kind": "focused-command-passed",
+        "path": "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs",
+        "caseId": "basic-temporal-filter:date",
+        "checkId": "basic-temporal-filter-oracle",
+        "runner": "node-test",
+        "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+        "arguments": [
+          "--test",
+          "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs"
+        ],
+        "cwd": "/private/tmp/loom-batch-journey-integration-worktree",
+        "currentSha256": "ebc1fbf36b0d7487404f43da78d0252631e16ab66a1311f975fb793b99cd67ea",
+        "summaryPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-basic-temporal-filter-date-mxALrZ/summary.json",
+        "summarySha256": "a8a702c820fc4eef74220c701ccb809c80596b592a4b5ba54c2c130229d2b88e"
+      }
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs",
+      "currentSha256": "0665a2013ebaedf6eb99efe2387e6cb682a3648dd184b20abb7a2a5f2884a7df",
+      "role": "test",
+      "intendedCases": [
+        {
+          "caseId": "builder-authoring:table-reorder",
+          "claims": [
+            {
+              "id": "oracle.raw-resource-oracle-rejects-duplicate-identities-and-wrong-resource-types-58baec48b1",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "table-reorder-independent-resource-oracle"
+              ]
+            },
+            {
+              "id": "oracle.raw-resource-oracle-retains-its-file-identity-and-orders-ids-by-storage-key-b990235469",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "table-reorder-independent-resource-oracle"
+              ]
+            },
+            {
+              "id": "oracle.visible-preview-rows-must-be-a-contiguous-oracle-window-with-the-exact-independent-preview-count-c368bf33d5",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "table-reorder-independent-resource-oracle"
+              ]
+            }
+          ]
+        }
+      ],
+      "evidence": {
+        "kind": "focused-command-passed",
+        "path": "scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs",
+        "caseId": "builder-authoring:table-reorder",
+        "checkId": "table-reorder-independent-resource-oracle",
+        "runner": "node-test",
+        "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+        "arguments": [
+          "--test",
+          "scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs"
+        ],
+        "cwd": "/private/tmp/loom-batch-journey-integration-worktree",
+        "currentSha256": "0665a2013ebaedf6eb99efe2387e6cb682a3648dd184b20abb7a2a5f2884a7df",
+        "summaryPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-table-reorder-ODB24O/summary.json",
+        "summarySha256": "19f8cdffd04183a2d25aa807f9fce024b06393129b44140487943d190a39650b"
+      }
+    }
+  ],
+  "rejectedGroups": [],
+  "scope": "Focused command execution only; no case, journey, browser, or formal-model pass is claimed."
+}
