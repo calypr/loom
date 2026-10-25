@@ -3,6 +3,7 @@ name: Builder Formal Verification
 on:
   pull_request:
     paths:
+      - '.github/workflows/builder-formal.yml'
       - 'scripts/verify-builder-*.mjs'
       - 'scripts/verify-ui/**'
       - 'scripts/run-builder-journey.mjs'
