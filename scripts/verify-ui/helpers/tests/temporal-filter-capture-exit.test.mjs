@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
-import { createTemporalFilterCapture } from '../temporal-filter-capture.mjs';
+import { createTemporalFilterCapture, remainingDrainWaitMs } from '../temporal-filter-capture.mjs';
 import { fixtureProjectExplorerCollectionPath } from '../fixture-context.mjs';
 
 test('capture checkpoints raw state before its one bounded drain and retains only eligible pending reads', async () => {
+  assert.equal(remainingDrainWaitMs(25, 24.25), 1,
+    'A fractional millisecond before the absolute drain deadline still requires a bounded wait.');
+  assert.equal(remainingDrainWaitMs(25, 25), 0,
+    'An elapsed absolute deadline must not add another wait.');
+  assert.equal(remainingDrainWaitMs(5_000, 0), 5_000,
+    'The helper must preserve the configured production five-second budget.');
   const page = new EventEmitter();
   const mainFrame = {};
   page.mainFrame = () => mainFrame;

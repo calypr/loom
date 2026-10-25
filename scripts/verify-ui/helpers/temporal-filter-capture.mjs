@@ -38,6 +38,11 @@ const eventStamp = mountEpoch => ({
   mountEpoch,
 });
 
+export const remainingDrainWaitMs = (deadlineMonotonicMs, nowMonotonicMs) => {
+  const remainingMs = deadlineMonotonicMs - nowMonotonicMs;
+  return remainingMs > 0 ? Math.ceil(remainingMs) : 0;
+};
+
 export const createTemporalFilterCapture = ({
   page,
   networkObserver,
@@ -343,7 +348,7 @@ export const createTemporalFilterCapture = ({
       }
       const pending = entries.filter(entry => !settledEntries.has(entry) && !acceptedPendingEntries.has(entry));
       if (pending.length > 0) {
-        const remainingMs = Math.floor(drainDeadlineMonotonicMs - performance.now());
+        const remainingMs = remainingDrainWaitMs(drainDeadlineMonotonicMs, performance.now());
         if (remainingMs > 0) {
           const outcomes = await Promise.allSettled(pending.map(entry => networkObserver.waitForResponse(
             candidate => candidate === entry, { fromIndex: entry.index, timeoutMs: remainingMs })));
