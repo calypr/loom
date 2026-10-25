@@ -524,7 +524,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "b14ef4fc65a8c3f1f61ef03d518e79fecee3931b398ffa07ce5b49ec0f28072d",
+      "sha256": "9d6d9ea2a377f2346828cc73bcb92fcb801bb56ce53d6e548163dca150dde9f4",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
@@ -549,7 +549,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "b957f7d2d1d4c8f5da2c0e6ba8e59f36573235ab25d8a6c918838225cf1a7778",
+      "sha256": "a21d062fee57bcda008d1481ff3c0bb04c27c613780f3f39cf2cf9949cb071f3",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
