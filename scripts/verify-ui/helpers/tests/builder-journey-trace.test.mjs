@@ -153,6 +153,14 @@ test('native replay outputs are unique trace siblings, reject existing files, an
   });
   assert.notEqual(firstRunPaths.replayReportPath, secondRunPaths.replayReportPath);
   assert.notEqual(firstRunPaths.selfTestReportPath, secondRunPaths.selfTestReportPath);
+  assert.throws(() => builderJourneyReportPaths({
+    captureKind: 'builder-cda-native-lifecycle',
+    tracePath: firstTracePath,
+    evidenceDirectory,
+    artifactStem,
+    repositoryRoot,
+    reservedPaths: [join(directory, 'run-a-trace-tla.json')],
+  }), /output paths must be unique/);
   writeFileSync(firstRunPaths.replayReportPath, '{}\n');
   assert.throws(() => builderJourneyReportPaths({
     captureKind: 'builder-cda-native-lifecycle',

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { scenarioCaseFor } from '../registry.mjs';
 
@@ -172,8 +172,17 @@ export const builderJourneyTraceReceiptIdentity = (binding, traceName, scenarioI
   throw new Error(`Unknown Builder journey receipt captureKind: ${String(binding.captureKind)}`);
 };
 
-export const builderJourneyReportPaths = ({ captureKind, tracePath, evidenceDirectory, artifactStem, repositoryRoot }) => {
+export const builderJourneyReportPaths = ({
+  captureKind,
+  tracePath,
+  evidenceDirectory,
+  artifactStem,
+  repositoryRoot,
+  reservedPaths = [],
+}) => {
   if (captureKind === 'builder-cda-native-lifecycle') {
+    assert(Array.isArray(reservedPaths) && reservedPaths.every(path => typeof path === 'string' && path.length > 0),
+      'Native journey reserved output paths must be an array of nonempty paths.');
     const traceDirectory = dirname(tracePath);
     const traceFileStem = basename(tracePath).replace(/\.json$/i, '');
     assert(traceFileStem.length > 0, 'Native journey trace path must have a file stem.');
@@ -181,7 +190,14 @@ export const builderJourneyReportPaths = ({ captureKind, tracePath, evidenceDire
       replayReportPath: join(traceDirectory, `${traceFileStem}-tla.json`),
       selfTestReportPath: join(traceDirectory, `${traceFileStem}-self-test.json`),
     };
-    const existing = [tracePath, paths.replayReportPath, paths.selfTestReportPath].filter(existsSync);
+    const outputs = [tracePath, paths.replayReportPath, paths.selfTestReportPath, ...reservedPaths];
+    const canonicalOutputs = outputs.map(path => {
+      const absolute = resolve(path);
+      return join(realpathSync(dirname(absolute)), basename(absolute));
+    });
+    assert.equal(new Set(canonicalOutputs).size, canonicalOutputs.length,
+      'Native journey trace, proof, report, and retained-report output paths must be unique.');
+    const existing = outputs.filter(existsSync);
     assert.equal(existing.length, 0,
       `Native journey trace and proof outputs must be fresh; choose a fresh trace path (existing: ${existing.join(', ')}).`);
     return paths;

@@ -5,7 +5,11 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDevSession, createFreshVerificationFixture } from './loom-dev.mjs';
-import { assertNativeBuilderJourneyMutationControls } from './verify-ui/helpers/builder-journey-trace.mjs';
+import {
+  assertNativeBuilderJourneyMutationControls,
+  builderJourneyReportPaths,
+  builderJourneyTraceBindingFor,
+} from './verify-ui/helpers/builder-journey-trace.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 
@@ -941,6 +945,8 @@ const main = async () => {
   const retainedNativeReportPath = nativeSelection?.traceKind === 'native-lifecycle'
     ? resolve(ROOT, `${reportPath.replace(/\.json$/, '')}-native-report.json`)
     : null;
+  let nativeTlaReportPath = null;
+  let nativeProofOutputPaths = null;
   let nativeEvidenceParent = null;
   if (nativeSelection?.traceKind === 'native-lifecycle') {
     const artifactRoot = resolve(ROOT, '.artifacts');
@@ -948,11 +954,11 @@ const main = async () => {
         !isWithin(artifactRoot, tracePath) || !isWithin(artifactRoot, reportPath)) {
       throw new Error('native lifecycle trace and report paths must stay under repository .artifacts during the frozen browser bracket');
     }
-    if (existsSync(tracePath) || existsSync(reportPath)) {
-      throw new Error('native lifecycle trace/report output already exists; choose fresh --trace and --report paths');
+    if (!tracePath.toLowerCase().endsWith('.json') || !reportPath.toLowerCase().endsWith('.json')) {
+      throw new Error('native lifecycle --trace and --report paths must end in .json');
     }
-    if (!insideRepository(retainedNativeReportPath) || !isWithin(artifactRoot, retainedNativeReportPath) ||
-        existsSync(retainedNativeReportPath)) {
+    nativeTlaReportPath = reportPath.replace(/\.json$/i, '.tla.json');
+    if (!insideRepository(retainedNativeReportPath) || !isWithin(artifactRoot, retainedNativeReportPath)) {
       throw new Error('native lifecycle retained report must use a fresh output under repository .artifacts');
     }
     nativeEvidenceParent = resolveNativeEvidenceParent(options.evidenceParent);
@@ -960,11 +966,27 @@ const main = async () => {
   mkdirSync(dirname(tracePath), { recursive: true });
   mkdirSync(dirname(reportPath), { recursive: true });
   if (nativeSelection?.traceKind === 'native-lifecycle') {
+    const binding = builderJourneyTraceBindingFor(nativeSelection.scenarioID, nativeSelection.caseName);
+    nativeProofOutputPaths = builderJourneyReportPaths({
+      captureKind: binding.captureKind,
+      tracePath,
+      evidenceDirectory: null,
+      artifactStem: binding.name,
+      repositoryRoot: ROOT,
+      reservedPaths: [reportPath, nativeTlaReportPath, retainedNativeReportPath],
+    });
     const repositoryRealPath = realpathSync(ROOT);
     const artifactRootRealPath = realpathSync(resolve(ROOT, '.artifacts'));
-    if (!isWithin(repositoryRealPath, artifactRootRealPath) ||
-        !isWithin(artifactRootRealPath, realpathSync(dirname(tracePath))) ||
-        !isWithin(artifactRootRealPath, realpathSync(dirname(reportPath)))) {
+    const reservedNativeOutputPaths = [
+      tracePath,
+      nativeProofOutputPaths.replayReportPath,
+      nativeProofOutputPaths.selfTestReportPath,
+      reportPath,
+      nativeTlaReportPath,
+      retainedNativeReportPath,
+    ];
+    if (!isWithin(repositoryRealPath, artifactRootRealPath) || reservedNativeOutputPaths.some(path =>
+      !isWithin(artifactRootRealPath, realpathSync(dirname(path))))) {
       throw new Error('native lifecycle trace and retained reports must resolve inside repository .artifacts');
     }
   }
@@ -1086,7 +1108,7 @@ const main = async () => {
     }
     if (nativeBracket && nativeBracket.issues.length > 0) nativeBracket.status = 'failed';
   }
-  const tlaReportPath = reportPath.replace(/\.json$/, '.tla.json');
+  const tlaReportPath = nativeTlaReportPath ?? reportPath.replace(/\.json$/, '.tla.json');
   const hasDeclaredModel = Boolean(selectedJourney?.entry.model);
   const unmodeled = Boolean(selectedJourney && selectedJourney.entry.contract === null && !hasDeclaredModel);
   const contractPath = unmodeled
