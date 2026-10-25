@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { browserURL } from './builder-url.mjs';
 import { configureNativePage } from '../helpers/playwright-authoring-page.mjs';
 import { createTemporalFilterCapture } from '../helpers/temporal-filter-capture.mjs';
+import { adaptTemporalFilterJourney } from '../helpers/temporal-filter-trace-adapter.mjs';
 import {
   BASIC_TEMPORAL_FILTER_CASES,
   matchesBasicTemporalFilterCandidate,
@@ -727,4 +728,5 @@ export const basicTemporalFilterWorkflow = async ({ page, report, check, action,
     outputId,
     temporalColumnId: temporalColumn.columnId,
   });
+  report.journeyTrace = adaptTemporalFilterJourney(report.temporalFilterJourney);
 };

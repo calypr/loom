@@ -105,8 +105,11 @@ const makeCapture = caseName => {
     readId: `schema-fixture-builder-read-${index}`,
     requestId: `schema-fixture-api-read-${index}`,
     status: 200,
-    capturedAtMonotonicMs: baseTime + index * 10,
-    capturedAtEpochMs: baseTime + index * 10,
+    requestStartedAtMonotonicMs: baseTime + index * 10,
+    requestStartedAtEpochMs: baseTime + index * 10,
+    requestMountEpoch: epoch,
+    capturedAtMonotonicMs: baseTime + index * 10 + 2,
+    capturedAtEpochMs: baseTime + index * 10 + 2,
     mountEpoch: epoch,
     catalogGeneration: 'basic-temporal-generation',
     draftVersion,
@@ -115,7 +118,9 @@ const makeCapture = caseName => {
   }));
 
   const requestEvents = [];
-  const addRequest = ({ name, path, body, response, isMutation, status = 200, mountEpoch = 1 }) => {
+  const addRequest = ({ name, path, body, response, isMutation, status = 200, mountEpoch = 1,
+    failure = null, readCancellationDiagnostic = false, responseCapture = 'captured', responseCaptureComplete = true,
+    responseBodyCaptured = true }) => {
     const captureId = `schema-fixture-browser-request-${name}`;
     requestEvents.push({
       browserRequestId: captureId,
@@ -128,6 +133,11 @@ const makeCapture = caseName => {
       startedAt: baseTime + requestEvents.length * 10,
       completedAt: baseTime + requestEvents.length * 10 + 1,
       isMutation,
+      failure: clone(failure),
+      readCancellationDiagnostic,
+      responseCapture,
+      responseCaptureComplete,
+      responseBodyCaptured,
       atMonotonicMs: baseTime + requestEvents.length * 10,
       atEpochMs: baseTime + requestEvents.length * 10,
       mountEpoch,
@@ -185,6 +195,11 @@ const makeCapture = caseName => {
     body: { expectedDraftVersion: 3, expectedDraftDigest: 'draft-3', commands: [{
       type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId, proposalId: 'proposal-second-create-proposal',
     }] }, response: { accepted: true }, isMutation: true, mountEpoch: 2 });
+  const editOpenCancellationId = addRequest({ name: 'edit-open-cancellation', path: proposalPath,
+    body: { outputId, expectedDraftVersion: 4, expectedDraftDigest: 'draft-4' }, response: null,
+    isMutation: false, status: null, mountEpoch: 3,
+    failure: { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true },
+    readCancellationDiagnostic: true, responseCapture: 'not-configured', responseBodyCaptured: false });
   const editProposalId = addFilterProposal('edit', 'edit', spec.edited, 'saved-filter-step', 3, 4, 'draft-4');
   const applyEditId = addRequest({ name: 'apply-edit', path: commandPath,
     body: { expectedDraftVersion: 4, expectedDraftDigest: 'draft-4', commands: [{
@@ -277,7 +292,8 @@ const makeCapture = caseName => {
     step('FilterApplied(create)', { requestCaptureId: applyCreateId, beforeReadIndex: 8, afterReadIndex: 9,
       domObservationIndex: domIndexes.applyCreate, mountEpoch: 2 }),
     step('Reload', { beforeReadIndex: 9, afterReadIndex: 10, domObservationIndex: domIndexes.reloadCreate, mountEpoch: 3 }),
-    step('FilterEditOpened', { beforeReadIndex: 11, domObservationIndex: domIndexes.editOpened, mountEpoch: 3 }),
+    step('FilterEditOpened', { beforeReadIndex: 11, proposalCaptureIds: [editOpenCancellationId],
+      domObservationIndex: domIndexes.editOpened, mountEpoch: 3 }),
     step('FilterProposed(edit)', { requestCaptureId: editProposalId, proposalCaptureIds: [editProposalId],
       beforeReadIndex: 11, domObservationIndex: domIndexes.proposeEdit, mountEpoch: 3 }),
     step('FilterApplied(edit)', { requestCaptureId: applyEditId, beforeReadIndex: 12, afterReadIndex: 13,
@@ -375,4 +391,15 @@ test('adapter preserves an absent raw request header as null in normalized evide
   const journeyTrace = adaptTemporalFilterJourney(rawCapture);
   const proposal = journeyTrace.actions.find(event => event.action === 'FilterProposed(create)');
   assert.equal(proposal.request.requestId, null);
+});
+
+test('adapter schema fixture retains failed read-only request diagnostics', () => {
+  const journeyTrace = adaptTemporalFilterJourney(makeCapture('date'));
+  const request = journeyTrace.temporalFilterLifecycle.requestEvents.find(event =>
+    event.browserRequestId === 'schema-fixture-browser-request-edit-open-cancellation');
+  assert.deepEqual(request.failure, { kind: 'transport', errorText: 'net::ERR_ABORTED', canceled: true });
+  assert.equal(request.readCancellationDiagnostic, true);
+  assert.equal(request.responseCapture, 'not-configured');
+  assert.equal(request.responseCaptureComplete, true);
+  assert.equal(request.responseBodyCaptured, false);
 });

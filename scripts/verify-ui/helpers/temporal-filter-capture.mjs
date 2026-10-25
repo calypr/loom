@@ -34,12 +34,16 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
   const beginBuilderRead = () => ({ readId: randomUUID(), ...eventStamp(mountEpoch) });
 
   const finishBuilderRead = (started, response, body) => {
+    const observed = eventStamp(mountEpoch);
     const requestId = response.headers.get('x-request-id');
     const read = {
       readId: started.readId,
-      capturedAtMonotonicMs: started.atMonotonicMs,
-      capturedAtEpochMs: started.atEpochMs,
-      mountEpoch: started.mountEpoch,
+      requestStartedAtMonotonicMs: started.atMonotonicMs,
+      requestStartedAtEpochMs: started.atEpochMs,
+      requestMountEpoch: started.mountEpoch,
+      capturedAtMonotonicMs: observed.atMonotonicMs,
+      capturedAtEpochMs: observed.atEpochMs,
+      mountEpoch: observed.mountEpoch,
       status: response.status,
       ...(typeof requestId === 'string' && requestId.trim() ? { requestId } : {}),
       catalogGeneration: body.catalog?.generation ?? null,
@@ -188,6 +192,12 @@ export const createTemporalFilterCapture = ({ page, networkObserver }) => {
         startedAt: entry.startedAt,
         completedAt: entry.completedAt ?? null,
         isMutation: Boolean(entry.isMutation),
+        failure: clone(entry.failure),
+        readCancellationDiagnostic: Boolean(entry.readCancellationDiagnostic),
+        responseCapture: entry.responseCapture ?? null,
+        responseCaptureComplete: Boolean(entry.responseCaptureComplete),
+        responseBodyCaptured: Boolean(entry.responseBodyCaptured),
+        ...(entry.responseCaptureError ? { responseCaptureError: entry.responseCaptureError } : {}),
         atMonotonicMs: stamp.atMonotonicMs,
         atEpochMs: stamp.atEpochMs,
         mountEpoch: stamp.mountEpoch,

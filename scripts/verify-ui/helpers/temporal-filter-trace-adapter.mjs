@@ -182,6 +182,19 @@ const assertCaptureShape = capture => {
     assert(request.completedAt === null || Number.isFinite(request.completedAt));
     if (request.requestId !== undefined) assert(typeof request.requestId === 'string' && request.requestId.length > 0);
   }
+  const readIds = capture.builderReads.map(read => read.readId);
+  assert(readIds.every(id => typeof id === 'string' && id.length > 0), 'Each Builder GET must have a unique capture ID.');
+  assert.equal(new Set(readIds).size, readIds.length, 'Builder read capture IDs must be unique.');
+  for (const read of capture.builderReads) {
+    assert(Number.isFinite(read.requestStartedAtMonotonicMs));
+    assert(Number.isFinite(read.requestStartedAtEpochMs));
+    assert(Number.isInteger(read.requestMountEpoch));
+    assert(Number.isFinite(read.capturedAtMonotonicMs));
+    assert(Number.isFinite(read.capturedAtEpochMs));
+    assert(Number.isInteger(read.mountEpoch));
+    assert(read.capturedAtMonotonicMs >= read.requestStartedAtMonotonicMs,
+      `Builder read ${read.readId} response time must follow its GET request start.`);
+  }
   for (const step of capture.steps) {
     assert(Number.isFinite(step.atMonotonicMs) && Number.isFinite(step.atEpochMs));
     assert(Number.isInteger(step.mountEpoch));
@@ -262,9 +275,17 @@ const assertProposalMatches = (capture, contract, event, intent) => {
   const requestFilter = filterFromConstruction(requestCandidate);
   const responseFilter = filterFromConstruction(responseCandidate);
   const expected = intent === 'edit' ? contract.edited : contract.initial;
+  const ui = event.ui;
+  assert(ui, `${event.action} must retain its ready DOM observation.`);
+  assert.equal(String(ui.proposalStatus).toLowerCase(), 'ready');
+  assert.equal(ui.proposalId, raw.response.proposalId);
+  assert.equal(ui.receiptId, raw.response.preview?.receiptId);
+  assert.equal(ui.outputId, capture.outputId);
   if (intent === 'remove') {
     assert.equal(requestFilter.filter, null, 'Removal candidate must contain no FILTER step.');
     assert.equal(responseFilter.filter, null, 'Removal response candidate must contain no FILTER step.');
+    assertJSONEqual([...ui.rowIds].sort(), [...capture.ids].sort(),
+      'Removal proposal DOM must render every literal source row.');
   } else {
     assert(requestFilter.filter && responseFilter.filter, `${event.action} must include request and response FILTER predicates.`);
     assert.equal(raw.request.outputId, capture.outputId);
@@ -276,12 +297,6 @@ const assertProposalMatches = (capture, contract, event, intent) => {
     assert.deepEqual(filterValue(requestFilter.filter), expected.requestValue ?? expected.savedValue);
     assert.deepEqual(filterValue(responseFilter.filter), expected.savedValue);
   }
-  const ui = event.ui;
-  assert(ui, `${event.action} must retain its ready DOM observation.`);
-  assert.equal(String(ui.proposalStatus).toLowerCase(), 'ready');
-  assert.equal(ui.proposalId, raw.response.proposalId);
-  assert.equal(ui.receiptId, raw.response.preview?.receiptId);
-  assert.equal(ui.outputId, capture.outputId);
   if (intent !== 'remove') {
     assert.equal(ui.columnId, capture.temporalColumnId);
     assert.equal(ui.inputType, contract.inputType);
