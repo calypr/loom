@@ -579,10 +579,13 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   sourceReceiptCase = 'none',
   previewStatus = 200,
   previewResponseReceiptId,
+  setupReceiptCase = 'none',
 } = {}) => {
   assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh',
     'owner-change-before-response'].includes(sourceReceiptCase),
     `unsupported synthetic source receipt case ${sourceReceiptCase}`);
+  assert(['none', 'reconcile-before-command', 'command-before-reconcile-response'].includes(setupReceiptCase),
+    `unsupported synthetic setup receipt case ${setupReceiptCase}`);
   const input = makePolicyOneTraceInput();
   input.requests.one.transportIndex = 3;
   input.requests.all.transportIndex = 4;
@@ -924,34 +927,139 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
       previewCapture,
     ];
   }
-  const setupRequest = {
-    method: 'POST', path: '/api/explorers/e/authoring/v2/commands',
+  const setupCommandRequest = {
+    method: 'POST', path: '/api/explorers/policy-one/authoring/v2/commands',
     requestId: 'setup-command-physical-id', captureId: null, transportIndex: 1,
     body: { commandId: 'setup-command-physical-id', commands: [{ type: 'CREATE_SOURCE_TABLE' }] },
   };
-  const setupResponse = {
+  const setupCommandResponse = {
     status: 200, requestId: 'setup-command-physical-id',
     body: { commandId: 'setup-command-physical-id', draftVersion: rootDraft.version, draftDigest: rootDraft.digest },
   };
-  const setupCapture = testTransportCapture(1, setupRequest, setupResponse);
-  setupCapture.capturePhase = 'SETUP';
-  setupCapture.setupMutation = true;
+  const setupCommandCapture = testTransportCapture(1, setupCommandRequest, setupCommandResponse);
+  setupCommandCapture.capturePhase = 'SETUP';
+  setupCommandCapture.setupMutation = true;
+  const setupReceipt = (transportIndex, { requestEventIndex, settlementEventIndex, generation, receiptId, draftDigest }) => {
+    const requestId = `builder-${generation}-1`;
+    const request = {
+      method: 'POST', path: 'reconcile', requestId, captureId: null, transportIndex,
+      body: { snapshotToken: 'snapshot-1', draftVersion: rootDraft.version, draftDigest, outputId: 'output-1' },
+    };
+    const response = {
+      status: 200, requestId,
+      body: { receiptId, snapshotToken: 'snapshot-1', intentDigest: `intent-${receiptId}`,
+        outputs: [{ outputId: 'output-1' }] },
+    };
+    const capture = testTransportCapture(transportIndex, request, response, {
+      requestEventIndex, settlementEventIndex,
+    });
+    capture.capturePhase = 'SETUP';
+    capture.setupMutation = false;
+    return capture;
+  };
+  let setupCaptures = [setupCommandCapture];
+  if (setupReceiptCase !== 'none') {
+    const reconcileBeforeResponse = setupReceiptCase === 'command-before-reconcile-response';
+    const oldReceipt = setupReceipt(1, {
+      requestEventIndex: 1,
+      settlementEventIndex: reconcileBeforeResponse ? 4 : 2,
+      generation: 70,
+      receiptId: 'receipt-setup-A',
+      draftDigest: 'draft-before-setup-command',
+    });
+    setupCommandCapture.transportIndex = 2;
+    setupCommandCapture.responseOwnerIndex = 2;
+    setupCommandCapture.requestEventIndex = reconcileBeforeResponse ? 2 : 3;
+    setupCommandCapture.settlementEventIndex = reconcileBeforeResponse ? 3 : 4;
+    const currentReceipt = setupReceipt(3, {
+      requestEventIndex: 5,
+      settlementEventIndex: 6,
+      generation: 71,
+      receiptId: 'receipt-setup-B',
+      draftDigest: rootDraft.digest,
+    });
+    setupCaptures = [oldReceipt, setupCommandCapture, currentReceipt];
+  }
+  const setupTransportOffset = setupCaptures.length;
+  const setupEventOffset = setupTransportOffset * 2;
+  const setupReceiptPreviewOffset = setupReceiptCase === 'none' ? 0 : 1;
+  const formalTransportOffset = setupTransportOffset + setupReceiptPreviewOffset;
+  const formalEventOffset = setupEventOffset + (setupReceiptPreviewOffset * 2);
+  let setupReceiptPreviewCapture;
+  if (setupReceiptPreviewOffset) {
+    const request = {
+      method: 'POST', path: 'preview', requestId: 'header-setup-receipt-preview', captureId: null,
+      transportIndex: setupTransportOffset + 1,
+      body: { receiptId: 'receipt-setup-B', outputId: 'output-1' },
+    };
+    const response = {
+      status: 200, requestId: request.requestId,
+      body: { receiptId: 'receipt-setup-B', outputId: 'output-1', rowCount: 2,
+        rows: [{ patientId: fixtureIDs[0] }, { patientId: fixtureIDs[1] }] },
+    };
+    setupReceiptPreviewCapture = testTransportCapture(request.transportIndex, request, response, {
+      requestEventIndex: setupEventOffset + 1,
+      settlementEventIndex: setupEventOffset + 2,
+    });
+  }
   for (const request of [groupPreviewRequest, groupApplyRequest, input.requests.one, input.requests.all,
     input.requests.apply, removalOneRequest, removalTwoRequest, removalApplyRequest]) {
-    request.transportIndex += 1;
+    request.transportIndex += formalTransportOffset;
   }
   const shiftedCaptures = input.context.transportCaptures.map(capture => ({
     ...capture,
-    transportIndex: capture.transportIndex + 1,
-    responseOwnerIndex: capture.responseOwnerIndex + 1,
-    requestEventIndex: capture.requestEventIndex + 2,
-    settlementEventIndex: capture.settlementEventIndex + 2,
+    transportIndex: capture.transportIndex + formalTransportOffset,
+    responseOwnerIndex: capture.responseOwnerIndex + formalTransportOffset,
+    requestEventIndex: capture.requestEventIndex + formalEventOffset,
+    settlementEventIndex: capture.settlementEventIndex + formalEventOffset,
   }));
-  input.context.transportCaptures = [setupCapture, ...shiftedCaptures];
+  input.context.transportCaptures = [
+    ...setupCaptures,
+    ...(setupReceiptPreviewCapture ? [setupReceiptPreviewCapture] : []),
+    ...shiftedCaptures,
+  ];
   input.context.formalEntry = {
-    afterTransportIndex: 1,
-    afterEventIndex: 2,
+    afterTransportIndex: setupTransportOffset,
+    afterEventIndex: setupEventOffset,
     initialSavedState: { ...sourceState, snapshotToken: 'snapshot-1', workspaceProjection: sourceWorkspace },
   };
+  if (setupReceiptCase !== 'none') {
+    let nextTransportIndex = Math.max(...input.context.transportCaptures.map(capture => capture.transportIndex)) + 1;
+    let nextEventIndex = Math.max(...input.context.transportCaptures.flatMap(capture =>
+      [capture.requestEventIndex, capture.settlementEventIndex])) + 1;
+    const freshReceiptId = 'receipt-formal-after-setup';
+    const freshReconcileRequestId = 'builder-72-1';
+    const freshReconcileRequest = {
+      method: 'POST', path: 'reconcile', requestId: freshReconcileRequestId, captureId: null,
+      transportIndex: nextTransportIndex,
+      body: { snapshotToken: 'snapshot-1', draftVersion: rootDraft.version,
+        draftDigest: rootDraft.digest, outputId: 'output-1' },
+    };
+    const freshReconcileResponse = {
+      status: 200, requestId: freshReconcileRequestId,
+      body: { receiptId: freshReceiptId, snapshotToken: 'snapshot-1',
+        intentDigest: `intent-${freshReceiptId}`, outputs: [{ outputId: 'output-1' }] },
+    };
+    input.context.transportCaptures.push(testTransportCapture(nextTransportIndex,
+      freshReconcileRequest, freshReconcileResponse, {
+        requestEventIndex: nextEventIndex, settlementEventIndex: nextEventIndex + 1,
+      }));
+    nextTransportIndex += 1;
+    nextEventIndex += 2;
+    const formalPreviewRequest = {
+      method: 'POST', path: 'preview', requestId: 'header-formal-setup-receipt-preview', captureId: null,
+      transportIndex: nextTransportIndex,
+      body: { receiptId: freshReceiptId, outputId: 'output-1' },
+    };
+    const formalPreviewResponse = {
+      status: 200, requestId: 'header-formal-setup-receipt-preview',
+      body: { receiptId: freshReceiptId, outputId: 'output-1', rowCount: 1,
+        rows: [{ patientIds: fixtureIDs }] },
+    };
+    input.context.transportCaptures.push(testTransportCapture(nextTransportIndex,
+      formalPreviewRequest, formalPreviewResponse, {
+        requestEventIndex: nextEventIndex, settlementEventIndex: nextEventIndex + 1,
+      }));
+  }
   return buildPolicyOneTrace(input).journeyTrace;
 };

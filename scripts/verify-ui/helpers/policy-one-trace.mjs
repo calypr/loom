@@ -159,15 +159,19 @@ function savedCASAfterCommand(capture, actions) {
 
 function ownerChangingCommands(rows, ownerScope, draftVersion, draftDigest, afterEventIndex, beforeEventIndex) {
   return rows.filter(candidate => candidate.classification === 'modeled'
-    && candidate.path === 'commands'
+    || candidate.classification === 'setup')
+    .filter(candidate => candidate.path === 'commands'
     && candidate.ownerScope === ownerScope
     && candidate.settlement === 'response'
     && candidate.status >= 200 && candidate.status < 300
     && candidate.settlementEventIndex > afterEventIndex
     && candidate.settlementEventIndex < beforeEventIndex
-    && candidate.savedCASAfter
-    && (candidate.savedCASAfter.draftVersion !== draftVersion
-      || candidate.savedCASAfter.draftDigest !== draftDigest));
+    && (candidate.classification === 'setup'
+      ? candidate.requestBody?.commandId === candidate.response?.commandId
+        && (candidate.response?.draftVersion !== draftVersion || candidate.response?.draftDigest !== draftDigest)
+      : candidate.savedCASAfter
+        && (candidate.savedCASAfter.draftVersion !== draftVersion
+          || candidate.savedCASAfter.draftDigest !== draftDigest)));
 }
 
 function canonicalTransportLedger(captures, references, initialPreview, initialObservation, actions, formalEntry) {
@@ -479,18 +483,26 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         `reconcile transport ${row.transportIndex} receipt must expose output identities`);
       if (body.outputId) assert(response.outputIds.includes(body.outputId),
         `reconcile transport ${row.transportIndex} receipt must include its selected output`);
-      const invalidatedBy = rows.filter(candidate => candidate.transportIndex > row.transportIndex
-        && candidate.ownerScope === row.ownerScope
-        && candidate.requestEventIndex < row.settlementEventIndex
-        && (candidate.classification === 'modeled' && candidate.path === 'commands'
-          || candidate.classification === 'reconcile'
-            && Number(/^builder-(\d+)-/.exec(candidate.requestId ?? '')?.[1] ?? 0) > Number(ownerMatch[1])));
+      const changedCommandsBeforeResponse = ownerChangingCommands(rows, row.ownerScope,
+        body.draftVersion, body.draftDigest, row.requestEventIndex, row.settlementEventIndex);
+      const invalidatedBy = rows.filter(candidate => changedCommandsBeforeResponse.includes(candidate)
+        || candidate.classification === 'reconcile'
+          && candidate.ownerScope === row.ownerScope
+          && candidate.requestEventIndex > row.requestEventIndex
+          && candidate.requestEventIndex < row.settlementEventIndex
+          && Number(/^builder-(\d+)-/.exec(candidate.requestId ?? '')?.[1] ?? 0) > Number(ownerMatch[1]));
       row.invalidatedByTransportIndices = invalidatedBy.map(candidate => candidate.transportIndex);
-      row.reconcileOwnerChangeCaptureIds = ownerChangingCommands(rows, row.ownerScope,
+      const ownerChanging = ownerChangingCommands(rows, row.ownerScope,
         body.draftVersion,
         body.draftDigest,
         row.requestEventIndex,
-        Number.POSITIVE_INFINITY).map(candidate => candidate.requestCaptureId);
+        Number.POSITIVE_INFINITY);
+      row.reconcileOwnerChangeCaptureIds = ownerChanging
+        .filter(candidate => candidate.classification === 'modeled')
+        .map(candidate => candidate.requestCaptureId);
+      row.reconcileOwnerChangeSetupCommandIds = ownerChanging
+        .filter(candidate => candidate.classification === 'setup')
+        .map(candidate => candidate.requestBody.commandId);
       row.ownerInvalidationObserved = row.invalidatedByTransportIndices.length > 0;
       row.reconcileDisposition = row.ownerInvalidationObserved
         ? 'invalidated-by-captured-owner-event'
@@ -502,6 +514,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       row.successfulPreviewConsumerTransportIndices = [];
       row.invalidatedByTransportIndices = [];
       row.reconcileOwnerChangeCaptureIds = [];
+      row.reconcileOwnerChangeSetupCommandIds = [];
     } else {
       row.ownerInvalidationObserved = false;
       row.reconcileDisposition = 'request-failed';
@@ -509,6 +522,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       row.successfulPreviewConsumerTransportIndices = [];
       row.invalidatedByTransportIndices = [];
       row.reconcileOwnerChangeCaptureIds = [];
+      row.reconcileOwnerChangeSetupCommandIds = [];
     }
   }
 

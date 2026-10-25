@@ -104,6 +104,7 @@ function makeSyntheticReconcileLedgerTrace() {
     successfulPreviewConsumerTransportIndices,
     invalidatedByTransportIndices,
     reconcileOwnerChangeCaptureIds,
+    reconcileOwnerChangeSetupCommandIds: [],
     reconcileOwner,
     reconcileCAS,
     ownerInvalidationObserved,
@@ -372,6 +373,44 @@ test('TLC expires receipts after observed saved-CAS changes and grants no credit
   const wrongEcho = structuredClone(ownerChanged);
   wrongEcho.transportLedger.find(entry => entry.path === 'preview').response.receiptIds = ['wrong-receipt'];
   assert.throws(() => compilePolicyOneJourneyTrace(wrongEcho), /must echo its submitted receipt/);
+});
+
+test('TLC excludes setup reconcile receipts invalidated by a same-owner setup command in both response orders', t => {
+  for (const [setupReceiptCase, suffix] of [
+    ['reconcile-before-command', 'ResponseFirst'],
+    ['command-before-reconcile-response', 'CommandFirst'],
+  ]) {
+    const trace = makeSyntheticPolicyOneJourneyTrace({ setupReceiptCase });
+    const setupReceipt = trace.transportLedger.find(entry => entry.requestId === 'builder-70-1');
+    const setupCommand = trace.transportLedger.find(entry => entry.capturePhase === 'SETUP'
+      && entry.classification === 'setup' && entry.setupMutation);
+    const preview = trace.transportLedger.find(entry => entry.path === 'preview');
+    assert(setupReceipt && setupCommand && preview);
+    assert.deepEqual(setupReceipt.reconcileOwnerChangeSetupCommandIds,
+      [setupCommand.requestBody.commandId]);
+
+    const positive = checkWithTLC(trace, `PolicySetupReceipt${suffix}Positive`);
+    t.diagnostic(summary(positive.output));
+    assert.equal(positive.error, undefined, positive.error?.message);
+    assert.equal(positive.status, 0, summary(positive.output));
+    assert.match(positive.output, /Model checking completed\. No error has been found\./);
+
+    const staleReceiptConsumption = structuredClone(trace);
+    const staleSetup = staleReceiptConsumption.transportLedger.find(entry => entry.requestId === 'builder-70-1');
+    const stalePreview = staleReceiptConsumption.transportLedger.find(entry => entry.path === 'preview');
+    stalePreview.requestBody.receiptId = staleSetup.response.receiptId;
+    stalePreview.receiptId = staleSetup.response.receiptId;
+    stalePreview.response.receiptId = staleSetup.response.receiptId;
+    stalePreview.response.receiptIds = [staleSetup.response.receiptId];
+    stalePreview.currentReceiptProducerTransportIndices = [staleSetup.transportIndex];
+    stalePreview.hasInitialCurrentReceiptProducer = false;
+    staleSetup.successfulPreviewConsumerTransportIndices = [stalePreview.transportIndex];
+    const negative = checkWithTLC(staleReceiptConsumption, `PolicySetupReceipt${suffix}StaleConsumer`);
+    t.diagnostic(summary(negative.output));
+    assert.equal(negative.error, undefined, negative.error?.message);
+    assert.notEqual(negative.status, 0);
+    assert.match(negative.output, /ObservedTransportLedgerInvariant/);
+  }
 });
 
 test('TLC validates scoped reconcile ownership, receipt sets, and read-only routes in a unit trace', t => {

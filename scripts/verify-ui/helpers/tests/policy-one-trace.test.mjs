@@ -6,6 +6,7 @@ import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mj
 import {
   buildPolicyOneMutationControls,
   compilePolicyOneJourneyTrace,
+  validatePolicyOneJourneyTrace,
 } from '../policy-one-tla-replay.mjs';
 import {
   patientOneSavedState,
@@ -375,6 +376,49 @@ test('the Policy observer rejects formal entry when a setup command failed or wa
   await assert.rejects(observer.beginFormalSpan({
     outputId: 'output-1', snapshotToken: 'snapshot-1', draftVersion: 0, draftDigest: 'draft-empty',
   }), /setup mutation 1 must have a successful HTTP response/);
+});
+
+test('setup reconcile receipts expire when a same-owner setup command changes CAS in either response order', () => {
+  for (const setupReceiptCase of ['reconcile-before-command', 'command-before-reconcile-response']) {
+    const trace = makeSyntheticPolicyOneJourneyTrace({ setupReceiptCase });
+    const staleSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-70-1');
+    const setupCommand = trace.transportLedger.find(row => row.capturePhase === 'SETUP'
+      && row.classification === 'setup' && row.setupMutation);
+    const currentSetupReceipt = trace.transportLedger.find(row => row.requestId === 'builder-71-1');
+    const setupPreview = trace.transportLedger.find(row => row.path === 'preview'
+      && row.requestBody.receiptId === currentSetupReceipt?.response.receiptId);
+    const currentFormalReceipt = trace.transportLedger.find(row => row.requestId === 'builder-72-1');
+    const formalPreview = trace.transportLedger.find(row => row.path === 'preview'
+      && row.requestBody.receiptId === currentFormalReceipt?.response.receiptId);
+    assert(staleSetupReceipt && setupCommand && currentSetupReceipt && setupPreview
+      && currentFormalReceipt && formalPreview);
+    assert.deepEqual(staleSetupReceipt.reconcileOwnerChangeSetupCommandIds,
+      [setupCommand.requestBody.commandId],
+    `${setupReceiptCase} must retain the exact successful setup command as the reconcile's owner change`);
+    assert.deepEqual(staleSetupReceipt.successfulPreviewConsumerTransportIndices, [],
+      `${setupReceiptCase} must not credit the stale receipt to the later preview`);
+    assert.deepEqual(currentSetupReceipt.successfulPreviewConsumerTransportIndices, [setupPreview.transportIndex]);
+    assert.deepEqual(setupPreview.currentReceiptProducerTransportIndices, [currentSetupReceipt.transportIndex]);
+    assert.deepEqual(currentFormalReceipt.successfulPreviewConsumerTransportIndices, [formalPreview.transportIndex]);
+    assert.equal(staleSetupReceipt.ownerInvalidationObserved,
+      setupReceiptCase === 'command-before-reconcile-response',
+      'pre-response invalidation must follow the actual setup command settlement order');
+  }
+});
+
+test('the compiler rejects a setup settlement moved across the captured formal-entry boundary at shape validation', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace();
+  const setupMutation = trace.transportLedger.find(row => row.capturePhase === 'SETUP' && row.setupMutation);
+  assert(setupMutation);
+  const originalBoundary = trace.formalEntry.afterEventIndex;
+  assert(setupMutation.settlementEventIndex <= originalBoundary);
+
+  trace.formalEntry.afterEventIndex = setupMutation.settlementEventIndex - 1;
+
+  assert.throws(() => validatePolicyOneJourneyTrace(trace),
+    /setup transport .* settle before formal entry/);
+  assert.throws(() => compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicySetupSettlementCrossesEntry' }),
+    /setup transport .* settle before formal entry/);
 });
 
 test('the registered Policy One contract matches captured actions, compiler events, and self-test controls', () => {
