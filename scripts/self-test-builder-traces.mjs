@@ -231,8 +231,13 @@ const runPolicyNativeJourneySelfTest = async () => {
     const binding = {
       captureAdapter: registration?.captureAdapter,
       captureKind: registration?.captureKind ?? 'builder-policy-one-native-lifecycle',
+      nativeCaseKey: registration?.nativeCaseKey,
       name: registration?.traceName,
       model: registration?.model,
+      valueKind: registration?.valueKind,
+      resourceType: registration?.resourceType,
+      fieldPath: registration?.fieldPath,
+      formalProofAssertion: registration?.formalProofAssertion,
     };
     let unknownAdapterRejected = false;
     try {
@@ -261,16 +266,17 @@ const runPolicyNativeJourneySelfTest = async () => {
       return fail('nativeJourney requiredMutationControlNames must be non-empty and unique');
     }
     const validatedTrace = adapter.validateTrace(trace);
-    if (!validatedTrace || validatedTrace.name !== trace.name || validatedTrace.model !== trace.model) {
-      return fail('Policy unit trace did not pass adapter validation');
+    if (!validatedTrace || typeof validatedTrace !== 'object' || Array.isArray(validatedTrace)) {
+      return fail('native unit trace validator did not return a validated object');
     }
     const compiled = adapter.compileTrace(trace, { moduleName: 'PolicyOneSelfTestPositive' });
     if (!compiled || compiled.moduleName !== 'PolicyOneSelfTestPositive' ||
         compiled.modelName !== registration.model || typeof compiled.modelText !== 'string' ||
         typeof compiled.configText !== 'string' || typeof compiled.baseModelText !== 'string' ||
-        !Array.isArray(compiled.expectedLabels) || !Array.isArray(compiled.expectedEvents) ||
-        typeof compiled.claim !== 'string' || compiled.claim.length === 0) {
-      return fail('Policy unit trace compiler did not return the registered model/config and observation contract');
+        (adapter.family === 'policy-one-disagreement' &&
+          (!Array.isArray(compiled.expectedLabels) || !Array.isArray(compiled.expectedEvents) ||
+           typeof compiled.claim !== 'string' || compiled.claim.length === 0))) {
+      return fail('native unit trace compiler did not return the registered model/config artifacts');
     }
     const originalTraceBytes = JSON.stringify(trace);
     const controls = adapter.buildMutationControls(trace);

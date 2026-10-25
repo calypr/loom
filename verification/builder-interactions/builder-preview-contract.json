@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "9e98fc2674367a7bda4f5dfb1e3b4f43648427a45cb5e482cccba7102ed0a744",
+      "sha256": "ada7a61ff40258da46509c2442a217e300e4d41a40a78ae25f370b6e36f22325",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -44,7 +44,7 @@
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "70d62fde78477f831b182fa3a0f3329f8be16aae7314e83447c3aee2cd1c3412",
+      "sha256": "3390b388c0a76976c5cebe2c9caef88f7ea620c2078fbf995df08341b4a37716",
       "contract": "Trace mutation controls for request ownership, Group persistence and reload keys/step, stale candidates and capture owners, exact action counts, and generic non-Group routes."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "4c9abf104082dfbfd5709c07d767793924cb83e6ead814ae7e81da81f7934004",
+      "sha256": "466f79b889753ba875d8f81ac09f3a0d216057997850aa2c6e8ca859a13b4aff",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -509,7 +509,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-formal-adapters.mjs",
-      "sha256": "322433dbef4990318135ede009b630b71f8d0b6f615a4ae00d975cd6e9bd3aa7",
+      "sha256": "ca31daf3ce7f5fd731e5df3197299e9b3f0bf71e23db0a89b5df5af68dbbfabb",
       "contract": "Static registered adapters for the native Builder formal journey verifier."
     },
     {
@@ -586,6 +586,96 @@
       "path": "scripts/verify-ui/workflows/builder-authoring.mjs",
       "sha256": "47d71968ddc3edac313c663fb269fbabd2d8bf236abcd65d3ee2eadb20b5c517",
       "contract": "Registered Builder authoring workflow dispatcher for the Patient ONE case."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/temporal-filter-capture.mjs",
+      "sha256": "a1d940d84fa6b34575a553fe6150b202bc0e02ed0aa1ee4255adf645181ff1bc",
+      "contract": "Captures browser-observed Temporal filter requests, Builder reads, and mounted DOM state."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs",
+      "sha256": "a05b373720b377bcd8b141707c612d89469029f096a7801524a1b04e3cd057ca",
+      "contract": "Projects retained DATE and DATE_TIME observations into the canonical native journey trace."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs",
+      "sha256": "45709ec78a15a9aa91b412a8471f8a9f380d4775e533383e6047f78e15eeecdd",
+      "contract": "Validates and compiles the observed Temporal lifecycle into the bounded TLA+ replay and mutation controls."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs",
+      "sha256": "4f9dc7debe3d134afb566721a679ddd03793fbd67e78323b004bd291abd76dc8",
+      "contract": "Independent literal DATE and DATE_TIME fixture row oracles."
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-temporal-filter.spec.mjs",
+      "sha256": "9ab1602ee3a99f8d0cb716619b8d2fd2ac2d87e88d59616dec994a392e5f60c0",
+      "contract": "Native browser driver for the Basic Temporal filter lifecycle cases."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs",
+      "sha256": "9fcb3ec52e27e9fba3293cec4fe955d4b4e552d2fd0cd6fd878ede2f728c0b99",
+      "contract": "Synthetic unit fixture for Temporal trace adapter and TLC tests; not browser evidence."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs",
+      "sha256": "11643a051da2a99f0b9b44d39e04b7b22ca95dc3475493527e4f9ad7f2422aa0",
+      "contract": "Focused tests for Temporal browser capture ownership and chronology."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs",
+      "sha256": "dd45f4e7f8e2dc68595483e7fe134398d33e514a0a0bf110ab5e470efd03c0ee",
+      "contract": "Focused Temporal contract, TLA replay, and mutation-control tests."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs",
+      "sha256": "6000b599fb10c0e6e8e84c8c461da0a5525fda4ca72883212d3dfd02366aa7c1",
+      "contract": "Checks the static DATE and DATE_TIME adapter bindings, contracts, and coverage projection."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs",
+      "sha256": "ebc1fbf36b0d7487404f43da78d0252631e16ab66a1311f975fb793b99cd67ea",
+      "contract": "Tests the independent Basic DATE and DATE_TIME literal row oracles."
+    },
+    {
+      "path": "testdata/basic-temporal-filter/Patient.ndjson",
+      "sha256": "d1c2cf2e33b58e4d8cf290d2ea22dcb133afce495b2c8cb267f7fccb9be9d5c0",
+      "contract": "Literal Patient rows used by the native DATE case."
+    },
+    {
+      "path": "testdata/basic-temporal-filter/Observation.ndjson",
+      "sha256": "96a4395d7c58575715ec1c9bb8577fe1ba00784e7a0f2c0bc8bc7ac0c3f77f30",
+      "contract": "Literal Observation rows used by the native DATE_TIME case."
+    },
+    {
+      "path": "verification/builder-interactions/TemporalFilterJourney.tla",
+      "sha256": "5f69c8c9694f0fbbc5baf522876591e8fee9f561eda0f2fcf615907f6d8f2e05",
+      "contract": "Bounded state machine and invariants for the observed Temporal filter lifecycle."
+    },
+    {
+      "path": "verification/builder-interactions/TemporalFilterJourneyDate.cfg",
+      "sha256": "bb0fedc5b37542c0604d026047709ae86c871b5e9d55909f65d3ebcb25e7f9a0",
+      "contract": "DATE profile safety configuration for TemporalFilterJourney."
+    },
+    {
+      "path": "verification/builder-interactions/TemporalFilterJourneyDateTime.cfg",
+      "sha256": "d44bb4b5a09418e1f5d0e969caba5dcfdcfb03578c0d95534b5992e364841602",
+      "contract": "DATE_TIME profile safety configuration for TemporalFilterJourney."
+    },
+    {
+      "path": "verification/builder-interactions/builder-temporal-filter-date-contract.json",
+      "sha256": "0033d7acc32faab45b6fc7bf36e233e6dfd0d5c9776e119be70c704a2d301f4b",
+      "contract": "Static contract for the native DATE filter journey."
+    },
+    {
+      "path": "verification/builder-interactions/builder-temporal-filter-date-time-contract.json",
+      "sha256": "a21c902cc2a3647e56412a39ad3ed1849770434fb9d2aa180daab8be9c6308dc",
+      "contract": "Static contract for the native DATE_TIME filter journey."
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
+      "sha256": "665884f65435dda45a94cb6b3938a52c398ae18ea0657bb8ac048303f91569a1",
+      "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     }
   ]
 }

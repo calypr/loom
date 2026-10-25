@@ -334,6 +334,9 @@ const registeredNativeJourney = (nativeCaseId) => {
     traceKind: binding.kind,
     captureKind: binding.captureKind,
     captureAdapter: binding.captureAdapter,
+    valueKind: binding.valueKind,
+    resourceType: binding.resourceType,
+    fieldPath: binding.fieldPath,
     targetMode,
     requiredMutationControlNames: contract.nativeJourney?.requiredMutationControlNames ?? null,
     requestCoverageBasis: contract.nativeJourney?.coverageBasis ?? null,
@@ -891,27 +894,32 @@ const validateNativeTlaReceipt = ({ tracePath, tla, sourceCommit, sourceFingerpr
     Object.keys(journeyReceipt.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
     journeyReceipt.unmodeledEvents?.unclassified?.total === 0,
   'TLA report typed receipt does not bind the selected native case or complete request/action coverage');
-  if (selection.captureAdapter === 'policy-one-disagreement-v1') {
-    let adapter;
-    try {
-      adapter = builderFormalAdapterForBinding({
-        captureAdapter: selection.captureAdapter,
-        captureKind: selection.captureKind,
-        name: selection.traceName,
-        model: selection.model,
-      });
+  let adapter;
+  try {
+    adapter = builderFormalAdapterForBinding({
+      captureAdapter: selection.captureAdapter,
+      captureKind: selection.captureKind,
+      nativeCaseKey: selection.nativeCaseKey,
+      name: selection.traceName,
+      model: selection.model,
+      valueKind: selection.valueKind,
+      resourceType: selection.resourceType,
+      fieldPath: selection.fieldPath,
+      formalProofAssertion: selection.formalProofAssertion,
+    });
+    if (typeof adapter.requestCoverage === 'function') {
       const actualCoverage = adapter.requestCoverage(trace);
       requireValue(canonicalJson(journeyReceipt.requestCoverage) === canonicalJson(actualCoverage),
-        'Policy One replay request coverage differs from the retained transport ledger');
+        'Native replay request coverage differs from the retained transport ledger');
       requireValue(journeyReceipt.requestCoverageBasis === selection.requestCoverageBasis &&
         typeof journeyReceipt.requestCoverageBasis === 'string' && journeyReceipt.requestCoverageBasis.length > 0,
-      'Policy One replay coverage basis differs from the static contract');
+      'Native replay coverage basis differs from the static contract');
       requireValue(canonicalJson(journeyReceipt.requiredMutationControlNames) ===
         canonicalJson(selection.requiredMutationControlNames),
-      'Policy One replay control inventory differs from the static contract');
-    } catch (error) {
-      issues.push('Policy One replay adapter validation failed: ' + String(error?.message ?? error));
+      'Native replay control inventory differs from the static contract');
     }
+  } catch (error) {
+    issues.push('Native replay adapter validation failed: ' + String(error?.message ?? error));
   }
   return {
     status: issues.length === 0 ? 'passed' : 'failed',
