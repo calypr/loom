@@ -524,12 +524,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
-      "sha256": "d84e0db65ebc99b36e2c0e069194c0698aeebae31724e7eaa32e1f0aed82f8a3",
+      "sha256": "b14ef4fc65a8c3f1f61ef03d518e79fecee3931b398ffa07ce5b49ec0f28072d",
       "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
     },
     {
       "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
-      "sha256": "e6a3429e6882c5bf3f3c4c8b0ce1e4ad3abefbaeb12f8c61651bdb4a1652ff98",
+      "sha256": "45ef74b06ecc0a2b015befa91f0a25a99ec5d4bcbbb0dbf1bdde4c256e46cc19",
       "contract": "Policy One captured workflow and transport ledger validation."
     },
     {
@@ -549,12 +549,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
-      "sha256": "236111a4facd628eb5dd819b824d7c97e6b6b68149d27b668b519ef991bcaecf",
+      "sha256": "b957f7d2d1d4c8f5da2c0e6ba8e59f36573235ab25d8a6c918838225cf1a7778",
       "contract": "Policy One TLA trace replay and mutation control checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
-      "sha256": "0c1388e43d205a01e1ff15a1af4572d92d06e2ffd0602a7bf4c05f50daa4b1f9",
+      "sha256": "c34130d6a9ee4b02ab234c32a030ddbd2e9e8ed243a9afce8864b4d0526c0c79",
       "contract": "Policy One raw capture and semantic projection checks."
     },
     {
