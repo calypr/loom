@@ -9,6 +9,7 @@ import { relatedSourceProposalCandidate } from '../helpers/related-source-captur
 import { buildArangoShellInvocation } from '../helpers/owned-arangosh-command.mjs';
 import { assertCdaNoAuthRuntime } from '../helpers/cda-no-auth-runtime.mjs';
 import { createdExplorerScope } from '../helpers/created-explorer-scope.mjs';
+import { changedConstructionOperationSteps } from '../helpers/construction-operation-diff.mjs';
 import { relatedChoiceStageContext } from '../helpers/related-choice-stage-context.mjs';
 import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { captureBuilderObservation } from '../helpers/fast-fixtures.mjs';
@@ -767,11 +768,7 @@ const recordProposalCaptureBatch = async ({ requestStart, observedEntries, chose
       const candidateSteps = entry.response?.candidateConstruction?.steps
         ?? entry.request?.candidateConstruction?.steps;
       assert(Array.isArray(candidateSteps), `${label} row-expansion proposal must retain its actual candidate construction.`);
-      const priorStepsById = new Map(constructionSteps(entryState).map(step => [step.id, step]));
-      const changedOperationSteps = candidateSteps.filter(step => {
-        const priorStep = priorStepsById.get(step.id);
-        return !priorStep || JSON.stringify(priorStep.operation) !== JSON.stringify(step.operation);
-      });
+      const changedOperationSteps = changedConstructionOperationSteps(constructionSteps(entryState), candidateSteps);
       assert.equal(changedOperationSteps.length, 1,
         `${label} candidate must contain exactly one actual changed operation.`);
       const expandedStep = changedOperationSteps[0];
