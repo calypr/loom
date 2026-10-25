@@ -1164,8 +1164,36 @@ test('DATE compiler and outer inspector bind each saved Builder read to its owne
   assert.equal(accepted.status, 'current');
   assert.equal(accepted.name, binding.name);
 
-  const wrongPath = `${directApiBuilderPath(capture.project, capture.explorerId).replace(
-    '/authoring/v2/builder', '/authoring/v2/capability')}`;
+  const wrongProjectPath = directApiBuilderPath(`other-${capture.project}`, capture.explorerId);
+  assert.notEqual(wrongProjectPath, directApiBuilderPath(capture.project, capture.explorerId));
+  assert(wrongProjectPath.endsWith(`/explorers/${encodeURIComponent(capture.explorerId)}/authoring/v2/builder`),
+    'The wrong-project mutation preserves the exact Explorer path and Builder endpoint.');
+  const wrongProjectTrace = copy(trace);
+  const wrongProjectRead = wrongProjectTrace.temporalFilterLifecycle.builderReads[0];
+  wrongProjectRead.requestPath = wrongProjectPath;
+  assert.equal(wrongProjectRead.requestProject, capture.project,
+    'The wrong-project path mutation leaves the exact project metadata unchanged.');
+  assert.equal(wrongProjectRead.requestExplorerId, capture.explorerId,
+    'The wrong-project path mutation leaves the exact Explorer metadata unchanged.');
+  assert.throws(() => adapter.compileTrace(wrongProjectTrace, { moduleName: 'TemporalDateOwnedReadWrongProject' }),
+    /exact encoded project and Explorer route/u,
+    'DATE TLA compilation must reject a wrong-project path even when endpoint and metadata are valid.');
+
+  const wrongProjectCapture = copy(capture);
+  wrongProjectCapture.builderReads[0].requestPath = wrongProjectPath;
+  assert.equal(wrongProjectCapture.builderReads[0].requestProject, capture.project);
+  assert.equal(wrongProjectCapture.builderReads[0].requestExplorerId, capture.explorerId);
+  assert.throws(() => adaptTemporalFilterJourney(wrongProjectCapture), /created Explorer route/u,
+    'The canonical producer must reject a wrong-project read path with matching project/Explorer metadata.');
+
+  const wrongProjectOuter = rewriteSyntheticTemporalOuterTrace(outer, wrongProjectTrace);
+  assert.throws(() => currentFormalJourneyEvidence(wrongProjectOuter.root, wrongProjectOuter.report,
+    registeredCase, wrongProjectOuter.sourceStatus, wrongProjectOuter.reportPath),
+  /exact encoded project and Explorer route/u,
+  'The outer inspector must reject a wrong-project path after all report/trace hashes are rebound.');
+
+  const wrongPath = directApiBuilderPath(capture.project, capture.explorerId)
+    .replace('/authoring/v2/builder', '/authoring/v2/capability');
   const tamperedTrace = copy(trace);
   const tamperedRead = tamperedTrace.temporalFilterLifecycle.builderReads[0];
   tamperedRead.requestPath = wrongPath;
