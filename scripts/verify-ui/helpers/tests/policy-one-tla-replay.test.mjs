@@ -282,6 +282,41 @@ test('TLC expires receipts after observed saved-CAS changes and grants no credit
   assert.equal(ownerResult.status, 0, summary(ownerResult.output));
   assert.match(ownerResult.output, /Model checking completed\. No error has been found\./);
 
+  const ownerChangedBeforeResponse = makeSyntheticPolicyOneJourneyTrace({
+    sourceReceiptCase: 'owner-change-before-response',
+  });
+  const beforeReconciles = ownerChangedBeforeResponse.transportLedger
+    .filter(entry => entry.classification === 'reconcile');
+  const beforeOldReceipt = beforeReconciles.find(entry => entry.reconcileOwner.compileGeneration === 60);
+  const beforeCurrentReceipt = beforeReconciles.find(entry => entry.reconcileOwner.compileGeneration === 61);
+  const beforePreview = ownerChangedBeforeResponse.transportLedger.find(entry => entry.path === 'preview');
+  const beforeCommand = ownerChangedBeforeResponse.transportLedger
+    .find(entry => entry.requestCaptureId === 'capture-removal-apply');
+  assert(beforeOldReceipt && beforeCurrentReceipt && beforePreview && beforeCommand);
+  assert(beforeOldReceipt.requestEventIndex < beforeCommand.settlementEventIndex);
+  assert(beforeCommand.settlementEventIndex < beforeOldReceipt.settlementEventIndex,
+    'the pre-response replay must settle the command CAS change while the old reconcile is pending');
+  assert.deepEqual(beforeOldReceipt.reconcileOwnerChangeCaptureIds, ['capture-removal-apply']);
+  assert.deepEqual(beforePreview.currentReceiptProducerTransportIndices, [beforeCurrentReceipt.transportIndex]);
+  assert.deepEqual(beforeOldReceipt.successfulPreviewConsumerTransportIndices, []);
+  assert.deepEqual(beforeCurrentReceipt.successfulPreviewConsumerTransportIndices, [beforePreview.transportIndex]);
+  const beforeResponseResult = checkWithTLC(ownerChangedBeforeResponse, 'PolicyOneOwnerChangedBeforeResponse');
+  t.diagnostic(summary(beforeResponseResult.output));
+  assert.equal(beforeResponseResult.error, undefined, beforeResponseResult.error?.message);
+  assert.equal(beforeResponseResult.status, 0, summary(beforeResponseResult.output));
+  assert.match(beforeResponseResult.output, /Model checking completed\. No error has been found\./);
+
+  const stalePreResponseProducer = structuredClone(ownerChangedBeforeResponse);
+  stalePreResponseProducer.transportLedger.find(entry => entry.path === 'preview')
+    .currentReceiptProducerTransportIndices = [beforeOldReceipt.transportIndex, beforeCurrentReceipt.transportIndex];
+  stalePreResponseProducer.transportLedger.find(entry => entry.requestId === 'builder-60-1')
+    .successfulPreviewConsumerTransportIndices = [beforePreview.transportIndex];
+  const stalePreResponseResult = checkWithTLC(stalePreResponseProducer, 'PolicyOneStalePreResponseProducer');
+  t.diagnostic(summary(stalePreResponseResult.output));
+  assert.equal(stalePreResponseResult.error, undefined, stalePreResponseResult.error?.message);
+  assert.notEqual(stalePreResponseResult.status, 0);
+  assert.match(stalePreResponseResult.output, /ObservedTransportLedgerInvariant/);
+
   const staleReconcileProducer = structuredClone(ownerChanged);
   staleReconcileProducer.transportLedger.find(entry => entry.path === 'preview')
     .currentReceiptProducerTransportIndices = [oldReceipt.transportIndex, currentReceipt.transportIndex];

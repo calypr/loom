@@ -460,13 +460,31 @@ test('successful saved-CAS changes expire stale reconcile and initial receipt pr
   const preview = trace.transportLedger.find(row => row.path === 'preview');
   assert(oldReceipt && currentReceipt && preview);
   assert.deepEqual(oldReceipt.reconcileOwnerChangeCaptureIds, ['capture-removal-apply'],
-    'the old receipt records the exact successful command owner change after its response');
+    'the old receipt records the exact successful command owner change after its request');
   assert.deepEqual(oldReceipt.successfulPreviewConsumerTransportIndices, [],
     'the old receipt cannot claim a current successful preview consumer after saved CAS changes');
   assert.deepEqual(currentReceipt.successfulPreviewConsumerTransportIndices, [preview.transportIndex]);
   assert.deepEqual(preview.currentReceiptProducerTransportIndices, [currentReceipt.transportIndex],
     'the later same-content receipt is the current producer after the command changes saved CAS');
   assert.equal(preview.hasInitialCurrentReceiptProducer, false);
+
+  const beforeResponse = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'owner-change-before-response' });
+  const beforeReconciles = beforeResponse.transportLedger.filter(row => row.classification === 'reconcile');
+  const beforeOldReceipt = beforeReconciles.find(row => row.reconcileOwner.compileGeneration === 60);
+  const beforeCurrentReceipt = beforeReconciles.find(row => row.reconcileOwner.compileGeneration === 61);
+  const beforeCommand = beforeResponse.transportLedger.find(row => row.requestCaptureId === 'capture-removal-apply');
+  const beforePreview = beforeResponse.transportLedger.find(row => row.path === 'preview');
+  assert(beforeOldReceipt && beforeCurrentReceipt && beforeCommand && beforePreview);
+  assert(beforeOldReceipt.requestEventIndex < beforeCommand.settlementEventIndex);
+  assert(beforeCommand.settlementEventIndex < beforeOldReceipt.settlementEventIndex,
+    'the pre-response case must settle the saved-CAS change while the old reconcile is pending');
+  assert.deepEqual(beforeOldReceipt.reconcileOwnerChangeCaptureIds, ['capture-removal-apply']);
+  assert.deepEqual(beforeOldReceipt.invalidatedByTransportIndices, [beforeCommand.transportIndex,
+    beforeCurrentReceipt.transportIndex]);
+  assert.deepEqual(beforeOldReceipt.successfulPreviewConsumerTransportIndices, []);
+  assert.deepEqual(beforeCurrentReceipt.successfulPreviewConsumerTransportIndices, [beforePreview.transportIndex]);
+  assert.deepEqual(beforePreview.currentReceiptProducerTransportIndices, [beforeCurrentReceipt.transportIndex],
+    'a mutation before the old reconcile response must also expire its receipt');
 
   const initialReceipt = makePolicyOneTraceInput();
   initialReceipt.context.initialObservation.draftVersion = 1;

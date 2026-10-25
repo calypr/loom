@@ -564,7 +564,8 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
   previewStatus = 200,
   previewResponseReceiptId,
 } = {}) => {
-  assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh'].includes(sourceReceiptCase),
+  assert(['none', 'initial-only', 'initial-and-captured', 'owner-change-refresh',
+    'owner-change-before-response'].includes(sourceReceiptCase),
     `unsupported synthetic source receipt case ${sourceReceiptCase}`);
   const input = makePolicyOneTraceInput();
   input.requests.one.transportIndex = 3;
@@ -781,8 +782,10 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
     testTransportCapture(8, removalApplyRequest, removalApplyResponse),
   ];
   const receiptIdForPreview = previewResponseReceiptId ??
-    (sourceReceiptCase === 'owner-change-refresh' ? 'receipt-removal-same-content' : 'receipt-source');
-  const makeReconcileCapture = ({ transportIndex, requestId, draftVersion, draftDigest, receiptId, intentDigest }) => {
+    (sourceReceiptCase.startsWith('owner-change-') ? 'receipt-removal-same-content' : 'receipt-source');
+  const makeReconcileCapture = ({
+    transportIndex, requestId, draftVersion, draftDigest, receiptId, intentDigest, eventOrder,
+  }) => {
     const request = {
       method: 'POST',
       path: 'reconcile',
@@ -801,7 +804,7 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
         outputs: [{ outputId: 'output-1' }],
       },
     };
-    return testTransportCapture(transportIndex, request, response);
+    return testTransportCapture(transportIndex, request, response, eventOrder);
   };
   const makePreviewCapture = transportIndex => {
     const request = {
@@ -865,7 +868,9 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
     previewCapture.settlementEventIndex = nextEvent + 1;
     prefix.push(previewCapture);
     input.context.transportCaptures = [...prefix, ...shifted];
-  } else if (sourceReceiptCase === 'owner-change-refresh') {
+  } else if (sourceReceiptCase === 'owner-change-refresh'
+    || sourceReceiptCase === 'owner-change-before-response') {
+    const ownerChangesBeforeResponse = sourceReceiptCase === 'owner-change-before-response';
     input.context.initialPreview.binding.receiptId = receiptIdForPreview;
     removalApplyRequest.transportIndex = 9;
     const baseBeforeRemovalApply = input.context.transportCaptures.slice(0, 7);
@@ -876,8 +881,12 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
       draftDigest: allDraft.digest,
       receiptId: receiptIdForPreview,
       intentDigest: 'intent-before-removal',
+      ...(ownerChangesBeforeResponse ? {
+        eventOrder: { requestEventIndex: 15, settlementEventIndex: 20 },
+      } : {}),
     });
-    const removalCommand = testTransportCapture(9, removalApplyRequest, removalApplyResponse);
+    const removalCommand = testTransportCapture(9, removalApplyRequest, removalApplyResponse,
+      ownerChangesBeforeResponse ? { requestEventIndex: 16, settlementEventIndex: 17 } : {});
     const currentReceipt = makeReconcileCapture({
       transportIndex: 10,
       requestId: 'builder-61-1',
@@ -885,6 +894,9 @@ export const makeSyntheticPolicyOneJourneyTrace = ({
       draftDigest: restoredDraft.digest,
       receiptId: receiptIdForPreview,
       intentDigest: 'intent-after-removal',
+      ...(ownerChangesBeforeResponse ? {
+        eventOrder: { requestEventIndex: 18, settlementEventIndex: 19 },
+      } : {}),
     });
     const previewCapture = makePreviewCapture(11);
     input.context.transportCaptures = [

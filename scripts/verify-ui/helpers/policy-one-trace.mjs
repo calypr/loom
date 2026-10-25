@@ -326,7 +326,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         && ownerChangingCommands(rows, row.ownerScope,
           candidate.requestBody.draftVersion,
           candidate.requestBody.draftDigest,
-          candidate.settlementEventIndex,
+          candidate.requestEventIndex,
           row.settlementEventIndex).length === 0);
       row.currentReceiptProducerTransportIndices = compatible.map(candidate => candidate.transportIndex);
       row.hasInitialCurrentReceiptProducer = initialReceipt === receiptId
@@ -381,7 +381,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       && ownerChangingCommands(rows, row.ownerScope,
         body.draftVersion,
         body.draftDigest,
-        row.settlementEventIndex,
+        row.requestEventIndex,
         candidate.settlementEventIndex).length === 0);
     row.reconcileOwner = {
       requestId: row.requestId,
@@ -414,7 +414,7 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
       row.reconcileOwnerChangeCaptureIds = ownerChangingCommands(rows, row.ownerScope,
         body.draftVersion,
         body.draftDigest,
-        row.settlementEventIndex,
+        row.requestEventIndex,
         Number.POSITIVE_INFINITY).map(candidate => candidate.requestCaptureId);
       row.ownerInvalidationObserved = row.invalidatedByTransportIndices.length > 0;
       row.reconcileDisposition = row.ownerInvalidationObserved
