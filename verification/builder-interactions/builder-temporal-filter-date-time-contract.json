@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "2abdf55372744cbc3658f129a8646244192f63cf",
+  "models": {
+    "TemporalFilterJourney": {
+      "module": "TemporalFilterJourney.tla",
+      "safetyConfig": "TemporalFilterJourneyDateTime.cfg",
+      "actions": [
+        "ExplorerCreated",
+        "SourceTableCreated",
+        "TemporalColumnApplied",
+        "FilterProposed(create)",
+        "FilterCancelled",
+        "Reload",
+        "FilterApplied(create)",
+        "FilterEditOpened",
+        "FilterProposed(edit)",
+        "FilterApplied(edit)",
+        "FilterProposed(remove)",
+        "FilterRemoved"
+      ]
+    }
+  },
+  "actionBindings": {
+    "ExplorerCreated": {
+      "event": "ExplorerCreated",
+      "trigger": "a fresh run-owned Explorer is created and its post-create Builder state is captured"
+    },
+    "SourceTableCreated": {
+      "event": "SourceTableCreated",
+      "trigger": "the selected fixture source table is applied with a saved Builder snapshot"
+    },
+    "TemporalColumnApplied": {
+      "event": "TemporalColumnApplied",
+      "trigger": "the exact native DATE or DATE_TIME source field is bound to the new column"
+    },
+    "FilterProposed(create)": {
+      "event": "FilterProposed(create)",
+      "trigger": "a native create-filter proposal request and ready response are observed"
+    },
+    "FilterCancelled": {
+      "event": "FilterCancelled",
+      "trigger": "the pending create-filter proposal is canceled and the saved source remains unfiltered"
+    },
+    "Reload": {
+      "event": "Reload",
+      "trigger": "a fresh Builder GET and mounted UI reconcile reflect the saved draft after reload"
+    },
+    "FilterApplied(create)": {
+      "event": "FilterApplied(create)",
+      "trigger": "the ready create-filter proposal is applied and persisted state is read after settlement"
+    },
+    "FilterEditOpened": {
+      "event": "FilterEditOpened",
+      "trigger": "the saved temporal filter editor opens with its exact typed value and persisted identity"
+    },
+    "FilterProposed(edit)": {
+      "event": "FilterProposed(edit)",
+      "trigger": "a native edit-filter proposal request and ready response are observed"
+    },
+    "FilterApplied(edit)": {
+      "event": "FilterApplied(edit)",
+      "trigger": "the edited filter proposal is applied and persisted state is read after settlement"
+    },
+    "FilterProposed(remove)": {
+      "event": "FilterProposed(remove)",
+      "trigger": "a native remove-filter proposal request and ready response restore source rows"
+    },
+    "FilterRemoved": {
+      "event": "FilterRemoved",
+      "trigger": "the filter is removed and unfiltered persisted state is read after settlement"
+    }
+  },
+  "phase1": {
+    "expectedTraceCount": 1,
+    "expectedScheduleCount": 1,
+    "expectedFindingCount": 0,
+    "requiredModels": [
+      "TemporalFilterJourney"
+    ],
+    "requiredActions": [
+      "ExplorerCreated",
+      "SourceTableCreated",
+      "TemporalColumnApplied",
+      "FilterProposed(create)",
+      "FilterCancelled",
+      "Reload",
+      "FilterApplied(create)",
+      "FilterEditOpened",
+      "FilterProposed(edit)",
+      "FilterApplied(edit)",
+      "FilterProposed(remove)",
+      "FilterRemoved"
+    ],
+    "requiredActionsByTrace": {
+      "basic-temporal-filter:date-time": [
+        "ExplorerCreated",
+        "SourceTableCreated",
+        "TemporalColumnApplied",
+        "FilterProposed(create)",
+        "FilterCancelled",
+        "Reload",
+        "FilterProposed(create)",
+        "FilterApplied(create)",
+        "Reload",
+        "FilterEditOpened",
+        "FilterProposed(edit)",
+        "FilterApplied(edit)",
+        "Reload",
+        "FilterProposed(remove)",
+        "FilterRemoved",
+        "Reload"
+      ]
+    },
+    "requiredActionCountsByTrace": {
+      "basic-temporal-filter:date-time": {
+        "ExplorerCreated": 1,
+        "SourceTableCreated": 1,
+        "TemporalColumnApplied": 1,
+        "FilterProposed(create)": 2,
+        "FilterCancelled": 1,
+        "Reload": 4,
+        "FilterApplied(create)": 1,
+        "FilterEditOpened": 1,
+        "FilterProposed(edit)": 1,
+        "FilterApplied(edit)": 1,
+        "FilterProposed(remove)": 1,
+        "FilterRemoved": 1
+      }
+    },
+    "requiredEvents": [
+      "ExplorerCreated",
+      "SourceTableCreated",
+      "TemporalColumnApplied",
+      "FilterProposed(create)",
+      "FilterCancelled",
+      "Reload",
+      "FilterApplied(create)",
+      "FilterEditOpened",
+      "FilterProposed(edit)",
+      "FilterApplied(edit)",
+      "FilterProposed(remove)",
+      "FilterRemoved"
+    ]
+  },
+  "nativeJourney": {
+    "captureAdapter": "temporal-filter-journey-v1",
+    "captureKind": "builder-temporal-native-lifecycle",
+    "formalProofAssertion": "Captured DATE_TIME native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing",
+    "nativeCaseKey": "basic-temporal-filter/date-time",
+    "traceName": "basic-temporal-filter:date-time",
+    "model": "TemporalFilterJourney",
+    "exactActionCounts": true,
+    "requiredMutationControlNames": [
+      "proposal-owner-drift",
+      "proposal-cas-drift",
+      "semantic-action-order-drift"
+    ],
+    "actions": [
+      {
+        "label": "ExplorerCreated",
+        "event": "ExplorerCreated"
+      },
+      {
+        "label": "SourceTableCreated",
+        "event": "SourceTableCreated"
+      },
+      {
+        "label": "TemporalColumnApplied",
+        "event": "TemporalColumnApplied"
+      },
+      {
+        "label": "FilterProposed(create)",
+        "event": "FilterProposed(create)"
+      },
+      {
+        "label": "FilterCancelled",
+        "event": "FilterCancelled"
+      },
+      {
+        "label": "Reload",
+        "event": "Reload"
+      },
+      {
+        "label": "FilterProposed(create)",
+        "event": "FilterProposed(create)"
+      },
+      {
+        "label": "FilterApplied(create)",
+        "event": "FilterApplied(create)"
+      },
+      {
+        "label": "Reload",
+        "event": "Reload"
+      },
+      {
+        "label": "FilterEditOpened",
+        "event": "FilterEditOpened"
+      },
+      {
+        "label": "FilterProposed(edit)",
+        "event": "FilterProposed(edit)"
+      },
+      {
+        "label": "FilterApplied(edit)",
+        "event": "FilterApplied(edit)"
+      },
+      {
+        "label": "Reload",
+        "event": "Reload"
+      },
+      {
+        "label": "FilterProposed(remove)",
+        "event": "FilterProposed(remove)"
+      },
+      {
+        "label": "FilterRemoved",
+        "event": "FilterRemoved"
+      },
+      {
+        "label": "Reload",
+        "event": "Reload"
+      }
+    ],
+    "coverageBasis": "Temporal compiler/TLC predicates bind the 16 ordered actions to captured observer request identity, response status, owner/CAS and chronology, Builder read snapshots, and mounted DOM receipt/output/row IDs; the independent Basic Observation.effectiveDateTime oracle and lifecycle assertions check exact fixture identities and typed DATE_TIME input, request, response, saved value, cancel, apply, edit, removal, reload, and restoration.",
+    "valueKind": "DATE_TIME",
+    "resourceType": "Observation",
+    "fieldPath": "effectiveDateTime"
+  }
+}
