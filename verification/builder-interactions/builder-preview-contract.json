@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "dc16751bd54badd4c022cbdb527e0d6863a105410a0fa23711c5a42f20a44594",
+      "sha256": "07d679c2fe0266e681f7fd9ca27ce0c75982b2c6cebb385535ecf3c4040f9596",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
