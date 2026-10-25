@@ -6530,6 +6530,8 @@ const registryRows = [
               'scripts/verify-ui/registry.mjs',
               'verification/builder-interactions/builder-cda-group-related-contract.json',
               'ui/apps/demo/src/main.tsx',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts',
+              'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts',
             ],
           },
         ],
