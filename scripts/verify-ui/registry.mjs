@@ -6520,7 +6520,6 @@ const registryRows = [
               'scripts/verify-ui/helpers/cda-row-oracle.mjs',
               'scripts/verify-ui/helpers/builder-journey-trace.mjs',
               'scripts/verify-ui/helpers/construction-operation-diff.mjs',
-              'scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs',
               'scripts/verify-ui/helpers/source-fingerprint.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
               'scripts/generate-builder-browser-evidence.mjs',
