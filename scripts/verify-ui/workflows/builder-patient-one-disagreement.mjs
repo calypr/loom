@@ -171,6 +171,16 @@ const policyGroupProjection = (savedState, { inputColumnId, renderedRows }) => {
   };
 };
 
+export const policyApplyTraceExpectation = ({ savedState, inputColumnId, renderedRows, status }) => {
+  const group = policyGroupProjection(savedState, { inputColumnId, renderedRows });
+  return {
+    policy: group.rowValuePolicy,
+    status,
+    inputColumnBinding: group.inputColumnBinding,
+    outputColumnBinding: group.outputColumnBinding,
+  };
+};
+
 export const policyWorkspaceProjection = ({ savedState, renderedRows, sourceState, fixtureIDs, addedColumnId }) => {
   const rows = renderedRows.rows ?? renderedRows.cells ?? [];
   const sourceColumns = sourceState.sourceColumns.filter(column => column.sourcePath !== null);
@@ -1330,10 +1340,6 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
     'removing Group restores the original Patient fields and rows after reload',
   ];
 
-  const addedPatientIDBinding = {
-    columnId: addedPatientIDColumnId,
-    field: `${sourceSavedState.rootResourceType}.${addedPatientIDColumns[0].source.field.path}`,
-  };
   const modeledRequestObjects = new Set([
     groupPreviewStarted.rawRequest,
     groupApplyStarted.rawRequest,
@@ -1364,10 +1370,12 @@ export const patientOneDisagreementWorkflow = async (workflow, context) => {
         rowCount: policyOnePreview.rowCount, memberIdsField: 'memberIds', countField: 'count',
         count: fixtureIDs.length,
       },
-      apply: {
-        policy: 'ALL', status: allApplyExchange.response.status,
-        inputColumnBinding: addedPatientIDBinding,
-      },
+      apply: policyApplyTraceExpectation({
+        savedState: allReloadSavedState,
+        inputColumnId: reloadedPatientIDColumnId,
+        renderedRows: rendered,
+        status: allApplyExchange.response.status,
+      }),
       editorIdentity: {
         editorId: selectedOneState.editorMountIdentity,
         documentTimeOrigin: selectedOneState.documentTimeOrigin,

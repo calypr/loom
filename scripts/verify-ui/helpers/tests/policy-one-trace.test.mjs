@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildPolicyOneTrace, POLICY_TRACE_ABSENT } from '../policy-one-trace.mjs';
+import {
+  patientOneSavedState,
+  policyApplyTraceExpectation,
+} from '../../workflows/builder-patient-one-disagreement.mjs';
 import { makePolicyOneTraceInput } from './fixtures/policy-one-journey.mjs';
 
 const eventNames = [
@@ -99,6 +103,43 @@ test('a valid ONE rejection and same-choice ALL Apply persist distinct input and
     'the model trace must not retain raw browser request objects');
   assert.deepEqual(JSON.parse(JSON.stringify(trace)), trace,
     'the model trace must contain only finite JSON values');
+});
+
+test('the production saved-state projection supplies the trace adapter Apply contract', () => {
+  const input = makePolicyOneTraceInput();
+  const applied = input.saved.afterApply;
+  const savedState = patientOneSavedState({
+    workspace: applied.workspace,
+    draftVersion: applied.draftVersion,
+    draftDigest: applied.draftDigest,
+    catalog: { snapshotToken: applied.snapshotToken },
+  }, 'output-1');
+  const rowValue = savedState.group.rowValues[0];
+  const expectedApply = policyApplyTraceExpectation({
+    savedState,
+    inputColumnId: rowValue.inputColumnId,
+    renderedRows: { headers: ['Row count'], cells: [[{ text: '2' }]] },
+    status: 200,
+  });
+
+  input.expected.apply = expectedApply;
+  input.saved.afterApply.group = {
+    ...input.saved.afterApply.group,
+    rowValuePolicy: expectedApply.policy,
+    inputColumnId: rowValue.inputColumnId,
+    inputColumnBinding: expectedApply.inputColumnBinding,
+    outputColumnBinding: expectedApply.outputColumnBinding,
+  };
+  const { journeyTrace } = buildPolicyOneTrace(input);
+
+  assert.deepEqual(expectedApply, {
+    policy: 'ALL',
+    status: 200,
+    inputColumnBinding: { columnId: rowValue.inputColumnId, field: 'Patient.id' },
+    outputColumnBinding: { columnId: rowValue.outputColumnId, type: 'array' },
+  });
+  assert.equal(journeyTrace.actions.find(action => action.label === 'AllApplied')
+    .observation.saved.group.outputColumnBinding.columnId, rowValue.outputColumnId);
 });
 
 for (const [name, mutate, message] of captureMutations) {
