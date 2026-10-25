@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "0a59682697ffa5e592e7083c61bba546dbefdf356d7a84fe078c6e6c71850c69",
+      "sha256": "59b07b8aca72744b40f6f563f3387181552a21faae232f20dc3ae4a032b9371a",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -629,7 +629,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs",
-      "sha256": "960f61ab69b97802aa48f0d81bcbc3e530ac2a773b3e78d56c5aae21db865617",
+      "sha256": "bd6549181e2a3766f8c46e0c9343dbade8e8e02ddfe0788be86c1c9d95149255",
       "contract": "Checks the static DATE and DATE_TIME adapter bindings, contracts, and coverage projection."
     },
     {

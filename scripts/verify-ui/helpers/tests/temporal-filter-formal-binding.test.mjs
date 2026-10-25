@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { registry } from '../../registry.mjs';
+import { planFocusedCheckGroups } from '../focused-check-groups.mjs';
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 import {
   nativeBuilderJourneyReceiptFromReport,
@@ -40,6 +41,34 @@ const cases = [
 const bindingFor = caseName => registry.find(entry => entry.id === 'basic-temporal-filter')
   ?.cases?.[caseName]?.journeyTrace;
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../');
+
+test('DATE and DATE_TIME focused binding groups plan their command test exactly once', () => {
+  const scenario = registry.find(entry => entry.id === 'basic-temporal-filter');
+  assert(scenario, 'Missing the registered Temporal scenario.');
+
+  for (const spec of cases) {
+    const registeredCase = scenario.cases[spec.caseName];
+    assert(registeredCase, `Missing the registered Temporal ${spec.caseName} case.`);
+    const group = registeredCase.focusedChecks.find(candidate => candidate.id === 'basic-temporal-filter-formal-binding');
+    assert(group, `Missing the Temporal ${spec.caseName} formal binding check.`);
+    const testFile = 'scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs';
+    assert.deepEqual(group.command, ['node-test', testFile]);
+    assert.equal(group.sourceFiles.includes(testFile), false,
+      'The command test is already a fingerprinted input and must not also appear in sourceFiles.');
+
+    const plans = planFocusedCheckGroups(registeredCase.focusedChecks, repositoryRoot);
+    const plan = plans.find(candidate => candidate.id === group.id);
+    assert(plan, `The Temporal ${spec.caseName} binding check was not planned.`);
+    assert.deepEqual(plan.args, ['--test', testFile]);
+    assert.equal(plan.args.filter(argument => argument === testFile).length, 1);
+  }
+
+  const dateGroup = scenario.cases.date.focusedChecks.find(candidate => candidate.id === 'basic-temporal-filter-formal-binding');
+  assert.throws(() => planFocusedCheckGroups([{
+    ...dateGroup,
+    sourceFiles: [...dateGroup.sourceFiles, dateGroup.command[1]],
+  }], repositoryRoot), /duplicate file/);
+});
 
 test('DATE and DATE_TIME bindings select stable case-specific Temporal adapters', () => {
   assert.equal(registeredBuilderFormalAdapterIds.filter(id => id === 'temporal-filter-journey-v1').length, 1);
