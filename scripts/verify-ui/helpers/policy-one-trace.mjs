@@ -231,6 +231,31 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
     `transport ${capture.transportIndex} settlement must follow its request`);
     assert(['SETUP', 'FORMAL'].includes(capture.capturePhase),
       `transport ${capture.transportIndex} must retain its actual capture phase`);
+    assert.equal(typeof capture.responseObservedBeforeFailure, 'boolean',
+      `transport ${capture.transportIndex} must retain whether headers preceded a failed terminal`);
+    const responseHeaders = capture.responseHeaders ?? null;
+    const responseReadError = capture.responseReadError ?? null;
+    if (responseHeaders) {
+      record(responseHeaders, `transport ${capture.transportIndex} response headers`);
+      assert(Number.isInteger(responseHeaders.status) && responseHeaders.status > 0,
+        `transport ${capture.transportIndex} response headers must retain their actual status`);
+      assert(responseHeaders.requestId === null || typeof responseHeaders.requestId === 'string',
+        `transport ${capture.transportIndex} response headers request ID must be a string or null`);
+      finiteJSON(responseHeaders, `transport ${capture.transportIndex} response headers`);
+    } else {
+      assert.equal(capture.responseObservedBeforeFailure, false,
+        `transport ${capture.transportIndex} cannot report headers before failure without captured headers`);
+      assert.equal(responseReadError, null,
+        `transport ${capture.transportIndex} cannot report a response body read error without response headers`);
+    }
+    if (responseReadError !== null) {
+      nonEmptyString(responseReadError, `transport ${capture.transportIndex} response body read error`);
+      assert(responseHeaders,
+        `transport ${capture.transportIndex} response body read error must follow observed response headers`);
+    }
+    if (capture.responseBody !== undefined && capture.responseBody !== null) {
+      finiteJSON(capture.responseBody, `transport ${capture.transportIndex} response body facts`);
+    }
     if (capture.capturePhase === 'SETUP') {
       assert(capture.transportIndex <= formalEntry.afterTransportIndex,
         `setup transport ${capture.transportIndex} must precede the formal entry`);
@@ -243,6 +268,12 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         `formal transport ${capture.transportIndex} request must follow all setup settlements`);
     }
     if (capture.settlement === 'response') {
+      assert(responseHeaders,
+        `transport ${capture.transportIndex} response terminal must retain its response headers`);
+      assert.equal(capture.responseObservedBeforeFailure, false,
+        `transport ${capture.transportIndex} successful terminal cannot follow request failure`);
+      assert.equal(responseHeaders.status, capture.status,
+        `transport ${capture.transportIndex} response headers must match its terminal status`);
       assert.equal(capture.responseOwnerIndex, capture.transportIndex,
         `transport ${capture.transportIndex} response must retain its exact request owner`);
       assert(isRecord(capture.response), `transport ${capture.transportIndex} response facts are required`);
@@ -250,6 +281,8 @@ function canonicalTransportLedger(captures, references, initialPreview, initialO
         `transport ${capture.transportIndex} response status must match its settlement`);
       finiteJSON(capture.response, `transport ${capture.transportIndex} response facts`);
     } else {
+      assert.equal(capture.responseObservedBeforeFailure, Boolean(responseHeaders),
+        `transport ${capture.transportIndex} must preserve whether headers preceded its failed terminal`);
       assert.equal(capture.status, null, `failed transport ${capture.transportIndex} cannot have a response status`);
       assert.equal(capture.responseOwnerIndex, null,
         `failed transport ${capture.transportIndex} cannot claim a response owner`);

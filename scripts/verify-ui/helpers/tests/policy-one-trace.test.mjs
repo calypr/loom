@@ -44,6 +44,10 @@ const extraTransport = ({
   ownerScope = 'https://fixture.invalid/api/explorers/policy-one',
   status = 200,
   response,
+  responseHeaders = status === null ? null : { status, requestId },
+  responseReadError = null,
+  responseObservedBeforeFailure = false,
+  failure = null,
 }) => {
   return {
     transportIndex,
@@ -60,7 +64,11 @@ const extraTransport = ({
     requestBody,
     settlement: status === null ? 'request-failed' : 'response',
     responseOwnerIndex: status === null ? null : transportIndex,
+    responseHeaders,
+    responseReadError,
+    responseObservedBeforeFailure,
     status,
+    failure,
     response: status === null ? null : {
       status,
       requestId,
@@ -298,8 +306,9 @@ test('the Policy observer retains an in-flight setup request across formal entry
   });
   const deferred = () => {
     let resolve;
-    const promise = new Promise(done => { resolve = done; });
-    return { promise, resolve };
+    let reject;
+    const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+    return { promise, resolve, reject };
   };
 
   const page = new ObserverPage();
@@ -312,6 +321,7 @@ test('the Policy observer retains an in-flight setup request across formal entry
   let setupIdleSettled = false;
   setupIdle.then(() => { setupIdleSettled = true; });
   page.emit('response', makeResponse(setupRequest, setupBody.promise));
+  page.emit('requestfinished', setupRequest);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(setupIdleSettled, false,
     'the setup drain must wait for the pre-boundary response body to finish reading');
@@ -341,6 +351,7 @@ test('the Policy observer retains an in-flight setup request across formal entry
     preview: { receiptId: 'receipt-1', outputId: 'output-1', rowCount: 1, rows: [] },
   }, { requestId: 'proposal-physical-id' });
   page.emit('response', proposalResponse);
+  page.emit('requestfinished', proposalRequest);
   const settled = await attempt.settled;
   assert.equal(settled.response?.captureId, started.request.captureId);
   assert.equal(settled.response?.status, 200);
@@ -351,11 +362,47 @@ test('the Policy observer retains an in-flight setup request across formal entry
   assert.equal(semanticRecord.requestCaptureId, settled.request.captureId);
   assert.equal(semanticRecord.responseOwnerIndex, semanticRecord.transportIndex);
 
+  const inventoryRequest = makeRequest({ path: 'semantic-inventory', requestId: 'inventory-physical-id',
+    body: { outputId: 'output-1', rowRoot: 'Patient', limit: 50 } });
+  page.emit('request', inventoryRequest);
+  const inventoryBody = deferred();
+  page.emit('response', makeResponse(inventoryRequest, inventoryBody.promise,
+    { requestId: 'inventory-physical-id' }));
+  await new Promise(resolve => setImmediate(resolve));
+  const inventoryRecord = observer.entryForRequest(inventoryRequest).record;
+  assert.deepEqual(inventoryRecord.responseHeaders,
+    { status: 200, requestId: 'inventory-physical-id' },
+  'the response event must retain actual HTTP headers without marking transport completion');
+  assert.equal(inventoryRecord.settlement, 'pending');
+  page.emit('requestfailed', inventoryRequest);
+  assert.equal(inventoryRecord.settlement, 'request-failed');
+  assert.equal(inventoryRecord.responseObservedBeforeFailure, true);
+  assert.equal(inventoryRecord.responseHeaders.status, 200);
+  assert.equal(inventoryRecord.status, null,
+    'a response-header observation followed by a failed terminal remains a request failure');
+  let failedReadIdleSettled = false;
+  const failedReadIdle = observer.waitUntilIdle().then(() => { failedReadIdleSettled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(failedReadIdleSettled, false,
+    'the transport drain must wait for a response body read after the request failed');
+  assert.throws(() => page.emit('requestfailed', inventoryRequest),
+    /authoring transport 3 must settle exactly once/,
+  'a second real terminal event for the same Request identity remains fatal');
+  inventoryBody.reject(new Error('response body was canceled after response headers'));
+  await failedReadIdle;
+
   const capture = await observer.finish();
-  assert.deepEqual(capture.captures.map(entry => entry.capturePhase), ['SETUP', 'FORMAL']);
+  assert.deepEqual(capture.captures.map(entry => entry.capturePhase), ['SETUP', 'FORMAL', 'FORMAL']);
   assert.equal(capture.captures[0].settlement, 'response');
   assert.equal(capture.captures[1].requestCaptureId, started.request.captureId);
   assert.equal(capture.captures[1].responseOwnerIndex, capture.captures[1].transportIndex);
+  assert.equal(capture.captures[2].settlement, 'request-failed');
+  assert.deepEqual(capture.captures[2].responseHeaders,
+    { status: 200, requestId: 'inventory-physical-id' });
+  assert.equal(capture.captures[2].responseObservedBeforeFailure, true);
+  assert.equal(capture.captures[2].responseReadError,
+    'Error: response body was canceled after response headers');
+  assert.equal(capture.captures[2].failure, 'net::ERR_ABORTED');
 });
 
 test('the Policy observer rejects formal entry when a setup command failed or was canceled', async () => {
@@ -514,6 +561,29 @@ test('the transport ledger accounts for explicitly supported read-only routes an
   }));
   assert.equal(buildPolicyOneTrace(readOnlyGet).journeyTrace.transportLedger.at(-1).readOnlyReason,
     'BuilderState read');
+
+  const canceledReadOnly = makePolicyOneTraceInput();
+  canceledReadOnly.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'POST',
+    path: 'semantic-inventory',
+    requestBody: { outputId: 'output-1', rowRoot: 'Patient', limit: 50 },
+    status: null,
+    responseHeaders: { status: 200, requestId: 'inventory-header-id' },
+    responseObservedBeforeFailure: true,
+    responseReadError: 'response body canceled after navigation',
+    failure: 'net::ERR_ABORTED',
+  }));
+  const canceledTransport = buildPolicyOneTrace(canceledReadOnly).journeyTrace.transportLedger.at(-1);
+  assert.equal(canceledTransport.settlement, 'request-failed');
+  assert.deepEqual(canceledTransport.responseHeaders,
+    { status: 200, requestId: 'inventory-header-id' });
+  assert.equal(canceledTransport.responseObservedBeforeFailure, true);
+  assert.equal(canceledTransport.responseReadError, 'response body canceled after navigation');
+  assert.equal(canceledTransport.status, null);
+  assert.equal(canceledTransport.responseOwnerIndex, null);
 
   const unknownPost = makePolicyOneTraceInput();
   unknownPost.context.transportCaptures.push(extraTransport({

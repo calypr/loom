@@ -50,8 +50,13 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
         settlement: 'pending',
         status: null,
         responseOwnerIndex: null,
+        responseHeaders: null,
+        responseReadError: null,
+        responseObservedBeforeFailure: false,
         response: null,
       },
+      responseObject: null,
+      responseBodyFacts: null,
     };
     entriesByRequest.set(request, entry);
     captures.push(entry);
@@ -59,26 +64,19 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
     return entry;
   };
 
-  const settleRequest = (request, response = null) => {
+  const observeResponse = response => {
+    const request = response.request();
     const url = new URL(request.url());
     if (!url.pathname.includes(authoringPrefix)) return;
     const entry = entriesByRequest.get(request);
-    assert(entry, 'authoring transport settlement must retain its exact observed request object');
+    assert(entry, 'authoring transport response must retain its exact observed request object');
     assert.equal(entry.record.settlement, 'pending',
-      `authoring transport ${entry.record.transportIndex} must settle exactly once`);
-    if (!response) {
-      entry.record.settlement = 'request-failed';
-      entry.record.settlementEventIndex = ++transportEventIndex;
-      entry.record.failure = request.failure()?.errorText ?? 'request failed without error detail';
-      pendingRequests.delete(request);
-      entry.resolveTerminal();
-      return;
-    }
-    entry.record.settlement = 'response';
-    entry.record.settlementEventIndex = ++transportEventIndex;
-    entry.record.responseOwnerIndex = entry.record.transportIndex;
-    entry.record.status = response.status();
+      `authoring transport ${entry.record.transportIndex} cannot receive response headers after terminal completion`);
+    assert.equal(entry.responseObject, null,
+      `authoring transport ${entry.record.transportIndex} must observe response headers at most once`);
+    entry.responseObject = response;
     const responseRequestId = String(response.headers()['x-request-id'] ?? '').trim() || null;
+    entry.record.responseHeaders = { status: response.status(), requestId: responseRequestId };
     let responseRead;
     responseRead = Promise.resolve().then(() => response.json()).then(body => {
       const preview = body?.preview ?? null;
@@ -89,7 +87,7 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
       ].filter(value => typeof value === 'string');
       const receiptIds = [body?.receiptId, body?.proposalId, preview?.receiptId]
         .filter(value => typeof value === 'string');
-      entry.record.response = {
+      entry.responseBodyFacts = {
         status: response.status(),
         requestId: responseRequestId ?? body?.requestId ?? null,
         commandId: body?.commandId ?? null,
@@ -103,19 +101,71 @@ export const createPolicyOneTransportObserver = (page, { authoringPrefix = AUTHO
         intentDigest: body?.intentDigest ?? null,
         previewRowsPresent: Array.isArray(preview?.rows),
       };
+      if (entry.record.settlement === 'response') {
+        entry.record.response = entry.responseBodyFacts;
+      } else if (entry.record.settlement === 'request-failed') {
+        entry.record.responseBody = entry.responseBodyFacts;
+      }
     }).catch(error => {
       entry.record.responseReadError = String(error);
+      if (entry.record.settlement === 'response') {
+        entry.record.response = {
+          status: entry.record.responseHeaders.status,
+          requestId: entry.record.responseHeaders.requestId,
+          responseReadError: entry.record.responseReadError,
+        };
+      }
     }).finally(() => {
       pendingResponseReads.delete(responseRead);
-      pendingRequests.delete(request);
-      entry.resolveTerminal();
     });
     pendingResponseReads.add(responseRead);
   };
 
+  const settleRequestFinished = request => {
+    const url = new URL(request.url());
+    if (!url.pathname.includes(authoringPrefix)) return;
+    const entry = entriesByRequest.get(request);
+    assert(entry, 'authoring transport completion must retain its exact observed request object');
+    assert.equal(entry.record.settlement, 'pending',
+      `authoring transport ${entry.record.transportIndex} must settle exactly once`);
+    assert(entry.record.responseHeaders,
+      `authoring transport ${entry.record.transportIndex} must observe response headers before requestfinished`);
+    entry.record.settlement = 'response';
+    entry.record.settlementEventIndex = ++transportEventIndex;
+    entry.record.responseOwnerIndex = entry.record.transportIndex;
+    entry.record.status = entry.record.responseHeaders.status;
+    entry.record.response = entry.responseBodyFacts ?? {
+      status: entry.record.responseHeaders.status,
+      requestId: entry.record.responseHeaders.requestId,
+      ...(entry.record.responseReadError ? { responseReadError: entry.record.responseReadError } : {}),
+    };
+    pendingRequests.delete(request);
+    entry.resolveTerminal();
+  };
+
+  const settleRequestFailed = request => {
+    const url = new URL(request.url());
+    if (!url.pathname.includes(authoringPrefix)) return;
+    const entry = entriesByRequest.get(request);
+    assert(entry, 'authoring transport settlement must retain its exact observed request object');
+    assert.equal(entry.record.settlement, 'pending',
+      `authoring transport ${entry.record.transportIndex} must settle exactly once`);
+    entry.record.settlement = 'request-failed';
+    entry.record.settlementEventIndex = ++transportEventIndex;
+    entry.record.failure = request.failure()?.errorText ?? 'request failed without error detail';
+    entry.record.responseObservedBeforeFailure = entry.record.responseHeaders !== null;
+    entry.record.status = null;
+    entry.record.responseOwnerIndex = null;
+    entry.record.response = null;
+    if (entry.responseBodyFacts) entry.record.responseBody = entry.responseBodyFacts;
+    pendingRequests.delete(request);
+    entry.resolveTerminal();
+  };
+
   page.on('request', captureRequest);
-  page.on('response', response => settleRequest(response.request(), response));
-  page.on('requestfailed', request => settleRequest(request));
+  page.on('response', observeResponse);
+  page.on('requestfinished', settleRequestFinished);
+  page.on('requestfailed', settleRequestFailed);
 
   const waitUntilIdle = async ({ timeoutMs = 5000 } = {}) => {
     const deadline = Date.now() + timeoutMs;

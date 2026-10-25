@@ -74,7 +74,8 @@ function makeSyntheticReconcileLedgerTrace() {
     compatibleProposalTransportIndices = [], successfulPreviewConsumerTransportIndices = [],
     invalidatedByTransportIndices = [], reconcileOwner = null, reconcileCAS = null,
     ownerInvalidationObserved = false, reconcileOwnerChangeCaptureIds = [], reconcileDisposition = 'Absent',
-    savedCASAfter = null,
+    savedCASAfter = null, settlement = 'response', responseHeaders = { status, requestId },
+    responseReadError = null, responseObservedBeforeFailure = false, failure = null,
   }) => ({
     transportIndex,
     requestEventIndex,
@@ -92,10 +93,14 @@ function makeSyntheticReconcileLedgerTrace() {
     requestId,
     requestCaptureId: null,
     requestBody,
-    settlement: 'response',
-    responseOwnerIndex: transportIndex,
-    status,
-    response: { status, ...response },
+    settlement,
+    responseOwnerIndex: settlement === 'response' ? transportIndex : null,
+    responseHeaders,
+    responseReadError,
+    responseObservedBeforeFailure,
+    status: settlement === 'response' ? status : null,
+    failure,
+    response: settlement === 'response' ? { status, ...response } : null,
     savedCASAfter,
     currentReceiptProducerTransportIndices,
     hasInitialCurrentReceiptProducer,
@@ -189,6 +194,22 @@ function makeSyntheticReconcileLedgerTrace() {
       response: { outputIds: [] },
       classification: 'read-only',
       readOnlyReason: 'BuilderState read',
+    }),
+    transport({
+      transportIndex: previewIndex + 2,
+      requestEventIndex: 27,
+      settlementEventIndex: 28,
+      method: 'POST',
+      path: 'semantic-inventory',
+      requestBody: { outputId: 'output-1', rowRoot: 'Patient', limit: 50 },
+      status: null,
+      classification: 'read-only',
+      readOnlyReason: 'Semantic inventory read',
+      settlement: 'request-failed',
+      responseHeaders: { status: 200, requestId: 'inventory-header-id' },
+      responseReadError: 'response body canceled after navigation',
+      responseObservedBeforeFailure: true,
+      failure: 'net::ERR_ABORTED',
     }),
   );
   return trace;
@@ -416,6 +437,16 @@ test('TLC excludes setup reconcile receipts invalidated by a same-owner setup co
 
 test('TLC validates scoped reconcile ownership, receipt sets, and read-only routes in a unit trace', t => {
   const trace = makeSyntheticReconcileLedgerTrace();
+  const interruptedInventory = trace.transportLedger.at(-1);
+  assert.equal(interruptedInventory.settlement, 'request-failed');
+  assert.deepEqual(interruptedInventory.responseHeaders,
+    { status: 200, requestId: 'inventory-header-id' });
+  assert.equal(interruptedInventory.responseObservedBeforeFailure, true);
+  assert.equal(interruptedInventory.responseReadError, 'response body canceled after navigation');
+  const incorrectOrder = structuredClone(trace);
+  incorrectOrder.transportLedger.at(-1).responseObservedBeforeFailure = false;
+  assert.throws(() => compilePolicyOneJourneyTrace(incorrectOrder),
+    /must preserve whether headers preceded its failed terminal/);
   const compiled = compilePolicyOneJourneyTrace(trace, { moduleName: 'PolicyOneReconcileLedgerUnit' });
   assert.match(compiled.modelText, /CompatibleInvalidations/);
   assert.match(compiled.modelText, /CompatiblePreviewConsumers/);

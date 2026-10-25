@@ -324,6 +324,11 @@ function transportFact(entry) {
     requestId: entry.requestId ?? ABSENT,
     requestCaptureId: entry.requestCaptureId ?? ABSENT,
     requestBodyFingerprint: stableJSON(entry.requestBody ?? null),
+    responseHeadersObserved: entry.responseHeaders !== null && entry.responseHeaders !== undefined,
+    responseHeadersStatus: entry.responseHeaders?.status ?? 0,
+    responseHeadersRequestId: entry.responseHeaders?.requestId ?? ABSENT,
+    responseReadError: entry.responseReadError ?? ABSENT,
+    responseObservedBeforeFailure: entry.responseObservedBeforeFailure === true,
     commandId: body.commandId ?? command.commandId ?? ABSENT,
     outputId: body.outputId ?? command.outputId ?? ABSENT,
     snapshotToken: body.snapshotToken ?? ABSENT,
@@ -421,6 +426,27 @@ function validateTraceShape(trace) {
       `transport ledger row ${index} ownerScope must be derived from its resourcePath`);
     assert(['response', 'request-failed'].includes(entry.settlement),
       `transport ledger row ${index} must have a settled response or failure`);
+    assert.equal(typeof entry.responseObservedBeforeFailure, 'boolean',
+      `transport ledger row ${index} must retain whether headers preceded a failed terminal`);
+    const responseHeaders = entry.responseHeaders ?? null;
+    const responseReadError = entry.responseReadError ?? null;
+    if (responseHeaders) {
+      assert(isRecord(responseHeaders), `transport ledger row ${index} response headers must be an object`);
+      assert(Number.isInteger(responseHeaders.status) && responseHeaders.status > 0,
+        `transport ledger row ${index} response headers must retain their actual status`);
+      assert(responseHeaders.requestId === null || typeof responseHeaders.requestId === 'string',
+        `transport ledger row ${index} response header request ID must be a string or null`);
+    } else {
+      assert.equal(entry.responseObservedBeforeFailure, false,
+        `transport ledger row ${index} cannot report headers before failure without captured headers`);
+      assert.equal(responseReadError, null,
+        `transport ledger row ${index} cannot report a body read error without response headers`);
+    }
+    if (responseReadError !== null) {
+      requireString(responseReadError, `transport ledger row ${index} response body read error`);
+      assert(responseHeaders,
+        `transport ledger row ${index} body read error must follow observed response headers`);
+    }
     assert(['SETUP', 'FORMAL'].includes(entry.capturePhase),
       `transport ledger row ${index} must retain its capture phase`);
     assert.equal(typeof entry.setupMutation, 'boolean',
@@ -439,6 +465,12 @@ function validateTraceShape(trace) {
         `formal transport ${entry.transportIndex} must follow setup settlements`);
     }
     if (entry.settlement === 'response') {
+      assert(responseHeaders,
+        `transport ledger row ${index} response terminal must retain response headers`);
+      assert.equal(entry.responseObservedBeforeFailure, false,
+        `transport ledger row ${index} successful terminal cannot follow request failure`);
+      assert.equal(responseHeaders.status, entry.status,
+        `transport ledger row ${index} headers must match terminal status`);
       assert.equal(entry.responseOwnerIndex, entry.transportIndex,
         `transport ledger row ${index} response must retain its exact request owner`);
       assert(Number.isInteger(entry.status) && entry.status > 0,
@@ -447,6 +479,8 @@ function validateTraceShape(trace) {
       assert.equal(entry.response.status, entry.status,
         `transport ledger row ${index} response status must match the settlement`);
     } else {
+      assert.equal(entry.responseObservedBeforeFailure, Boolean(responseHeaders),
+        `transport ledger row ${index} must preserve whether headers preceded its failed terminal`);
       assert.equal(entry.responseOwnerIndex, null,
         `failed transport ledger row ${index} cannot claim a response owner`);
       assert.equal(entry.status, null, `failed transport ledger row ${index} cannot have a response status`);
@@ -1243,9 +1277,22 @@ function generateReplayModule(moduleName, observations) {
     '  /\\ entry.requestEventIndex > 0',
     '  /\\ entry.settlement \\in {"response", "request-failed"}',
     '  /\\ entry.settlementEventIndex > entry.requestEventIndex',
+    '  /\\ entry.responseHeadersObserved \\in BOOLEAN',
+    '  /\\ entry.responseHeadersStatus >= 0',
+    '  /\\ entry.responseObservedBeforeFailure \\in BOOLEAN',
+    '  /\\ (entry.responseHeadersObserved => entry.responseHeadersStatus > 0)',
+    '  /\\ (~entry.responseHeadersObserved =>',
+    '         /\\ entry.responseHeadersStatus = 0',
+    '         /\\ entry.responseHeadersRequestId = "Absent"',
+    '         /\\ entry.responseReadError = "Absent")',
+    '  /\\ (entry.responseReadError # "Absent" => entry.responseHeadersObserved)',
+    '  /\\ entry.responseObservedBeforeFailure =',
+    '       (entry.settlement = "request-failed" /\\ entry.responseHeadersObserved)',
     '  /\\ IF entry.settlement = "response"',
     '       THEN /\\ entry.responseOwnerIndex = index',
     '            /\\ entry.responseStatus > 0',
+    '            /\\ entry.responseHeadersObserved',
+    '            /\\ entry.responseHeadersStatus = entry.responseStatus',
     '       ELSE /\\ entry.responseOwnerIndex = 0',
     '            /\\ entry.responseStatus = 0',
     '  /\\ IF index = 1',

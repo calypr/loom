@@ -55,6 +55,9 @@ const testTransportCapture = (transportIndex, request, response, eventOrder = {}
     requestBody: request.body,
     settlement: 'response',
     responseOwnerIndex: transportIndex,
+    responseHeaders: { status: response.status, requestId: response.requestId ?? null },
+    responseReadError: null,
+    responseObservedBeforeFailure: false,
     status: response.status,
     response: {
       status: response.status,
