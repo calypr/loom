@@ -505,17 +505,23 @@ function relatedSourceProjectionFromSteps(steps, columns, group, where, journeyC
       typeof related.outputColumnId !== 'string' || related.outputColumnId.trim().length === 0) {
     return { problem: where + ' must preserve the native choice identity and output column identity' };
   }
-  const outputs = Array.isArray(step.outputs) ? step.outputs.filter((output) => output?.id === related.outputColumnId) : [];
-  if (outputs.length !== 1) return { problem: where + '.outputs must contain exactly the RELATED_SOURCE outputColumnId' };
-  const output = outputs[0];
+  const constructionOutputMatches = steps.flatMap((candidateStep) =>
+    (Array.isArray(candidateStep?.outputs) ? candidateStep.outputs : [])
+      .filter((candidateOutput) => candidateOutput?.id === related.outputColumnId)
+      .map((candidateOutput) => ({ stepId: candidateStep.id, output: candidateOutput })));
+  if (constructionOutputMatches.length !== 1 || constructionOutputMatches[0].stepId !== step.id) {
+    return { problem: where + '.construction.steps outputs must identify the RELATED_SOURCE outputColumnId exactly once' };
+  }
+  const output = constructionOutputMatches[0].output;
   if (typeof output.name !== 'string' || typeof output.label !== 'string' || typeof output.type !== 'string') {
     return { problem: where + ' RELATED_SOURCE output must preserve its name, label, and logical type' };
   }
   if (columns !== undefined) {
-    const matchingColumns = Array.isArray(columns)
-      ? columns.filter((column) => (column?.columnId ?? column?.id) === related.outputColumnId)
-      : [];
-    if (matchingColumns.length !== 1) return { problem: where + ' raw document columns must retain the RELATED_SOURCE output identity' };
+    if (!Array.isArray(columns)) return { problem: where + '.document.columns must preserve the raw column identity list' };
+    const matchingColumns = columns.filter((column) => (column?.columnId ?? column?.id) === related.outputColumnId);
+    if (matchingColumns.length > 1) {
+      return { problem: where + '.document.columns must not contain an ambiguous duplicate RELATED_SOURCE outputColumnId' };
+    }
   }
   return {
     relatedSource: {
@@ -540,6 +546,9 @@ function relatedSourceSnapshotProblem(saved, where, journeyCase, requireGroupPro
   }
   const selected = savedBuilderDocument(saved, where);
   if (selected.problem) return selected;
+  if (!Array.isArray(selected.document.columns)) {
+    return { problem: where + '.workspace.documents selected document must preserve its raw columns array' };
+  }
   const steps = selected.document.construction?.steps ?? [];
   const groupSteps = steps.filter((step) => step?.operation?.kind === 'GROUP');
   if (groupSteps.length > 1) return { problem: where + ' must contain at most one GROUP step' };
@@ -5073,6 +5082,8 @@ export {
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
+  relatedSourceSnapshotProblem,
+  relatedSourceProjectionFromSteps,
 };
 
 const isDirectExecution = (() => {

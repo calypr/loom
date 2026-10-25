@@ -8,6 +8,8 @@ import {
   cdaLatePreviewObservationProblem,
   cdaMutatingRequestCoverageProblem,
   cdaRequestCoverageReceipt,
+  relatedSourceSnapshotProblem,
+  relatedSourceProjectionFromSteps,
 } from './verify-builder-traces.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -86,6 +88,103 @@ const selfTestReceiptWriterTest = () => {
   const wrongOutputRejected = selfTestReceiptProblem({ ...fixture, selfTestReportPath: '/tmp/other.json' }, expected) !== null;
   const duplicateStatusRejected = selfTestReceiptProblem({ ...fixture, selfTestStatus: 'pass' }, expected) !== null;
   return validAccepted && missingOutputRejected && wrongOutputRejected && duplicateStatusRejected;
+};
+const cdaRelatedOutputProjectionTest = () => {
+  const journeyCase = {
+    relatedSource: {
+      resourceType: 'Observation',
+      fieldPath: 'status',
+      sourceRoute: [
+        { fromResourceType: 'Specimen', toResourceType: 'Patient' },
+        { fromResourceType: 'Patient', toResourceType: 'Observation' },
+      ],
+      form: 'ALL',
+      contributorPolicy: 'ALL_MATCHES',
+      rowValuePolicy: 'ALL',
+    },
+  };
+  const group = { stepId: 'group-step-fixture' };
+  const relatedOutput = { id: 'related-output-fixture', name: 'related-status', label: 'Status', type: 'string' };
+  const steps = [
+    {
+      id: group.stepId,
+      operation: { kind: 'GROUP', group: {
+        keys: [{ inputColumnId: 'source-column-fixture' }],
+        aggregates: [{ operation: 'COUNT_ROWS' }],
+      } },
+      outputs: [{ id: 'group-output-fixture' }],
+    },
+    {
+      id: 'related-step-fixture',
+      operation: {
+        kind: 'RELATED_SOURCE',
+        relatedSource: {
+          source: {
+            resourceType: 'Observation', path: 'status',
+            candidateId: 'candidate-fixture', nodeId: 'node-fixture',
+          },
+          route: journeyCase.relatedSource.sourceRoute,
+          form: 'ALL',
+          contributorRule: { policy: 'ALL_MATCHES' },
+          rowValuePolicy: 'ALL',
+          choiceId: 'choice-fixture',
+          outputColumnId: relatedOutput.id,
+        },
+      },
+      inputs: [{ kind: 'STEP_OUTPUT', stepId: group.stepId }],
+      outputs: [{ id: 'related-key-fixture' }, relatedOutput],
+    },
+  ];
+  const sourceColumnsOnly = [{ columnId: 'source-column-fixture', label: 'Source ID' }];
+  const projection = relatedSourceProjectionFromSteps(
+    steps, sourceColumnsOnly, group, 'fixture', journeyCase,
+  );
+  const constructedOutputAccepted = !projection.problem &&
+    projection.relatedSource?.outputColumnId === relatedOutput.id &&
+    projection.relatedSource.output.id === relatedOutput.id;
+  const matchingDocumentColumnAccepted = !relatedSourceProjectionFromSteps(
+    steps, [{ columnId: relatedOutput.id }], group, 'fixture', journeyCase,
+  ).problem;
+  const missingStepOutput = structuredClone(steps);
+  missingStepOutput[1].outputs = missingStepOutput[1].outputs.filter(output => output.id !== relatedOutput.id);
+  const missingStepOutputRejected = Boolean(relatedSourceProjectionFromSteps(
+    missingStepOutput, sourceColumnsOnly, group, 'fixture', journeyCase,
+  ).problem);
+  const duplicateConstructionOutput = structuredClone(steps);
+  duplicateConstructionOutput[0].outputs.push({ ...relatedOutput });
+  const duplicateConstructionOutputRejected = Boolean(relatedSourceProjectionFromSteps(
+    duplicateConstructionOutput, sourceColumnsOnly, group, 'fixture', journeyCase,
+  ).problem);
+  const ambiguousDocumentColumnsRejected = Boolean(relatedSourceProjectionFromSteps(
+    steps,
+    [{ columnId: relatedOutput.id }, { columnId: relatedOutput.id }],
+    group,
+    'fixture',
+    journeyCase,
+  ).problem);
+  const savedDocument = {
+    output: { id: 'builder-output-fixture' },
+    columns: sourceColumnsOnly,
+    construction: { steps },
+  };
+  const saved = {
+    explorerId: 'explorer-fixture',
+    group: { ...group, keys: ['source-column-fixture'], aggregate: 'COUNT_ROWS' },
+    relatedSource: projection.relatedSource,
+    workspace: { documents: [savedDocument] },
+    outputId: 'builder-output-fixture',
+    draftVersion: 1,
+    draftDigest: 'digest-fixture',
+  };
+  const savedSnapshotAccepted = relatedSourceSnapshotProblem(saved, 'fixture', journeyCase).problem === undefined;
+  const missingDocumentColumns = structuredClone(saved);
+  delete missingDocumentColumns.workspace.documents[0].columns;
+  const missingDocumentColumnsRejected = Boolean(
+    relatedSourceSnapshotProblem(missingDocumentColumns, 'fixture', journeyCase).problem,
+  );
+  return constructedOutputAccepted && matchingDocumentColumnAccepted && missingStepOutputRejected &&
+    duplicateConstructionOutputRejected && ambiguousDocumentColumnsRejected &&
+    savedSnapshotAccepted && missingDocumentColumnsRejected;
 };
 const cdaProposalObserverFlagTest = () => {
   const journeyCase = { readOnlySupportKinds: ['builder-read'] };
@@ -289,6 +388,11 @@ if (!selfTestReceiptWriterTest()) {
   process.exit(1);
 }
 console.log('PASS self-test receipt compatibility and output-path checks');
+if (!cdaRelatedOutputProjectionTest()) {
+  console.error('FAIL CDA related output projection must use the unique saved step output and reject missing/ambiguous IDs');
+  process.exit(1);
+}
+console.log('PASS CDA related output projection uses the saved step output and rejects missing/ambiguous IDs');
 if (!cdaProposalObserverFlagTest()) {
   console.error('FAIL CDA proposal observer flag accepts modeled proposals and rejects unknown false POSTs');
   process.exit(1);
