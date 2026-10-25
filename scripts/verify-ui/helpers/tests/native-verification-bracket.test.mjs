@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import {
   runProcess,
   main,
 } from '../../../run-native-verification-bracket.mjs';
+import { environmentForFixtureDir } from '../fixture-environment.mjs';
 
 const root = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const buildIdentity = 'a'.repeat(64) + ':' + 'a'.repeat(64) + ':' + 'b'.repeat(64);
@@ -3166,6 +3167,98 @@ test('normal selected-case CLI loads the explicit target against registered iden
   });
   assert.equal(bracketOptions.grep, undefined);
   assert.equal(JSON.parse(output[0]).targetValidation.runtimeDatasetIdentity, 'not-checked');
+});
+
+test('DATE environment target supplies the development root to the real fixtureDir boundary and rejects conflicts early', async () => {
+  const scenarioID = 'basic-temporal-filter';
+  const caseName = 'date';
+  const contract = scenarioCaseFor(scenarioID, caseName);
+  const fixtureDir = 'testdata/basic-temporal-filter';
+  const fixturePath = resolve(root, fixtureDir);
+  assert(existsSync(fixturePath), 'the registered DATE fixtureDir must exist in this checkout');
+  const targetEnvironment = {
+    LOOM_CDA_SOURCE_ROOT: root,
+    LOOM_CDA_PROJECT: 'loom_dev_basic_temporal_filter_test',
+    LOOM_CDA_GENERATION: 'cda-fhir-v1',
+    LOOM_CDA_COMPOSE_PROJECT: 'loom-dev-basic-temporal-filter',
+    LOOM_CDA_API_ORIGIN: 'http://127.0.0.1:8188',
+    LOOM_CDA_UI_ORIGIN: 'http://127.0.0.1:30008',
+    LOOM_CDA_API_CONTAINER: 'owned-api',
+    LOOM_CDA_ARANGO_CONTAINER: 'owned-arango',
+    LOOM_CDA_CLICKHOUSE_CONTAINER: 'owned-clickhouse',
+  };
+  assert.equal(Object.hasOwn(targetEnvironment, 'LOOM_DEV_SOURCE_ROOT'), false,
+    'the case begins with only the validated CDA target environment');
+
+  let fixtureEnvironment = null;
+  let bracketCalls = 0;
+  const output = [];
+  const exitCode = await main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--target-from-environment',
+  ], {
+    env: targetEnvironment,
+    targetLoader: async () => { throw new Error('environment mode must not load a target config'); },
+    runBracket: async (options) => {
+      bracketCalls += 1;
+      assert.equal(options.env.LOOM_DEV_SOURCE_ROOT, root);
+      assert(contract.focusedChecks.length > 0, 'the DATE case has focused groups before its browser fixture setup');
+      const passedFocusedGroups = contract.focusedChecks.map((group) => ({
+        id: group.id,
+        status: 'passed',
+        exitCode: 0,
+      }));
+      fixtureEnvironment = environmentForFixtureDir(options.env, fixtureDir);
+      return {
+        status: 'checks-passed',
+        scenario: scenarioID,
+        case: caseName,
+        durationMs: 1,
+        runDirectory: null,
+        evidence: { summary: null, domainReport: null },
+        integrity: { status: 'UNVERIFIED', dimensions: {} },
+        targetValidation: options.targetValidation,
+        registryValidation: options.registryValidation,
+        focusedCheckCoverage: 'registered',
+        focusedChecks: { status: 'passed', groups: passedFocusedGroups },
+        commands: {},
+        failureCategory: null,
+        reviewPacket: {
+          firstFailureReason: null,
+          failureContext: null,
+          failedAction: null,
+          lastCompletedAction: null,
+          pendingOwnedRequests: [],
+        },
+      };
+    },
+    write: (value) => output.push(value),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(bracketCalls, 1);
+  assert.equal(fixtureEnvironment.LOOM_DEV_SOURCE_ROOT, root);
+  assert.equal(realpathSync(fixtureEnvironment.LOOM_DEV_FIXTURE_DIR), realpathSync(fixturePath));
+  assert.equal(output.length, 1);
+
+  bracketCalls = 0;
+  await assert.rejects(main([
+    '--scenario', scenarioID,
+    '--case', caseName,
+    '--target-from-environment',
+  ], {
+    env: { ...targetEnvironment, LOOM_DEV_SOURCE_ROOT: '/private/tmp/secret-conflicting-source' },
+    targetLoader: async () => { throw new Error('environment mode must not load a target config'); },
+    runBracket: async () => { bracketCalls += 1; },
+    write: () => {},
+  }), (error) => {
+    assert.match(error.message, /Conflicting supplied development target environment name\(s\): LOOM_DEV_SOURCE_ROOT/u);
+    assert.equal(error.message.includes('secret-conflicting-source'), false,
+      'conflict diagnostics must not dump supplied environment values');
+    return true;
+  });
+  assert.equal(bracketCalls, 0, 'conflicting LOOM_DEV settings must fail before focused checks start');
 });
 
 test('explicit environment mode keeps a browser-only case registry-unbound and reaches selection and precheck', async (t) => {

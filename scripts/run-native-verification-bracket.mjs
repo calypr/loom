@@ -70,6 +70,28 @@ const mappedTargetEnvironmentNames = [
   'LOOM_DEV_API_URL', 'LOOM_DEV_UI_URL', 'LOOM_DEV_API_PORT', 'LOOM_DEV_UI_PORT',
   'LOOM_ARANGO_DATABASE', 'LOOM_CDA_UI_CONTAINER',
 ];
+
+function developmentSourceRootEnvironment({ env, targetObject, mappedTargetEnvironment = {}, root }) {
+  const sourceRootInput = targetObject?.sourceRoot ?? mappedTargetEnvironment.LOOM_DEV_SOURCE_ROOT ?? env.LOOM_CDA_SOURCE_ROOT;
+  if (typeof sourceRootInput !== 'string' || !sourceRootInput.trim()) return {};
+  let sourceRoot;
+  try { sourceRoot = realpathSync(resolve(sourceRootInput)); }
+  catch { throw new Error('LOOM_CDA_SOURCE_ROOT must resolve to the repository containing the native bracket.'); }
+  if (sourceRoot !== realpathSync(resolve(root))) {
+    throw new Error('LOOM_CDA_SOURCE_ROOT must resolve to the repository containing the native bracket.');
+  }
+  const conflictingValues = [env.LOOM_DEV_SOURCE_ROOT, mappedTargetEnvironment.LOOM_DEV_SOURCE_ROOT]
+    .filter((value) => value !== undefined && String(value).trim() !== '')
+    .some((value) => {
+      try { return realpathSync(resolve(String(value))) !== sourceRoot; }
+      catch { return true; }
+    });
+  if (conflictingValues) {
+    throw new Error('Conflicting supplied development target environment name(s): LOOM_DEV_SOURCE_ROOT; use the validated owned target consistently.');
+  }
+  return { LOOM_DEV_SOURCE_ROOT: sourceRoot };
+}
+
 async function bindCaseTarget({ contract, targetPath, targetFromEnvironment, targetLoader, root, env }) {
   if (targetPath) {
     assert(contract.expectedIdentity,
@@ -80,11 +102,17 @@ async function bindCaseTarget({ contract, targetPath, targetFromEnvironment, tar
       env,
       expectedIdentity: contract.expectedIdentity,
     });
+    const developmentEnvironment = developmentSourceRootEnvironment({
+      env,
+      targetObject: loadedTarget.target,
+      mappedTargetEnvironment: loadedTarget.environment,
+      root,
+    });
     return {
       targetPath: loadedTarget.configPath ?? targetPath,
       targetObject: loadedTarget.target ?? null,
       mappedTargetEnvironment: loadedTarget.environment ?? {},
-      env: { ...env, ...loadedTarget.environment },
+      env: { ...env, ...loadedTarget.environment, ...developmentEnvironment },
       targetValidation: {
         scope: loadedTarget.validationScope ?? 'configuration-only',
         registryBinding: 'bound',
@@ -99,11 +127,12 @@ async function bindCaseTarget({ contract, targetPath, targetFromEnvironment, tar
   assert(targetFromEnvironment, 'Choose an explicit target mode.');
   assert(!contract.expectedIdentity,
     'This case has a registered target identity and must use --target <config-path>.');
+  const developmentEnvironment = developmentSourceRootEnvironment({ env, root });
   return {
     targetPath: null,
     targetObject: null,
     mappedTargetEnvironment: {},
-    env: { ...env },
+    env: { ...env, ...developmentEnvironment },
     targetValidation: {
       scope: 'environment-only',
       registryBinding: 'unbound',
