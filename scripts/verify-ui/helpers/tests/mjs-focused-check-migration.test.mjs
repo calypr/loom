@@ -284,6 +284,31 @@ test('apply and check are idempotent and do not duplicate semantic mappings', ()
   }
 });
 
+test('plan rejects a previously generated focused check that no current family covers', () => {
+  const state = fixture();
+  try {
+    const first = plan(state.root);
+    const applied = invoke(state.root, '--apply', '--plan-token', first.planToken);
+    assert.equal(applied.status, 0, applied.stderr);
+    const attachmentPath = path.join(state.root, 'scripts/verify-ui/mjs-focused-check-attachments.json');
+    const attachmentData = JSON.parse(readFileSync(attachmentPath, 'utf8'));
+    attachmentData.attachments[0].focusedChecks.push({
+      id: 'unmanaged-old-family-check',
+      cwd: '.',
+      command: ['node-test', selfTestPath],
+      sourceFiles: [selfTestPath],
+    });
+    write(state.root, 'scripts/verify-ui/mjs-focused-check-attachments.json', `${JSON.stringify(attachmentData, null, 2)}\n`);
+    const before = readFileSync(attachmentPath);
+    const result = invoke(state.root, '--plan');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /generated focused check unmanaged-old-family-check .* is no longer covered by a reviewed family/);
+    assert.deepEqual(readFileSync(attachmentPath), before);
+  } finally {
+    cleanup(state.root);
+  }
+});
+
 test('--check rejects a generated attachment that the registry loader ignores', () => {
   const state = fixture();
   try {

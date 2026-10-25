@@ -354,6 +354,26 @@ function updateExecutionDiscovery(catalog, attachmentRows, generatedText) {
   return edits;
 }
 
+function assertGeneratedGroupsRemainManaged(existingGenerated, attachmentRows) {
+  if (!existingGenerated) return;
+  if (existingGenerated.invalid) fail('existing generated focused attachment JSON is invalid');
+  for (const existingAttachment of existingGenerated.attachments) {
+    const destination = `${existingAttachment.scenarioId}:${existingAttachment.caseId}`;
+    const currentAttachment = attachmentRows.find((item) => `${item.scenarioId}:${item.caseId}` === destination);
+    for (const existingGroup of existingAttachment.focusedChecks ?? []) {
+      const currentGroup = currentAttachment?.focusedChecks.find((item) => item.id === existingGroup.id);
+      if (!currentGroup) {
+        fail(`generated focused check ${existingGroup.id} at ${destination} is no longer covered by a reviewed family; explicit retirement is unsupported`);
+      }
+      const previousPaths = registeredNodePaths(existingGroup);
+      const currentPaths = registeredNodePaths(currentGroup);
+      if (!previousPaths || !currentPaths || previousPaths.some((testPath) => !currentPaths.includes(testPath))) {
+        fail(`generated focused check ${existingGroup.id} at ${destination} would drop a previously attached Node test`);
+      }
+    }
+  }
+}
+
 function readGenerated(root) {
   const absolute = path.join(root, ATTACHMENT_PATH);
   if (!existsSync(absolute)) return null;
@@ -502,6 +522,7 @@ function makePlan(inputs) {
     claimEditSummaries.push(...updated.claimEdits.map((edit) => ({ ...edit, familyId: family.id })));
   }
   const existingGenerated = readGenerated(root);
+  assertGeneratedGroupsRemainManaged(existingGenerated, attachmentRows);
   const reusable = existingGenerated && !existingGenerated.invalid
     && stable(existingGenerated.attachments) === stable(attachmentRows)
     && claimEditSummaries.length === 0;
