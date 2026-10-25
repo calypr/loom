@@ -118,9 +118,14 @@ test('receipt identity keeps legacy and native lifecycle case identities distinc
     'builder-authoring:group-entry', 'builder-authoring', 'group-entry'), {
     caseKey: 'builder-authoring:group-entry',
   });
-  assert.deepEqual(builderJourneyTraceReceiptIdentity({ captureKind: 'builder-cda-native-lifecycle' },
-    'cda-builder-group-related-source', 'standalone-reshape-group-edit-before-related-column',
-    'group-edit-before-related-column'), {
+  assert.deepEqual(builderJourneyTraceReceiptIdentity({
+    kind: 'native-lifecycle',
+    captureKind: 'builder-cda-native-lifecycle',
+    captureAdapter: 'builder-native-journey-v1',
+    name: 'cda-builder-group-related-source',
+    model: 'BuilderJourney',
+  }, 'cda-builder-group-related-source', 'standalone-reshape-group-edit-before-related-column',
+  'group-edit-before-related-column'), {
     traceName: 'cda-builder-group-related-source',
     nativeCaseKey: 'standalone-reshape-group-edit-before-related-column/group-edit-before-related-column',
   });

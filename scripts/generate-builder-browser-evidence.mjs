@@ -10,6 +10,7 @@ import {
   nativeBuilderJourneyReceiptFromReport,
   resolveNativeBuilderJourneyArtifactPath,
 } from './verify-ui/helpers/builder-journey-trace.mjs';
+import { builderFormalAdapterForBinding } from './verify-ui/helpers/builder-formal-adapters.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const DEFAULT_OUTPUT = 'verification/builder-interactions/browser-evidence.json';
@@ -416,6 +417,19 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   requireValue(Number.isInteger(requestCoverage?.observed) && Number.isInteger(requestCoverage?.modeled) &&
     requestCoverage.observed === requestCoverage.modeled && requestCoverage.unmapped === 0 && requestCoverage.duplicates === 0,
   'TLA receipt has incomplete or duplicated native request coverage');
+  if (contract.nativeJourney) {
+    const adapter = builderFormalAdapterForBinding(binding);
+    const adapterCoverage = adapter.requestCoverage(trace);
+    requireValue(sameJson(requestCoverage, adapterCoverage),
+      'TLA request coverage differs from the adapter-validated retained transport ledger');
+    requireValue(replayReceipt?.requestCoverageBasis === contract.nativeJourney.coverageBasis &&
+      typeof replayReceipt?.requestCoverageBasis === 'string' && replayReceipt.requestCoverageBasis.trim().length > 0,
+    'TLA request coverage basis differs from the registered nativeJourney contract');
+    requireValue(['modeledActions', 'reconcileReads', 'supportedReadOnly']
+      .every(field => Number.isInteger(requestCoverage[field]) && requestCoverage[field] >= 0) &&
+      requestCoverage.modeledActions + requestCoverage.reconcileReads + requestCoverage.supportedReadOnly === requestCoverage.observed,
+    'Policy One request coverage must distinguish semantic actions, reconcile reads, and supported read-only reads');
+  }
   requireValue(Object.keys(replayReceipt?.requiredActionCountsByTrace?.mismatches ?? {}).length === 0 &&
     Object.keys(replayReceipt?.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
     replayReceipt?.unmodeledEvents?.unclassified?.total === 0,
@@ -477,6 +491,7 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
     actionCount: observedActions.length,
     actionCounts: observedCounts,
     requestCoverage,
+    ...(replayReceipt?.requestCoverageBasis ? { requestCoverageBasis: replayReceipt.requestCoverageBasis } : {}),
     mutationControlCount: selfTestMutationControls.length,
     tlc: {
       generatedStates: tla.traces[0].tlc?.stateCount ?? null,

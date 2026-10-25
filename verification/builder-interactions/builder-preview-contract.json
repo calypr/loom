@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "5bf75ca5330875b3ad35c954424ee9b4ed37b14f5d1f1889eb03856d815e434e",
+      "sha256": "241312fe976b4cbdb8b361ba69beb8e78bb754e8ceea4339aa82dc550cfd809d",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -39,12 +39,12 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "1c148032e09bcdcd530c1ccc16a65cd5de01087124e1deb6b107fce51a525627",
+      "sha256": "84faa33fad4ddbc7d53052083244f48c89aabc24cddcc3cf2afe87c4d07bc20d",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
       "path": "scripts/self-test-builder-traces.mjs",
-      "sha256": "5efa64bc55281368d411101b70e3a9de2671633f538ea7fe47757c149e0da8bf",
+      "sha256": "70d62fde78477f831b182fa3a0f3329f8be16aae7314e83447c3aee2cd1c3412",
       "contract": "Trace mutation controls for request ownership, Group persistence and reload keys/step, stale candidates and capture owners, exact action counts, and generic non-Group routes."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "5376c8f5d3bbbc497976f68d4de5611e19293d23f70a175094124c330701ccc5",
+      "sha256": "c3ed8f7b48b7e27ff19f6498cc44fa0475af55a20f64bd7bfba9cd346eebcb6f",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "fe1d76771635a6db57d5d1bf1ec15af1c1b4745759268619556b8e80759e55be",
+      "sha256": "f08d97ee2d8f9f3045d41d12ebc9a839ffd0212f2f92c205174be968252ac173",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {
@@ -404,12 +404,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "38287594680b9819b4b0a64648f2b12cc3ad4abaf74b331f623cf54b0fb6e6b4",
+      "sha256": "8a7a4ba2e4bc69faaad64e8753a761a26fc334341c5104ba12c8816276cd92ea",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
-      "sha256": "41e78f280266c38f3b6afcb9767603729ce77f755de9ccb54ce7b89c8c1b52a6",
+      "sha256": "12fff312f33070320ae904c3162839299007486fc59a711f9858833c98b40338",
       "contract": "Focused tests for native Builder trace capture and request-owner evidence."
     },
     {
@@ -506,6 +506,86 @@
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts",
       "sha256": "e3c352e0f91cd25ac0b25e4ff51938037519b44e420ed1aad6a00f1eddea75b4",
       "contract": "Builds saved construction-history titles and groups RELATED_SOURCE steps as column adjustments."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-formal-adapters.mjs",
+      "sha256": "322433dbef4990318135ede009b630b71f8d0b6f615a4ae00d975cd6e9bd3aa7",
+      "contract": "Static registered adapters for the native Builder formal journey verifier."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-rendered-grid.mjs",
+      "sha256": "ea327158017f403eb88bc2994009d775628048b4becc76b646dfcb83836c3304",
+      "contract": "Rendered Builder grid observation helpers used by Policy One."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-browser.mjs",
+      "sha256": "04e6fc50f4030b5031903882bb9c9973853a41fc4d33f78ad1978b56d99b14f5",
+      "contract": "Playwright browser capture helpers used by Policy One."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/policy-one-tla-replay.mjs",
+      "sha256": "484d62a26856c112cadf23cd0f684763dea3f40509a73e32c7191837d7ca2816",
+      "contract": "Policy One observed trace validation, TLA compilation, and mutation controls."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/policy-one-trace.mjs",
+      "sha256": "2e5754fde3d304efe0d1b77b465fb8bdda48695774b5abbb6ce193506a4fdfde",
+      "contract": "Policy One captured workflow and transport ledger validation."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs",
+      "sha256": "acce20ba649eac97a97b6def94b2a086dc3b21ccef23032ec4be539aa371da28",
+      "contract": "Static adapter binding and complete synthetic Policy trace compilation checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs",
+      "sha256": "ed27775e7355204c4ffaa2fd9989f092829c428eb063531554d0d0ad8f401007",
+      "contract": "Native Patient ONE summary control locator checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs",
+      "sha256": "46222965f276c31f592b09f50a45155338228552ad45476b249832827a7370bb",
+      "contract": "Complete synthetic Policy One lifecycle for adapter and TLC unit checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs",
+      "sha256": "0512786b68091c43e8a659f21f2d6a2ccb2265c44b1602d19c3bb1a269159408",
+      "contract": "Policy One TLA trace replay and mutation control checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs",
+      "sha256": "d01921d68d318a29e81c25b5b7f1b0a23a2a6780df7863ce55ee42751daca8b9",
+      "contract": "Policy One raw capture and semantic projection checks."
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs",
+      "sha256": "497476a6a37626adfb619edaec53a1a0293d09502656d9f86f87621194cf5f13",
+      "contract": "Structured TLC mutation outcome matching and runner failure rejection."
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
+      "sha256": "9b5fb13acd167fa6538fccac6e89043ee28ee651ad29205f252ee02b80e5a92c",
+      "contract": "Native Patient.id ONE refusal, same-editor ALL repair, reload, and source restoration workflow."
+    },
+    {
+      "path": "verification/builder-interactions/PolicyOneDisagreement.cfg",
+      "sha256": "2a52fa32dfd9519d0f6bda2316183a9451fa954b0cda18e6f6e7209f74a14f5e",
+      "contract": "Policy One model-checking configuration."
+    },
+    {
+      "path": "verification/builder-interactions/PolicyOneDisagreement.tla",
+      "sha256": "b5812f8b2e3aa633dca00e82a08f9563eb3961188efa5ef1e04edb8258241185",
+      "contract": "Policy One bounded state machine and safety invariants."
+    },
+    {
+      "path": "verification/builder-interactions/builder-policy-one-contract.json",
+      "sha256": "2f5373b18149c25f11573c99746d17093ebbe70fdb04acb45fb97ee1db74a22e",
+      "contract": "Registered Policy One native journey action, event, and mutation-control contract."
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-authoring.mjs",
+      "sha256": "47d71968ddc3edac313c663fb269fbabd2d8bf236abcd65d3ee2eadb20b5c517",
+      "contract": "Registered Builder authoring workflow dispatcher for the Patient ONE case."
     }
   ]
 }

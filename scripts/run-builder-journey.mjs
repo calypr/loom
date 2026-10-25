@@ -12,6 +12,10 @@ import {
   builderJourneyTraceBindingFor,
   resolveNativeBuilderJourneyArtifactPath,
 } from './verify-ui/helpers/builder-journey-trace.mjs';
+import {
+  builderFormalAdapterForBinding,
+  builderFormalAdapterForContract,
+} from './verify-ui/helpers/builder-formal-adapters.mjs';
 import { assertLoadedDataset } from './verify-ui/helpers/dataset-preflight.mjs';
 import { registry, scenarioCaseFor } from './verify-ui/registry.mjs';
 
@@ -162,11 +166,11 @@ const registeredNativeJourney = (nativeCaseId) => {
   if (!binding || binding.kind !== 'native-lifecycle') {
     throw new Error('registered case ' + scenarioID + '/' + caseName + ' has no native-lifecycle journeyTrace binding');
   }
-  if (binding.captureKind !== 'builder-cda-native-lifecycle') {
-    throw new Error('registered native journeyTrace has an unsupported captureKind: ' + String(binding.captureKind));
-  }
-  if (binding.captureAdapter !== 'builder-native-journey-v1') {
-    throw new Error('registered native journeyTrace has an unsupported capture adapter: ' + String(binding.captureAdapter));
+  const adapter = builderFormalAdapterForBinding(binding);
+  const targetMode = binding.targetMode ?? 'owned-config';
+  if (!['owned-config', 'environment'].includes(targetMode) ||
+      (targetMode === 'environment' && registeredCase.expectedIdentity !== undefined)) {
+    throw new Error('registered native journey targetMode must truthfully match its explicit target identity binding');
   }
   if (Object.hasOwn(binding, 'formalProofAssertion') &&
       (typeof binding.formalProofAssertion !== 'string' || !binding.formalProofAssertion.trim() ||
@@ -222,6 +226,18 @@ const registeredNativeJourney = (nativeCaseId) => {
   }
   const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
   if (contract.sourceProfile !== 'journey') throw new Error('registered native journey contract must declare sourceProfile "journey"');
+  const contractAdapter = builderFormalAdapterForContract(contract);
+  if (adapter.family !== 'cda-builder-lifecycle' && contractAdapter !== adapter) {
+    throw new Error('registered native journey contract must bind the selected static formal adapter');
+  }
+  if (adapter.family !== 'cda-builder-lifecycle') {
+    const formalContract = contract.nativeJourney;
+    if (formalContract.nativeCaseKey !== `${scenarioID}/${caseName}` ||
+        !Array.isArray(binding.requiredMutationControlNames) ||
+        canonicalJson(binding.requiredMutationControlNames) !== canonicalJson(formalContract.requiredMutationControlNames)) {
+      throw new Error('registered native journey case and required mutation controls differ from its static contract');
+    }
+  }
   const model = contract.models?.[binding.model];
   if (!model || !Array.isArray(model.actions) || !model.actions.length ||
       typeof model.module !== 'string' || !model.module.trim() ||
@@ -258,15 +274,16 @@ const registeredNativeJourney = (nativeCaseId) => {
     throw new Error('registered journeyTrace action counts differ from its contract for ' + binding.name);
   }
   const actionMinimums = contract.phase1?.requiredActionMinimumsByTrace?.[binding.name];
-  if (!actionMinimums || typeof actionMinimums !== 'object' || Array.isArray(actionMinimums)) {
+  const effectiveActionMinimums = actionMinimums ?? (adapter.family === 'cda-builder-lifecycle' ? null : {});
+  if (!effectiveActionMinimums || typeof effectiveActionMinimums !== 'object' || Array.isArray(effectiveActionMinimums)) {
     throw new Error('registered journeyTrace name has no action-minimum contract: ' + binding.name);
   }
-  const contractMinimums = Object.entries(actionMinimums).sort(([left], [right]) => left.localeCompare(right));
+  const contractMinimums = Object.entries(effectiveActionMinimums).sort(([left], [right]) => left.localeCompare(right));
   const bindingMinimums = Object.entries(binding.minimumActionCounts).sort(([left], [right]) => left.localeCompare(right));
   if (canonicalJson(contractMinimums) !== canonicalJson(bindingMinimums)) {
     throw new Error('registered journeyTrace action minimums differ from its contract for ' + binding.name);
   }
-  const contractOptionalActions = contract.journeyCase?.optionalActions;
+  const contractOptionalActions = contract.journeyCase?.optionalActions ?? contract.nativeJourney?.optionalActions ?? [];
   if (!Array.isArray(contractOptionalActions) ||
       canonicalJson([...contractOptionalActions].sort()) !== canonicalJson([...binding.optionalActions].sort())) {
     throw new Error('registered journeyTrace optional actions differ from its contract for ' + binding.name);
@@ -291,6 +308,8 @@ const registeredNativeJourney = (nativeCaseId) => {
     'scripts/run-builder-journey.mjs',
     'scripts/verify-builder-traces.mjs',
     'scripts/self-test-builder-traces.mjs',
+    'scripts/verify-ui/helpers/builder-journey-trace.mjs',
+    'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
     'scripts/verify-ui/registry.mjs',
   ];
   const missingPins = requiredPins.filter((path) => typeof path !== 'string' || !pinnedPaths.has(path));
@@ -313,7 +332,11 @@ const registeredNativeJourney = (nativeCaseId) => {
     contract: binding.contract,
     formalProofAssertion: binding.formalProofAssertion,
     traceKind: binding.kind,
+    captureKind: binding.captureKind,
     captureAdapter: binding.captureAdapter,
+    targetMode,
+    requiredMutationControlNames: contract.nativeJourney?.requiredMutationControlNames ?? null,
+    requestCoverageBasis: contract.nativeJourney?.coverageBasis ?? null,
     requiredTraceActions: binding.requiredActions,
     requiredActionCounts: binding.requiredActionCounts,
     minimumActionCounts: binding.minimumActionCounts,
@@ -375,7 +398,11 @@ const runRegisteredNativeCase = (env, selection, { targetPath = null, evidencePa
     '--case', selection.caseName,
     '--grep', selection.playwrightGrep,
   ];
-  if (selection.traceKind === 'native-lifecycle') {
+  if (selection.targetMode === 'environment') {
+    if (targetPath) throw new Error('registered target-from-environment formal case cannot also receive --target');
+    args.push('--target-from-environment');
+    if (evidenceParent) args.push('--evidence-parent', evidenceParent);
+  } else if (selection.traceKind === 'native-lifecycle') {
     if (!targetPath) throw new Error('registered native lifecycle case requires --target <owned-target-config>');
     args.push('--target', targetPath);
     if (evidenceParent) args.push('--evidence-parent', evidenceParent);
@@ -828,6 +855,28 @@ const validateNativeTlaReceipt = ({ tracePath, tla, sourceCommit, sourceFingerpr
     Object.keys(journeyReceipt.requiredActionMinimumsByTrace?.mismatches ?? {}).length === 0 &&
     journeyReceipt.unmodeledEvents?.unclassified?.total === 0,
   'TLA report typed receipt does not bind the selected native case or complete request/action coverage');
+  if (selection.captureAdapter === 'policy-one-disagreement-v1') {
+    let adapter;
+    try {
+      adapter = builderFormalAdapterForBinding({
+        captureAdapter: selection.captureAdapter,
+        captureKind: selection.captureKind,
+        name: selection.traceName,
+        model: selection.model,
+      });
+      const actualCoverage = adapter.requestCoverage(trace);
+      requireValue(canonicalJson(journeyReceipt.requestCoverage) === canonicalJson(actualCoverage),
+        'Policy One replay request coverage differs from the retained transport ledger');
+      requireValue(journeyReceipt.requestCoverageBasis === selection.requestCoverageBasis &&
+        typeof journeyReceipt.requestCoverageBasis === 'string' && journeyReceipt.requestCoverageBasis.length > 0,
+      'Policy One replay coverage basis differs from the static contract');
+      requireValue(canonicalJson(journeyReceipt.requiredMutationControlNames) ===
+        canonicalJson(selection.requiredMutationControlNames),
+      'Policy One replay control inventory differs from the static contract');
+    } catch (error) {
+      issues.push('Policy One replay adapter validation failed: ' + String(error?.message ?? error));
+    }
+  }
   return {
     status: issues.length === 0 ? 'passed' : 'failed',
     issues,
@@ -965,6 +1014,9 @@ const main = async () => {
   const nativeSelection = selectedJourney?.nativeSelection;
   if (selectedJourney?.entry.nativeLifecycle && selectedJourney.registeredCase.expectedIdentity && !options.target) {
     throw new Error('--native-case requires --target <owned-target-config> for this registered target-bound case');
+  }
+  if (nativeSelection?.targetMode === 'environment' && options.target) {
+    throw new Error('--target cannot be combined with the registered target-from-environment formal case');
   }
   if (nativeSelection && (options.project || options.generation || options.explorer || options.uiUrl || options.apiUrl || options.bootstrap)) {
     throw new Error('journey ' + selectedJourney.entry.id + ' runs through the registered native fixture; configure its target environment instead of passing legacy dataset options');

@@ -4,6 +4,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { scenarioCaseFor } from '../registry.mjs';
+import {
+  builderFormalAdapterForBinding,
+  builderFormalAdapterForContract,
+  isNativeBuilderFormalCaptureKind,
+} from './builder-formal-adapters.mjs';
 
 const sourceManifestPath = 'verification/builder-interactions/builder-preview-contract.json';
 
@@ -93,6 +98,48 @@ const nativeProposalOwnerEpochsFromTrace = trace => {
 };
 
 export const assertNativeBuilderJourneyMutationControls = (controls, { contract, traceDocument, where = 'Self-test output' }) => {
+  if (contract?.nativeJourney) {
+    const registration = contract.nativeJourney;
+    const adapter = builderFormalAdapterForContract(contract);
+    assert(adapter, `${where} validation needs a registered nativeJourney adapter.`);
+    const requiredMutationControlNames = registration.requiredMutationControlNames;
+    assert(Array.isArray(requiredMutationControlNames) && requiredMutationControlNames.length > 0 &&
+      requiredMutationControlNames.every(name => typeof name === 'string' && name.length > 0),
+    'Native journey contract must declare requiredMutationControlNames.');
+    assert.equal(new Set(requiredMutationControlNames).size, requiredMutationControlNames.length,
+      'Native journey contract must not repeat requiredMutationControlNames.');
+    assert(Array.isArray(traceDocument?.traces) && traceDocument.traces.length === 1,
+      `${where} validation needs the exact single-trace input document.`);
+    const trace = traceDocument.traces[0];
+    assert.equal(trace?.name, registration.traceName,
+      `${where} trace name must match the static nativeJourney contract.`);
+    assert.equal(trace?.model, registration.model,
+      `${where} trace model must match the static nativeJourney contract.`);
+    adapter.validateTrace(trace);
+    const expectedControls = adapter.buildMutationControls(trace);
+    assert(Array.isArray(expectedControls) && expectedControls.length > 0 &&
+      expectedControls.every(control => control && typeof control.name === 'string' &&
+        control.expectedFailure?.stage === 'TLC' && typeof control.expectedFailure.invariant === 'string'),
+    'Native adapter must produce named TLC mutation controls with an exact expected outcome.');
+    assert.deepEqual([...expectedControls.map(control => control.name)].sort(), [...requiredMutationControlNames].sort(),
+      'Native journey contract mutation names must match the selected adapter controls.');
+    assert(Array.isArray(controls) && controls.length > 0,
+      `${where} must contain mutation control results.`);
+    const actualNames = controls.map(control => control?.name);
+    assert(actualNames.every(name => typeof name === 'string' && name.length > 0),
+      `${where} mutation controls must retain their actual names.`);
+    assert.equal(new Set(actualNames).size, actualNames.length,
+      `${where} must not repeat mutation-control names.`);
+    assert.deepEqual([...actualNames].sort(), [...requiredMutationControlNames].sort(),
+      `${where} mutation-control names must exactly match the nativeJourney contract.`);
+    for (const [index, control] of controls.entries()) {
+      assert(control && control.name === actualNames[index] &&
+        (control.status === 'pass' || control.status === 'fail'),
+      `${where} mutation control ${index} must retain its actual name and status.`);
+      assert.equal(control.status, 'pass', `${where} mutation control ${index} (${control.name}) must pass.`);
+    }
+    return controls;
+  }
   assert(contract?.journeyCase && typeof contract.journeyCase === 'object',
     `${where} validation needs the registered journeyCase contract.`);
   const { requiredMutationControlNames, observedOwnerEpochControlPrefix } = contract.journeyCase;
@@ -142,7 +189,9 @@ export const builderJourneyTraceBindingFor = (scenarioID, caseName) => {
       throw new Error(`Builder journey trace binding ${scenarioID}/${caseName} needs ${field}`);
     }
   }
-  if (!['builder-group-legacy', 'builder-cda-native-lifecycle'].includes(binding.captureKind)) {
+  if (binding.kind === 'native-lifecycle') {
+    builderFormalAdapterForBinding(binding);
+  } else if (binding.captureKind !== 'builder-group-legacy') {
     throw new Error(`Builder journey trace binding ${scenarioID}/${caseName} needs a recognized captureKind`);
   }
   if (!Array.isArray(binding.requiredActions) || binding.requiredActions.length === 0 ||
@@ -165,10 +214,11 @@ export const builderJourneyTraceBindingFor = (scenarioID, caseName) => {
 };
 
 export const builderJourneyTraceReceiptIdentity = (binding, traceName, scenarioID, caseName) => {
-  if (binding.captureKind === 'builder-group-legacy') return { caseKey: traceName };
-  if (binding.captureKind === 'builder-cda-native-lifecycle') {
+  if (binding.kind === 'native-lifecycle') {
+    builderFormalAdapterForBinding(binding);
     return { traceName, nativeCaseKey: `${scenarioID}/${caseName}` };
   }
+  if (binding.captureKind === 'builder-group-legacy') return { caseKey: traceName };
   throw new Error(`Unknown Builder journey receipt captureKind: ${String(binding.captureKind)}`);
 };
 
@@ -181,7 +231,7 @@ export const builderJourneyReportPaths = ({
   nativeReportPath,
   retainedNativeReportPath,
 }) => {
-  if (captureKind === 'builder-cda-native-lifecycle') {
+  if (isNativeBuilderFormalCaptureKind(captureKind)) {
     const traceDirectory = dirname(tracePath);
     const traceFileStem = basename(tracePath).replace(/\.json$/i, '');
     assert(traceFileStem.length > 0, 'Native journey trace path must have a file stem.');
@@ -293,7 +343,7 @@ export const nativeBuilderJourneyReceiptFromReport = (report, { binding, scenari
     for (const field of [
       'traceName', 'nativeCaseKey', 'status', 'replayStatus', 'selfTestStatus', 'traceSha256',
       'actionLabels', 'requiredMutationControlNames', 'requestCoverage', 'requiredActionCountsByTrace',
-      'requiredActionMinimumsByTrace', 'unmodeledEvents', 'mutationControls',
+      'requiredActionMinimumsByTrace', 'unmodeledEvents', 'mutationControls', 'requestCoverageBasis',
     ]) {
       assert.equal(canonicalJson(targetReceipt[field]), canonicalJson(receipt[field]),
         `Target and registered assertion formal receipts differ at ${field}.`);
@@ -337,6 +387,15 @@ export const assertNativeBuilderJourneyReplayReceipt = (receipt, {
     'Verifier request coverage must model every observed request.');
   assert.equal(coverage.unmapped, 0, 'Verifier request coverage must have no unmapped requests.');
   assert.equal(coverage.duplicates, 0, 'Verifier request coverage must have no duplicate bindings.');
+  if (Object.hasOwn(receipt, 'requestCoverageBasis')) {
+    assert(typeof receipt.requestCoverageBasis === 'string' && receipt.requestCoverageBasis.trim().length > 0,
+      'Verifier requestCoverageBasis must state the adapter coverage claim.');
+    const detailFields = ['modeledActions', 'reconcileReads', 'supportedReadOnly'];
+    assert(detailFields.every(field => Number.isInteger(coverage[field]) && coverage[field] >= 0),
+      'Adapter request coverage must retain semantic-action, reconcile-read, and read-only counts.');
+    assert.equal(detailFields.reduce((sum, field) => sum + coverage[field], 0), coverage.observed,
+      'Adapter request coverage detail counts must account for every retained transport row.');
+  }
   for (const field of ['requiredActionCountsByTrace', 'requiredActionMinimumsByTrace']) {
     assert(receipt[field] && typeof receipt[field] === 'object' && !Array.isArray(receipt[field]) &&
       receipt[field].mismatches && typeof receipt[field].mismatches === 'object' &&
@@ -448,7 +507,8 @@ export const writeAndReplayBuilderJourneyTrace = ({
   assert.equal(journeyTrace.model, binding.model,
     `Captured Builder journey model must match the ${scenarioID}/${caseName} registry binding.`);
   const contractPath = binding.contract;
-  const isNativeLifecycle = binding.captureKind === 'builder-cda-native-lifecycle';
+  const isNativeLifecycle = binding.kind === 'native-lifecycle' && isNativeBuilderFormalCaptureKind(binding.captureKind);
+  if (binding.kind === 'native-lifecycle') builderFormalAdapterForBinding(binding);
   const receiptIdentity = builderJourneyTraceReceiptIdentity(binding, journeyTrace.name, scenarioID, caseName);
   const actions = journeyTrace.actions ?? [];
   const labels = actions.map(action => action.label);
@@ -531,6 +591,15 @@ export const writeAndReplayBuilderJourneyTrace = ({
       actionLabels: labels,
       tracePath,
     });
+    if (selectedContract.nativeJourney) {
+      const adapter = builderFormalAdapterForBinding(binding);
+      assert.equal(verifierReceipt.nativeCaseKey, selectedContract.nativeJourney.nativeCaseKey,
+        'Native replay receipt case key must match the static nativeJourney contract.');
+      assert.equal(verifierReceipt.requestCoverageBasis, selectedContract.nativeJourney.coverageBasis,
+        'Native replay receipt must retain the contract coverage basis.');
+      assert.deepEqual(verifierReceipt.requestCoverage, adapter.requestCoverage(journeyTrace),
+        'Native replay request coverage must be derived from the captured transport ledger.');
+    }
     report.target.builderJourneyTrace = { ...verifierReceipt };
   } else {
     report.target.builderJourneyTrace = {

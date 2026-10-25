@@ -14,6 +14,7 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { builderFormalAdapterForContract } from './verify-ui/helpers/builder-formal-adapters.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = realpathSync(resolve(SCRIPT_DIR, '..'));
@@ -2792,6 +2793,66 @@ function validateContract(contract) {
   for (const model of phase1.requiredModels ?? []) {
     if (!contract.models[model]) fail('trace contract phase1.requiredModels names unknown model ' + model);
   }
+  if (contract.nativeJourney !== undefined) {
+    let adapter;
+    try { adapter = builderFormalAdapterForContract(contract); }
+    catch (error) { fail(error?.message ?? String(error)); }
+    const nativeJourney = contract.nativeJourney;
+    if (contract.journeyCase !== undefined || !adapter ||
+        nativeJourney.captureAdapter !== adapter.captureAdapter ||
+        nativeJourney.traceName !== adapter.traceName || nativeJourney.model !== adapter.model ||
+        nativeJourney.exactActionCounts !== true) {
+      fail('trace contract nativeJourney must match one static registered formal adapter');
+    }
+    const inventory = nativeJourney.actions;
+    if (!Array.isArray(inventory) || inventory.length === 0 || inventory.some(action =>
+      !isPlainObject(action) || typeof action.label !== 'string' || action.label.length === 0 ||
+      typeof action.event !== 'string' || action.event.length === 0)) {
+      fail('trace contract nativeJourney.actions must list every ordered label/event pair');
+    }
+    const actualCounts = {};
+    const expectedEventsByLabel = new Map();
+    for (const { label, event } of inventory) {
+      actualCounts[label] = (actualCounts[label] ?? 0) + 1;
+      const priorEvent = expectedEventsByLabel.get(label);
+      if (priorEvent !== undefined && priorEvent !== event) {
+        fail('trace contract nativeJourney label ' + label + ' has conflicting event bindings');
+      }
+      expectedEventsByLabel.set(label, event);
+    }
+    const uniqueActions = [...expectedEventsByLabel.keys()].sort();
+    const modelActions = contract.models[adapter.model]?.actions;
+    if (!Array.isArray(modelActions) || canonicalJson([...modelActions].sort()) !== canonicalJson(uniqueActions)) {
+      fail('trace contract nativeJourney action inventory must exactly match its model actions');
+    }
+    for (const [label, event] of expectedEventsByLabel) {
+      if (contract.actionBindings[label]?.event !== event) {
+        fail('trace contract nativeJourney event binding differs for ' + label);
+      }
+    }
+    const requiredModels = phase1.requiredModels ?? [];
+    const requiredEvents = [...new Set(inventory.map(action => action.event))].sort();
+    const requiredActionsByTrace = phase1.requiredActionsByTrace?.[adapter.traceName];
+    const requiredActionCounts = phase1.requiredActionCountsByTrace?.[adapter.traceName];
+    if (!requiredModels.includes(adapter.model) ||
+        canonicalJson([...phase1.requiredActions].sort()) !== canonicalJson(uniqueActions) ||
+        canonicalJson([...phase1.requiredEvents].sort()) !== canonicalJson(requiredEvents) ||
+        !Array.isArray(requiredActionsByTrace) ||
+        canonicalJson([...requiredActionsByTrace].sort()) !== canonicalJson(uniqueActions) ||
+        !isPlainObject(requiredActionCounts) ||
+        canonicalJson(requiredActionCounts) !== canonicalJson(actualCounts)) {
+      fail('trace contract nativeJourney inventory must exactly match model and phase1 action/event coverage');
+    }
+    const controls = nativeJourney.requiredMutationControlNames;
+    if (!Array.isArray(controls) || controls.length === 0 ||
+        controls.some(name => typeof name !== 'string' || name.trim().length === 0) ||
+        new Set(controls).size !== controls.length) {
+      fail('trace contract nativeJourney must declare unique requiredMutationControlNames');
+    }
+    if (typeof nativeJourney.coverageBasis !== 'string' || nativeJourney.coverageBasis.trim().length === 0) {
+      fail('trace contract nativeJourney must state its raw-request coverage basis');
+    }
+  }
   if (contract.journeyCase !== undefined) {
     const journeyCase = contract.journeyCase;
     if (!isPlainObject(journeyCase) || journeyCase.model !== 'BuilderJourney' ||
@@ -3677,12 +3738,43 @@ function cdaRowExpansionLifecycleActionIndexes(trace) {
     .map(({ index }) => index));
 }
 
+export const nativeJourneyActionInventoryProblem = (actions, inventory) => {
+  if (!Array.isArray(actions) || !Array.isArray(inventory)) {
+    return 'nativeJourney action inventory must be compared with ordered action records';
+  }
+  const normalize = entries => entries.map(action => ({ label: action?.label, event: action?.event }))
+    .sort((left, right) => left.label === right.label
+      ? left.event < right.event ? -1 : left.event > right.event ? 1 : 0
+      : left.label < right.label ? -1 : 1);
+  const expected = normalize(inventory);
+  const actual = normalize(actions);
+  if (canonicalJson(actual) !== canonicalJson(expected)) {
+    return 'must retain every registered nativeJourney label/event pair exactly, without substitutions or duplicates';
+  }
+  return null;
+};
+
 function traceShapeProblem(trace, index, contract, events) {
   const where = 'traces[' + index + ']';
   if (!isPlainObject(trace)) return { message: where + ' must be an object' };
   if (typeof trace.name !== 'string' || trace.name.length === 0) return { message: where + '.name must be a non-empty string' };
   if (typeof trace.model !== 'string' || !contract.models[trace.model]) {
     return { message: where + '.model "' + String(trace.model) + '" is not defined by the contract' };
+  }
+  const nativeAdapter = builderFormalAdapterForContract(contract);
+  if (nativeAdapter) {
+    const registration = contract.nativeJourney;
+    if (trace.name !== registration.traceName || trace.model !== registration.model) {
+      return { message: where + ' must match the exact static nativeJourney trace/model binding' };
+    }
+    if (!Array.isArray(trace.actions)) return { message: where + '.actions must be an array' };
+    const inventoryProblem = nativeJourneyActionInventoryProblem(trace.actions, registration.actions);
+    if (inventoryProblem) return { message: where + '.actions ' + inventoryProblem };
+    try { nativeAdapter.validateTrace(trace); }
+    catch (error) {
+      return { message: where + ' failed ' + nativeAdapter.captureAdapter + ' validation: ' + String(error?.message ?? error) };
+    }
+    return null;
   }
   const journeyCase = contract.journeyCase;
   if (journeyCase && (trace.name !== journeyCase.traceName || trace.model !== journeyCase.model)) {
@@ -5281,11 +5373,15 @@ function generateConfig(trace, hasGroupLifecycle, journeyCase = null, tokens = n
 function parseTlc(text) {
   const statesMatch = text.match(/([0-9,]+) states generated, ([0-9,]+) distinct states found/);
   const depthMatch = text.match(/The depth of the complete state graph search is ([0-9]+)/);
+  const invariantMatch = text.match(/(?:The )?invariant of ([A-Za-z][A-Za-z0-9_]*) is equal to FALSE|Invariant ([A-Za-z][A-Za-z0-9_]*) is violated/);
+  const failureInvariant = invariantMatch ? (invariantMatch[1] ?? invariantMatch[2])
+    : /\bDeadlock reached\b/.test(text) ? 'Deadlock' : null;
   return {
     stateCount: statesMatch ? Number(statesMatch[1].replaceAll(',', '')) : null,
     distinctStateCount: statesMatch ? Number(statesMatch[2].replaceAll(',', '')) : null,
     depth: depthMatch ? Number(depthMatch[1]) : null,
     passed: text.includes('Model checking completed. No error has been found.'),
+    ...(failureInvariant ? { failureStage: 'TLC', failureInvariant } : {}),
   };
 }
 
@@ -5294,19 +5390,29 @@ function outputTail(text, lines = 30) {
   return split.slice(-lines).join('\n');
 }
 
-function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = null) {
+function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = null, compiledAdapter = null) {
   const runDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-traces-'));
   const modelDirectory = join(runDirectory, 'model');
   const metadataDirectory = join(runDirectory, 'states');
   mkdirSync(modelDirectory);
   mkdirSync(metadataDirectory);
-  const moduleName = 'TraceCheck' + uniqueIndex;
+  const moduleName = compiledAdapter?.moduleName ?? ('TraceCheck' + uniqueIndex);
+  if (compiledAdapter) {
+    if (compiledAdapter.modelName !== trace.model || typeof compiledAdapter.baseModelText !== 'string' ||
+        typeof compiledAdapter.modelText !== 'string' || typeof compiledAdapter.configText !== 'string') {
+      throw new Error('registered adapter compiler returned an incomplete or mismatched TLC module');
+    }
+    writeFileSync(join(modelDirectory, trace.model + '.tla'), compiledAdapter.baseModelText);
+  } else {
+    copyFileSync(resolve(ROOT, MODEL_DIR, trace.model + '.tla'), join(modelDirectory, trace.model + '.tla'));
+  }
   const moduleFile = moduleName + '.tla';
   const configFile = moduleName + '.cfg';
-  copyFileSync(resolve(ROOT, MODEL_DIR, trace.model + '.tla'), join(modelDirectory, trace.model + '.tla'));
   const cdaTokens = journeyCase ? collectCdaTokens(trace, journeyCase) : null;
-  writeFileSync(join(modelDirectory, moduleFile), generateModule(trace, moduleName, hasGroupLifecycle, journeyCase));
-  writeFileSync(join(modelDirectory, configFile), generateConfig(trace, hasGroupLifecycle, journeyCase, cdaTokens));
+  writeFileSync(join(modelDirectory, moduleFile), compiledAdapter?.modelText ??
+    generateModule(trace, moduleName, hasGroupLifecycle, journeyCase));
+  writeFileSync(join(modelDirectory, configFile), compiledAdapter?.configText ??
+    generateConfig(trace, hasGroupLifecycle, journeyCase, cdaTokens));
   const args = [
     '-XX:+UseParallelGC', '-cp', jarPath, 'tlc2.TLC',
     '-workers', '4',
@@ -5317,8 +5423,9 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
   const result = spawnSync('java', args, { cwd: modelDirectory, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
   const text = (result.stdout || '') + (result.stderr || '');
   const parsed = parseTlc(text);
-  if (parsed.passed && parsed.stateCount > 0) {
-    return { ...parsed, status: 'pass', modulePath: join(modelDirectory, moduleFile), runDirectory };
+  const processPassed = !result.error && result.status === 0;
+  if (processPassed && parsed.passed && parsed.stateCount > 0 && parsed.failureInvariant === undefined) {
+    return { ...parsed, processExitCode: result.status, status: 'pass', modulePath: join(modelDirectory, moduleFile), runDirectory };
   }
   const traceIndexes = [...text.matchAll(/traceIndex = ([0-9]+)/g)].map((match) => Number(match[1]));
   const lastTraceIndex = traceIndexes.length > 0 ? traceIndexes[traceIndexes.length - 1] : null;
@@ -5334,9 +5441,19 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
     failure: {
       message: result.error
         ? result.error.message
+        : parsed.failureInvariant
+          ? (parsed.failureInvariant === 'Deadlock'
+            ? 'TLC reached a deadlock'
+            : 'TLC invariant ' + parsed.failureInvariant + ' was violated')
+        : !processPassed
+          ? 'TLC process did not exit successfully'
         : parsed.passed && parsed.stateCount === 0
           ? 'TLC found no initial state'
           : 'TLC did not complete the trace',
+      ...(result.error ? { stage: 'runner' } :
+        parsed.failureStage ? { stage: parsed.failureStage } : {}),
+      ...(parsed.failureInvariant ? { invariant: parsed.failureInvariant } : {}),
+      processExitCode: result.status ?? null,
       actionIndex,
       actionLabel: label,
       modulePath: join(modelDirectory, moduleFile),
@@ -5572,7 +5689,24 @@ async function main() {
     if (!options.quiet) console.log('Validating ' + trace.model + ' trace "' + trace.name + '" (' + trace.actions.length + ' actions, ' + indexes.length + ' copy/copies)...');
     const traceHasGroupLifecycle = hasGroupLifecycle && BUILDER_GROUP_TRACE_NAMES.has(trace.name);
     const traceJourneyCase = builderJourneyCaseForTrace(contract, trace);
-    runResults.set(key, runTlc(jarPath, trace, uniqueIndex, traceHasGroupLifecycle, traceJourneyCase));
+    const nativeAdapter = builderFormalAdapterForContract(contract);
+    let compiledAdapter = null;
+    try {
+      if (nativeAdapter) {
+        compiledAdapter = nativeAdapter.compileTrace(trace, { moduleName: 'PolicyOneReplay' + uniqueIndex });
+      }
+      runResults.set(key, runTlc(jarPath, trace, uniqueIndex, traceHasGroupLifecycle,
+        traceJourneyCase, compiledAdapter));
+    } catch (error) {
+      runResults.set(key, {
+        status: 'fail',
+        structuralFailure: {
+          message: nativeAdapter
+            ? 'registered adapter compilation failed: ' + String(error?.message ?? error)
+            : 'TLC module generation failed: ' + String(error?.message ?? error),
+        },
+      });
+    }
   }
 
   const modelCounts = {};
@@ -5667,6 +5801,41 @@ async function main() {
       requestCoverage: cdaTrace ? cdaRequestCoverageReceipt(cdaTrace) : {
         observed: 0, modeled: 0, unmapped: 0, duplicates: 0,
       },
+      requiredActionCountsByTrace: { mismatches: actionCountMismatchesByTrace },
+      requiredActionMinimumsByTrace: { mismatches: actionCountMinimumMismatchesByTrace },
+      unmodeledEvents: {
+        total: unmodeledEventSummary.total,
+        unclassified: { total: unmodeledEventSummary.unclassified.total },
+      },
+    };
+  }
+  const nativeJourney = contract.nativeJourney;
+  if (nativeJourney) {
+    const adapter = builderFormalAdapterForContract(contract);
+    const nativeTrace = traces.find(trace => trace.name === nativeJourney.traceName);
+    const traceEntry = reportTraces.find(trace => trace.name === nativeJourney.traceName);
+    const replayStatus = options.shapeOnly
+      ? 'not-run'
+      : traceEntry?.status === 'pass' && countProblems.length === 0 && coverageProblems.length === 0 &&
+          unmodeledEventSummary.unclassified.total === 0
+        ? 'pass'
+        : 'fail';
+    report.builderJourneyTrace = {
+      traceName: nativeJourney.traceName,
+      nativeCaseKey: nativeJourney.nativeCaseKey,
+      tracePath: resolve(process.cwd(), options.traces),
+      traceSha256,
+      replayReportPath: options.output ? resolve(process.cwd(), options.output) : null,
+      selfTestReportPath: null,
+      actionLabels: nativeTrace?.actions?.map(action => action.label) ?? [],
+      requiredMutationControlNames: [...nativeJourney.requiredMutationControlNames],
+      status: replayStatus === 'pass' ? 'pending-self-test' : 'fail',
+      replayStatus,
+      selfTestStatus: 'not-run',
+      requestCoverage: nativeTrace ? adapter.requestCoverage(nativeTrace) : {
+        observed: 0, modeled: 0, unmapped: 0, duplicates: 0,
+      },
+      requestCoverageBasis: nativeJourney.coverageBasis,
       requiredActionCountsByTrace: { mismatches: actionCountMismatchesByTrace },
       requiredActionMinimumsByTrace: { mismatches: actionCountMinimumMismatchesByTrace },
       unmodeledEvents: {
