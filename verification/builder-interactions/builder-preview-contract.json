@@ -29,7 +29,7 @@
     },
     {
       "path": "scripts/run-builder-journey.mjs",
-      "sha256": "c3090ae353e3dd8a0dfa8c480b49b7259b65fddee43bea7677b2efac370604f0",
+      "sha256": "5bf75ca5330875b3ad35c954424ee9b4ed37b14f5d1f1889eb03856d815e434e",
       "contract": "Journey runner selects the declared manifest entry, contract, fixture, and trace/report provenance."
     },
     {
@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "afba051282afd3fb4d0cd93ea6af042a0bd229b82409b1d8a1a4647ea837d486",
+      "sha256": "5376c8f5d3bbbc497976f68d4de5611e19293d23f70a175094124c330701ccc5",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "722d4a3143a6e8e27cf97accbb6c7dc878d08e0ba967ebcebb0eafd998b839d6",
+      "sha256": "fe1d76771635a6db57d5d1bf1ec15af1c1b4745759268619556b8e80759e55be",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {
@@ -404,7 +404,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "1b8ab14f9a40f702f8cbb1f7e056472ec4ef8ed25a7a848a1a7e60d4acb2c512",
+      "sha256": "38287594680b9819b4b0a64648f2b12cc3ad4abaf74b331f623cf54b0fb6e6b4",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "2978abc79c4f8fd1deab374547230f3a4db8a81fe9a89dca1fe58ab48defd986",
+      "sha256": "39a24d68a58753aae2a637cdc16fd6519fc70bfa63484460af16b7ad65f3817a",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {
