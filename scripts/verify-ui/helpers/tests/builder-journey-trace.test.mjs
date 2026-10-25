@@ -98,19 +98,25 @@ test('native replay and mutation receipts preserve verifier coverage and require
   assert.strictEqual(assertNativeBuilderJourneyReplayReceipt(replayReceipt, identity), replayReceipt);
   const selfTestReportPath = '/evidence/cda-self-test.json';
   const selfTestReceipt = {
-    ...replayReceipt,
+    traceName: identity.traceName,
+    nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath,
     status: 'pass',
     selfTestStatus: 'pass',
     selfTestReportPath,
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'pass' },
       { name: 'reject-snapshot-mismatch', status: 'pass' }],
   };
-  const validatedSelfTest = assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, replayReceipt, {
-    ...identity,
+  const selfTestIdentity = {
+    traceName: identity.traceName,
+    nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath,
     selfTestReportPath,
-  });
+  };
+  const validatedSelfTest = assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, selfTestIdentity);
   const finalReceipt = finalizeNativeBuilderJourneyReceipt(replayReceipt, validatedSelfTest, {
     ...identity,
+    tracePath: replayReceipt.tracePath,
     selfTestReportPath,
   });
   assert.deepEqual(finalReceipt.requestCoverage, replayReceipt.requestCoverage);
@@ -118,6 +124,13 @@ test('native replay and mutation receipts preserve verifier coverage and require
   assert.deepEqual(finalReceipt.mutationControls, selfTestReceipt.mutationControls);
   assert.equal(finalReceipt.status, 'pass');
   assert.equal(Object.hasOwn(finalReceipt, 'caseKey'), false);
+  assert.equal(Object.hasOwn(selfTestReceipt, 'replayStatus'), false);
+  assert.equal(Object.hasOwn(selfTestReceipt, 'replayReportPath'), false);
+  assert.equal(Object.hasOwn(selfTestReceipt, 'requestCoverage'), false);
+  assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
+    ...selfTestReceipt,
+    replayReportPath: replayReceipt.replayReportPath,
+  }, selfTestIdentity), /must not echo verifier field replayReportPath/);
 });
 
 test('native BuilderJourney receipts reject replay drift and failed or missing mutation controls', () => {
@@ -148,26 +161,35 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
   assert.throws(() => assertNativeBuilderJourneyReplayReceipt({ ...replayReceipt, caseKey: identity.traceName }, identity),
     /must not include a legacy caseKey alias/);
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
-    ...replayReceipt,
+    traceName: identity.traceName,
+    nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath,
     status: 'fail',
     selfTestStatus: 'fail',
     selfTestReportPath: '/evidence/cda-self-test.json',
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'fail' }],
-  }, replayReceipt, { ...identity, selfTestReportPath: '/evidence/cda-self-test.json' }), /status must be pass/);
+  }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }), /status must be pass/);
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
-    ...replayReceipt,
+    traceName: identity.traceName,
+    nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath,
     status: 'pass',
     selfTestStatus: 'pass',
     selfTestReportPath: '/evidence/cda-self-test.json',
     mutationControls: [{ name: 'reject-owner-mismatch', status: 'fail' }],
-  }, replayReceipt, { ...identity, selfTestReportPath: '/evidence/cda-self-test.json' }),
+  }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }),
   /must have a name and pass status/);
   assert.throws(() => assertNativeBuilderJourneySelfTestReceipt({
-    ...replayReceipt,
+    traceName: identity.traceName,
+    nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath,
     status: 'pass',
     selfTestStatus: 'pass',
     selfTestReportPath: '/evidence/cda-self-test.json',
     mutationControls: [],
-  }, replayReceipt, { ...identity, selfTestReportPath: '/evidence/cda-self-test.json' }),
+  }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
+    tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }),
   /must include mutation control results/);
 });

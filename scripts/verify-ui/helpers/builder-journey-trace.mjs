@@ -108,23 +108,20 @@ export const assertNativeBuilderJourneyReplayReceipt = (receipt, { traceName, na
   return receipt;
 };
 
-export const assertNativeBuilderJourneySelfTestReceipt = (receipt, verifierReceipt, {
+export const assertNativeBuilderJourneySelfTestReceipt = (receipt, {
   traceName,
   nativeCaseKey,
-  actionLabels,
+  tracePath,
   selfTestReportPath,
 }) => {
   assertNativeReceiptIdentity(receipt, traceName, nativeCaseKey, 'Self-test output');
   assert.equal(receipt.status, 'pass', 'Self-test receipt status must be pass.');
-  assert.equal(receipt.replayStatus, 'pass', 'Self-test receipt must preserve the passing replay.');
   assert.equal(receipt.selfTestStatus, 'pass', 'Self-test receipt status must be pass.');
+  assert.equal(receipt.tracePath, tracePath, 'Self-test receipt must retain the captured trace path.');
   assert.equal(receipt.selfTestReportPath, selfTestReportPath,
     'Self-test receipt must identify its actual output path.');
-  assert.deepEqual(receipt.actionLabels, actionLabels, 'Self-test receipt must retain the captured action chronology.');
-  for (const field of ['tracePath', 'replayReportPath', 'requestCoverage', 'requiredActionCountsByTrace',
-    'requiredActionMinimumsByTrace', 'unmodeledEvents']) {
-    assert.deepEqual(receipt[field], verifierReceipt[field],
-      `Self-test receipt must preserve verifier field ${field}.`);
+  for (const field of ['replayStatus', 'replayReportPath', 'requestCoverage']) {
+    assert(!Object.hasOwn(receipt, field), `Self-test receipt must not echo verifier field ${field}.`);
   }
   assert(Array.isArray(receipt.mutationControls) && receipt.mutationControls.length > 0,
     'Self-test receipt must include mutation control results.');
@@ -137,7 +134,7 @@ export const assertNativeBuilderJourneySelfTestReceipt = (receipt, verifierRecei
 
 export const finalizeNativeBuilderJourneyReceipt = (verifierReceipt, selfTestReceipt, identity) => {
   assertNativeBuilderJourneyReplayReceipt(verifierReceipt, identity);
-  assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, verifierReceipt, identity);
+  assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, identity);
   return {
     ...verifierReceipt,
     mutationControls: selfTestReceipt.mutationControls,
@@ -296,10 +293,10 @@ export const writeAndReplayBuilderJourneyTrace = ({
   if (isNativeLifecycle && existsSync(selfTestReportPath)) {
     try {
       selfTestReceipt = JSON.parse(readFileSync(selfTestReportPath, 'utf8'));
-      assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, verifierReceipt, {
+      assertNativeBuilderJourneySelfTestReceipt(selfTestReceipt, {
         traceName: journeyTrace.name,
         nativeCaseKey,
-        actionLabels: labels,
+        tracePath,
         selfTestReportPath,
       });
     } catch (error) {
@@ -326,6 +323,7 @@ export const writeAndReplayBuilderJourneyTrace = ({
           traceName: journeyTrace.name,
           nativeCaseKey,
           actionLabels: labels,
+          tracePath,
           selfTestReportPath,
         })
       : {
