@@ -69,10 +69,12 @@ function makeSyntheticReconcileLedgerTrace() {
   const transport = ({
     transportIndex, requestEventIndex, settlementEventIndex, method, path, requestBody,
     requestId = null, status = 200, response = {}, classification = 'read-only',
-    readOnlyReason = 'Absent', receiptProducerTransportIndices = [],
-    compatibleProposalTransportIndices = [], previewConsumerTransportIndices = [],
+    readOnlyReason = 'Absent', currentReceiptProducerTransportIndices = [],
+    hasInitialCurrentReceiptProducer = false, previewDisposition = 'Absent',
+    compatibleProposalTransportIndices = [], successfulPreviewConsumerTransportIndices = [],
     invalidatedByTransportIndices = [], reconcileOwner = null, reconcileCAS = null,
-    ownerInvalidationObserved = false, reconcileDisposition = 'Absent',
+    ownerInvalidationObserved = false, reconcileOwnerChangeCaptureIds = [], reconcileDisposition = 'Absent',
+    savedCASAfter = null,
   }) => ({
     transportIndex,
     requestEventIndex,
@@ -92,11 +94,14 @@ function makeSyntheticReconcileLedgerTrace() {
     responseOwnerIndex: transportIndex,
     status,
     response: { status, ...response },
-    receiptProducerTransportIndices,
-    hasInitialReceiptProducer: false,
+    savedCASAfter,
+    currentReceiptProducerTransportIndices,
+    hasInitialCurrentReceiptProducer,
+    previewDisposition,
     compatibleProposalTransportIndices,
-    previewConsumerTransportIndices,
+    successfulPreviewConsumerTransportIndices,
     invalidatedByTransportIndices,
+    reconcileOwnerChangeCaptureIds,
     reconcileOwner,
     reconcileCAS,
     ownerInvalidationObserved,
@@ -109,7 +114,8 @@ function makeSyntheticReconcileLedgerTrace() {
   const secondReconcileIndex = firstReconcileIndex + 1;
   const previewIndex = secondReconcileIndex + 1;
   const addReconcile = ({ transportIndex, requestEventIndex, settlementEventIndex, generation,
-    invalidatedByTransportIndices = [], ownerInvalidationObserved }) => transport({
+    invalidatedByTransportIndices = [], ownerInvalidationObserved,
+    reconcileOwnerChangeCaptureIds = [] }) => transport({
     transportIndex,
     requestEventIndex,
     settlementEventIndex,
@@ -126,8 +132,9 @@ function makeSyntheticReconcileLedgerTrace() {
       snapshotToken: 'snapshot-ledger-unit',
       intentDigest: 'intent-ledger-unit',
     },
-    previewConsumerTransportIndices: [previewIndex],
+    successfulPreviewConsumerTransportIndices: [previewIndex],
     invalidatedByTransportIndices,
+    reconcileOwnerChangeCaptureIds,
     reconcileOwner: { requestId: `builder-${generation}-1`, compileGeneration: generation, attempt: 1 },
     reconcileCAS: {
       snapshotToken: 'snapshot-ledger-unit',
@@ -163,10 +170,11 @@ function makeSyntheticReconcileLedgerTrace() {
       method: 'POST',
       path: 'preview',
       requestBody: { receiptId, outputId: 'output-1' },
-      response: { receiptIds: [], outputIds: ['output-1'] },
+      response: { receiptId, receiptIds: [receiptId], outputIds: ['output-1'] },
       classification: 'read-only',
       readOnlyReason: 'Receipt-backed preview read',
-      receiptProducerTransportIndices: [firstReconcileIndex, secondReconcileIndex],
+      currentReceiptProducerTransportIndices: [firstReconcileIndex, secondReconcileIndex],
+      previewDisposition: 'successful-response',
     }),
     transport({
       transportIndex: previewIndex + 1,
@@ -234,9 +242,9 @@ test('TLC replays the complete synthetic lifecycle against captured workspace an
 
 test('TLC keeps initial and captured receipt producers distinct through the policy adapter', t => {
   const initialOnly = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'initial-only' });
-  const initialOnlyPreview = initialOnly.transportLedger.at(-1);
-  assert.equal(initialOnlyPreview.hasInitialReceiptProducer, true);
-  assert.deepEqual(initialOnlyPreview.receiptProducerTransportIndices, []);
+  const initialOnlyPreview = initialOnly.transportLedger.find(entry => entry.path === 'preview');
+  assert.equal(initialOnlyPreview.hasInitialCurrentReceiptProducer, true);
+  assert.deepEqual(initialOnlyPreview.currentReceiptProducerTransportIndices, []);
   const initialOnlyResult = checkWithTLC(initialOnly, 'PolicyOneInitialReceiptOnly');
   t.diagnostic(summary(initialOnlyResult.output));
   assert.equal(initialOnlyResult.error, undefined, initialOnlyResult.error?.message);
@@ -244,16 +252,78 @@ test('TLC keeps initial and captured receipt producers distinct through the poli
   assert.match(initialOnlyResult.output, /Model checking completed\. No error has been found\./);
 
   const initialAndCaptured = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'initial-and-captured' });
-  const initialAndCapturedPreview = initialAndCaptured.transportLedger.at(-1);
+  const initialAndCapturedPreview = initialAndCaptured.transportLedger.find(entry => entry.path === 'preview');
   const capturedReconcile = initialAndCaptured.transportLedger.find(entry => entry.classification === 'reconcile');
-  assert.equal(initialAndCapturedPreview.hasInitialReceiptProducer, true);
+  assert.equal(initialAndCapturedPreview.hasInitialCurrentReceiptProducer, true);
   assert(capturedReconcile, 'adapter output must retain the captured reconcile producer');
-  assert.deepEqual(initialAndCapturedPreview.receiptProducerTransportIndices, [capturedReconcile.transportIndex]);
+  assert.deepEqual(initialAndCapturedPreview.currentReceiptProducerTransportIndices, [capturedReconcile.transportIndex]);
   const initialAndCapturedResult = checkWithTLC(initialAndCaptured, 'PolicyOneInitialAndCapturedReceipt');
   t.diagnostic(summary(initialAndCapturedResult.output));
   assert.equal(initialAndCapturedResult.error, undefined, initialAndCapturedResult.error?.message);
   assert.equal(initialAndCapturedResult.status, 0, summary(initialAndCapturedResult.output));
   assert.match(initialAndCapturedResult.output, /Model checking completed\. No error has been found\./);
+});
+
+test('TLC expires receipts after observed saved-CAS changes and grants no credit to failed previews', t => {
+  const ownerChanged = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'owner-change-refresh' });
+  const ownerReconciles = ownerChanged.transportLedger.filter(entry => entry.classification === 'reconcile');
+  const oldReceipt = ownerReconciles.find(entry => entry.reconcileOwner.compileGeneration === 60);
+  const currentReceipt = ownerReconciles.find(entry => entry.reconcileOwner.compileGeneration === 61);
+  const ownerPreview = ownerChanged.transportLedger.find(entry => entry.path === 'preview');
+  assert.deepEqual(oldReceipt.reconcileOwnerChangeCaptureIds, ['capture-removal-apply']);
+  assert.deepEqual(ownerPreview.currentReceiptProducerTransportIndices, [currentReceipt.transportIndex]);
+  assert.equal(ownerPreview.hasInitialCurrentReceiptProducer, false);
+  assert.deepEqual(oldReceipt.successfulPreviewConsumerTransportIndices, []);
+  assert.deepEqual(currentReceipt.successfulPreviewConsumerTransportIndices, [ownerPreview.transportIndex]);
+
+  const ownerResult = checkWithTLC(ownerChanged, 'PolicyOneOwnerChangedReceiptPositive');
+  t.diagnostic(summary(ownerResult.output));
+  assert.equal(ownerResult.error, undefined, ownerResult.error?.message);
+  assert.equal(ownerResult.status, 0, summary(ownerResult.output));
+  assert.match(ownerResult.output, /Model checking completed\. No error has been found\./);
+
+  const staleReconcileProducer = structuredClone(ownerChanged);
+  staleReconcileProducer.transportLedger.find(entry => entry.path === 'preview')
+    .currentReceiptProducerTransportIndices = [oldReceipt.transportIndex, currentReceipt.transportIndex];
+  const staleReconcileResult = checkWithTLC(staleReconcileProducer, 'PolicyOneStaleReconcileProducer');
+  t.diagnostic(summary(staleReconcileResult.output));
+  assert.equal(staleReconcileResult.error, undefined, staleReconcileResult.error?.message);
+  assert.notEqual(staleReconcileResult.status, 0);
+  assert.match(staleReconcileResult.output, /ObservedTransportLedgerInvariant/);
+
+  const staleInitialProducer = structuredClone(ownerChanged);
+  staleInitialProducer.transportLedger.find(entry => entry.path === 'preview')
+    .hasInitialCurrentReceiptProducer = true;
+  const staleInitialResult = checkWithTLC(staleInitialProducer, 'PolicyOneStaleInitialProducer');
+  t.diagnostic(summary(staleInitialResult.output));
+  assert.equal(staleInitialResult.error, undefined, staleInitialResult.error?.message);
+  assert.notEqual(staleInitialResult.status, 0);
+  assert.match(staleInitialResult.output, /ObservedTransportLedgerInvariant/);
+
+  const failedPreview = makeSyntheticPolicyOneJourneyTrace({
+    sourceReceiptCase: 'owner-change-refresh', previewStatus: 500,
+  });
+  const failedPreviewRow = failedPreview.transportLedger.find(entry => entry.path === 'preview');
+  assert.equal(failedPreviewRow.previewDisposition, 'http-error');
+  assert.deepEqual(failedPreview.transportLedger.filter(entry => entry.classification === 'reconcile')
+    .flatMap(entry => entry.successfulPreviewConsumerTransportIndices), []);
+  const failedPreviewResult = checkWithTLC(failedPreview, 'PolicyOneFailedPreviewHasNoConsumer');
+  t.diagnostic(summary(failedPreviewResult.output));
+  assert.equal(failedPreviewResult.error, undefined, failedPreviewResult.error?.message);
+  assert.equal(failedPreviewResult.status, 0, summary(failedPreviewResult.output));
+
+  const falseConsumer = structuredClone(failedPreview);
+  falseConsumer.transportLedger.find(entry => entry.requestId === 'builder-61-1')
+    .successfulPreviewConsumerTransportIndices = [failedPreviewRow.transportIndex];
+  const falseConsumerResult = checkWithTLC(falseConsumer, 'PolicyOneFailedPreviewFalseConsumer');
+  t.diagnostic(summary(falseConsumerResult.output));
+  assert.equal(falseConsumerResult.error, undefined, falseConsumerResult.error?.message);
+  assert.notEqual(falseConsumerResult.status, 0);
+  assert.match(falseConsumerResult.output, /ObservedTransportLedgerInvariant/);
+
+  const wrongEcho = structuredClone(ownerChanged);
+  wrongEcho.transportLedger.find(entry => entry.path === 'preview').response.receiptIds = ['wrong-receipt'];
+  assert.throws(() => compilePolicyOneJourneyTrace(wrongEcho), /must echo its submitted receipt/);
 });
 
 test('TLC validates scoped reconcile ownership, receipt sets, and read-only routes in a unit trace', t => {
@@ -271,7 +341,7 @@ test('TLC validates scoped reconcile ownership, receipt sets, and read-only rout
   assert.match(positive.output, /Model checking completed\. No error has been found\./);
 
   const collapsedReceiptParents = structuredClone(trace);
-  collapsedReceiptParents.transportLedger[10].receiptProducerTransportIndices = [10];
+  collapsedReceiptParents.transportLedger[10].currentReceiptProducerTransportIndices = [10];
   const negative = checkWithTLC(collapsedReceiptParents, 'PolicyOneReconcileLedgerCollapsedParents');
   t.diagnostic(summary(negative.output));
   assert.equal(negative.error, undefined, negative.error?.message);

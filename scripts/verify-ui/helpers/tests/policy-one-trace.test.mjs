@@ -5,7 +5,10 @@ import {
   patientOneSavedState,
   policyApplyTraceExpectation,
 } from '../../workflows/builder-patient-one-disagreement.mjs';
-import { makePolicyOneTraceInput } from './fixtures/policy-one-journey.mjs';
+import {
+  makePolicyOneTraceInput,
+  makeSyntheticPolicyOneJourneyTrace,
+} from './fixtures/policy-one-journey.mjs';
 
 const eventNames = [
   'OneSubmitted',
@@ -25,19 +28,18 @@ const extraTransport = ({
   path,
   requestId = null,
   requestBody = null,
+  ownerScope = 'https://fixture.invalid/api/explorers/policy-one',
   status = 200,
   response,
 }) => {
-  const origin = 'https://fixture.invalid';
-  const ownerPrefix = '/api/explorers/policy-one';
   return {
     transportIndex,
     requestEventIndex,
     settlementEventIndex,
     method,
     path,
-    resourcePath: `${origin}${ownerPrefix}/authoring/v2/${path}`,
-    ownerScope: `${origin}${ownerPrefix}`,
+    resourcePath: `${ownerScope}/authoring/v2/${path}`,
+    ownerScope,
     requestId,
     requestCaptureId: null,
     requestBody,
@@ -302,7 +304,7 @@ test('reconcile rows bind the actual owner and CAS while preserving set-valued r
     method: 'POST',
     path: 'reconcile',
     requestId: `builder-${generation}-1`,
-    requestBody: { snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-before' },
+    requestBody: { snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-after' },
     response: { ...sharedReceipt, requestId: `builder-${generation}-1` },
   });
   input.context.transportCaptures.push(
@@ -315,6 +317,11 @@ test('reconcile rows bind the actual owner and CAS while preserving set-valued r
       method: 'POST',
       path: 'preview',
       requestBody: { receiptId: 'same-content-receipt', outputId: 'output-1' },
+      response: {
+        receiptId: 'same-content-receipt',
+        receiptIds: ['same-content-receipt'],
+        outputIds: ['output-1'],
+      },
     }),
   );
 
@@ -326,7 +333,7 @@ test('reconcile rows bind the actual owner and CAS while preserving set-valued r
     requestId: 'builder-10-1', compileGeneration: 10, attempt: 1,
   });
   assert.deepEqual(first.reconcileCAS, {
-    snapshotToken: 'snapshot-1', draftVersion: 3, draftDigest: 'draft-before', outputId: null,
+    snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-after', outputId: null,
   });
   assert.equal(first.ownerInvalidationObserved, true);
   assert.equal(first.reconcileDisposition, 'invalidated-by-captured-owner-event');
@@ -334,9 +341,10 @@ test('reconcile rows bind the actual owner and CAS while preserving set-valued r
     'only a same-explorer newer generation started before the old response invalidates its owner');
   assert.equal(second.ownerInvalidationObserved, false);
   assert.equal(second.reconcileDisposition, 'no-captured-owner-invalidation');
-  assert.deepEqual(first.previewConsumerTransportIndices, [6]);
-  assert.deepEqual(second.previewConsumerTransportIndices, [6]);
-  assert.deepEqual(preview.receiptProducerTransportIndices, [4, 5],
+  assert.deepEqual(first.successfulPreviewConsumerTransportIndices, [6]);
+  assert.deepEqual(second.successfulPreviewConsumerTransportIndices, [6]);
+  assert.equal(preview.previewDisposition, 'successful-response');
+  assert.deepEqual(preview.currentReceiptProducerTransportIndices, [4, 5],
     'identical receipt identities preserve every compatible producer relation without choosing one parent');
 });
 
@@ -385,4 +393,102 @@ test('a reconcile request failure remains a settled owner/CAS ledger row', () =>
   assert.equal(row.ownerInvalidationObserved, false);
   assert.equal(row.reconcileDisposition, 'request-failed');
   assert.deepEqual(row.invalidatedByTransportIndices, []);
+});
+
+test('preview HTTP failures and wrong successful echoes do not count as receipt consumption', () => {
+  const addReconcileAndPreview = (input, { previewStatus, receiptResponse = 'receipt-from-reconcile' }) => {
+    input.context.transportCaptures.push(
+      extraTransport({
+        transportIndex: 4,
+        requestEventIndex: 7,
+        settlementEventIndex: 8,
+        method: 'POST',
+        path: 'reconcile',
+        requestId: 'builder-30-1',
+        requestBody: { snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-after' },
+        response: {
+          status: 200,
+          requestId: 'builder-30-1',
+          receiptId: 'receipt-from-reconcile',
+          receiptIds: ['receipt-from-reconcile'],
+          outputIds: ['output-1'],
+          snapshotToken: 'snapshot-1',
+          intentDigest: 'intent-current',
+        },
+      }),
+      extraTransport({
+        transportIndex: 5,
+        requestEventIndex: 9,
+        settlementEventIndex: 10,
+        method: 'POST',
+        path: 'preview',
+        requestBody: { receiptId: 'receipt-from-reconcile', outputId: 'output-1' },
+        status: previewStatus,
+        response: {
+          receiptId: receiptResponse,
+          receiptIds: [receiptResponse],
+          outputIds: ['output-1'],
+        },
+      }),
+    );
+  };
+
+  const failedPreview = makePolicyOneTraceInput();
+  addReconcileAndPreview(failedPreview, { previewStatus: 500 });
+  const failedTrace = buildPolicyOneTrace(failedPreview).journeyTrace;
+  assert.equal(failedTrace.transportLedger[4].previewDisposition, 'http-error');
+  assert.deepEqual(failedTrace.transportLedger[4].currentReceiptProducerTransportIndices, [4],
+    'the submitted receipt has a current producer even when the preview request fails');
+  assert.deepEqual(failedTrace.transportLedger[3].successfulPreviewConsumerTransportIndices, [],
+    'HTTP 500 cannot certify consumption of the receipt');
+
+  const wrongEcho = makePolicyOneTraceInput();
+  addReconcileAndPreview(wrongEcho, { previewStatus: 200, receiptResponse: 'wrong-receipt' });
+  assert.throws(() => buildPolicyOneTrace(wrongEcho), /successful response must echo its submitted receipt/);
+
+  const wrongOwner = makePolicyOneTraceInput();
+  addReconcileAndPreview(wrongOwner, { previewStatus: 200 });
+  wrongOwner.context.transportCaptures[4].responseOwnerIndex = 4;
+  assert.throws(() => buildPolicyOneTrace(wrongOwner), /response must retain its exact request owner/);
+});
+
+test('successful saved-CAS changes expire stale reconcile and initial receipt producers', () => {
+  const trace = makeSyntheticPolicyOneJourneyTrace({ sourceReceiptCase: 'owner-change-refresh' });
+  const reconciles = trace.transportLedger.filter(row => row.classification === 'reconcile');
+  const oldReceipt = reconciles.find(row => row.reconcileOwner.compileGeneration === 60);
+  const currentReceipt = reconciles.find(row => row.reconcileOwner.compileGeneration === 61);
+  const preview = trace.transportLedger.find(row => row.path === 'preview');
+  assert(oldReceipt && currentReceipt && preview);
+  assert.deepEqual(oldReceipt.reconcileOwnerChangeCaptureIds, ['capture-removal-apply'],
+    'the old receipt records the exact successful command owner change after its response');
+  assert.deepEqual(oldReceipt.successfulPreviewConsumerTransportIndices, [],
+    'the old receipt cannot claim a current successful preview consumer after saved CAS changes');
+  assert.deepEqual(currentReceipt.successfulPreviewConsumerTransportIndices, [preview.transportIndex]);
+  assert.deepEqual(preview.currentReceiptProducerTransportIndices, [currentReceipt.transportIndex],
+    'the later same-content receipt is the current producer after the command changes saved CAS');
+  assert.equal(preview.hasInitialCurrentReceiptProducer, false);
+
+  const initialReceipt = makePolicyOneTraceInput();
+  initialReceipt.context.initialObservation.draftVersion = 1;
+  initialReceipt.context.initialObservation.draftDigest = 'draft-root';
+  initialReceipt.context.initialPreview.binding = {
+    status: 'ready', receiptId: 'initial-source-receipt', outputId: 'output-1',
+    draftVersion: 1, draftDigest: 'draft-root',
+  };
+  initialReceipt.context.transportCaptures.push(extraTransport({
+    transportIndex: 4,
+    requestEventIndex: 7,
+    settlementEventIndex: 8,
+    method: 'POST',
+    path: 'preview',
+    ownerScope: initialReceipt.context.transportCaptures[0].ownerScope,
+    requestBody: { receiptId: 'initial-source-receipt', outputId: 'output-1' },
+    response: {
+      receiptId: 'initial-source-receipt',
+      receiptIds: ['initial-source-receipt'],
+      outputIds: ['output-1'],
+    },
+  }));
+  assert.throws(() => buildPolicyOneTrace(initialReceipt),
+    /must have a current captured or initial receipt producer/);
 });

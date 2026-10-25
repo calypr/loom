@@ -133,7 +133,40 @@ function modeledRequestReferences(requests, context) {
   ];
 }
 
-function canonicalTransportLedger(captures, references, initialPreview) {
+function savedCASAfterCommand(capture, actions) {
+  const matchingResponses = actions.filter(action => action.response?.requestObjectId === capture.requestCaptureId
+    && action.response?.status >= 200 && action.response?.status < 300);
+  assert.equal(matchingResponses.length, 1,
+    `successful command transport ${capture.transportIndex} must link one exact response action`);
+  const responseAction = matchingResponses[0];
+  const saved = responseAction.savedAfter ?? responseAction.observation?.saved ?? {};
+  const draftVersion = saved.draftVersion ?? responseAction.observation?.draftVersion;
+  const draftDigest = saved.draftDigest ?? responseAction.observation?.draftDigest;
+  assert(Number.isInteger(draftVersion) && draftVersion > 0,
+    `successful command transport ${capture.transportIndex} must retain its actual after-Builder draft version`);
+  nonEmptyString(draftDigest,
+    `successful command transport ${capture.transportIndex} must retain its actual after-Builder draft digest`);
+  assert.equal(capture.response.draftVersion, draftVersion,
+    `successful command transport ${capture.transportIndex} response version must match its after-Builder read`);
+  assert.equal(capture.response.draftDigest, draftDigest,
+    `successful command transport ${capture.transportIndex} response digest must match its after-Builder read`);
+  return { draftVersion, draftDigest };
+}
+
+function ownerChangingCommands(rows, ownerScope, draftVersion, draftDigest, afterEventIndex, beforeEventIndex) {
+  return rows.filter(candidate => candidate.classification === 'modeled'
+    && candidate.path === 'commands'
+    && candidate.ownerScope === ownerScope
+    && candidate.settlement === 'response'
+    && candidate.status >= 200 && candidate.status < 300
+    && candidate.settlementEventIndex > afterEventIndex
+    && candidate.settlementEventIndex < beforeEventIndex
+    && candidate.savedCASAfter
+    && (candidate.savedCASAfter.draftVersion !== draftVersion
+      || candidate.savedCASAfter.draftDigest !== draftDigest));
+}
+
+function canonicalTransportLedger(captures, references, initialPreview, initialObservation, actions) {
   assert(Array.isArray(captures), 'workflow transport captures must be an array');
   const ordered = [...captures].sort((left, right) => left.transportIndex - right.transportIndex);
   const byIndex = new Map();
@@ -254,6 +287,13 @@ function canonicalTransportLedger(captures, references, initialPreview) {
   assert.equal(referencesByIndex.size, rows.filter(row => row.classification === 'modeled').length,
     'every modeled request must have exactly one raw transport row');
 
+  for (const row of rows) {
+    if (row.classification === 'modeled' && row.path === 'commands'
+      && row.settlement === 'response' && row.status >= 200 && row.status < 300) {
+      row.savedCASAfter = savedCASAfterCommand(row, actions);
+    }
+  }
+
   const initialReceipt = initialPreview?.binding?.receiptId ?? null;
   const initialOutputId = initialPreview?.outputId ?? null;
   for (const row of rows) {
@@ -262,20 +302,42 @@ function canonicalTransportLedger(captures, references, initialPreview) {
       const outputId = row.requestBody.outputId;
       nonEmptyString(receiptId, `preview transport ${row.transportIndex} receiptId`);
       nonEmptyString(outputId, `preview transport ${row.transportIndex} outputId`);
-      const compatible = rows.filter(candidate => candidate.transportIndex < row.transportIndex
+      row.previewDisposition = row.settlement === 'request-failed'
+        ? 'request-failed'
+        : row.status >= 200 && row.status < 300
+          ? 'successful-response'
+          : 'http-error';
+      if (row.previewDisposition === 'successful-response') {
+        assert.equal(row.responseOwnerIndex, row.transportIndex,
+          `preview transport ${row.transportIndex} successful response must belong to its exact request`);
+        assert(row.response.receiptIds?.includes(receiptId),
+          `preview transport ${row.transportIndex} successful response must echo its submitted receipt`);
+        assert(row.response.outputIds?.includes(outputId),
+          `preview transport ${row.transportIndex} successful response must echo its submitted output`);
+      }
+      const compatible = rows.filter(candidate => candidate.classification === 'reconcile'
+        && candidate.transportIndex < row.transportIndex
         && candidate.ownerScope === row.ownerScope
         && candidate.settlement === 'response'
-        && candidate.status === 200
+        && candidate.status >= 200 && candidate.status < 300
         && candidate.settlementEventIndex < row.requestEventIndex
-        && (candidate.classification === 'reconcile'
-          || candidate.classification === 'modeled'
-            && ['construction-proposals', 'construction-choice-proposals'].includes(candidate.path))
         && candidate.response.receiptIds?.includes(receiptId)
-        && candidate.response.outputIds?.includes(outputId));
-      row.receiptProducerTransportIndices = compatible.map(candidate => candidate.transportIndex);
-      row.hasInitialReceiptProducer = initialReceipt === receiptId && initialOutputId === outputId;
-      assert(compatible.length > 0 || row.hasInitialReceiptProducer,
-        `preview transport ${row.transportIndex} must consume a captured or initial receipt`);
+        && candidate.response.outputIds?.includes(outputId)
+        && ownerChangingCommands(rows, row.ownerScope,
+          candidate.requestBody.draftVersion,
+          candidate.requestBody.draftDigest,
+          candidate.settlementEventIndex,
+          row.settlementEventIndex).length === 0);
+      row.currentReceiptProducerTransportIndices = compatible.map(candidate => candidate.transportIndex);
+      row.hasInitialCurrentReceiptProducer = initialReceipt === receiptId
+        && initialOutputId === outputId
+        && ownerChangingCommands(rows, row.ownerScope,
+          initialObservation.draftVersion,
+          initialObservation.draftDigest,
+          0,
+          row.settlementEventIndex).length === 0;
+      assert(compatible.length > 0 || row.hasInitialCurrentReceiptProducer,
+        `preview transport ${row.transportIndex} must have a current captured or initial receipt producer`);
     }
   }
 
@@ -309,8 +371,18 @@ function canonicalTransportLedger(captures, references, initialPreview) {
       && candidate.ownerScope === row.ownerScope
       && candidate.transportIndex > row.transportIndex
       && candidate.requestEventIndex > row.settlementEventIndex
+      && candidate.previewDisposition === 'successful-response'
+      && candidate.responseOwnerIndex === candidate.transportIndex
       && candidate.requestBody.receiptId === response?.receiptId
-      && (body.outputId === undefined || candidate.requestBody.outputId === body.outputId));
+      && (body.outputId === undefined || candidate.requestBody.outputId === body.outputId)
+      && response?.outputIds?.includes(candidate.requestBody.outputId)
+      && candidate.response.receiptIds?.includes(response?.receiptId)
+      && candidate.response.outputIds?.includes(candidate.requestBody.outputId)
+      && ownerChangingCommands(rows, row.ownerScope,
+        body.draftVersion,
+        body.draftDigest,
+        row.settlementEventIndex,
+        candidate.settlementEventIndex).length === 0);
     row.reconcileOwner = {
       requestId: row.requestId,
       compileGeneration: Number(ownerMatch[1]),
@@ -323,7 +395,7 @@ function canonicalTransportLedger(captures, references, initialPreview) {
       outputId: body.outputId ?? null,
     };
     row.compatibleProposalTransportIndices = matchingProposals.map(candidate => candidate.transportIndex);
-    row.previewConsumerTransportIndices = previewConsumers.map(candidate => candidate.transportIndex);
+    row.successfulPreviewConsumerTransportIndices = previewConsumers.map(candidate => candidate.transportIndex);
     if (row.settlement === 'response' && response.status === 200) {
       nonEmptyString(response.receiptId, `reconcile transport ${row.transportIndex} receiptId`);
       assert.equal(response.snapshotToken, body.snapshotToken,
@@ -339,6 +411,11 @@ function canonicalTransportLedger(captures, references, initialPreview) {
           || candidate.classification === 'reconcile'
             && Number(/^builder-(\d+)-/.exec(candidate.requestId ?? '')?.[1] ?? 0) > Number(ownerMatch[1])));
       row.invalidatedByTransportIndices = invalidatedBy.map(candidate => candidate.transportIndex);
+      row.reconcileOwnerChangeCaptureIds = ownerChangingCommands(rows, row.ownerScope,
+        body.draftVersion,
+        body.draftDigest,
+        row.settlementEventIndex,
+        Number.POSITIVE_INFINITY).map(candidate => candidate.requestCaptureId);
       row.ownerInvalidationObserved = row.invalidatedByTransportIndices.length > 0;
       row.reconcileDisposition = row.ownerInvalidationObserved
         ? 'invalidated-by-captured-owner-event'
@@ -347,14 +424,16 @@ function canonicalTransportLedger(captures, references, initialPreview) {
       row.ownerInvalidationObserved = false;
       row.reconcileDisposition = 'rejected';
       row.compatibleProposalTransportIndices = [];
-      row.previewConsumerTransportIndices = [];
+      row.successfulPreviewConsumerTransportIndices = [];
       row.invalidatedByTransportIndices = [];
+      row.reconcileOwnerChangeCaptureIds = [];
     } else {
       row.ownerInvalidationObserved = false;
       row.reconcileDisposition = 'request-failed';
       row.compatibleProposalTransportIndices = [];
-      row.previewConsumerTransportIndices = [];
+      row.successfulPreviewConsumerTransportIndices = [];
       row.invalidatedByTransportIndices = [];
+      row.reconcileOwnerChangeCaptureIds = [];
     }
   }
 
@@ -910,6 +989,8 @@ export function buildPolicyOneTrace({ expected, requests, responses, saved, dom,
     context.transportCaptures,
     modeledRequestReferences(requests, context),
     context.initialPreview,
+    context.initialObservation,
+    actions,
   );
   return {
     journeyTrace: {
