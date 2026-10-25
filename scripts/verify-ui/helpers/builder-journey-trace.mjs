@@ -22,6 +22,35 @@ const repositoryPath = (repositoryRoot, path) => {
   return absolutePath;
 };
 
+export const createBuilderReadMetadataRegistry = () => {
+  const metadataByBuilder = new WeakMap();
+  return {
+    record(builder, metadata) {
+      assert(builder && typeof builder === 'object' && !Array.isArray(builder),
+        'Builder read metadata must be bound to the exact object returned by /builder.');
+      assert(metadata && typeof metadata === 'object' && !Array.isArray(metadata),
+        'Builder read metadata must be an actual request record.');
+      metadataByBuilder.set(builder, structuredClone(metadata));
+      return builder;
+    },
+    forBuilder(builder) {
+      const metadata = builder && typeof builder === 'object' ? metadataByBuilder.get(builder) : undefined;
+      assert(metadata, 'Builder object must retain metadata from its own /builder response.');
+      return structuredClone(metadata);
+    },
+  };
+};
+
+export const nativeRequestLedgerFrom = entries => entries.map(entry => ({
+  index: entry.index,
+  browserRequestId: entry.browserRequestId,
+  requestId: entry.requestId ?? null,
+  method: entry.method,
+  path: entry.path,
+  startedAt: entry.startedAt,
+  isMutation: entry.isMutation,
+}));
+
 export const builderJourneyTraceBindingFor = (scenarioID, caseName) => {
   const registeredCase = scenarioCaseFor(scenarioID, caseName);
   const binding = registeredCase.journeyTrace;

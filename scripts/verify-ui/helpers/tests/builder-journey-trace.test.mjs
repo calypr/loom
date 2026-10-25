@@ -10,7 +10,9 @@ import {
   assertNativeBuilderJourneySelfTestReceipt,
   builderJourneyTraceReceiptIdentity,
   captureBuilderJourneyTraceProvenance,
+  createBuilderReadMetadataRegistry,
   finalizeNativeBuilderJourneyReceipt,
+  nativeRequestLedgerFrom,
 } from '../builder-journey-trace.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -192,4 +194,37 @@ test('native BuilderJourney receipts reject replay drift and failed or missing m
   }, { traceName: identity.traceName, nativeCaseKey: identity.nativeCaseKey,
     tracePath: replayReceipt.tracePath, selfTestReportPath: '/evidence/cda-self-test.json' }),
   /must include mutation control results/);
+});
+
+test('Builder read metadata stays bound to the exact response object across overlapping reads', () => {
+  const reads = createBuilderReadMetadataRegistry();
+  const beforeBuilder = { draftVersion: 2, draftDigest: 'before-digest' };
+  const afterBuilder = { draftVersion: 3, draftDigest: 'after-digest' };
+  const beforeMetadata = { path: '/builder', requestId: 'builder-before', status: 200,
+    draftVersion: 2, draftDigest: 'before-digest' };
+  const afterMetadata = { path: '/builder', requestId: 'builder-after', status: 200,
+    draftVersion: 3, draftDigest: 'after-digest' };
+
+  reads.record(beforeBuilder, beforeMetadata);
+  reads.record(afterBuilder, afterMetadata);
+
+  assert.deepEqual(reads.forBuilder(beforeBuilder), beforeMetadata);
+  assert.deepEqual(reads.forBuilder(afterBuilder), afterMetadata);
+  assert.throws(() => reads.forBuilder({ draftVersion: 3 }), /must retain metadata/);
+});
+
+test('native request ledger preserves every observer request identity, raw path, flag, and chronology', () => {
+  const observed = [
+    { index: 0, browserRequestId: 'browser-0', requestId: 'wire-0', method: 'GET',
+      path: '/api/v1/projects/p1/explorers/e1/authoring/v2/capability', startedAt: 100, isMutation: false },
+    { index: 4, browserRequestId: 'browser-4', requestId: undefined, method: 'POST',
+      path: '/api/v1/projects/p1/explorers/e1/authoring/v2/unclassified-command', startedAt: 160, isMutation: false },
+  ];
+
+  assert.deepEqual(nativeRequestLedgerFrom(observed), [
+    { index: 0, browserRequestId: 'browser-0', requestId: 'wire-0', method: 'GET',
+      path: '/api/v1/projects/p1/explorers/e1/authoring/v2/capability', startedAt: 100, isMutation: false },
+    { index: 4, browserRequestId: 'browser-4', requestId: null, method: 'POST',
+      path: '/api/v1/projects/p1/explorers/e1/authoring/v2/unclassified-command', startedAt: 160, isMutation: false },
+  ]);
 });

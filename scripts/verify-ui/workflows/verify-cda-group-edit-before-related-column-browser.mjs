@@ -14,6 +14,8 @@ import { captureCDARequests } from '../helpers/cda-playwright-requests.mjs';
 import { captureBuilderObservation } from '../helpers/fast-fixtures.mjs';
 import {
   builderJourneyTraceBindingFor,
+  createBuilderReadMetadataRegistry,
+  nativeRequestLedgerFrom,
   writeAndReplayBuilderJourneyTrace,
 } from '../helpers/builder-journey-trace.mjs';
 
@@ -164,8 +166,9 @@ const report = {
   protectedExplorerUntouched: true,
   started: new Date().toISOString(),
 };
-let builder, outputId, selection, source, selectedPopulationRoute, lastBuilderRead;
+let builder, outputId, selection, source, selectedPopulationRoute;
 const builderSnapshotsByDraft = new Map();
+const builderReadMetadata = createBuilderReadMetadataRegistry();
 const journeyTraceBinding = builderJourneyTraceBindingFor(cda.scenarioID, cda.caseName);
 const journeyTrace = {
   name: journeyTraceBinding.name,
@@ -203,13 +206,13 @@ const api = async (path, body) => {
   const value = await response.json();
   report.requests.push({ path, requestId, body, status: response.status, response: value });
   if (path.endsWith('/builder')) {
-    lastBuilderRead = {
+    builderReadMetadata.record(value, {
       path,
       requestId,
       status: response.status,
       draftVersion: value.draftVersion,
       draftDigest: value.draftDigest,
-    };
+    });
     builderSnapshotsByDraft.set(`${String(value.draftVersion)}\u0000${value.draftDigest}`, structuredClone(value));
   }
   assert(response.ok, `${response.status} ${JSON.stringify(value)}`);
@@ -906,7 +909,7 @@ const expectedPreview = async (expectedRows, { requestStart, expectedBuilder, la
 const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, label = 'reload') => {
   builder = await api(base + '/builder');
   const savedBefore = savedBuilderProjection(builder);
-  const builderReadBefore = structuredClone(lastBuilderRead);
+  const builderReadBefore = builderReadMetadata.forBuilder(builder);
   const startedAt = Date.now();
   const requestStart = nativeCapture.requests.length;
   const previousTimeOrigin = documentTimeOrigin;
@@ -925,6 +928,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
   }, 5000, { columnCount: String(columnCount) });
   await mountedRows(expectedRows, columnCount);
   builder = await api(base + '/builder');
+  const builderReadAfter = builderReadMetadata.forBuilder(builder);
   const binding = assertSourceBinding(builder, selectedPopulationRoute);
   assert.equal(binding.output.id, outputId);
   const preview = await expectedPreview(expectedRows, { requestStart, expectedBuilder: builder, label, startedAt });
@@ -985,7 +989,7 @@ const open = async (expectedRows, columnCount = expectedRows[0]?.length ?? 2, la
       },
       builderReads: {
         before: builderReadBefore,
-        after: structuredClone(lastBuilderRead),
+        after: builderReadAfter,
       },
       observation,
       renderedRows,
@@ -2202,6 +2206,7 @@ FOR s IN (
     reason,
     requests,
   }));
+  journeyTrace.nativeRequests = nativeRequestLedgerFrom(nativeCapture.requests);
   const traceResult = writeAndReplayBuilderJourneyTrace({
     scenarioID: cda.scenarioID,
     caseName: cda.caseName,
