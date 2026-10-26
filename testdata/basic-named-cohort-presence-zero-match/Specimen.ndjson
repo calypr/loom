@@ -1,0 +1,2 @@
+{"resourceType":"Specimen","id":"basic-presence-zero-specimen-001","status":"available","subject":{"reference":"Patient/basic-presence-zero-patient-001"}}
+{"resourceType":"Specimen","id":"basic-presence-positive-specimen-001","status":"available","subject":{"reference":"Patient/basic-presence-positive-patient-001"}}

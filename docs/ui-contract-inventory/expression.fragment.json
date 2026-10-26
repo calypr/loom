@@ -1,0 +1,1849 @@
+{
+  "version": 1,
+  "owner": "inventory_expression",
+  "entries": [
+    {
+      "id": "builder.filter_rows.scalar_condition",
+      "surface": "Mounted Builder construction workspace",
+      "path": [
+        "Table actions",
+        "Filter rows",
+        "A value in this table",
+        "Column",
+        "Condition"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "KEEP_ROWS",
+        "variant": "FILTER scalar condition"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:40",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:106",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3777",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:41",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:784",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:843",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:214",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:396"
+      ],
+      "request": {
+        "candidateConstructor": "ConstructionOperationEditor.buildFilterCandidate",
+        "proposalConstructor": "useConstructionLifecycle.startCandidateProposal",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+        "previewEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview, receipt-bound if the proposal response preview does not match",
+        "applyConstructor": "BuilderWorkspace.applyConstructionProposal emits APPLY_CONSTRUCTION_PROPOSAL through applyBuilderCommands",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+        "endpointEvidence": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233",
+          "ui/packages/loom-ui/src/api.ts:1685",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800",
+          "ui/packages/loom-ui/src/api.ts:1450"
+        ]
+      },
+      "gates": [
+        {
+          "id": "filter-stage-support",
+          "when": "selectedStage.capabilities[FILTER].supported",
+          "effect": "Otherwise show the server reason and emit no candidate.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:129",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:784"
+          ]
+        },
+        {
+          "id": "predecessor-column",
+          "when": "condition column id exists in selected predecessor stage",
+          "effect": "Otherwise the candidate is incomplete or a saved condition is shown as unsupported.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:350",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:405"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "condition_column",
+          "kind": "dynamic-reference",
+          "type": "column-id",
+          "dynamicProvider": {
+            "response": "ConstructionCapabilitiesResponse",
+            "property": "selectedStage.columns[].id"
+          },
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:843"
+          ],
+          "description": "The condition column comes from the stage immediately before the filter step."
+        },
+        {
+          "id": "value_kind",
+          "kind": "enum",
+          "type": "wire-filter-value-kind",
+          "finiteValues": [
+            "STRING",
+            "CODE",
+            "BOOLEAN",
+            "INTEGER",
+            "DECIMAL",
+            "DATE",
+            "DATE_TIME"
+          ],
+          "dependsOn": [
+            "condition_column.type"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:100"
+          ],
+          "description": "Logical types map string/uuid\u2192STRING, code\u2192CODE, boolean\u2192BOOLEAN, integer\u2192INTEGER, decimal/number\u2192DECIMAL, date\u2192DATE, and date_time/datetime\u2192DATE_TIME; other types have no value editor."
+        },
+        {
+          "id": "operator",
+          "kind": "enum",
+          "type": "filter-operator",
+          "finiteValues": [
+            "EXISTS",
+            "MISSING",
+            "EQUALS",
+            "NOT_EQUALS",
+            "IN",
+            "CONTAINS_TEXT",
+            "GT",
+            "GTE",
+            "LT",
+            "LTE"
+          ],
+          "dependsOn": [
+            "condition_column.type"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:214"
+          ],
+          "description": "EXISTS/MISSING are always offered; EQUALS/NOT_EQUALS/IN require a mapped value kind; CONTAINS_TEXT requires STRING; comparisons require INTEGER, DECIMAL, DATE, or DATE_TIME."
+        },
+        {
+          "id": "typed_values",
+          "kind": "typed-value-list",
+          "type": "filter-value-union",
+          "dynamicProvider": {
+            "response": "ConstructionOperationEditor.filterValueKindFor(condition_column.type)",
+            "property": "typed value editor and parser"
+          },
+          "dependsOn": [
+            "condition_column.type",
+            "operator"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": null,
+            "conditional": [
+              {
+                "when": "operator is EXISTS or MISSING",
+                "minimum": 0,
+                "maximum": 0
+              },
+              {
+                "when": "operator is EQUALS, NOT_EQUALS, CONTAINS_TEXT, GT, GTE, LT, or LTE",
+                "minimum": 1,
+                "maximum": 1
+              },
+              {
+                "when": "operator is IN",
+                "minimum": 1,
+                "maximum": null
+              }
+            ]
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:245",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:265",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:934"
+          ],
+          "description": "IN has an Add another value control with no explicit UI maximum. INTEGER requires a JavaScript safe integer; DECIMAL must be finite; DATE must match YYYY-MM-DD; DATE_TIME must parse as a valid instant."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "The UI serializes typed FILTER values, retains predecessor-stage columns, and appends or replaces one FILTER step.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:396"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "The shared proposal panel offers Apply only for a READY proposal whose proposal id, preview receipt/output, snapshot token, draft version, and draft digest match the current table.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:30",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx:317"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "Rows must match every saved row condition.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:806"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "Proposal preview runs automatically; an explicit receipt-bound /preview request fills a missing or mismatched embedded preview.",
+        "apply": "Separate Apply change action sends APPLY_CONSTRUCTION_PROPOSAL after current-identity validation."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "Typed control values become a FILTER operation passed to the backend proposal compiler; capability/proposal responses remain authoritative."
+      }
+    },
+    {
+      "id": "builder.filter_rows.related_eligibility",
+      "surface": "Mounted Builder Filter rows editor",
+      "path": [
+        "Table actions",
+        "Filter rows",
+        "Related records"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "KEEP_ROWS",
+        "variant": "RELATED_ELIGIBILITY"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:34",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:37",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:44",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:170",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:179",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:253",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:286"
+      ],
+      "request": {
+        "choiceConstructor": "RelatedEligibilityEditor effect/loadMore calls searchRelatedExpandChoices",
+        "choiceEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices",
+        "contributorConstructor": "RelatedExpandContributorEditor search effect/loadMore calls searchRelatedExpandContributors",
+        "contributorEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors",
+        "candidateConstructor": "RelatedEligibilityEditor.candidateFor",
+        "proposalConstructor": "useConstructionLifecycle.startCandidateProposal",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+        "previewEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands via APPLY_CONSTRUCTION_PROPOSAL",
+        "endpointEvidence": [
+          "ui/packages/loom-ui/src/api.ts:1564",
+          "ui/packages/loom-ui/src/api.ts:1587",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts:233",
+          "ui/packages/loom-ui/src/api.ts:1685",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800"
+        ],
+        "pagination": {
+          "routeChoicesDefaultPageSize": 10,
+          "contributorFieldsDefaultPageSize": 20,
+          "cursorPaging": true,
+          "totalChoiceMaximum": null,
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:183",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx:115"
+          ]
+        }
+      },
+      "gates": [
+        {
+          "id": "related-mode",
+          "when": "RELATED_ELIGIBILITY is supported and selectedStage.relatedExpandAnchors is non-empty",
+          "effect": "Related records mode remains visible but its button is disabled when the gate is false.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:37",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:44",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx:52"
+          ],
+          "intentStatusWhenFalse": "visible-but-disabled"
+        },
+        {
+          "id": "route-choice",
+          "when": "A returned route choice must match the requested anchor column and target resource type.",
+          "effect": "Only the selected exact route is serialized.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:186"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "anchor_column",
+          "kind": "dynamic-reference",
+          "type": "column-id",
+          "dynamicProvider": {
+            "response": "ConstructionCapabilitiesResponse",
+            "property": "selectedStage.relatedExpandAnchors[].anchorColumnId"
+          },
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:264"
+          ]
+        },
+        {
+          "id": "target_resource_type",
+          "kind": "dynamic-enum",
+          "type": "resource-type",
+          "dynamicProvider": {
+            "response": "ExplorerBuilderCatalog",
+            "property": "distinct nodes[].resourceType"
+          },
+          "dependsOn": [
+            "anchor_column"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:169",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:271"
+          ]
+        },
+        {
+          "id": "related_match",
+          "kind": "enum",
+          "type": "related-match",
+          "finiteValues": [
+            "EXISTS",
+            "ABSENT",
+            "COUNT_AT_LEAST"
+          ],
+          "dependsOn": [
+            "route_choice"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:286"
+          ]
+        },
+        {
+          "id": "minimum_matching_records",
+          "kind": "integer",
+          "type": "integer",
+          "dependsOn": [
+            "related_match=COUNT_AT_LEAST"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:299"
+          ],
+          "description": "The input declares min=1 and step=1; no upper bound is declared in the UI."
+        },
+        {
+          "id": "contributor_condition",
+          "kind": "enum",
+          "type": "contributor-condition",
+          "finiteValues": [
+            "ALL",
+            "EXISTS",
+            "EQUALS"
+          ],
+          "dependsOn": [
+            "route_choice",
+            "contributor field logical type"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx:6",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx:229"
+          ],
+          "description": "EQUALS is available only for string/code contributor fields; repeated fields match when any item matches."
+        },
+        {
+          "id": "contributor_value",
+          "kind": "string",
+          "type": "string-or-code",
+          "dynamicProvider": {
+            "response": "RelatedExpandContributorSearchResponse.choices[].source.logicalType",
+            "property": "selected field value editor"
+          },
+          "dependsOn": [
+            "contributor_condition=EQUALS"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedExpandContributorEditor.tsx:246"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "Related match predicates are EXISTS, ABSENT, or COUNT_AT_LEAST; the minimum count field has min=1/step=1 and no UI maximum.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:286",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:299"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "This operation filters current rows; it does not add columns or multiply rows.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:256"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "For COUNT_AT_LEAST, a matching related record is counted once per current row even if multiple starting records link to it.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedEligibilityEditor.tsx:304"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "The common construction proposal panel previews candidate rows against a proposal receipt.",
+        "apply": "Separate Apply change action sends APPLY_CONSTRUCTION_PROPOSAL."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "Selected route, anchor, match, and contributor predicate become one RELATED_ELIGIBILITY operation; unsupported capability disables the related-mode affordance."
+      }
+    },
+    {
+      "id": "builder.calculate.derive",
+      "surface": "Mounted Builder construction workspace",
+      "path": [
+        "Table actions",
+        "More actions",
+        "Calculate",
+        "Guided controls or Formula editor"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "CALCULATE",
+        "variant": "DERIVE numeric column"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:52",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:109",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4432",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3801",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:627",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1151"
+      ],
+      "request": {
+        "capabilitiesEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+        "previewEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands via APPLY_CONSTRUCTION_PROPOSAL",
+        "evidence": [
+          "ui/packages/loom-ui/src/api.ts:1652",
+          "ui/packages/loom-ui/src/api.ts:1685",
+          "ui/packages/loom-ui/src/api.ts:1697",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800"
+        ]
+      },
+      "gates": [
+        {
+          "id": "calculate-action",
+          "when": "table has at least one construction step and append-stage DERIVE capability is supported",
+          "effect": "Calculate appears in More actions only when true.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4432",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx:109"
+          ]
+        },
+        {
+          "id": "numeric-operands",
+          "when": "COLUMN operands reference integer/decimal/number columns returned for the selected stage",
+          "effect": "Other stage columns are not selectable as operands.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:124",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1003"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "expression_view",
+          "kind": "enum",
+          "type": "expression-view",
+          "finiteValues": [
+            "guided",
+            "formula"
+          ],
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1151"
+          ]
+        },
+        {
+          "id": "operation",
+          "kind": "enum",
+          "type": "arithmetic-operation",
+          "finiteValues": [
+            "ADD",
+            "SUBTRACT",
+            "MULTIPLY",
+            "DIVIDE"
+          ],
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1193"
+          ]
+        },
+        {
+          "id": "left_operand",
+          "kind": "tagged-union",
+          "type": "numeric-column-or-literal",
+          "finiteValues": [
+            "COLUMN",
+            "LITERAL.INTEGER",
+            "LITERAL.DECIMAL"
+          ],
+          "dynamicProvider": {
+            "response": "ConstructionCapabilitiesResponse.selectedStage.columns",
+            "property": "numeric columns for COLUMN; typed literal editor for LITERAL"
+          },
+          "dependsOn": [
+            "operation"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:994",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1008"
+          ]
+        },
+        {
+          "id": "right_operand",
+          "kind": "tagged-union",
+          "type": "numeric-column-or-literal",
+          "finiteValues": [
+            "COLUMN",
+            "LITERAL.INTEGER",
+            "LITERAL.DECIMAL"
+          ],
+          "dynamicProvider": {
+            "response": "ConstructionCapabilitiesResponse.selectedStage.columns",
+            "property": "numeric columns for COLUMN; typed literal editor for LITERAL"
+          },
+          "dependsOn": [
+            "operation"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:994",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1008"
+          ]
+        },
+        {
+          "id": "formula_text",
+          "kind": "string",
+          "type": "binary-arithmetic-expression",
+          "dependsOn": [
+            "expression_view=formula"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:580",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:601"
+          ],
+          "description": "Parser accepts exactly two numeric operands and one +, -, *, or / operator; column names match [A-Za-z_][A-Za-z0-9_]*; literals support decimal/exponent syntax, finite values, and safe integers for integer notation. No formula max length is declared."
+        },
+        {
+          "id": "missing_input_policy",
+          "kind": "enum",
+          "type": "missing-input-policy",
+          "finiteValues": [
+            "PROPAGATE_NULL",
+            "ERROR"
+          ],
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1240"
+          ]
+        },
+        {
+          "id": "division_by_zero_policy",
+          "kind": "enum",
+          "type": "division-by-zero-policy",
+          "finiteValues": [
+            "NULL",
+            "ERROR"
+          ],
+          "dependsOn": [
+            "operation=DIVIDE"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1257"
+          ]
+        },
+        {
+          "id": "output_name",
+          "kind": "string",
+          "type": "physical-column-name",
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:638",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1295"
+          ],
+          "description": "Must match [A-Za-z_][A-Za-z0-9_]*, be unique case-sensitively against stage names, and has no declared maximum length."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "Formula view does not support functions, nested expressions, parentheses, or conditionals.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:610",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1174"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "A derive step retains predecessor columns and adds one output column; replacing a saved step preserves its output column id.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:652",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:676"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "Operands are numeric stage columns or finite numeric literals; missing-input and division-by-zero policies are explicitly submitted.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:627",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:653"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "Shared construction proposal panel previews the READY receipt, with explicit /preview fallback if required.",
+        "apply": "Separate Apply change action sends APPLY_CONSTRUCTION_PROPOSAL."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "Guided controls and the one-operation formula parser serialize to a DERIVE operation submitted through the construction proposal compiler."
+      }
+    },
+    {
+      "id": "builder.calculate.table_shape_derived_column",
+      "surface": "Mounted legacy non-construction Builder table shape settings",
+      "path": [
+        "Table shape settings",
+        "Open settings",
+        "Derived numeric columns",
+        "Add derived column"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "table-shape settings",
+        "variant": "derived numeric column attached to NONE, GROUPED_PIVOT, or UNPIVOT shape"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4865",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:343",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:386",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx:132",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:241",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:258"
+      ],
+      "request": {
+        "capabilitiesEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities",
+        "resolutionEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions, kind DERIVED for each derived column",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals",
+        "applyConstructor": "BuilderWorkspace applies APPLY_TABLE_SHAPE_PROPOSAL",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+        "evidence": [
+          "ui/packages/loom-ui/src/api.ts:1621",
+          "ui/packages/loom-ui/src/api.ts:1640",
+          "ui/packages/loom-ui/src/api.ts:1646",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4883"
+        ]
+      },
+      "gates": [
+        {
+          "id": "table-kind",
+          "when": "table.document.construction is absent",
+          "effect": "Table shape settings are mounted only for a non-construction table.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4865"
+          ]
+        },
+        {
+          "id": "derived-capability",
+          "when": "TableShapeCapabilities.derivedAvailability is supported",
+          "effect": "Otherwise Add derived column is disabled with the server reason.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:242",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:268"
+          ],
+          "intentStatusWhenFalse": "visible-but-disabled"
+        },
+        {
+          "id": "unpivot-derived-capability",
+          "when": "reshape mode is UNPIVOT and unpivotWithDerivedAvailability is supported",
+          "effect": "Otherwise Add is disabled and the refusal reason is shown.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:242",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:271"
+          ],
+          "intentStatusWhenFalse": "visible-but-disabled"
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "reshape_mode",
+          "kind": "dynamic-enum",
+          "type": "reshape-mode",
+          "dynamicProvider": {
+            "response": "TableShapeCapabilities.reshapeModes[]",
+            "property": "mode with supported availability"
+          },
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx:157"
+          ]
+        },
+        {
+          "id": "binary_operator",
+          "kind": "dynamic-enum",
+          "type": "binary-operator",
+          "dynamicProvider": {
+            "response": "TableShapeCapabilities.binaryOperators[]",
+            "property": "operator choice with supported availability"
+          },
+          "dependsOn": [
+            "reshape_mode"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:294",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:513"
+          ]
+        },
+        {
+          "id": "operand",
+          "kind": "tagged-union",
+          "type": "table-shape-operand",
+          "finiteValues": [
+            "base",
+            "derived",
+            "pivotOutput",
+            "literal"
+          ],
+          "dynamicProvider": {
+            "response": "TableShapeCapabilities.operands and prior derived columns; selected pivot output set when mode=GROUPED_PIVOT",
+            "property": "operand source selector"
+          },
+          "dependsOn": [
+            "reshape_mode",
+            "earlier derived outputs",
+            "selected pivot outputs"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:85",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:114",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:152",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:199"
+          ],
+          "description": "Each derived expression has exactly two operand slots, left and right."
+        },
+        {
+          "id": "numeric_literal",
+          "kind": "typed-value",
+          "type": "finite-integer-or-decimal",
+          "finiteValues": [
+            "integer",
+            "decimal"
+          ],
+          "dependsOn": [
+            "operand.kind=literal"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": 2
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeController.ts:252"
+          ],
+          "description": "Must be finite; integer representation must be a JavaScript safe integer. No numeric range bound is declared."
+        },
+        {
+          "id": "missing_input_policy",
+          "kind": "dynamic-enum",
+          "type": "missing-input-policy",
+          "dynamicProvider": {
+            "response": "TableShapeCapabilities.missingInputPolicies[]",
+            "property": "supported choices"
+          },
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:327",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:532"
+          ]
+        },
+        {
+          "id": "division_by_zero_policy",
+          "kind": "dynamic-enum",
+          "type": "division-by-zero-policy",
+          "dynamicProvider": {
+            "response": "TableShapeCapabilities.divisionByZeroPolicies[]",
+            "property": "supported choices when selected operator requires it"
+          },
+          "dependsOn": [
+            "binary_operator.requiresDivisionByZeroPolicy"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:336"
+          ]
+        },
+        {
+          "id": "derived_outputs",
+          "kind": "ordered-list",
+          "type": "derived-column-proposal",
+          "dynamicProvider": {
+            "response": "User-added form rows constrained by supported choices",
+            "property": "TableShapeEditor.form.derivedColumns"
+          },
+          "dependsOn": [
+            "reshape_mode",
+            "binary_operator",
+            "operand",
+            "missing_input_policy"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeEditor.tsx:132",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:503"
+          ],
+          "description": "No maximum derived-column count is declared by the UI."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "Derived references may point only to an earlier derived output; pivot-output operands require a selected grouped-pivot output; grouped pivot removes base-column operands.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:58",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:68",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DerivedColumnsEditor.tsx:188"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "Each derived output requires a supported binary operator, two complete operands, a supported missing-input policy, and complete unique output names.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:513",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:533",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:585"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "The user reviews a table-shape comparison before applying the proposal; Apply uses the proposal id only while its table/draft context is current.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:255",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:286",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:404"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "Preview table shape opens a proposal comparison after server resolutions; this is a distinct legacy table-shape proposal flow.",
+        "apply": "Separate Apply action sends APPLY_TABLE_SHAPE_PROPOSAL."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "UI operand intent is resolved into server choice/resolution references and submitted in a table-shape proposal; it does not create a construction DERIVE step."
+      }
+    },
+    {
+      "id": "builder.add_columns.source_selection",
+      "surface": "Mounted Builder Add columns source controls",
+      "path": [
+        "Table actions",
+        "Add columns",
+        "Browse from"
+      ],
+      "status": "reachable",
+      "operation": {
+        "family": "ADD_COLUMNS",
+        "variant": "local source scope selection for catalog browsing"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1430",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1446",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1483",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1509",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1518",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1527",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:189",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:226",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045"
+      ],
+      "request": {
+        "selectionConstructor": "BuilderWorkspace.addColumnsSourceControls updates local selectedAddSource scope; selection itself sends no write command",
+        "browseConstructor": "ConceptCatalog.browseCurrentPage calls browseSemanticInventory with current snapshot, rowRoot, resourceType, query, cursor, and page limit",
+        "browseEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+        "choiceEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices after selecting a catalog item",
+        "evidence": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1049",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1509",
+          "ui/packages/loom-ui/src/api.ts:1495",
+          "ui/packages/loom-ui/src/api.ts:1555"
+        ],
+        "pagination": {
+          "semanticInventoryPageSize": 50,
+          "constructionChoiceRoutePageSize": 10,
+          "cursorPaging": true,
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:47",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:48"
+          ]
+        }
+      },
+      "gates": [
+        {
+          "id": "source-options",
+          "when": "source node is a row-root node, catalog-reachable related node, saved occurrence, or exact active related record in fields view",
+          "effect": "The set depends on current catalog graph, row root, selected occurrence, and active related-record stage.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:194",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:200",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1430",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1443"
+          ]
+        },
+        {
+          "id": "exact-related-view",
+          "when": "selected source kind is EXACT_RELATED",
+          "effect": "Selecting it switches the catalog to Other fields; switching to Coded values returns source selection to ROOT.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1456",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1527"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "browse_source",
+          "kind": "dynamic-enum",
+          "type": "catalog-source-option",
+          "dynamicProvider": {
+            "response": "catalogSourceOptions(catalog,rowRoot,savedOccurrenceNodeId) plus exact active related option",
+            "property": "source option kind/key/resourceType/sourceNodeId"
+          },
+          "dependsOn": [
+            "catalog snapshot",
+            "row_root",
+            "selected occurrence",
+            "active related record",
+            "catalog graph reachability"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:189",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:194",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:226",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1430"
+          ]
+        },
+        {
+          "id": "search_query",
+          "kind": "string",
+          "type": "catalog-query",
+          "dependsOn": [
+            "browse_source",
+            "catalog snapshot"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1058"
+          ],
+          "description": "No query length maximum is declared."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "Changing browse source changes catalog scope only; it does not itself add or mutate a table column.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1527",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1049"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "Related source nodes are derived from graph connectivity to the row-root seeds; source node id distinguishes multiple routes of the same resource type.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:194",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:200",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1495"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "Catalog browse is bound to the current table, catalog snapshot, selected resource scope, and optional selected occurrence context.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1446",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1050"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "None for changing browse source; later selected catalog choices have their own preview flows.",
+        "apply": "No apply action for source selection."
+      },
+      "model_binding": {
+        "status": "indirect",
+        "statement": "Source option changes the field/semantic browse context and subsequent choice search; the source choice is not itself persisted as a table operation."
+      }
+    },
+    {
+      "id": "builder.add_columns.catalog_semantic",
+      "surface": "Mounted Builder Add columns catalog",
+      "path": [
+        "Table actions",
+        "Add columns",
+        "Coded values",
+        "Select semantic item",
+        "Advanced options",
+        "Add selected features"
+      ],
+      "status": "reachable",
+      "operation": {
+        "family": "ADD_COLUMNS",
+        "variant": "server-supported semantic construction choice"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3637",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3667",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3715",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1505",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1735"
+      ],
+      "request": {
+        "browseEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+        "choiceEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands via APPLY_CONSTRUCTION_CHOICE",
+        "evidence": [
+          "ui/packages/loom-ui/src/api.ts:1495",
+          "ui/packages/loom-ui/src/api.ts:1555",
+          "ui/packages/loom-ui/src/api.ts:1691",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906"
+        ],
+        "pagination": {
+          "semanticInventoryPageSize": 50,
+          "constructionChoiceRoutePageSize": 10,
+          "cursorPaging": true,
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:47",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:48",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1060",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1517"
+          ]
+        }
+      },
+      "gates": [
+        {
+          "id": "semantic-selection-identity",
+          "when": "item has an exact-concept identity or a SYSTEM_VERSION_CATEGORY identity with a family id",
+          "effect": "Only catalog items with a complete selection identity are submitted.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:46",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:61"
+          ]
+        },
+        {
+          "id": "supported-choice-form",
+          "when": "choice response contains a form with support=SUPPORTED",
+          "effect": "Only supported server-returned choices are selectable for submission.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1621",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1629"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "selection_mode",
+          "kind": "enum",
+          "type": "semantic-selection-mode",
+          "finiteValues": [
+            "EXACT_CONCEPT",
+            "SYSTEM_VERSION_CATEGORY"
+          ],
+          "dependsOn": [],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:61"
+          ]
+        },
+        {
+          "id": "semantic_item",
+          "kind": "dynamic-reference",
+          "type": "semantic-inventory-item-identity",
+          "dynamicProvider": {
+            "response": "SemanticInventoryBrowseResponse.entries[]",
+            "property": "selection identity"
+          },
+          "dependsOn": [
+            "selection_mode",
+            "row_root",
+            "source route"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1045",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts:46"
+          ]
+        },
+        {
+          "id": "construction_choice_form",
+          "kind": "dynamic-enum",
+          "type": "construction-choice-form",
+          "dynamicProvider": {
+            "response": "ConstructionChoiceSearchResponse.choices[].options[]",
+            "property": "form where support=SUPPORTED"
+          },
+          "dependsOn": [
+            "semantic_item",
+            "source",
+            "route"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1505",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1621"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "The catalog submits returned choice ids and selected supported forms; it does not infer a semantic form from the item's label.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1505",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1885"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "The proposal preview must return rows for the selected output before APPLY_CONSTRUCTION_CHOICE commands are sent.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1903",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "The selected-choice proposal returns a preview before the command; this flow applies after the preview check without a separate proposal-panel Apply button.",
+        "apply": "APPLY_CONSTRUCTION_CHOICE command follows successful preview and current-draft identity checks."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "Semantic identity, selected route, choice id, and supported form bind the catalog selection to a backend construction-choice proposal."
+      }
+    },
+    {
+      "id": "builder.add_columns.catalog_field",
+      "surface": "Mounted Builder Add columns catalog",
+      "path": [
+        "Table actions",
+        "Add columns",
+        "Other fields",
+        "Select field",
+        "Advanced options",
+        "Add selected features"
+      ],
+      "status": "reachable",
+      "operation": {
+        "family": "ADD_COLUMNS",
+        "variant": "server-supported field construction choice"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3684",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3715",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1163",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1505",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876"
+      ],
+      "request": {
+        "browseEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+        "choiceEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands via APPLY_CONSTRUCTION_CHOICE",
+        "evidence": [
+          "ui/packages/loom-ui/src/api.ts:1495",
+          "ui/packages/loom-ui/src/api.ts:1555",
+          "ui/packages/loom-ui/src/api.ts:1691",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906"
+        ],
+        "pagination": {
+          "semanticInventoryPageSize": 50,
+          "constructionChoiceRoutePageSize": 10,
+          "cursorPaging": true,
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:47",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:48",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1060",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1517"
+          ]
+        }
+      },
+      "gates": [
+        {
+          "id": "field-candidate",
+          "when": "candidate is populated and offered for the selected source/resource/route",
+          "effect": "Unpopulated candidates are removed from the displayed field catalog.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1163"
+          ]
+        },
+        {
+          "id": "source-projection",
+          "when": "sourceProjectionAvailability.available for the selected stage",
+          "effect": "Otherwise source fields show an unavailable notice and cannot be added through this path.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:2027"
+          ]
+        },
+        {
+          "id": "supported-choice-form",
+          "when": "choice response contains a form with support=SUPPORTED",
+          "effect": "Only returned supported choices can be added.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1621"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "field_candidate",
+          "kind": "dynamic-reference",
+          "type": "field-candidate",
+          "dynamicProvider": {
+            "response": "ExplorerBuilderCatalog and selected browse source",
+            "property": "populated field candidates"
+          },
+          "dependsOn": [
+            "row_root",
+            "browse_source",
+            "query"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1163"
+          ]
+        },
+        {
+          "id": "construction_choice_form",
+          "kind": "dynamic-enum",
+          "type": "construction-choice-form",
+          "dynamicProvider": {
+            "response": "ConstructionChoiceSearchResponse.choices[].options[]",
+            "property": "form where support=SUPPORTED"
+          },
+          "dependsOn": [
+            "field_candidate",
+            "source",
+            "route"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1505",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1621"
+          ]
+        },
+        {
+          "id": "output_title",
+          "kind": "string",
+          "type": "display-title",
+          "dependsOn": [
+            "field_candidate"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1735"
+          ],
+          "description": "The UI trims/normalizes display names; no maximum length is declared."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "The Add selected flow sends server-returned choice ids/forms and validates preview output identity before applying the construction-choice command.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1885",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1893",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1903",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "Only selected fields are added; source projection remains gated by the capability response for the current stage.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:2027",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1876"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "Selected-choice preview is generated before apply.",
+        "apply": "Apply is automatic after a matching preview; no separate Apply button is shown for this catalog operation."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "The field candidate and a server-supported construction choice bind to a choice proposal; the response supplies the applied choice ids."
+      }
+    },
+    {
+      "id": "builder.add_columns.related_field",
+      "surface": "Mounted Builder Add columns and saved related-step editors",
+      "path": [
+        "Add columns",
+        "Choose related source or an active related record",
+        "Select field",
+        "Preview",
+        "Apply"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "ADD_COLUMNS",
+        "variants": [
+          "RELATED_SOURCE scalar field from a routed related resource",
+          "RELATED_FIELD scalar field from an active related record"
+        ]
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1544",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1564",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1580",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3698",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3901",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3934",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:134",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:207"
+      ],
+      "request": {
+        "routedChoiceEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices",
+        "activeRelatedFieldEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices",
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+        "previewEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands via APPLY_CONSTRUCTION_PROPOSAL",
+        "evidence": [
+          "ui/packages/loom-ui/src/api.ts:1555",
+          "ui/packages/loom-ui/src/api.ts:1576",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:140",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1854",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1861",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1800"
+        ],
+        "pagination": {
+          "activeRelatedFieldSearchDefaultPageSize": 20,
+          "routedSourceChoicePageSize": 10,
+          "cursorPaging": true,
+          "totalChoiceMaximum": null,
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:144",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:48",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1517"
+          ]
+        }
+      },
+      "gates": [
+        {
+          "id": "related-source",
+          "when": "RELATED_SOURCE capability supported, stage has rowIdentityColumn, editor is at current append stage, and returned source field is optional_one or required_one",
+          "effect": "Unsupported and repeated source fields are not submitted; related catalog choices are suppressed when capability is false.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1557",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1564",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1580",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:313"
+          ]
+        },
+        {
+          "id": "active-related-field",
+          "when": "selected stage has activeRelatedRecord and returned choice source matches its target node/resource and is scalar optional_one/required_one",
+          "effect": "Otherwise the editor reports no exact related record or filters the choice out.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:47",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:134",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:150"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "related_source_form",
+          "kind": "enum",
+          "type": "related-source-form",
+          "finiteValues": [
+            "ALL",
+            "COUNT",
+            "PRESENCE"
+          ],
+          "dependsOn": [
+            "RELATED_SOURCE capability",
+            "supported routed field choice"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1576",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1588",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:313"
+          ]
+        },
+        {
+          "id": "related_source_choice",
+          "kind": "dynamic-reference",
+          "type": "routed-field-choice",
+          "dynamicProvider": {
+            "response": "ConstructionChoiceSearchResponse.choices[]",
+            "property": "source.kind=FIELD, exact route, scalar cardinality"
+          },
+          "dependsOn": [
+            "append stage",
+            "rowIdentityColumn",
+            "related_source_form"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1572",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1580"
+          ]
+        },
+        {
+          "id": "active_related_field_choice",
+          "kind": "dynamic-reference",
+          "type": "related-field-choice",
+          "dynamicProvider": {
+            "response": "RelatedFieldChoiceSearchResponse.choices[]",
+            "property": "source node/resource equals selectedStage.activeRelatedRecord target; scalar cardinality"
+          },
+          "dependsOn": [
+            "activeRelatedRecord",
+            "stageId",
+            "query"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:140",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:150"
+          ]
+        },
+        {
+          "id": "related_output_name",
+          "kind": "string",
+          "type": "physical-column-name",
+          "dependsOn": [
+            "related field choice"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": null
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:47"
+          ],
+          "description": "Must match [A-Za-z_][A-Za-z0-9_]* and be unique case-insensitively within the selected stage; no maximum length is declared."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "Routed related source batching accepts only fields on the same exact route; its supported forms are ALL, COUNT, and PRESENCE; repeated source fields are rejected.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1842",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1847",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1580"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "RELATED_FIELD outputs are nullable; missing exact related records produce empty values, and the saved editor preserves the selected output column id.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:47",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:51",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:61",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3698"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "The routed RELATED_SOURCE operation uses the selected row identity anchor and exact returned route; related field edits are bound to the active related record at that stage.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1621",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:47",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/RelatedFieldEditor.tsx:61"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "RELATED_SOURCE Add selected flow obtains a READY proposal preview; route coverage inspection is a separate preview path. RELATED_FIELD step editing uses the shared proposal panel.",
+        "apply": "RELATED_SOURCE Add selected immediately calls applyConstructionProposal after READY; it has no separate user Apply click. RELATED_FIELD saved-step edits use the shared proposal panel Apply action."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "The two UI routes bind to different operation variants, RELATED_SOURCE and RELATED_FIELD, with response-bound route or active-record provenance."
+      }
+    },
+    {
+      "id": "builder.add_columns.grouped_row_values",
+      "surface": "Mounted Builder Add columns workspace for a grouped row source",
+      "path": [
+        "Add columns",
+        "Values from each row's contributing records",
+        "Add selected features"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "ADD_COLUMNS",
+        "variant": "rowValuePolicy on supported ALL construction choices"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3433",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3436",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3652",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3655",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1634",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1885"
+      ],
+      "request": {
+        "proposalEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+        "applyEndpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands via APPLY_CONSTRUCTION_CHOICE",
+        "evidence": [
+          "ui/packages/loom-ui/src/api.ts:1691",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1885",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1906"
+        ]
+      },
+      "gates": [
+        {
+          "id": "row-values-capability",
+          "when": "final source stage reports ROW_VALUES supported",
+          "effect": "Only then show the policy control and pass rowValuePolicy into eligible ALL construction choices.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3433",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3652",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1885"
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "row_value_policy",
+          "kind": "enum",
+          "type": "row-value-policy",
+          "finiteValues": [
+            "ALL",
+            "ONE"
+          ],
+          "dependsOn": [
+            "ROW_VALUES capability supported",
+            "construction choice form=ALL"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3655",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1634"
+          ],
+          "description": "ALL means keep all distinct values; ONE means require one distinct value."
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "Missing values stay empty; ONE stops if contributing records disagree.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3662"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "The selected row-value policy is serialized only for ALL forms and only when the server capability is supported.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx:1634",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:1885"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "The choice proposal generates a row preview before apply.",
+        "apply": "APPLY_CONSTRUCTION_CHOICE follows a successful preview and matching output/draft identity."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "The two-value UI policy binds to rowValuePolicy on the selected supported choice; it is not inferred from a label or backend enum alone."
+      }
+    },
+    {
+      "id": "builder.column_filter_presentation",
+      "surface": "Mounted Builder Preview columns selector",
+      "path": [
+        "Preview",
+        "Columns",
+        "Filter",
+        "Use as filter or Add as filter"
+      ],
+      "status": "capability-conditional",
+      "operation": {
+        "family": "column presentation",
+        "variant": "configure a filter control for an output column"
+      },
+      "evidence": [
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4678",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:295",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:305",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:437",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4693",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4733"
+      ],
+      "request": {
+        "existingColumnConstructor": "ColumnSelector configured column onChange \u2192 BuilderWorkspace.applyPresentationChanges \u2192 previewPresentationCommand emits UPDATE_COLUMN",
+        "newFieldConstructor": "ColumnSelector available field onAdd \u2192 BuilderWorkspace.applyCommands emits ADD_COLUMN with initialPresentation=FILTER",
+        "endpoint": "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+        "evidence": [
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:145",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:2969",
+          "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:4693",
+          "ui/packages/loom-ui/src/api.ts:1450"
+        ]
+      },
+      "gates": [
+        {
+          "id": "field-filterability",
+          "when": "candidate.filterable or configured-column filterability is true",
+          "effect": "Unsupported candidate filter checkbox is visible but disabled; configured-column toggle remains enabled to remove an existing filter even if no longer filterable.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:298",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:308",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:440",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:449"
+          ],
+          "intentStatusWhenFalse": "visible-but-disabled"
+        },
+        {
+          "id": "constructed-output",
+          "when": "output is a construction output",
+          "effect": "Filter control is visibly unavailable for the constructed output.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:127",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:148"
+          ],
+          "intentStatusWhenTrue": "visible-but-disabled"
+        }
+      ],
+      "dimensions": [
+        {
+          "id": "initial_presentation",
+          "kind": "enum",
+          "type": "initial-presentation",
+          "finiteValues": [
+            "TABLE",
+            "FILTER",
+            "CHART"
+          ],
+          "dependsOn": [
+            "new candidate selected"
+          ],
+          "cardinality": {
+            "minimum": 1,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:62",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:437"
+          ]
+        },
+        {
+          "id": "existing_filter_flag",
+          "kind": "optional-object",
+          "type": "filter-presentation",
+          "finiteValues": [
+            "absent",
+            "{label: column.label}"
+          ],
+          "dependsOn": [
+            "configured authored column"
+          ],
+          "cardinality": {
+            "minimum": 0,
+            "maximum": 1
+          },
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:303",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:309"
+          ]
+        }
+      ],
+      "constraints": [
+        {
+          "status": "observed-ui",
+          "statement": "The Builder toggle configures whether an output column is offered as a filter control; this surface does not author row predicate operators or filter values.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:303",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:312"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "Configured filterability falls back to true when no configured capability object exists; candidate checkboxes use candidate.filterable directly.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:979",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:440"
+          ]
+        }
+      ],
+      "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "Constructed output rows display that filters are unavailable; their presentation column editor does not expose a filter toggle.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:127",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx:148"
+          ]
+        }
+      ],
+      "independent_preview_apply": {
+        "preview": "No independent proposal preview; presentation commands save directly and Builder refreshes its table preview.",
+        "apply": "Immediate UPDATE_COLUMN or ADD_COLUMN command through /commands."
+      },
+      "model_binding": {
+        "status": "direct",
+        "statement": "Filter presentation state binds to authored column presentation metadata or initialPresentation on ADD_COLUMN; it is distinct from FILTER construction operations."
+      }
+    }
+  ]
+}

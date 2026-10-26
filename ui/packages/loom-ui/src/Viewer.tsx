@@ -1,12 +1,15 @@
-import React, { useMemo, useReducer, useState } from 'react';
+import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { Alert, Button, Center, Group, Loader, MantineProvider, Modal, Stack, Tabs, Text, Title } from '@mantine/core';
-import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
-import { ChartToggle, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
+import { createLoomClient, type Artifact, type LoomClient, type LoomOutputRequest, type LoomOutputResult } from './api';
+import { ChartToggle, QualitySummary, QuerySummary } from './features/ExplorerViewer/ViewerChrome';
 import { FilterRail, OutputCharts, OutputTable, PageControls, textFor, type ViewerRow } from './features/ExplorerViewer/components';
 import { runtimeSessionKey } from './features/ExplorerViewer/model';
 import { createViewerReducerState, viewerReducer } from './features/ExplorerViewer/reducer';
 import { outputRequestFor } from './features/ExplorerViewer/serialization';
-import { LoomProvider, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
+import { CellExplanationDialog, type CellExplanationCoordinate } from './features/ExplorerViewer/CellExplanationDialog';
+import { LoomProvider, useCellTraceMutation, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
+import { resultUnitTitle } from './resultUnitDisplay';
+import type { CellTraceResponse } from './cellTrace';
 import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from './types';
 
 type ViewerRuntimeAction = NonNullable<ExplorerRuntimeOutputV1['actions']>[number];
@@ -22,6 +25,13 @@ export interface LoomViewerActionContext {
 
 export type LoomViewerActionHandler = (context: LoomViewerActionContext, signal: AbortSignal) => Promise<void> | void;
 
+export interface LoomFeatureRepairContext {
+  readonly outputId: string;
+  readonly column: string;
+  readonly label: string;
+  readonly status: CellTraceResponse['trace']['status'];
+}
+
 export interface LoomExplorerViewerProps {
   readonly project: string;
   readonly explorerId?: string;
@@ -31,7 +41,25 @@ export interface LoomExplorerViewerProps {
   readonly onActiveOutputChange?: (outputId: string) => void;
   readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode;
   readonly customActions?: Readonly<Record<string, LoomViewerActionHandler>>;
+  readonly onRepairFeature?: (context: LoomFeatureRepairContext) => void;
 }
+
+type TracePages = readonly [CellTraceResponse, ...CellTraceResponse[]];
+type CellExplanationState =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading'; readonly coordinate: CellExplanationCoordinate }
+  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
+  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
+  | { readonly kind: 'error'; readonly coordinate: CellExplanationCoordinate; readonly message: string };
+
+type DatasetDownloadState =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'preparing'; readonly outputId: string; readonly requestToken: number }
+  | { readonly kind: 'ready'; readonly outputId: string; readonly requestToken: number; readonly artifact: Artifact }
+  | { readonly kind: 'error'; readonly outputId: string; readonly requestToken: number; readonly message: string };
+
+const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
+  [pages[0], ...pages.slice(1), page];
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -42,42 +70,85 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   queueMicrotask(() => URL.revokeObjectURL(url));
 };
 
-const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChange, renderRowDetails, customActions }: Required<Pick<LoomExplorerViewerProps, 'project'>> & Pick<LoomExplorerViewerProps, 'explorerId' | 'activeOutputId' | 'onActiveOutputChange' | 'renderRowDetails' | 'customActions'>) => {
+const artifactRequestKey = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  return `artifact-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: Required<Pick<LoomExplorerViewerProps, 'project'>> & Pick<LoomExplorerViewerProps, 'explorerId' | 'activeOutputId' | 'onActiveOutputChange' | 'renderRowDetails' | 'customActions' | 'onRepairFeature'>) => {
   const runtimeQuery = useLoomRuntime({ project, explorerId: explorerId ?? 'default' });
   if (runtimeQuery.isLoading && !runtimeQuery.data) return <Center mih="45vh"><Stack align="center" gap="sm"><Loader size="sm" /><Text size="sm">Loading published Explorer…</Text></Stack></Center>;
   if (runtimeQuery.error || !runtimeQuery.data) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable"><Stack gap="sm"><Text size="sm">The published Explorer could not be loaded.</Text><Button size="xs" onClick={() => { void runtimeQuery.refetch(); }}>Try again</Button></Stack></Alert></Center>;
   if (runtimeQuery.data.outputs.length === 0) return <Center mih="45vh"><Alert title="No published outputs">This Explorer has no published tables yet.</Alert></Center>;
-  return <ViewerSession key={runtimeSessionKey(runtimeQuery.data)} project={project} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} />;
+  const sessionKey = runtimeSessionKey(runtimeQuery.data);
+  if (!sessionKey) return <Center mih="45vh"><Alert color="red" title="Explorer unavailable">The published Explorer response is missing its revision identity.</Alert></Center>;
+  return <ViewerSession key={sessionKey} project={project} explorerId={explorerId ?? 'default'} runtime={runtimeQuery.data} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} onRepairFeature={onRepairFeature} />;
 };
 
-const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions }: { readonly project: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions'] }) => {
+const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: { readonly project: string; readonly explorerId: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions']; readonly onRepairFeature?: LoomExplorerViewerProps['onRepairFeature'] }) => {
   const [state, dispatch] = useReducer(viewerReducer, runtime, (value) => createViewerReducerState(value, controlledOutputId));
   const [pendingAction, setPendingAction] = useState<string>();
   const [actionError, setActionError] = useState<string>();
+  const [datasetDownload, setDatasetDownload] = useState<DatasetDownloadState>({ kind: 'idle' });
+  const datasetDownloadRequest = useRef(0);
+  const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
+  const [traceCell] = useCellTraceMutation();
   const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
     ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
     ?? runtime.outputs[0];
   const outputId = output?.outputId ?? '';
+  const previousOutputId = useRef(outputId);
+  if (previousOutputId.current !== outputId) {
+    previousOutputId.current = outputId;
+    datasetDownloadRequest.current += 1;
+  }
   const request = useMemo(() => output ? outputRequestFor(project, runtime, { ...state, activeOutputId: outputId }, output) : undefined, [output, outputId, project, runtime, state]);
   const resultQuery = useLoomOutput(request ?? { project, selector: { recipe: '', translationVersion: '', output: '' }, columns: [] }, { enabled: Boolean(request) });
+  const resultCache = useRef(new Map<string, LoomOutputResult>());
+  if (resultQuery.data) resultCache.current.set(outputId, resultQuery.data);
+  const result = resultQuery.data ?? resultCache.current.get(outputId);
   const client = useLoomClient();
   if (!output || !request) return null;
 
   const selectOutput = (nextOutputId: string | null) => {
     if (!nextOutputId) return;
+    datasetDownloadRequest.current += 1;
+    setDatasetDownload({ kind: 'idle' });
     dispatch({ type: 'selectOutput', outputId: nextOutputId });
     onActiveOutputChange?.(nextOutputId);
   };
-  const runAction = async (action?: ViewerRuntimeAction) => {
-    const actionKey = action?.type ?? 'download';
+  const prepareDatasetDownload = async () => {
+    const requestToken = datasetDownloadRequest.current + 1;
+    datasetDownloadRequest.current = requestToken;
+    const requestOutputId = output.outputId;
+    setDatasetDownload({ kind: 'preparing', outputId: requestOutputId, requestToken });
+    try {
+      const revisionId = runtime.publication?.revisionId;
+      if (!revisionId) throw new Error('This published Explorer is missing the exact revision required for a training artifact.');
+      const artifact = await client.prepareArtifact({
+        project,
+        explorerId,
+        revisionId,
+        outputId: output.outputId,
+        idempotencyKey: artifactRequestKey(),
+      });
+      if (datasetDownloadRequest.current !== requestToken || previousOutputId.current !== requestOutputId) return;
+      setDatasetDownload({ kind: 'ready', outputId: requestOutputId, requestToken, artifact });
+    } catch (error) {
+      if (datasetDownloadRequest.current !== requestToken || previousOutputId.current !== requestOutputId) return;
+      setDatasetDownload({ kind: 'error', outputId: requestOutputId, requestToken, message: error instanceof Error ? error.message : 'The dataset download could not be prepared.' });
+    }
+  };
+  const runAction = async (action: ViewerRuntimeAction) => {
+    const actionKey = action.type;
     setPendingAction(actionKey);
     setActionError(undefined);
     try {
-      const customAction = action ? customActions?.[action.type] : undefined;
-      if (action && customAction) {
-        await customAction({ project, runtime, output, action, request, result: resultQuery.data }, new AbortController().signal);
+      const customAction = customActions?.[action.type];
+      if (customAction) {
+        await customAction({ project, runtime, output, action, request, result }, new AbortController().signal);
       } else {
-        const targetOutput = action?.output
+        const targetOutput = action.output
           ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output
           : output;
         const targetRequest = targetOutput.outputId === output.outputId
@@ -85,11 +156,11 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
           : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
         const exportRequest = {
           ...targetRequest,
-          ...(action?.columns ? { columns: action.columns } : {}),
-          ...(action?.exportHeaders ? { exportHeaders: action.exportHeaders } : {}),
+          ...(action.columns ? { columns: action.columns } : {}),
+          ...(action.exportHeaders ? { exportHeaders: action.exportHeaders } : {}),
         };
         const blob = await client.exportOutput(exportRequest);
-        downloadBlob(blob, action?.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
+        downloadBlob(blob, action.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
       }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'The action could not be completed.');
@@ -98,6 +169,47 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
     }
   };
   const overlay = state.overlay;
+  const explainCell = async (coordinate: CellExplanationCoordinate) => {
+    const report = runtime.qualityReports?.find((candidate) => candidate.output === coordinate.outputId || candidate.output === output.name);
+    if (!report) {
+      setCellExplanation({ kind: 'error', coordinate, message: 'This publication does not include receipt-bound quality evidence.' });
+      return;
+    }
+    setCellExplanation({ kind: 'loading', coordinate });
+    try {
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, limit: 25 }).unwrap();
+      setCellExplanation({ kind: 'ready', coordinate, pages: [response] });
+    } catch (error) {
+      setCellExplanation({ kind: 'error', coordinate, message: error instanceof Error ? error.message : 'Loom could not explain this cell.' });
+    }
+  };
+  const loadMoreEvidence = async () => {
+    if (cellExplanation.kind !== 'ready') return;
+    const current = cellExplanation.pages[cellExplanation.pages.length - 1];
+    if (!current.trace.hasMore) return;
+    const report = runtime.qualityReports?.find((candidate) => candidate.output === cellExplanation.coordinate.outputId || candidate.output === output.name);
+    if (!report) return;
+    const pending: CellExplanationState = { kind: 'loadingMore', coordinate: cellExplanation.coordinate, pages: cellExplanation.pages };
+    setCellExplanation(pending);
+    try {
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: cellExplanation.coordinate.outputId, rowId: cellExplanation.coordinate.rowId, column: cellExplanation.coordinate.column, offset: current.trace.nextOffset, limit: 25 }).unwrap();
+      setCellExplanation({ kind: 'ready', coordinate: cellExplanation.coordinate, pages: appendTracePage(cellExplanation.pages, response) });
+    } catch (error) {
+      setCellExplanation({ kind: 'error', coordinate: cellExplanation.coordinate, message: error instanceof Error ? error.message : 'Loom could not load more source details.' });
+    }
+  };
+  const tracePages = cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.pages : undefined;
+  const currentTracePage = tracePages ? tracePages[tracePages.length - 1] : undefined;
+  const currentTrace = currentTracePage?.trace;
+  const traceContributions = tracePages?.flatMap((page) => page.trace.contributions);
+  const preparedArtifact = datasetDownload.kind === 'ready'
+    && datasetDownload.outputId === outputId
+    && datasetDownload.requestToken === datasetDownloadRequest.current
+    ? datasetDownload.artifact
+    : undefined;
+  const preparedOutput = preparedArtifact
+    ? runtime.outputs.find((candidate) => candidate.outputId === preparedArtifact.outputId)
+    : undefined;
 
   return (
     <main className="loom-viewer min-h-screen bg-[var(--loom-viewer-bg)] px-4 py-3 text-[var(--loom-viewer-text)] md:px-8 lg:px-12" aria-label="Loom Explorer Viewer">
@@ -111,7 +223,7 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
             <Title order={1} fz={{ base: 24, md: 30 }}>{output.title}</Title>
           </div>
           <Group gap="xs" wrap="wrap">
-            <Button loading={pendingAction === 'download'} onClick={() => { void runAction(); }}>Download CSV</Button>
+            <Button loading={datasetDownload.kind === 'preparing' && datasetDownload.outputId === outputId} onClick={() => { void prepareDatasetDownload(); }}>Download dataset</Button>
             {output.actions?.map((action, index) => (
               <Button variant="default" key={`${action.type}-${index}`} loading={pendingAction === action.type} onClick={() => { void runAction(action); }}>
                 {action.title}
@@ -120,6 +232,7 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
           </Group>
         </Group>
         {actionError ? <Alert color="red" title="Action failed" withCloseButton onClose={() => setActionError(undefined)} mb="md">{actionError}</Alert> : null}
+        {datasetDownload.kind === 'error' && datasetDownload.outputId === outputId && datasetDownload.requestToken === datasetDownloadRequest.current ? <Alert color="red" title="Dataset download failed" withCloseButton onClose={() => setDatasetDownload({ kind: 'idle' })} mb="md">{datasetDownload.message}</Alert> : null}
         <Tabs value={outputId} onChange={selectOutput}>
           <Tabs.List aria-label="Output tables" className="loom-viewer-tabs-list flex-nowrap overflow-x-auto">
             {runtime.outputs.map((candidate) => (
@@ -132,9 +245,10 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
             <Tabs.Panel value={candidate.outputId} key={candidate.outputId}>
               {candidate.outputId === outputId ? (
                 <div className="grid grid-cols-1 gap-4 pt-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
-                  <FilterRail runtime={runtime} output={output} result={resultQuery.data} state={state} dispatch={dispatch} />
+                  <FilterRail runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} />
                   <section className="min-w-0" aria-label={output.title}>
-                    <QuerySummary output={output} runtime={runtime} state={state} result={resultQuery.data} dispatch={dispatch} />
+                    <QuerySummary output={output} runtime={runtime} state={state} result={result} dispatch={dispatch} />
+                    <QualitySummary output={output} runtime={runtime} />
                     <Group justify="space-between" gap="sm" mih={40} mb="xs">
                       {resultQuery.isLoading
                         ? <Group gap="xs" role="status"><Loader size="xs" /><Text c="dimmed" size="xs">Updating results…</Text></Group>
@@ -143,9 +257,9 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
                           : <Text c="dimmed" size="xs">Visual overview</Text>}
                       {output.charts.length > 0 ? <ChartToggle outputId={outputId} visible={state.chartsVisible[outputId] ?? true} dispatch={dispatch} /> : null}
                     </Group>
-                    <OutputCharts output={output} result={resultQuery.data} visible={state.chartsVisible[outputId] ?? true} />
-                    <PageControls output={output} result={resultQuery.data} state={state} dispatch={dispatch} />
-                    <OutputTable runtime={runtime} output={output} result={resultQuery.data} state={state} dispatch={dispatch} />
+                    <OutputCharts output={output} result={result} visible={state.chartsVisible[outputId] ?? true} />
+                    <PageControls output={output} result={result} state={state} dispatch={dispatch} />
+                    <OutputTable runtime={runtime} output={output} result={result} state={state} dispatch={dispatch} onExplainCell={(coordinate) => { void explainCell(coordinate); }} />
                   </section>
                 </div>
               ) : null}
@@ -168,17 +282,81 @@ const ViewerSession = ({ project, runtime, activeOutputId: controlledOutputId, o
             : <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">{Object.entries(overlay.row).map(([key, value]) => <React.Fragment key={key}><dt className="font-semibold text-slate-500">{key}</dt><dd className="m-0 break-words">{textFor(value)}</dd></React.Fragment>)}</dl>
           : null}
       </Modal>
+      <Modal opened={Boolean(preparedArtifact)} onClose={() => setDatasetDownload({ kind: 'idle' })} title="Download dataset" closeButtonProps={{ 'aria-label': 'Close dataset download' }} centered size="lg">
+        {preparedArtifact ? (
+          <Stack gap="md">
+            <Text size="sm">
+              Loom prepared {preparedArtifact.rows.toLocaleString()} {preparedArtifact.rows === 1 ? 'row' : 'rows'} from the complete authorized population. Each row represents {preparedOutput?.rowLabel || 'the published row definition'}.
+            </Text>
+            <dl className="grid grid-cols-[minmax(9rem,.35fr)_1fr] gap-x-4 gap-y-2 text-sm">
+              <dt className="font-semibold text-slate-500">Representation</dt>
+              <dd className="m-0">{preparedArtifact.format === 'CSV' ? 'Typed scalar CSV in a ZIP archive' : 'Typed JSON Lines in a ZIP archive'}</dd>
+              <dt className="font-semibold text-slate-500">Columns</dt>
+              <dd className="m-0">{preparedArtifact.features.toLocaleString()} declared output columns</dd>
+              <dt className="font-semibold text-slate-500">Value preservation</dt>
+              <dd className="m-0">{preparedArtifact.format === 'CSV' ? 'Scalar values retain declared types through schema.json; null and empty values remain distinct.' : 'Structured and repeated values retain native JSON types, row identity, nulls, and missing values.'}</dd>
+              <dt className="font-semibold text-slate-500">Source generation</dt>
+              <dd className="m-0 break-all">{preparedArtifact.datasetGeneration}</dd>
+              <dt className="font-semibold text-slate-500">Schema digest</dt>
+              <dd className="m-0 break-all">{preparedArtifact.schemaDigest}</dd>
+            </dl>
+            <section aria-label="Declared output types" className="max-h-48 overflow-y-auto rounded border border-slate-200 p-3">
+              <Stack gap="xs">
+                {preparedOutput?.columns.map((column) => (
+                  <Group key={column.column} justify="space-between" gap="sm" wrap="nowrap">
+                    <Text size="sm" fw={600}>{column.label}</Text>
+                    <Text
+                      size="xs"
+                      c="dimmed"
+                      title={column.resultUnit ? resultUnitTitle(column.resultUnit) : undefined}
+                    >
+                      {column.logicalType}{column.repeated ? ' · repeated' : ''}{column.resultUnit ? ` · unit ${column.resultUnit.code}` : ''}
+                    </Text>
+                  </Group>
+                ))}
+              </Stack>
+            </section>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={() => setDatasetDownload({ kind: 'idle' })}>Cancel</Button>
+              <Button
+                component="a"
+                href={client.artifactDownloadURL({ project, explorerId, artifactId: preparedArtifact.id })}
+                download={preparedArtifact.filename}
+                rel="noopener"
+                onClick={() => setDatasetDownload({ kind: 'idle' })}
+              >
+                Download ZIP
+              </Button>
+            </Group>
+          </Stack>
+        ) : null}
+      </Modal>
+      <CellExplanationDialog
+        coordinate={cellExplanation.kind === 'closed' ? undefined : cellExplanation.coordinate}
+        trace={currentTrace}
+        contributions={traceContributions}
+        loading={cellExplanation.kind === 'loading' || cellExplanation.kind === 'loadingMore'}
+        error={cellExplanation.kind === 'error' ? cellExplanation.message : undefined}
+        onClose={() => setCellExplanation({ kind: 'closed' })}
+        onLoadMore={() => { void loadMoreEvidence(); }}
+        onRepair={onRepairFeature && currentTracePage ? (_coordinate, status) => onRepairFeature({
+          outputId: currentTracePage.feature.outputId,
+          column: currentTracePage.feature.authoredColumn,
+          label: currentTracePage.feature.label,
+          status,
+        }) : undefined}
+      />
     </main>
   );
 };
 
-export const LoomExplorerViewer = ({ project, explorerId, client, className, activeOutputId, onActiveOutputChange, renderRowDetails, customActions }: LoomExplorerViewerProps) => {
+export const LoomExplorerViewer = ({ project, explorerId, client, className, activeOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: LoomExplorerViewerProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
   return (
     <LoomProvider client={ownedClient}>
       <MantineProvider>
         <div className={['loom-ui-root', className].filter(Boolean).join(' ')}>
-          <ViewerContent project={project} explorerId={explorerId} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} />
+          <ViewerContent project={project} explorerId={explorerId} activeOutputId={activeOutputId} onActiveOutputChange={onActiveOutputChange} renderRowDetails={renderRowDetails} customActions={customActions} onRepairFeature={onRepairFeature} />
         </div>
       </MantineProvider>
     </LoomProvider>

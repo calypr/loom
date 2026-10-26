@@ -1,0 +1,4120 @@
+{
+  "schemaVersion": 1,
+  "planToken": "b2c9ac4cfde17ad3b5535ead0df5954d9823bd06f3104804684df01acdef7f2e",
+  "summary": {
+    "activeSources": 678,
+    "baselineActiveMjsSources": 676,
+    "addedMjsSources": 2,
+    "projectedActiveMjsSources": 678,
+    "retiredSources": 2,
+    "classifications": {
+      "supported": 2,
+      "already-wired": 129,
+      "needs-review": 425,
+      "not-applicable": 122
+    },
+    "matchedTests": 2,
+    "families": 2
+  },
+  "preconditions": [
+    {
+      "file": "scripts/migrate-mjs-focused-checks.mjs",
+      "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24"
+    },
+    {
+      "file": "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+      "sha256": "eed9b0e4e0b9cf1412ba669c73b8d41b28bbc295a992e2b550a1b990457e54fb"
+    },
+    {
+      "file": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+      "sha256": "9da3bafb24bb5851ee26a14c1b9730b28c3a1fc5ea596ecbe93af37a6a3d5eb7"
+    },
+    {
+      "file": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+      "sha256": "01704c2ef34b86463dbac9896ccae9d49a7d13e1c4af4c6de9ceff43ea66cc8e"
+    },
+    {
+      "file": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+      "sha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb"
+    },
+    {
+      "file": "scripts/verify-ui/registry.mjs",
+      "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43"
+    },
+    {
+      "file": "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+      "sha256": "2af2b5b80ea5a59aac6fe9af9e9334581f7327707e7526152b8d466fbbc7637f"
+    },
+    {
+      "file": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+      "sha256": "f91956162b8fac0d255a7ff3a04bfe24f6348fd6fff56a794ab6ef5e4930b24a"
+    },
+    {
+      "file": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+      "sha256": "4e6d7cb58d69a147fa9e044e7b3499366ecbeae16c0672d6b16a995326595b69"
+    },
+    {
+      "file": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+      "sha256": "9a38ab17c9e8fa9bf4cb519327bdc827893be95f3316fae10b2111890d12b900"
+    },
+    {
+      "file": "verification/builder-interactions/mjs-focused-check-families.json",
+      "sha256": "204e15ec3d9aa0889680269d5624929a0054fe1504c2721eda44e765f8b2b076"
+    },
+    {
+      "file": "verification/builder-interactions/mjs-source-semantics.json",
+      "sha256": "391c93a9608cee97150224759bbdaad332f366f4431f039e474f60e6003a9ff0"
+    },
+    {
+      "file": "verification/builder-interactions/test-obligations.json",
+      "sha256": "af997f45753b0ab7082da6e6e1a1db0e57faa4c735492545f52ed03613ee9b7d"
+    }
+  ],
+  "outputPreconditions": [
+    {
+      "file": "verification/builder-interactions/mjs-source-semantics.json",
+      "sha256": "391c93a9608cee97150224759bbdaad332f366f4431f039e474f60e6003a9ff0"
+    },
+    {
+      "file": "scripts/verify-ui/mjs-focused-check-attachments.json",
+      "sha256": "13415f37e28699c87917e9931faec31d35367d1a04cf640125bcedf74a0e8d51"
+    }
+  ],
+  "attachments": [
+    {
+      "scenarioId": "cda-workspace-combine",
+      "caseId": "group-pivot-join",
+      "focusedChecks": [
+        {
+          "id": "group-pivot-join-raw-oracle",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+          ],
+          "sourceFiles": [
+            "scripts/migrate-mjs-focused-checks.mjs",
+            "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+            "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "scripts/verify-ui/registry.mjs",
+            "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+            "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+            "verification/builder-interactions/mjs-focused-check-families.json"
+          ]
+        }
+      ]
+    },
+    {
+      "scenarioId": "cda-current-draft-diagnostic-report-append",
+      "caseId": "diagnostic-report-append",
+      "focusedChecks": [
+        {
+          "id": "diagnostic-report-append-raw-oracle",
+          "cwd": ".",
+          "command": [
+            "node-test",
+            "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+          ],
+          "sourceFiles": [
+            "scripts/migrate-mjs-focused-checks.mjs",
+            "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+            "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "scripts/verify-ui/registry.mjs",
+            "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+            "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+            "verification/builder-interactions/mjs-focused-check-families.json"
+          ]
+        }
+      ]
+    }
+  ],
+  "claimEdits": [
+    {
+      "claimId": "helper.bounded-selector-and-witness-reject-malformed-code-arrays-duplicate-ids-and-scope-mismatches",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "helper.bounded-witness-absence-remains-unverified-instead-of-widening-or-inventing-a-category",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "helper.bounded-witness-uses-the-first-raw-code-and-yields-exact-overlapping-observation-populations",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "helper.exact-scoped-reread-preserves-every-selected-raw-document-and-coding-array",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "helper.oracle-computes-group-counts-coding-code-pivot-multiplicity-and-left-inner-null-semantics",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members",
+      "before": [],
+      "after": [
+        {
+          "caseId": "cda-workspace-combine:group-pivot-join",
+          "relation": "supporting",
+          "requiredChecks": [],
+          "focusedCheckIds": [
+            "group-pivot-join-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+              "line": 124,
+              "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "line": 7,
+              "kind": "registered spec selects the exact Group Pivot case"
+            }
+          ]
+        }
+      ],
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "claimId": "oracle.diagnostic-report-append.exact-reread-rejects-changed-or-cross-generation-rows",
+      "before": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
+          ],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "familyId": "diagnostic-report-append-raw-oracle"
+    },
+    {
+      "claimId": "oracle.diagnostic-report-append.rejects-out-of-scope-duplicate-and-overlimit-rows",
+      "before": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "familyId": "diagnostic-report-append-raw-oracle"
+    },
+    {
+      "claimId": "oracle.diagnostic-report-append.reports-bounded-witness-unavailability",
+      "before": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "familyId": "diagnostic-report-append-raw-oracle"
+    },
+    {
+      "claimId": "oracle.diagnostic-report-append.selects-disjoint-duplicate-status-populations",
+      "before": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "familyId": "diagnostic-report-append-raw-oracle"
+    },
+    {
+      "claimId": "test.diagnostic-report-append.scan-query-is-bounded-and-exactly-scoped",
+      "before": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "after": [
+        {
+          "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+          "relation": "supporting",
+          "requiredChecks": [
+            "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+          ],
+          "focusedCheckIds": [
+            "diagnostic-report-append-raw-oracle"
+          ],
+          "evidence": [
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "line": 7239,
+              "kind": "registered workflow case"
+            }
+          ]
+        }
+      ],
+      "familyId": "diagnostic-report-append-raw-oracle"
+    }
+  ],
+  "executionDiscoveryEdits": [
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+      "before": {
+        "status": "no-static-path-found",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 1,
+            "kind": "imports test runner or subject under test"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 2,
+            "kind": "imports test runner or subject under test"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 3,
+            "kind": "imports test runner or subject under test"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 31,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 33,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 43,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 46,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 56,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 58,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 65,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 72,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 77,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 84,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 91,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 92,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 103,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 104,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 1,
+            "kind": "imports node:test; no registry focused-check command names this test file"
+          }
+        ],
+        "unresolvedFacts": [
+          "No checked-in runner or test command was found in the source tree. A direct/manual `node --test` invocation or external harness use remains possible and is not established here."
+        ]
+      },
+      "after": {
+        "status": "static-path-found",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 1,
+            "kind": "imports test runner or subject under test"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 2,
+            "kind": "imports test runner or subject under test"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 3,
+            "kind": "imports test runner or subject under test"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 31,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 33,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 43,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 46,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 56,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 58,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 65,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 72,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 77,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 84,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 91,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 92,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 103,
+            "kind": "test case declares the contract under review"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+            "line": 104,
+            "kind": "test assertions exercise the stated contract"
+          },
+          {
+            "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "line": 13,
+            "kind": "generated focused node-test command"
+          }
+        ],
+        "unresolvedFacts": []
+      }
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+      "before": {
+        "status": "static-path-found",
+        "evidence": [
+          {
+            "path": "docs/PLAYWRIGHT_MIGRATION.md",
+            "line": 106,
+            "kind": "documented helper test glob"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+            "line": 14,
+            "kind": "native workflow imports corresponding oracle"
+          }
+        ],
+        "unresolvedFacts": []
+      },
+      "after": {
+        "status": "static-path-found",
+        "evidence": [
+          {
+            "path": "docs/PLAYWRIGHT_MIGRATION.md",
+            "line": 106,
+            "kind": "documented helper test glob"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+            "line": 14,
+            "kind": "native workflow imports corresponding oracle"
+          },
+          {
+            "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "line": 36,
+            "kind": "generated focused node-test command"
+          }
+        ],
+        "unresolvedFacts": []
+      }
+    }
+  ],
+  "edits": [
+    {
+      "file": "scripts/verify-ui/mjs-focused-check-attachments.json",
+      "beforeSha256": "13415f37e28699c87917e9931faec31d35367d1a04cf640125bcedf74a0e8d51",
+      "afterSha256": "096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624"
+    },
+    {
+      "file": "verification/builder-interactions/mjs-source-semantics.json",
+      "beforeSha256": "391c93a9608cee97150224759bbdaad332f366f4431f039e474f60e6003a9ff0",
+      "afterSha256": "5b6ca623e1cca7ed7cefa3094e7cf1f93d3c3452a413289a4db38f4bb888a036",
+      "claimEdits": [
+        {
+          "claimId": "helper.bounded-selector-and-witness-reject-malformed-code-arrays-duplicate-ids-and-scope-mismatches",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "helper.bounded-witness-absence-remains-unverified-instead-of-widening-or-inventing-a-category",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "helper.bounded-witness-uses-the-first-raw-code-and-yields-exact-overlapping-observation-populations",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "helper.exact-scoped-reread-preserves-every-selected-raw-document-and-coding-array",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "helper.oracle-computes-group-counts-coding-code-pivot-multiplicity-and-left-inner-null-semantics",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "helper.subject-selector-ranks-counts-deterministically-and-returns-at-most-ten-scoped-subjects",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "helper.subjects-with-an-empty-or-blank-first-code-are-not-eligible-witness-members",
+          "before": [],
+          "after": [
+            {
+              "caseId": "cda-workspace-combine:group-pivot-join",
+              "relation": "supporting",
+              "requiredChecks": [],
+              "focusedCheckIds": [
+                "group-pivot-join-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+                  "line": 124,
+                  "kind": "registered workflow validates the bounded raw witness with the exact oracle"
+                },
+                {
+                  "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+                  "line": 7,
+                  "kind": "registered spec selects the exact Group Pivot case"
+                }
+              ]
+            }
+          ],
+          "familyId": "group-pivot-join-raw-oracle"
+        },
+        {
+          "claimId": "oracle.diagnostic-report-append.exact-reread-rejects-changed-or-cross-generation-rows",
+          "before": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
+              ],
+              "focusedCheckIds": [],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "after": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "exact selected DiagnosticReport status witnesses reread unchanged after APPEND lifecycle"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "familyId": "diagnostic-report-append-raw-oracle"
+        },
+        {
+          "claimId": "oracle.diagnostic-report-append.rejects-out-of-scope-duplicate-and-overlimit-rows",
+          "before": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "after": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "familyId": "diagnostic-report-append-raw-oracle"
+        },
+        {
+          "claimId": "oracle.diagnostic-report-append.reports-bounded-witness-unavailability",
+          "before": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "after": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "familyId": "diagnostic-report-append-raw-oracle"
+        },
+        {
+          "claimId": "oracle.diagnostic-report-append.selects-disjoint-duplicate-status-populations",
+          "before": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "after": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "familyId": "diagnostic-report-append-raw-oracle"
+        },
+        {
+          "claimId": "test.diagnostic-report-append.scan-query-is-bounded-and-exactly-scoped",
+          "before": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "after": [
+            {
+              "caseId": "cda-current-draft-diagnostic-report-append:diagnostic-report-append",
+              "relation": "supporting",
+              "requiredChecks": [
+                "bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs"
+              ],
+              "focusedCheckIds": [
+                "diagnostic-report-append-raw-oracle"
+              ],
+              "evidence": [
+                {
+                  "path": "scripts/verify-ui/registry.mjs",
+                  "line": 7239,
+                  "kind": "registered workflow case"
+                }
+              ]
+            }
+          ],
+          "familyId": "diagnostic-report-append-raw-oracle"
+        }
+      ],
+      "executionDiscoveryEdits": [
+        {
+          "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+          "before": {
+            "status": "no-static-path-found",
+            "evidence": [
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 1,
+                "kind": "imports test runner or subject under test"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 2,
+                "kind": "imports test runner or subject under test"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 3,
+                "kind": "imports test runner or subject under test"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 31,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 33,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 43,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 46,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 56,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 58,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 65,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 72,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 77,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 84,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 91,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 92,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 103,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 104,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 1,
+                "kind": "imports node:test; no registry focused-check command names this test file"
+              }
+            ],
+            "unresolvedFacts": [
+              "No checked-in runner or test command was found in the source tree. A direct/manual `node --test` invocation or external harness use remains possible and is not established here."
+            ]
+          },
+          "after": {
+            "status": "static-path-found",
+            "evidence": [
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 1,
+                "kind": "imports test runner or subject under test"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 2,
+                "kind": "imports test runner or subject under test"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 3,
+                "kind": "imports test runner or subject under test"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 31,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 33,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 43,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 46,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 56,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 58,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 65,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 72,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 77,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 84,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 91,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 92,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 103,
+                "kind": "test case declares the contract under review"
+              },
+              {
+                "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+                "line": 104,
+                "kind": "test assertions exercise the stated contract"
+              },
+              {
+                "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+                "line": 13,
+                "kind": "generated focused node-test command"
+              }
+            ],
+            "unresolvedFacts": []
+          }
+        },
+        {
+          "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+          "before": {
+            "status": "static-path-found",
+            "evidence": [
+              {
+                "path": "docs/PLAYWRIGHT_MIGRATION.md",
+                "line": 106,
+                "kind": "documented helper test glob"
+              },
+              {
+                "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+                "line": 14,
+                "kind": "native workflow imports corresponding oracle"
+              }
+            ],
+            "unresolvedFacts": []
+          },
+          "after": {
+            "status": "static-path-found",
+            "evidence": [
+              {
+                "path": "docs/PLAYWRIGHT_MIGRATION.md",
+                "line": 106,
+                "kind": "documented helper test glob"
+              },
+              {
+                "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+                "line": 14,
+                "kind": "native workflow imports corresponding oracle"
+              },
+              {
+                "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+                "line": 36,
+                "kind": "generated focused node-test command"
+              }
+            ],
+            "unresolvedFacts": []
+          }
+        }
+      ]
+    }
+  ],
+  "noOp": false,
+  "classifications": [
+    {
+      "path": ".codex/skills/verify-loom-ui/scripts/verify.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": ".codex/skills/verify-loom-ui/scripts/verify.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/apply-builder-proposal-decisions.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/build-builder-readiness.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/build-test-obligations.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/capture-owned-verification.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/fixtures/generate-cda-mini-fixture.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/generate-builder-browser-evidence.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/generate-builder-route-ledger.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/lib/builder-route-evidence.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/lib/local-preview-index-explain.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/lib/local-preview-index-migration.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/lib/playwright-discovery-counts.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/local-preview-index-explain.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/local-preview-index-explain.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/local-preview-index-migration.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/local-preview-index-migration.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/loom-dev.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/loom-dev.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/maintenance/playwright/browser-callback-scope.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/capture-discovery-snapshot.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-browser-eval-returns.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-browser-eval-returns.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-browser-expression-syntax.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-native-playwright.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-native-playwright.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-playwright-migration.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-source-preimage-provenance.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-standalone-playwright-ledger.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/check-standalone-playwright-ledger.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/maintenance/playwright/removed-native-playwright-apis.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/source-preimage-provenance.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/maintenance/playwright/tests/browser-callback-scope.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/measure-authoring-loop.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/measure-authoring-loop.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/measure-b05-preview.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/measure-b05-preview.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/measure-b07-evidence.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/measure-b07-evidence.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/measurements/construction-preview/construction-preview-bench.config.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/measurements/construction-preview/construction-preview-bench.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/measurements/construction-preview/construction_preview_bench.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/migrate-mjs-focused-checks.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/owned-query-probe.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/owned-query-probe.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/owned-stack-verification.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/playwright.config.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/playwright.fast.config.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/playwright.journey.config.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/preview-covering-index-artifact.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/propose-builder-browser-cases.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/propose-builder-contract-proofs.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/propose-builder-mutation-probes.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/propose-builder-route-actions.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/run-builder-bug-discovery.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/run-builder-journey.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/run-builder-mutation-probe.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/run-native-verification-bracket.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/run-scope-001-restricted-auth.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/self-test-builder-traces.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/validate_ml_dataframer_plan.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/validate_ml_dataframer_plan.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verification-timing.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-b07-faults.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-b07-faults.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-b08-artifacts.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-b08-artifacts.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-builder-formal.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-builder-interactions.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-builder-operation-history.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-builder-reconciliation.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-builder-route-ledger.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-builder-traces.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-cda-mixed-scope-selectors.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-cda-pivot-oracle.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-construction-removals.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-correlated-concepts.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-population-row.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-selections.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/check-loaded-dataset.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/fast-specs/builder-preview-read-only.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/action-scoped-cancellations.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/add-columns-raw-fields-selectors.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/api-build-freeze.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/append-option-evidence.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-add-column-coverage-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-coded-group-recorded-code-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-coded-pivot-fixture.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-named-cohort-presence-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-nested-coding-expand-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-nullable-related-field-after-unpivot-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-pivot-unpivot-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-published-membership-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-related-field-after-unpivot-fixture-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-related-quantity-one-all-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-root-replacement-contract.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-root-replacement-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-runtime-scope-isolation-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-saved-related-route-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-unpivot-pivot-fixture-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/basic-viewer-charts-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/browser-request-ownership.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-authoring-request-entries.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-combine-draft-helpers.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-combine-helpers.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-combine-nullable-helpers.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/builder-rendered-grid.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-action-to-render-budget.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-authored-expand-filter-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-composite-group-filter-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-compound-coded-group-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-current-draft-group-join-workflow.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-current-draft-membership-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-current-draft-membership-oracle.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-current-draft-upstream-append-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-fixture-outcomes.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-fixtures.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-group-numeric-filter-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-group-pivot-publication-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-journey-fields.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-no-auth-runtime.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-nullable-code-join-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-observation-dataset-zip-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-payload-content-hashes.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-playwright-requests.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-playwright.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-published-upstream-append-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-quantity-category-oracle-runner.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-quantity-category-oracle.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-row-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-saved-related-route-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-starting-collection-replacement-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-verification-identity.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cda-viewer-output-dataset-zip-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/coded-pivot-fixture.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/coded-pivot-native-evidence.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cohort-group-pivot-publication-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/cohort-identities.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/collection-repair-preview-schema.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/complete-preview-row-projection.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/composed-row-lineage-fixture.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/condition-specimen-route-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/construction-capabilities-readiness.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/construction-choice-request.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/contributor-rule-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/coverage-status.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/created-explorer-scope.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/dataset-preflight.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/extract-native-failure-input.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fast-fixture-state.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fast-fixtures.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fast-global-setup.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/filter-oracle-assertions.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fixture-context.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fixture-environment.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fixture-failure-assertions.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/fixtures.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/focused-check-groups.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/inventory.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/missing-component-group-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/native-browser-api-scope.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/native-cda-workflow-tools.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/native-failure-evidence.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/ndjson-resource-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/nested-authored-expand-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/network-evidence.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/network-timing.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/nullable-related-all.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/owned-arangosh-command.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/owned-cda-target-config.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/owned-cda-target.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/owned-stack-health.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-actions.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-authoring-page.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-authoring-suggestions.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-authoring.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-network-observer.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-observations.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-preview-rows.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/playwright-verification.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/population-coverage-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/population-member-group-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/population-member-removal-proposal.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/positive-medication-cda-context.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/post-pivot-related-source-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/proposal-preview-readiness.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/proposal-reopen-binding.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/quantity-pivot-budget.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-choice-stage-context.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-expand-field-lifecycle-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-one-all-lifecycle-contract.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-policy-construction.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-quantity-pivot-discovery-artifact.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-quantity-pivot-discovery-process.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-quantity-pivot-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-route-disclosure.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/related-source-capture.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/report.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/root-quantity-raw-preview.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/root-rebase-preservation.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/run-assigned-check.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/saved-preview-binding.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/scope-001-repeated-pivot-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/scope-001-restricted-auth-bootstrap.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/scope-001-restricted-auth-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/scope-001-restricted-auth-runtime.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/semantic-group-expanded-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/semantic-group-expanded-report.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/semantic-specimen-witness.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/source-fingerprint.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/source-freeze.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/standalone-coded-field-fixture.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/superseded-capabilities-abort.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/action-scoped-cancellations.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/api-build-freeze.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/append-reload-timing.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-add-column-coverage-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-coded-group-recorded-code-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-coded-pivot-fixture.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-named-cohort-presence-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-nested-coding-expand-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-nullable-related-field-after-unpivot-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-pivot-unpivot-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-published-membership-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-related-field-after-unpivot-fixture-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-related-quantity-one-all-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-root-replacement-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-root-replacement-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-runtime-scope-isolation-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-saved-related-route-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-unpivot-group-fixture-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-unpivot-pivot-fixture-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/basic-viewer-charts-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/browser-request-ownership.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-authoring-report-dimensions.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-authoring-request-entries.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-coded-column-diagnostics.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-coded-source-choice.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-cohort-expand-raw-fields-locator.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-combine-draft.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-combine-nullable.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-combine.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-controls-table-preview-readiness.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-controls.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-load.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/candidate-construction-wire.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/capture-owned-verification.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-action-to-render-budget.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-authored-expand-filter-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-authored-expand-filter-removal.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-composite-group-filter-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-compound-coded-group-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-compound-coded-group-request-view.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+      "classification": "supported",
+      "familyId": "diagnostic-report-append-raw-oracle"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-workflow.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-membership-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-membership-overlap-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-membership-source-projection.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-upstream-append-browser-context.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-upstream-append-contract.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-current-draft-upstream-append-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-explicit-ui-route.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-fixture-outcomes.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-fixtures.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-group-numeric-filter-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+      "classification": "supported",
+      "familyId": "group-pivot-join-raw-oracle"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-publication-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-no-auth-runtime.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-nullable-code-join-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-observation-dataset-zip-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-payload-content-hashes.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-playwright-requests.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-playwright.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-published-upstream-append-contract.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-published-upstream-append-oracle.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-same-table-root-replacement-readiness.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-saved-related-route-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-starting-collection-replacement-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-upstream-append-reload-readiness.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-upstream-related-removal-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-verification-identity.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cda-viewer-output-dataset-zip-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/coded-pivot-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/coded-pivot-source-options-response.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cohort-fields-action-to-render.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cohort-group-pivot-publication-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/cohort-identities.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/combine-nullable-key-oracle.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/complete-preview-row-projection.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/composed-row-lineage-arangosh-auth.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/composed-row-lineage-bounded-count-selector.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/condition-specimen-route-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/construction-capabilities-readiness.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/construction-choice-request.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/construction-output-selection.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/contributor-exists-binding-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/contributor-exists-contract.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/contributor-rules-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/coverage-status-compact-freshness.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/coverage-status.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/created-explorer-scope.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/extract-native-failure-input.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/filter-browser-source-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixture-browser-project-path.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/fixture-directory.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/focused-check-groups.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-add-fields-preview-rows.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-add-fields-raw-hop-binding.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-edit-raw-fields-summary.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-edit-render-checkpoints.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-edit-source-oracle-arango.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-one-conflict-policy-selector.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-pivot-append-contract.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/group-workflow-raw-fields-selectors.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/lifecycle-coverage-cli.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/missing-component-group-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/mjs-focused-check-migration.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/named-cohort-raw-query-terminal.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/named-session.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/native-browser-api-scope.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/native-failure-evidence.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/native-verification-batch.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/native-verification-bracket.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/ndjson-resource-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/nested-authored-expand-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/network-evidence.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/network-timing.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/nullable-related-all.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/owned-arangosh-command.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/owned-cda-target-config.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/owned-cda-target.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/owned-stack-health.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-authoring-existing-root-change.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-authoring-suggestions.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-network-observer-graphql-classification.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-network-observer.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-observations.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-sanitizers.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/playwright-viewer-query.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/population-coverage-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/population-member-group-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/population-member-removal-api-response.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/population-member-removal-lifecycle-evidence.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/population-member-removal-proposal.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/positive-medication-cda-context.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/positive-medication-oracle-mode.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/post-pivot-related-source-query-encoding.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/proposal-preview-readiness.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/proposal-reopen-binding.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/quantity-pivot-budget.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-choice-stage-context.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-expand-field-lifecycle-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-field-after-unpivot-lifecycle-checks.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-one-all-lifecycle-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-one-all-response-capture.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-artifact.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-parity.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-quantity-pivot-discovery-process.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-quantity-pivot-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-source-capture.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/related-source-one-validation.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/retained-empty-collection-error.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-authoring-normalization.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-pivot-arangosh-auth.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-pivot-lifecycle-contract.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-pivot-output-label.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-pivot-selection.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-proposal-header.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-quantity-raw-preview.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/root-rebase-preservation.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/run-assigned-check.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/saved-preview-binding.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/scope-001-repeated-pivot-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/scope-001-restricted-auth-bootstrap.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/scope-001-restricted-auth-launcher.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/scope-001-restricted-auth-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/scope-001-restricted-auth-workflow.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/semantic-group-expanded-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/semantic-specimen-witness.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/source-fingerprint.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/source-freeze.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/standalone-coded-field-fixture.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/starting-collection-handoff-binding-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/starting-collection-preview-binding.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/starting-collection-terminal-requests.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/superseded-capabilities-abort.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/validation-wait-evidence.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verification-timing.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-column-presentation.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-filters.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-patient-related.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-preview-limits.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-related-source-chooser.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-row-choice-inspection.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-builder-table-management.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-collection-repair-reload-budget.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-plain-patient-root-selector-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/verify-cda-root-rebase-contract.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-cell-explain-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-output-dataset-zip-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-output-filtered-dataset-zip-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-pagination-fixture.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-pagination-workflow.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-row-details-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-row-file-download-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/viewer-shared-filter-oracle.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/virtual-preview-rows.test.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/tests/zero-observation-witness.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/unpivot-schema.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/validation-wait-evidence.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/verify-browser-disclosure.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/verify-cda-builder-table-management-contract.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/viewer-cell-explain-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/viewer-output-dataset-zip-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/viewer-output-filtered-dataset-zip-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/viewer-row-details-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/viewer-row-file-download-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/viewer-shared-filter-oracle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/helpers/virtual-preview-rows.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/pivot-error.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/journey-specs/unpivot-preview.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/registry.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/append.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/authoring-summary.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-coded-group-recorded-code.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-named-cohort-presence.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-nested-coding-expand.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-pivot-unpivot.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-related-expand-exact-one-removal.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-related-field-after-unpivot-nullable-all.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-related-field-after-unpivot.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-root-replacement.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-runtime-scope-isolation.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-temporal-filter.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-unpivot-group.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/basic-unpivot-pivot.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-add-column-coverage.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-coded-source-column.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-controls.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-explorer-deletion-unavailable.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-explorer-deletion.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-load.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/builder-saved-route-edit.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-coded-group-native.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-compound-coded-group.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-contributor-equals.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-group-pivot-published.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-published-membership.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-published-upstream-append.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-same-table-root-replacement.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-saved-related-route-edit-epoch126.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-semantic-group.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cda-viewer-output-dataset-zip.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/cohort-group-pivot-publication.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/condition-specimen-route-ambiguity.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/dev-journeys.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/draft-combine.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/join.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/native-action-readiness.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/native-authoring-oracles.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/native-failure-evidence.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/native-raw-fields-locator.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/nullable-combine.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/population-member-removal.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/published-membership.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/read-only-capability-conflict.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/related-medication-positive-fixture.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/scope-001-repeated-expand-pivot.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/scope-001-restricted-auth.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/semantic-construction-choice-route.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/semantic-group-connected-lifecycle.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/semantic-group-expanded-lifecycle.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-builder.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-fields.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-group-numeric-filter.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-nested-expand.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-plain-patient-root-selector.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-rows.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-semantic-specimen.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-cda-zero-observation-root-roundtrip.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-coded-fields.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-misc.spec.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-cell-explain.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-charts.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-output-action.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-output-dataset-zip.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-output-filtered-dataset-zip.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-pagination.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-query.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-row-details.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-row-file-download.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/specs/viewer-shared-filter.spec.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-coded-group-recorded-code.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-coded-pivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-named-cohort-presence.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-nested-coding-expand.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-pivot-unpivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-related-field-after-unpivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-root-replacement.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-runtime-scope-isolation.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-unpivot-group.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/basic-unpivot-pivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-add-column-coverage.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-authoring.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-coded-source-column.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-cohort-expand.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-combine-draft.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-combine-nullable.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-combine.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-controls.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-dataframe-contract.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-explorer-deletion-unavailable.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-explorer-deletion.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-explorer-selection.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-load.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-repeated.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-table-reorder.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/builder-url.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-coded-group-native-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-current-draft-group-join-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-current-draft-membership-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-current-draft-nullable-code-join-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-current-draft-upstream-append-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-group-pivot-published-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-published-membership-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-published-upstream-append-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-same-table-root-replacement.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-saved-related-route-edit-epoch126.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-starting-collection-replacement.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cda-viewer-output-dataset-zip.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/coded-field-lifecycle-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cohort-fields-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/cohort-group-pivot-publication.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/compound-fields-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/condition-specimen-route-ambiguity.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/contributor-code-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/contributor-exists-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/contributor-rules-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/legacy-v9-workspace.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/population-coverage.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/population-member-removal-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/related-expand-field-lifecycle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/repeated-contributor-any-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/root-quantity-pivot-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/saved-related-expand-route-edit.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/scope-001-repeated-expand-pivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/scope-001-restricted-auth.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/semantic-group-connected-lifecycle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/semantic-group-expanded-lifecycle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/semantic-group-lifecycle.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/semantic-specimen-fields-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/source-fields-workflow.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/standalone-coded-fields.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-base-settings.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-active-related-contributor-any-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-add-column-dialog.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-authored-expand-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-column-presentation.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-filters.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-patient-related.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-preview-limits.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-related-patient-inspection.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-related-source-chooser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-row-choice-inspection.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder-table-management.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-builder.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-coded-pivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-cohort-membership-revision-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-cohort-row-sources-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-collection-repair.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-composed-row-lineage-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-compound-coded-group.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-expanded-publication-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-filter-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-filter-lifecycle.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-framing.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-add-fields-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-numeric-filter-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-one-conflict-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-related-summary-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-group-related-values-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-identifier-multiplicity.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-implicit-pivot.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-indirect-specimen-patient.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-last-table.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-legacy-collection.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-mixed-sibling-count-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-named-cohort-related-count-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-nested-authored-expand-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-nested-repeated-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-pivot-category-cycle-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-pivot-category-edit-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-pivot-field-change-browser.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-pivot-reload-browser.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-plain-patient-root-selector.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-publication-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-quantity-pivot-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-quantity-pivot-native-drag-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-eligibility.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-field-after-unpivot-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-group-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-one-all-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-pivot-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-source-after-pivot-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-related-unpivot-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-repeated-empty-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-repeated-rows-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-root-rebase.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-root-settings.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-row-sources-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-sourceaggregate-mixed-sibling-count-browser.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-starting-collection-handoff.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-table-management-browser.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-unpivot.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-cda-zero-column-related-medication.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-compound-coded-group.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-construction-removal-ui.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-population-row-ui.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-row-actions-clarity.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-row-definition-ui.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-row-rebase-ui.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-semantic-construction-choice-route.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/verify-upstream-edits.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-cell-explain.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-charts.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-output-action.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-output-dataset-zip.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-output-filtered-dataset-zip.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-pagination.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-query.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-row-details.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-row-file-download.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "scripts/verify-ui/workflows/viewer-shared-filter.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "ui/apps/demo/src/demo-route.mjs",
+      "classification": "needs-review"
+    },
+    {
+      "path": "ui/apps/demo/src/demo-route.test.mjs",
+      "classification": "already-wired"
+    },
+    {
+      "path": "ui/packages/loom-ui/scripts/check-boundaries.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "ui/packages/loom-ui/scripts/copy-authoring-semantics-assets.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "ui/packages/loom-ui/scripts/verify-cda-contributor-exists-browser.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "ui/packages/loom-ui/src/authoringSemanticsVersion.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "ui/packages/loom-ui/src/dataframeOutputQuery.mjs",
+      "classification": "not-applicable"
+    },
+    {
+      "path": "verification/builder-interactions/operationHistoryModel.mjs",
+      "classification": "not-applicable"
+    }
+  ]
+}

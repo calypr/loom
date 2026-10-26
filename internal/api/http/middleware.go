@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"runtime/debug"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -79,7 +80,7 @@ func (s *HTTPServer) requestIDMiddleware(c fiber.Ctx) error {
 func (s *HTTPServer) recoveryMiddleware(c fiber.Ctx) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			s.logger.Error("panic recovered", "request_id", requestIDFromCtx(c), "path", c.Path(), "panic", recovered)
+			s.logger.Error("panic recovered", "request_id", requestIDFromCtx(c), "path", c.Path(), "panic", recovered, "stack", string(debug.Stack()))
 			err = dataframeerrors.Wrap(errors.New("panic recovered"), dataframeerrors.CodeInternalError, "")
 		}
 	}()
@@ -88,6 +89,7 @@ func (s *HTTPServer) recoveryMiddleware(c fiber.Ctx) (err error) {
 
 func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 	start := time.Now()
+	s.logger.Info("http request started", "request_id", requestIDFromCtx(c), "phase", "started", "method", c.Method(), "path", c.Path())
 	err := c.Next()
 	if err != nil {
 		if c.Response().StatusCode() < 400 {
@@ -111,7 +113,7 @@ func (s *HTTPServer) loggingMiddleware(c fiber.Ctx) error {
 		}
 		s.logger.Error("http request failed", attrs...)
 	}
-	s.logger.Info("http request", "request_id", requestIDFromCtx(c), "method", c.Method(), "path", c.Path(), "status", status, "duration_ms", duration)
+	s.logger.Info("http request", "request_id", requestIDFromCtx(c), "phase", "completed", "method", c.Method(), "path", c.Path(), "status", status, "duration_ms", duration)
 	return err
 }
 

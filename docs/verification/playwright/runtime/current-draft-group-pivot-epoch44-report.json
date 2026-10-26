@@ -1,0 +1,340 @@
+{
+  "status": "passed",
+  "scenario": "builder-combine-draft",
+  "case": "group-pivot",
+  "target": {
+    "kind": "isolated",
+    "project": "loom_dev_verify_muvy0fat-1efbffe",
+    "generation": "fixture-v1",
+    "explorer": "verify-at-1efbffe-draft-combine-group-pivot",
+    "sourceFingerprint": {
+      "sha256": "6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35",
+      "files": 1495
+    },
+    "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "fixtureRawOracle": {
+      "source": "fresh project testdata/verify-combine NDJSON; rows are not derived from Builder previews",
+      "project": "loom_dev_verify_muvy0fat-1efbffe",
+      "generation": "fixture-v1",
+      "patients": [
+        {
+          "id": "combine-fixture-patient",
+          "gender": "female"
+        }
+      ],
+      "observations": [
+        {
+          "id": "combine-observation-final-1",
+          "status": "final",
+          "valueInteger": 10
+        },
+        {
+          "id": "combine-observation-final-2",
+          "status": "final",
+          "valueInteger": 20
+        },
+        {
+          "id": "combine-observation-preliminary",
+          "status": "preliminary",
+          "valueInteger": 30
+        },
+        {
+          "id": "combine-observation-unmatched",
+          "status": "unknown",
+          "valueInteger": 40
+        }
+      ],
+      "diagnosticReports": [
+        {
+          "id": "combine-observation-final-1",
+          "status": "final"
+        },
+        {
+          "id": "combine-observation-final-2",
+          "status": "final"
+        },
+        {
+          "id": "combine-observation-preliminary",
+          "status": "preliminary"
+        }
+      ]
+    },
+    "scope": {
+      "ok": true,
+      "catalogBound": true,
+      "draftState": {
+        "ok": true,
+        "expectedState": "empty",
+        "actualState": "empty",
+        "empty": true,
+        "draft": false,
+        "workspaceDocumentCount": null,
+        "draftVersion": 0,
+        "draftDigest": ""
+      },
+      "requestURL": "http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/builder",
+      "project": "loom_dev_verify_muvy0fat-1efbffe",
+      "explorer": "verify-at-1efbffe-draft-combine-group-pivot",
+      "generation": "fixture-v1",
+      "expectedGeneration": "fixture-v1",
+      "snapshotToken": "sha256:25b5fc31eef2cdd1d83cf09b15e97d3695c97f2325afa06fa83f38ffdb7c4796",
+      "draftVersion": 0,
+      "draftDigest": "",
+      "authorizationScopeDigest": "[REDACTED]"
+    },
+    "combineTarget": {
+      "outputId": "out_f17f97dc73139b7d2394d121",
+      "rootResourceType": "Observation"
+    },
+    "canceledCombineTarget": {
+      "outputId": "out_97f2664ed785a33dfe7da320",
+      "rootResourceType": "Observation"
+    },
+    "nativeCandidateRequest": {
+      "path": "/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals",
+      "status": 200,
+      "outputId": "out_f17f97dc73139b7d2394d121",
+      "inputRefs": [
+        {
+          "kind": "WORKSPACE_OUTPUT",
+          "outputId": "out_8be82c934d20f42b86fd58c3"
+        },
+        {
+          "kind": "WORKSPACE_OUTPUT",
+          "outputId": "out_a2fd85e26f0e8ec14ad4e6bc"
+        }
+      ],
+      "snapshotToken": "sha256:25b5fc31eef2cdd1d83cf09b15e97d3695c97f2325afa06fa83f38ffdb7c4796",
+      "expectedDraftVersion": 12,
+      "expectedDraftDigest": "sha256:7f07d2cdfcc6f2cd588041108dec1177077d211d5d2db797620493c7907bcbe2"
+    },
+    "sourceFingerprintAfter": {
+      "sha256": "6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35",
+      "files": 1495
+    },
+    "apiBuildIdentityAfter": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed",
+      "evidenceCount": 30
+    },
+    "correctness": {
+      "status": "passed",
+      "evidenceCount": 26
+    },
+    "persistence": {
+      "status": "passed",
+      "evidenceCount": 7
+    },
+    "performance": {
+      "status": "passed",
+      "evidenceCount": 33
+    }
+  },
+  "assertions": [
+    {"dimension":"correctness","name":"watched source fingerprint baseline captured before browser lifecycle","status":"passed","evidence":{"fingerprint":{"sha256":"6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35","files":1495}}},
+    {"dimension":"correctness","name":"API build identity baseline captured before browser lifecycle","status":"passed","evidence":{"identity":"a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"}},
+    {"dimension":"correctness","name":"independent fixture contains one Patient, four Observations, and three DiagnosticReports","status":"passed","evidence":{"source":"fresh project testdata/verify-combine NDJSON; rows are not derived from Builder previews","project":"loom_dev_verify_muvy0fat-1efbffe","generation":"fixture-v1","patients":[{"id":"combine-fixture-patient","gender":"female"}],"observations":[{"id":"combine-observation-final-1","status":"final","valueInteger":10},{"id":"combine-observation-final-2","status":"final","valueInteger":20},{"id":"combine-observation-preliminary","status":"preliminary","valueInteger":30},{"id":"combine-observation-unmatched","status":"unknown","valueInteger":40}],"diagnosticReports":[{"id":"combine-observation-final-1","status":"final"},{"id":"combine-observation-final-2","status":"final"},{"id":"combine-observation-preliminary","status":"preliminary"}]}},
+    {"dimension":"usability","name":"open Explorer creation completed","status":"passed","evidence":{"elapsedMs":45}},
+    {"dimension":"performance","name":"open Explorer creation action-to-render within budget","status":"passed","evidence":{"elapsedMs":45,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"create blank Explorer completed","status":"passed","evidence":{"elapsedMs":115}},
+    {"dimension":"performance","name":"create blank Explorer action-to-render within budget","status":"passed","evidence":{"elapsedMs":115,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"created a fresh Explorer distinct from the bootstrap","status":"passed","evidence":{"title":"Verify at-1efbffe draft-combine-group-pivot"}},
+    {"dimension":"correctness","name":"draft Combine uses the exact project, generation, Builder snapshot, and authorization scope","status":"passed","evidence":{"ok":true,"catalogBound":true,"draftState":{"ok":true,"expectedState":"empty","actualState":"empty","empty":true,"draft":false,"workspaceDocumentCount":null,"draftVersion":0,"draftDigest":""},"requestURL":"http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/builder","project":"loom_dev_verify_muvy0fat-1efbffe","explorer":"verify-at-1efbffe-draft-combine-group-pivot","generation":"fixture-v1","expectedGeneration":"fixture-v1","snapshotToken":"sha256:25b5fc31eef2cdd1d83cf09b15e97d3695c97f2325afa06fa83f38ffdb7c4796","draftVersion":0,"draftDigest":"","authorizationScopeDigest":"[REDACTED]"}},
+    {"dimension":"usability","name":"create current-draft Observation source table completed","status":"passed","evidence":{"elapsedMs":325}},
+    {"dimension":"performance","name":"create current-draft Observation source table action-to-render within budget","status":"passed","evidence":{"elapsedMs":325,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"Observation root Preview contains exact independent fixture IDs","status":"passed","evidence":{"headers":["Observation ID"],"ids":["combine-observation-final-1","combine-observation-final-2","combine-observation-preliminary","combine-observation-unmatched"],"expectedIDs":["combine-observation-final-1","combine-observation-final-2","combine-observation-preliminary","combine-observation-unmatched"]}},
+    {"dimension":"correctness","name":"first native source table establishes a versioned current draft under the exact scope","status":"passed","evidence":{"scope":{"ok":true,"catalogBound":true,"draftState":{"ok":true,"expectedState":"draft","actualState":"draft","empty":false,"draft":true,"workspaceDocumentCount":1,"draftVersion":2,"draftDigest":"sha256:05886ae2f1cb460b0fc25a96580781dd1336a00e8ffe71760f52681aa91ab0e2"},"requestURL":"http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/builder","project":"loom_dev_verify_muvy0fat-1efbffe","explorer":"verify-at-1efbffe-draft-combine-group-pivot","generation":"fixture-v1","expectedGeneration":"fixture-v1","snapshotToken":"sha256:25b5fc31eef2cdd1d83cf09b15e97d3695c97f2325afa06fa83f38ffdb7c4796","draftVersion":2,"draftDigest":"sha256:05886ae2f1cb460b0fc25a96580781dd1336a00e8ffe71760f52681aa91ab0e2","authorizationScopeDigest":"[REDACTED]"},"expectedDocumentCount":1,"actualDocumentCount":1,"output":{"id":"out_8be82c934d20f42b86fd58c3","title":"Observation ID source"},"draftVersion":2,"draftDigest":"sha256:05886ae2f1cb460b0fc25a96580781dd1336a00e8ffe71760f52681aa91ab0e2"}},
+    {"dimension":"usability","name":"select raw Observation.status and make Apply columns ready completed","status":"passed","evidence":{"elapsedMs":1064}},
+    {"dimension":"performance","name":"select raw Observation.status and make Apply columns ready action-to-render within budget","status":"passed","evidence":{"elapsedMs":1064,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"apply native raw Observation.status field to a current draft completed","status":"passed","evidence":{"elapsedMs":146}},
+    {"dimension":"performance","name":"apply native raw Observation.status field to a current draft action-to-render within budget","status":"passed","evidence":{"elapsedMs":146,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"Observation ID source native GROUP count rows match the direct fixture oracle","status":"passed","evidence":{"fields":{"key":"Status","id":"Observation ID"},"selectedKeys":["Observation ID"],"headers":["Observation ID","Row count"],"actual":[["combine-observation-final-1",1],["combine-observation-final-2",1],["combine-observation-preliminary",1],["combine-observation-unmatched",1]],"expected":[["combine-observation-final-1",1],["combine-observation-final-2",1],["combine-observation-preliminary",1],["combine-observation-unmatched",1]]}},
+    {"dimension":"performance","name":"Observation ID source GROUP automatic preview is within five seconds","status":"passed","evidence":{"elapsedMs":1118,"selectedKeys":["Observation ID"]}},
+    {"dimension":"usability","name":"Apply Observation ID source current-draft GROUP completed","status":"passed","evidence":{"elapsedMs":254}},
+    {"dimension":"performance","name":"Apply Observation ID source current-draft GROUP action-to-render within budget","status":"passed","evidence":{"elapsedMs":254,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"persistence","name":"Observation ID source remains an unpublished current-draft grouped output","status":"passed","evidence":{"outputId":"out_8be82c934d20f42b86fd58c3","rootResourceType":"Observation","steps":["GROUP"]}},
+    {"dimension":"usability","name":"create current-draft DiagnosticReport source table completed","status":"passed","evidence":{"elapsedMs":263}},
+    {"dimension":"performance","name":"create current-draft DiagnosticReport source table action-to-render within budget","status":"passed","evidence":{"elapsedMs":263,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"DiagnosticReport root Preview contains exact independent fixture IDs","status":"passed","evidence":{"headers":["DiagnosticReport ID"],"ids":["combine-observation-final-1","combine-observation-final-2","combine-observation-preliminary"],"expectedIDs":["combine-observation-final-1","combine-observation-final-2","combine-observation-preliminary"]}},
+    {"dimension":"correctness","name":"DiagnosticReport native source table establishes a versioned current draft under the exact scope","status":"passed","evidence":{"scope":{"ok":true,"catalogBound":true,"draftState":{"ok":true,"expectedState":"draft","actualState":"draft","empty":false,"draft":true,"workspaceDocumentCount":2,"draftVersion":6,"draftDigest":"sha256:494d79896834ab1d11f46202d082f85a15b3732bcd7bcf94e9c438b62d194891"},"requestURL":"http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/builder","project":"loom_dev_verify_muvy0fat-1efbffe","explorer":"verify-at-1efbffe-draft-combine-group-pivot","generation":"fixture-v1","expectedGeneration":"fixture-v1","snapshotToken":"sha256:25b5fc31eef2cdd1d83cf09b15e97d3695c97f2325afa06fa83f38ffdb7c4796","draftVersion":6,"draftDigest":"sha256:494d79896834ab1d11f46202d082f85a15b3732bcd7bcf94e9c438b62d194891","authorizationScopeDigest":"[REDACTED]"},"expectedDocumentCount":2,"actualDocumentCount":2,"output":{"id":"out_a2fd85e26f0e8ec14ad4e6bc","title":"Report grouped pivot source"},"draftVersion":6,"draftDigest":"sha256:494d79896834ab1d11f46202d082f85a15b3732bcd7bcf94e9c438b62d194891"}},
+    {"dimension":"usability","name":"select raw DiagnosticReport.status and make Apply columns ready completed","status":"passed","evidence":{"elapsedMs":212}},
+    {"dimension":"performance","name":"select raw DiagnosticReport.status and make Apply columns ready action-to-render within budget","status":"passed","evidence":{"elapsedMs":212,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"apply native raw DiagnosticReport.status field to a current draft completed","status":"passed","evidence":{"elapsedMs":139}},
+    {"dimension":"performance","name":"apply native raw DiagnosticReport.status field to a current draft action-to-render within budget","status":"passed","evidence":{"elapsedMs":139,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"Report grouped pivot source native GROUP count rows match the direct fixture oracle","status":"passed","evidence":{"fields":{"key":"Status","id":"DiagnosticReport ID"},"selectedKeys":["DiagnosticReport ID","Status"],"headers":["DiagnosticReport ID","Status","Row count"],"actual":[["combine-observation-final-1","final",1],["combine-observation-final-2","final",1],["combine-observation-preliminary","preliminary",1]],"expected":[["combine-observation-final-1","final",1],["combine-observation-final-2","final",1],["combine-observation-preliminary","preliminary",1]]}},
+    {"dimension":"performance","name":"Report grouped pivot source GROUP automatic preview is within five seconds","status":"passed","evidence":{"elapsedMs":848,"selectedKeys":["DiagnosticReport ID","Status"]}},
+    {"dimension":"usability","name":"Apply Report grouped pivot source current-draft GROUP completed","status":"passed","evidence":{"elapsedMs":263}},
+    {"dimension":"performance","name":"Apply Report grouped pivot source current-draft GROUP action-to-render within budget","status":"passed","evidence":{"elapsedMs":263,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"performance","name":"Report grouped pivot source native Pivot category selection, discovery, and exact preview complete within five seconds","status":"passed","evidence":{"elapsedMs":815,"outputId":"out_a2fd85e26f0e8ec14ad4e6bc","requiredCategories":["final","preliminary"]}},
+    {"dimension":"correctness","name":"Report grouped pivot source native Pivot preview matches raw Group→Pivot category counts","status":"passed","evidence":{"beforePivot":{"ready":true,"headers":["DiagnosticReport ID","Status","Row count"],"rows":[["combine-observation-final-1","final","1"],["combine-observation-final-2","final","1"],["combine-observation-preliminary","preliminary","1"]],"ariaRowCount":"4"},"idLabel":"DiagnosticReport ID","keyOutput":{"id":"group-key_2a928b0c-90d3-49c5-888f-b4e45c725475","name":"col_2bd2b5a217658a5e4e73263a","label":"Status","type":"string"},"countOutput":{"id":"group-column_1377d773-28c7-4213-9375-cbcf0d6b437a","name":"row_count","label":"Row count","type":"integer"},"requiredCategories":["final","preliminary"],"headers":["DiagnosticReport ID","final","preliminary"],"actualByID":[["combine-observation-final-1",1,null],["combine-observation-final-2",1,null],["combine-observation-preliminary",null,1]],"expectedByID":[["combine-observation-final-1",1,null],["combine-observation-final-2",1,null],["combine-observation-preliminary",null,1]]}},
+    {"dimension":"usability","name":"Apply Report grouped pivot source current-draft PIVOT completed","status":"passed","evidence":{"elapsedMs":271}},
+    {"dimension":"performance","name":"Apply Report grouped pivot source current-draft PIVOT action-to-render within budget","status":"passed","evidence":{"elapsedMs":271,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"reload applied Report grouped pivot source Group→Pivot and render its exact table completed","status":"passed","evidence":{"elapsedMs":566}},
+    {"dimension":"performance","name":"reload applied Report grouped pivot source Group→Pivot and render its exact table action-to-render within budget","status":"passed","evidence":{"elapsedMs":566,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"Report grouped pivot source Group→Pivot values survive reload","status":"passed","evidence":{"headers":["DiagnosticReport ID","final","preliminary"],"expectedHeaders":["DiagnosticReport ID","final","preliminary"],"rows":[["combine-observation-final-1","1","—"],["combine-observation-final-2","1","—"],["combine-observation-preliminary","—","1"]],"expectedRows":[["combine-observation-final-1","1","—"],["combine-observation-final-2","1","—"],["combine-observation-preliminary","—","1"]],"ariaRowCount":"4"}},
+    {"dimension":"persistence","name":"Report grouped pivot source remains an unpublished current-draft grouped output","status":"passed","evidence":{"outputId":"out_a2fd85e26f0e8ec14ad4e6bc","rootResourceType":"DiagnosticReport","steps":["GROUP","PIVOT"]}},
+    {"dimension":"usability","name":"open native Combine and create a separate empty target completed","status":"passed","evidence":{"elapsedMs":111}},
+    {"dimension":"performance","name":"open native Combine and create a separate empty target action-to-render within budget","status":"passed","evidence":{"elapsedMs":111,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source","status":"passed","evidence":{"ok":true,"commandBound":true,"resultBound":true,"workspaceBound":true,"editorBound":true,"responseStatus":200,"commandId":"22511604-e18d-4f43-a74b-cbccacbbb413","rootNodeId":"n_fb143eb0d3573966f43a37d8","expectedRootNodeIds":["n_fb143eb0d3573966f43a37d8"],"outputId":"out_97f2664ed785a33dfe7da320","previousOutputIDs":["out_8be82c934d20f42b86fd58c3","out_a2fd85e26f0e8ec14ad4e6bc"],"mountedOutputId":"out_97f2664ed785a33dfe7da320","workspaceTargetCount":1,"targetRootResourceType":"Observation","targetColumnCount":0,"targetConstructionSteps":0}},
+    {"dimension":"usability","name":"mixed Group and Group→Pivot draft INNER Join auto-preview within five seconds completed","status":"passed","evidence":{"elapsedMs":544}},
+    {"dimension":"performance","name":"mixed Group and Group→Pivot draft INNER Join auto-preview within five seconds action-to-render within budget","status":"passed","evidence":{"elapsedMs":544,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"one GROUP sibling and one GROUP→PIVOT sibling join on their exact current-draft IDs","status":"passed","evidence":{"headers":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"expectedHeaders":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"rows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"expectedRows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"ariaRowCount":null}},
+    {"dimension":"correctness","name":"automatic Combine proposal is bound to this exact draft CAS and UI proxy scope","status":"passed","evidence":{"path":"/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","url":"http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","status":200,"project":"loom_dev_verify_muvy0fat-1efbffe","explorer":"verify-at-1efbffe-draft-combine-group-pivot","generation":"fixture-v1","authorizationScopeDigest":"[REDACTED]","proposalOriginMatched":true,"requestOrigin":"http://127.0.0.1:30008","expectedProposalOrigin":"http://127.0.0.1:30008","expectedDirectApiOrigin":"http://127.0.0.1:8188","scopeChecks":{"routePathMatches":true,"validatedUIProxyOriginMatches":true,"generationMatches":true,"authorizationScopeMatches":"[REDACTED]","snapshotTokenMatches":"[REDACTED]","expectedDraftVersionMatches":true,"expectedDraftDigestMatches":true},"responseBound":true,"responseChecks":{"proposalIdMatchesDOM":true,"previewReceiptMatchesDOM":true,"previewOutputMatchesTarget":true,"domOutputMatchesTarget":true,"responseOutputMatchesTarget":true,"snapshotTokenMatchesRequest":"[REDACTED]","draftVersionMatchesRequest":true,"draftDigestMatchesRequest":true,"previewStatusReady":true,"candidateConstructionMatchesRequest":true},"domProposal":{"proposalId":"receipt_e78140f7b053954142f11a68e7733c6114e264a4fffe48a49896f2c3c1a1984d","receiptId":"receipt_e78140f7b053954142f11a68e7733c6114e264a4fffe48a49896f2c3c1a1984d","outputId":"out_97f2664ed785a33dfe7da320"},"responseProposalId":"receipt_e78140f7b053954142f11a68e7733c6114e264a4fffe48a49896f2c3c1a1984d","responseOutputId":"out_97f2664ed785a33dfe7da320","responsePreview":{"receiptId":"receipt_e78140f7b053954142f11a68e7733c6114e264a4fffe48a49896f2c3c1a1984d","outputId":"out_97f2664ed785a33dfe7da320"},"candidateStepKind":"COMBINE","candidateCombineKind":"KEY_JOIN","expectedProposalPath":"/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","evidence":{"ok":true,"actual":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"expected":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"refsExact":true,"uniqueInputs":true,"stepsAreSaved":true,"noPublishedSource":true}}},
+    {"dimension":"usability","name":"Cancel mixed Group/Pivot Join proposal without saving completed","status":"passed","evidence":{"elapsedMs":54}},
+    {"dimension":"performance","name":"Cancel mixed Group/Pivot Join proposal without saving action-to-render within budget","status":"passed","evidence":{"elapsedMs":54,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"reload canceled mixed Join and select its unchanged empty target completed","status":"passed","evidence":{"elapsedMs":452}},
+    {"dimension":"performance","name":"reload canceled mixed Join and select its unchanged empty target action-to-render within budget","status":"passed","evidence":{"elapsedMs":452,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"persistence","name":"Cancel leaves both mixed source shapes, full workspace, and CAS unchanged after reload","status":"passed","evidence":{"ok":true,"sameWorkspace":true,"sameCAS":true,"sameScope":true,"beforeDraftVersion":10,"afterDraftVersion":10,"beforeDraftDigest":"sha256:50f0710b10d36480f05856e7a49a4e80e57d27b1ea33068442277f4bae474b41","afterDraftDigest":"sha256:50f0710b10d36480f05856e7a49a4e80e57d27b1ea33068442277f4bae474b41"}},
+    {"dimension":"usability","name":"open native Combine and create a separate empty target completed","status":"passed","evidence":{"elapsedMs":168}},
+    {"dimension":"performance","name":"open native Combine and create a separate empty target action-to-render within budget","status":"passed","evidence":{"elapsedMs":168,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source","status":"passed","evidence":{"ok":true,"commandBound":true,"resultBound":true,"workspaceBound":true,"editorBound":true,"responseStatus":200,"commandId":"2c722e64-24ec-470c-9846-2d2c35e07a6c","rootNodeId":"n_fb143eb0d3573966f43a37d8","expectedRootNodeIds":["n_fb143eb0d3573966f43a37d8"],"outputId":"out_f17f97dc73139b7d2394d121","previousOutputIDs":["out_8be82c934d20f42b86fd58c3","out_a2fd85e26f0e8ec14ad4e6bc","out_97f2664ed785a33dfe7da320"],"mountedOutputId":"out_f17f97dc73139b7d2394d121","workspaceTargetCount":1,"targetRootResourceType":"Observation","targetColumnCount":0,"targetConstructionSteps":0}},
+    {"dimension":"usability","name":"mixed Group/Pivot LEFT Join auto-preview within five seconds completed","status":"passed","evidence":{"elapsedMs":548}},
+    {"dimension":"performance","name":"mixed Group/Pivot LEFT Join auto-preview within five seconds action-to-render within budget","status":"passed","evidence":{"elapsedMs":548,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"LEFT mixed Join keeps the unmatched Observation identity with null Pivot values","status":"passed","evidence":{"headers":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"expectedHeaders":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"rows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-unmatched","1","—","—","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"expectedRows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"],["combine-observation-unmatched","1","—","—","—"]],"ariaRowCount":null}},
+    {"dimension":"correctness","name":"automatic Combine proposal is bound to this exact draft CAS and UI proxy scope","status":"passed","evidence":{"path":"/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","url":"http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","status":200,"project":"loom_dev_verify_muvy0fat-1efbffe","explorer":"verify-at-1efbffe-draft-combine-group-pivot","generation":"fixture-v1","authorizationScopeDigest":"[REDACTED]","proposalOriginMatched":true,"requestOrigin":"http://127.0.0.1:30008","expectedProposalOrigin":"http://127.0.0.1:30008","expectedDirectApiOrigin":"http://127.0.0.1:8188","scopeChecks":{"routePathMatches":true,"validatedUIProxyOriginMatches":true,"generationMatches":true,"authorizationScopeMatches":"[REDACTED]","snapshotTokenMatches":"[REDACTED]","expectedDraftVersionMatches":true,"expectedDraftDigestMatches":true},"responseBound":true,"responseChecks":{"proposalIdMatchesDOM":true,"previewReceiptMatchesDOM":true,"previewOutputMatchesTarget":true,"domOutputMatchesTarget":true,"responseOutputMatchesTarget":true,"snapshotTokenMatchesRequest":"[REDACTED]","draftVersionMatchesRequest":true,"draftDigestMatchesRequest":true,"previewStatusReady":true,"candidateConstructionMatchesRequest":true},"domProposal":{"proposalId":"receipt_61bb4d35450d6effa185a27ed3bf96edb86d10c184bea850438d6b4bdcce4f2d","receiptId":"receipt_61bb4d35450d6effa185a27ed3bf96edb86d10c184bea850438d6b4bdcce4f2d","outputId":"out_f17f97dc73139b7d2394d121"},"responseProposalId":"receipt_61bb4d35450d6effa185a27ed3bf96edb86d10c184bea850438d6b4bdcce4f2d","responseOutputId":"out_f17f97dc73139b7d2394d121","responsePreview":{"receiptId":"receipt_61bb4d35450d6effa185a27ed3bf96edb86d10c184bea850438d6b4bdcce4f2d","outputId":"out_f17f97dc73139b7d2394d121"},"candidateStepKind":"COMBINE","candidateCombineKind":"KEY_JOIN","expectedProposalPath":"/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","evidence":{"ok":true,"actual":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"expected":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"refsExact":true,"uniqueInputs":true,"stepsAreSaved":true,"noPublishedSource":true}}},
+    {"dimension":"usability","name":"apply mixed Group/Group→Pivot current-draft LEFT Join completed","status":"passed","evidence":{"elapsedMs":370}},
+    {"dimension":"performance","name":"apply mixed Group/Group→Pivot current-draft LEFT Join action-to-render within budget","status":"passed","evidence":{"elapsedMs":370,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"persistence","name":"mixed Join persists only the exact unpublished Group and Group→Pivot outputs","status":"passed","evidence":{"stepId":"combine_cea45991-0bba-4cd6-a5ef-3dd683ffaeb0","refs":{"ok":true,"actual":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"expected":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"refsExact":true,"uniqueInputs":true,"stepsAreSaved":true,"noPublishedSource":true}}},
+    {"dimension":"usability","name":"reload applied mixed LEFT Join and render exact values completed","status":"passed","evidence":{"elapsedMs":603}},
+    {"dimension":"performance","name":"reload applied mixed LEFT Join and render exact values action-to-render within budget","status":"passed","evidence":{"elapsedMs":603,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"mixed LEFT Join values survive reload exactly","status":"passed","evidence":{"headers":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"expectedHeaders":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"rows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-unmatched","1","—","—","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"expectedRows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"],["combine-observation-unmatched","1","—","—","—"]],"ariaRowCount":"5"}},
+    {"dimension":"usability","name":"open saved Combine editor after draft input schemas resolve completed","status":"passed","evidence":{"elapsedMs":54}},
+    {"dimension":"performance","name":"open saved Combine editor after draft input schemas resolve action-to-render within budget","status":"passed","evidence":{"elapsedMs":54,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"edit mixed Group/Pivot Join to INNER and render exact matching identities completed","status":"passed","evidence":{"elapsedMs":550}},
+    {"dimension":"performance","name":"edit mixed Group/Pivot Join to INNER and render exact matching identities action-to-render within budget","status":"passed","evidence":{"elapsedMs":550,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"edited mixed Join INNER values match the independent raw fixture oracle","status":"passed","evidence":{"headers":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"expectedHeaders":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"rows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"expectedRows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"ariaRowCount":null}},
+    {"dimension":"correctness","name":"automatic Combine proposal is bound to this exact draft CAS and UI proxy scope","status":"passed","evidence":{"path":"/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","url":"http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","status":200,"project":"loom_dev_verify_muvy0fat-1efbffe","explorer":"verify-at-1efbffe-draft-combine-group-pivot","generation":"fixture-v1","authorizationScopeDigest":"[REDACTED]","proposalOriginMatched":true,"requestOrigin":"http://127.0.0.1:30008","expectedProposalOrigin":"http://127.0.0.1:30008","expectedDirectApiOrigin":"http://127.0.0.1:8188","scopeChecks":{"routePathMatches":true,"validatedUIProxyOriginMatches":true,"generationMatches":true,"authorizationScopeMatches":"[REDACTED]","snapshotTokenMatches":"[REDACTED]","expectedDraftVersionMatches":true,"expectedDraftDigestMatches":true},"responseBound":true,"responseChecks":{"proposalIdMatchesDOM":true,"previewReceiptMatchesDOM":true,"previewOutputMatchesTarget":true,"domOutputMatchesTarget":true,"responseOutputMatchesTarget":true,"snapshotTokenMatchesRequest":"[REDACTED]","draftVersionMatchesRequest":true,"draftDigestMatchesRequest":true,"previewStatusReady":true,"candidateConstructionMatchesRequest":true},"domProposal":{"proposalId":"receipt_cc318bce9584d987646526da2fd9e54e844a072e7c9fc39125192b304a48e326","receiptId":"receipt_cc318bce9584d987646526da2fd9e54e844a072e7c9fc39125192b304a48e326","outputId":"out_f17f97dc73139b7d2394d121"},"responseProposalId":"receipt_cc318bce9584d987646526da2fd9e54e844a072e7c9fc39125192b304a48e326","responseOutputId":"out_f17f97dc73139b7d2394d121","responsePreview":{"receiptId":"receipt_cc318bce9584d987646526da2fd9e54e844a072e7c9fc39125192b304a48e326","outputId":"out_f17f97dc73139b7d2394d121"},"candidateStepKind":"COMBINE","candidateCombineKind":"KEY_JOIN","expectedProposalPath":"/api/v1/projects/loom_dev_verify_muvy0fat-1efbffe/explorers/verify-at-1efbffe-draft-combine-group-pivot/authoring/v2/construction-proposals","evidence":{"ok":true,"actual":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"expected":[{"kind":"WORKSPACE_OUTPUT","outputId":"out_8be82c934d20f42b86fd58c3"},{"kind":"WORKSPACE_OUTPUT","outputId":"out_a2fd85e26f0e8ec14ad4e6bc"}],"refsExact":true,"uniqueInputs":true,"stepsAreSaved":true,"noPublishedSource":true}}},
+    {"dimension":"usability","name":"apply mixed Group/Pivot Join edit to INNER completed","status":"passed","evidence":{"elapsedMs":379}},
+    {"dimension":"performance","name":"apply mixed Group/Pivot Join edit to INNER action-to-render within budget","status":"passed","evidence":{"elapsedMs":379,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"reload edited mixed INNER Join and render exact values completed","status":"passed","evidence":{"elapsedMs":594}},
+    {"dimension":"performance","name":"reload edited mixed INNER Join and render exact values action-to-render within budget","status":"passed","evidence":{"elapsedMs":594,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"correctness","name":"edited mixed INNER Join exact values survive reload","status":"passed","evidence":{"headers":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"expectedHeaders":["Observation ID","Observation rows","DiagnosticReport ID","Report final","Report preliminary"],"rows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"expectedRows":[["combine-observation-final-1","1","combine-observation-final-1","1","—"],["combine-observation-final-2","1","combine-observation-final-2","1","—"],["combine-observation-preliminary","1","combine-observation-preliminary","—","1"]],"ariaRowCount":"4"}},
+    {"dimension":"usability","name":"propose removal of the saved Combine step and render its exact target completed","status":"passed","evidence":{"elapsedMs":523}},
+    {"dimension":"performance","name":"propose removal of the saved Combine step and render its exact target action-to-render within budget","status":"passed","evidence":{"elapsedMs":523,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"Cancel proposed Combine removal without changing saved workspace completed","status":"passed","evidence":{"elapsedMs":113}},
+    {"dimension":"performance","name":"Cancel proposed Combine removal without changing saved workspace action-to-render within budget","status":"passed","evidence":{"elapsedMs":113,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"reload saved Combine after canceling removal completed","status":"passed","evidence":{"elapsedMs":597}},
+    {"dimension":"performance","name":"reload saved Combine after canceling removal action-to-render within budget","status":"passed","evidence":{"elapsedMs":597,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"persistence","name":"Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload","status":"passed","evidence":{"evidence":{"ok":true,"sameWorkspace":true,"sameCAS":true,"sameScope":true,"beforeDraftVersion":13,"afterDraftVersion":13,"beforeDraftDigest":"sha256:866de961052a40a1f3e64d29799469f3a2fde8e82cfdc4288448db1e8a9b26b2","afterDraftDigest":"sha256:866de961052a40a1f3e64d29799469f3a2fde8e82cfdc4288448db1e8a9b26b2"},"stepStillSaved":true,"targetOutputId":"out_f17f97dc73139b7d2394d121","steps":["combine_cea45991-0bba-4cd6-a5ef-3dd683ffaeb0"]}},
+    {"dimension":"usability","name":"propose Combine removal and render the exact rooted empty output completed","status":"passed","evidence":{"elapsedMs":507}},
+    {"dimension":"performance","name":"propose Combine removal and render the exact rooted empty output action-to-render within budget","status":"passed","evidence":{"elapsedMs":507,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"apply Combine removal to restore the empty target completed","status":"passed","evidence":{"elapsedMs":157}},
+    {"dimension":"performance","name":"apply Combine removal to restore the empty target action-to-render within budget","status":"passed","evidence":{"elapsedMs":157,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"usability","name":"reload removed Combine and select its exact rooted empty output completed","status":"passed","evidence":{"elapsedMs":456}},
+    {"dimension":"performance","name":"reload removed Combine and select its exact rooted empty output action-to-render within budget","status":"passed","evidence":{"elapsedMs":456,"budgetMs":5000,"waitTimeoutMs":5000}},
+    {"dimension":"persistence","name":"removing Combine and reloading restores its rooted empty target","status":"passed","evidence":{"outputId":"out_f17f97dc73139b7d2394d121","rootResourceType":"Observation","columns":[],"steps":[]}},
+    {"dimension":"persistence","name":"mixed source lifecycle keeps one GROUP and one ordered GROUP→PIVOT without publication","status":"passed","evidence":{"publishRequests":0,"sourceSteps":[["GROUP"],["GROUP","PIVOT"]]}},
+    {"dimension":"correctness","name":"incidental asset failures are explicitly recorded","status":"passed","evidence":{"failures":[{"kind":"asset-failure","url":"http://127.0.0.1:30008/favicon.ico","status":404}]}},
+    {"dimension":"correctness","name":"watched source stayed unchanged during browser run","status":"passed","evidence":{"before":{"sha256":"6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35","files":1495},"after":{"sha256":"6ff5de5bb68cd6eb2449c01f0c7fd10bd61c2783feb9daf42272c4864ffd9b35","files":1495},"changedPaths":[]}},
+    {"dimension":"correctness","name":"API build identity stayed unchanged during browser run","status":"passed","evidence":{"before":"a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8","after":"a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"}}
+  ],
+  "actions": [
+    {"name":"open Explorer creation","status":"passed","elapsedMs":45,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"create blank Explorer","status":"passed","elapsedMs":115,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"create current-draft Observation source table","status":"passed","elapsedMs":325,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"select raw Observation.status and make Apply columns ready","status":"passed","elapsedMs":1064,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"apply native raw Observation.status field to a current draft","status":"passed","elapsedMs":146,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"Apply Observation ID source current-draft GROUP","status":"passed","elapsedMs":254,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"create current-draft DiagnosticReport source table","status":"passed","elapsedMs":263,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"select raw DiagnosticReport.status and make Apply columns ready","status":"passed","elapsedMs":212,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"apply native raw DiagnosticReport.status field to a current draft","status":"passed","elapsedMs":139,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"Apply Report grouped pivot source current-draft GROUP","status":"passed","elapsedMs":263,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"Apply Report grouped pivot source current-draft PIVOT","status":"passed","elapsedMs":271,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"reload applied Report grouped pivot source Group→Pivot and render its exact table","status":"passed","elapsedMs":566,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"open native Combine and create a separate empty target","status":"passed","elapsedMs":111,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"mixed Group and Group→Pivot draft INNER Join auto-preview within five seconds","status":"passed","elapsedMs":544,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"Cancel mixed Group/Pivot Join proposal without saving","status":"passed","elapsedMs":54,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"reload canceled mixed Join and select its unchanged empty target","status":"passed","elapsedMs":452,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"open native Combine and create a separate empty target","status":"passed","elapsedMs":168,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"mixed Group/Pivot LEFT Join auto-preview within five seconds","status":"passed","elapsedMs":548,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"apply mixed Group/Group→Pivot current-draft LEFT Join","status":"passed","elapsedMs":370,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"reload applied mixed LEFT Join and render exact values","status":"passed","elapsedMs":603,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"open saved Combine editor after draft input schemas resolve","status":"passed","elapsedMs":54,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"edit mixed Group/Pivot Join to INNER and render exact matching identities","status":"passed","elapsedMs":550,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"apply mixed Group/Pivot Join edit to INNER","status":"passed","elapsedMs":379,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"reload edited mixed INNER Join and render exact values","status":"passed","elapsedMs":594,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"propose removal of the saved Combine step and render its exact target","status":"passed","elapsedMs":523,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"Cancel proposed Combine removal without changing saved workspace","status":"passed","elapsedMs":113,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"reload saved Combine after canceling removal","status":"passed","elapsedMs":597,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"propose Combine removal and render the exact rooted empty output","status":"passed","elapsedMs":507,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"apply Combine removal to restore the empty target","status":"passed","elapsedMs":157,"renderTimeoutMs":5000,"performanceBudgetMs":5000},
+    {"name":"reload removed Combine and select its exact rooted empty output","status":"passed","elapsedMs":456,"renderTimeoutMs":5000,"performanceBudgetMs":5000}
+  ],
+  "timings": {
+    "open Explorer creation": 45,
+    "create blank Explorer": 115,
+    "create current-draft Observation source table": 325,
+    "select raw Observation.status and make Apply columns ready": 1064,
+    "apply native raw Observation.status field to a current draft": 146,
+    "Apply Observation ID source current-draft GROUP": 254,
+    "create current-draft DiagnosticReport source table": 263,
+    "select raw DiagnosticReport.status and make Apply columns ready": 212,
+    "apply native raw DiagnosticReport.status field to a current draft": 139,
+    "Apply Report grouped pivot source current-draft GROUP": 263,
+    "Apply Report grouped pivot source current-draft PIVOT": 271,
+    "reload applied Report grouped pivot source Group→Pivot and render its exact table": 566,
+    "open native Combine and create a separate empty target": 168,
+    "mixed Group and Group→Pivot draft INNER Join auto-preview within five seconds": 544,
+    "Cancel mixed Group/Pivot Join proposal without saving": 54,
+    "reload canceled mixed Join and select its unchanged empty target": 452,
+    "mixed Group/Pivot LEFT Join auto-preview within five seconds": 548,
+    "apply mixed Group/Group→Pivot current-draft LEFT Join": 370,
+    "reload applied mixed LEFT Join and render exact values": 603,
+    "open saved Combine editor after draft input schemas resolve": 54,
+    "edit mixed Group/Pivot Join to INNER and render exact matching identities": 550,
+    "apply mixed Group/Pivot Join edit to INNER": 379,
+    "reload edited mixed INNER Join and render exact values": 594,
+    "propose removal of the saved Combine step and render its exact target": 523,
+    "Cancel proposed Combine removal without changing saved workspace": 113,
+    "reload saved Combine after canceling removal": 597,
+    "propose Combine removal and render the exact rooted empty output": 507,
+    "apply Combine removal to restore the empty target": 157,
+    "reload removed Combine and select its exact rooted empty output": 456
+  },
+  "errors": [],
+  "assetFailures": [
+    {
+      "kind": "asset-failure",
+      "url": "http://127.0.0.1:30008/favicon.ico",
+      "status": 404
+    }
+  ],
+  "requiredChecks": [
+    "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+    "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+    "first native source table establishes a versioned current draft under the exact scope",
+    "Observation root Preview contains exact independent fixture IDs",
+    "DiagnosticReport root Preview contains exact independent fixture IDs",
+    "Observation ID source native GROUP count rows match the direct fixture oracle",
+    "Report grouped pivot source native GROUP count rows match the direct fixture oracle",
+    "Report grouped pivot source native Pivot preview matches raw Group→Pivot category counts",
+    "Report grouped pivot source Group→Pivot values survive reload",
+    "one GROUP sibling and one GROUP→PIVOT sibling join on their exact current-draft IDs",
+    "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+    "Cancel leaves both mixed source shapes, full workspace, and CAS unchanged after reload",
+    "LEFT mixed Join keeps the unmatched Observation identity with null Pivot values",
+    "mixed Join persists only the exact unpublished Group and Group→Pivot outputs",
+    "mixed LEFT Join values survive reload exactly",
+    "edited mixed Join INNER values match the independent raw fixture oracle",
+    "edited mixed INNER Join exact values survive reload",
+    "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+    "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+    "removing Combine and reloading restores its rooted empty target",
+    "mixed source lifecycle keeps one GROUP and one ordered GROUP→PIVOT without publication"
+  ],
+  "missingRequiredChecks": [],
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "passed",
+    "durationMs": 17012,
+    "diagnosticLimit": 100,
+    "droppedDiagnostics": 0
+  },
+  "originalReport": {
+    "path": "/private/tmp/loom-native-parallel-wave44/group-pivot-join/artifacts/verify-ui/builder-combine-draft-group-pivot-muvy0fat-1efbffe.json",
+    "sha256": "baa5581cde323c8458cef3aac77576a72b5ac590fd2e63050487f1eb0dcc1858"
+  }
+}

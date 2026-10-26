@@ -1,0 +1,107 @@
+{
+  "status": "INTEGRITY_CLOSED_PASS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "723f490ef075b7e45b54f7c07a106a9e86eedbc0a1eca7a7d60abb6c64b30019",
+        "files": 1522
+      },
+      "after": {
+        "sha256": "723f490ef075b7e45b54f7c07a106a9e86eedbc0a1eca7a7d60abb6c64b30019",
+        "files": 1522
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/source-before.json",
+        "sha256": "b389f15ce3b37d9b83ddc9466d1210a276080879032b15d8b86cef6336f8e8e6"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/source-after.json",
+        "sha256": "8b10afe63bbf97ce7d933614997056ccddbbbe30c8499ca8b9449f6b24af675c"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "ec272ca6052a487b8f81450359fe7298f485054bbee270b62278996d046d44f4",
+        "files": 199
+      },
+      "after": {
+        "sha256": "ec272ca6052a487b8f81450359fe7298f485054bbee270b62278996d046d44f4",
+        "files": 199
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/docs-before.json",
+        "sha256": "ad7c1bae026744d2414a430f8cbe466e41cc8f676c892a889a0c92672c1d1466"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/docs-after.json",
+        "sha256": "62843342bc9f1bdcb80eab74b6fa3173dd500f10d66a9d1d6bcf9beda33aa266"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/api-identity-before.json",
+        "sha256": "e172dcdf970af487ceceaeb646194993c7369ab5a9ba2011dec137a9c980d229"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/api-identity-after.json",
+        "sha256": "336f08bf8aad40f4e69007c8354348bd441c4cb347162480ab430fcdc62ad934"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/api-build-precheck-confirmed.json",
+        "sha256": "c18998d4d83fa3c5284f7c39657f2e8a2e4d598973d5429d980f1258cd2b3d24"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/owned-mounts-before.json",
+        "sha256": "ec1515be244ef57ecb6867c9fb436b3edad541ee7df5b068aa7bc3781c07ca56"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/owned-mounts-after.json",
+        "sha256": "4826b03da923ec59e4f85a3c1fd5c6c5ea8dd052246e67af5171582106cb5314"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/health-before.json",
+        "sha256": "425e82b3e362f183374c468383bd6d9d4991ee5f6f92d57f15acfa4a1503e1f0"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave85/health-after.json",
+        "sha256": "248bfbaa158078c76a527ee613dcfa774bc6a80e3cc50095372d9603d214895a"
+      }
+    }
+  }
+}

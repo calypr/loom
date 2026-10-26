@@ -7,17 +7,20 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 	"runtime/trace"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -46,12 +49,18 @@ func main() {
 		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
 	case "rebuild-relationship-catalog":
 		err = runRebuildRelationshipCatalog(ctx, os.Args[2:])
+	case "rebuild-resource-inventory":
+		err = runRebuildResourceInventory(ctx, os.Args[2:])
 	case "audit-relationship-edges":
 		err = runAuditRelationshipEdges(ctx, os.Args[2:])
 	case "repair-generation":
 		err = runRepairGeneration(ctx, os.Args[2:])
 	case "activate-generation":
 		err = runActivateGeneration(ctx, os.Args[2:])
+	case "backfill-semantic-inventory":
+		err = withBackfillSignalCancellation(ctx, func(ctx context.Context) error {
+			return runBackfillSemanticInventory(ctx, os.Args[2:])
+		})
 	default:
 		usage()
 		os.Exit(2)
@@ -60,6 +69,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func withBackfillSignalCancellation(ctx context.Context, run func(context.Context) error) error {
+	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return run(signalCtx)
 }
 
 type loadCommandConfig struct {
@@ -287,6 +302,72 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	return printJSON(summary)
 }
 
+func runRebuildResourceInventory(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("rebuild-resource-inventory", flag.ExitOnError)
+	opts := catalog.ResourceInventoryRebuildOptions{}
+	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
+	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
+	fs.StringVar(&opts.DatasetGeneration, "generation", "", "Required staged immutable dataset generation identifier")
+	fs.StringVar(&opts.WriteAPI, "write-api", "import", "Bulk write API: import or document")
+	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
+	fs.IntVar(&opts.BatchSize, "batch-size", 1000, "Catalog write batch size")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ref, err := publication.NewRef(opts.Project, opts.DatasetGeneration)
+	if err != nil {
+		return fmt.Errorf("--generation is required and must identify an immutable dataset: %w", err)
+	}
+	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	if err != nil {
+		return err
+	}
+	defer client.Close(ctx)
+	lifecycleStore, err := publicationarango.New(client)
+	if err != nil {
+		return err
+	}
+	manifest, err := lifecycleStore.ReadManifest(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if !manifest.IsStaged() {
+		return fmt.Errorf("resource inventory rebuild requires staged immutable generation %s/%s, got %s", ref.Project, ref.Generation, manifest.State)
+	}
+	opts.ResourceTypes, err = canonicalManifestResourceTypes(manifest.SchemaIdentity.GeneratedResourceTypes)
+	if err != nil {
+		return fmt.Errorf("staged generation %s/%s has invalid generated-resource coverage: %w", ref.Project, ref.Generation, err)
+	}
+	adapter, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	summary, err := adapter.RebuildResourceInventory(ctx, opts)
+	if err != nil {
+		return err
+	}
+	return printJSON(summary)
+}
+
+func canonicalManifestResourceTypes(resourceTypes []string) ([]string, error) {
+	if len(resourceTypes) == 0 {
+		return nil, fmt.Errorf("generated resource type coverage is empty")
+	}
+	canonical := append([]string(nil), resourceTypes...)
+	for i, resourceType := range canonical {
+		concrete, ok := fhirschema.ConcreteResourceType(resourceType)
+		if !ok || concrete != resourceType {
+			return nil, fmt.Errorf("resource type %q is not a canonical generated type", resourceType)
+		}
+		if i > 0 && canonical[i-1] >= resourceType {
+			return nil, fmt.Errorf("generated resource types are duplicated or not sorted")
+		}
+	}
+	return canonical, nil
+}
+
 func runAuditRelationshipEdges(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("audit-relationship-edges", flag.ExitOnError)
 	opts := catalog.RelationshipAuditOptions{}
@@ -467,6 +548,79 @@ func activateStagedGeneration(ctx context.Context, connection arangostore.Connec
 	return lifecycle.Activate(ctx, manifest)
 }
 
+type semanticInventoryBackfillCommand struct {
+	Connection arangostore.ConnectionOptions
+	Options    ingest.SemanticInventoryBackfillOptions
+}
+
+func parseBackfillSemanticInventoryCommand(args []string, errorHandling flag.ErrorHandling) (semanticInventoryBackfillCommand, error) {
+	fs := flag.NewFlagSet("backfill-semantic-inventory", errorHandling)
+	config := semanticInventoryBackfillCommand{Connection: arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}}
+	fs.StringVar(&config.Connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&config.Connection.Database, "database", defaultDatabase, "Backend database")
+	fs.StringVar(&config.Options.Project, "project", "", "Immutable generation project (required)")
+	fs.StringVar(&config.Options.DatasetGeneration, "generation", "", "Immutable generation identifier (required)")
+	fs.IntVar(&config.Options.PageSize, "page-size", 250, "Maximum retained resource rows per query page (1-1000)")
+	fs.IntVar(&config.Options.BatchSize, "batch-size", 500, "Maximum semantic contributions per persistence batch (1-5000)")
+	if err := fs.Parse(args); err != nil {
+		return semanticInventoryBackfillCommand{}, err
+	}
+	if strings.TrimSpace(config.Options.Project) == "" {
+		return semanticInventoryBackfillCommand{}, fmt.Errorf("--project is required")
+	}
+	if strings.TrimSpace(config.Options.DatasetGeneration) == "" {
+		return semanticInventoryBackfillCommand{}, fmt.Errorf("--generation is required")
+	}
+	if _, err := publication.NewRef(config.Options.Project, config.Options.DatasetGeneration); err != nil {
+		return semanticInventoryBackfillCommand{}, fmt.Errorf("invalid backfill project/generation: %w", err)
+	}
+	if config.Options.PageSize < 1 || config.Options.PageSize > 1000 {
+		return semanticInventoryBackfillCommand{}, fmt.Errorf("--page-size must be between 1 and 1000")
+	}
+	if config.Options.BatchSize < 1 || config.Options.BatchSize > 5000 {
+		return semanticInventoryBackfillCommand{}, fmt.Errorf("--batch-size must be between 1 and 5000")
+	}
+	return config, nil
+}
+
+func runBackfillSemanticInventory(ctx context.Context, args []string) error {
+	config, err := parseBackfillSemanticInventoryCommand(args, flag.ExitOnError)
+	if err != nil {
+		return err
+	}
+	client, err := arangostore.Open(ctx, config.Connection.URL, config.Connection.Database)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close(ctx) }()
+	ref, _ := publication.NewRef(config.Options.Project, config.Options.DatasetGeneration)
+	lifecycle, err := publicationarango.New(client)
+	if err != nil {
+		return err
+	}
+	manifest, err := lifecycle.ReadManifest(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("read backfill generation manifest: %w", err)
+	}
+	store, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	config.Options.Progress = func(progress ingest.SemanticInventoryBackfillProgress) {
+		data, marshalErr := json.Marshal(progress)
+		if marshalErr != nil {
+			fmt.Fprintf(os.Stderr, "semantic inventory progress encode failed: %v\n", marshalErr)
+			return
+		}
+		fmt.Fprintln(os.Stderr, string(data))
+	}
+	report, err := ingest.BackfillSemanticInventory(ctx, store, manifest, config.Options)
+	if err != nil {
+		return err
+	}
+	return printJSON(report)
+}
+
 func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
@@ -518,8 +672,10 @@ func usage() {
   arango-fhir-proto discover-populated-fields [flags]
   arango-fhir-proto audit-relationship-edges [flags]  # read-only invalid endpoint audit
   arango-fhir-proto rebuild-relationship-catalog [flags]  # explicit fhir_edge repair/backfill
+  arango-fhir-proto rebuild-resource-inventory --generation ID [flags]  # rebuild a staged generation's resource counts
   arango-fhir-proto repair-generation [flags]  # stage a corrected immutable generation; --activate is explicit
   arango-fhir-proto activate-generation [flags]  # validate and activate a staged immutable generation
+  arango-fhir-proto backfill-semantic-inventory --project PROJECT --generation ID [flags]  # resumably rebuild retained-source semantic inventory
 `)
 }
 

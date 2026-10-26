@@ -1,11 +1,11 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
 
-	"context"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 )
@@ -31,8 +31,12 @@ func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalo
 		}, nil
 	case strings.EqualFold(cfg.Auth.Mode, "calypr"):
 		client := &http.Client{Timeout: cfg.Auth.Calypr.RequestTimeout}
+		resourceAccess, err := authscope.NewFenceUserAccessClientWithTrustedIssuer(client, cfg.Auth.Calypr.TrustedIssuer, cfg.Auth.Calypr.CacheTTL)
+		if err != nil {
+			return authComponents{}, fmt.Errorf("create Fence resource access client: %w", err)
+		}
 		resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
-			ResourceAccess:                authscope.NewFenceUserAccessClientWithTTL(client, cfg.Auth.Calypr.CacheTTL),
+			ResourceAccess:                resourceAccess,
 			ListExistingAuthResourcePaths: listExisting,
 			CacheTTL:                      cfg.Auth.Calypr.CacheTTL,
 		})

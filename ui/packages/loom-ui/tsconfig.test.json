@@ -3,8 +3,20 @@
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
-    "emitDeclarationOnly": false
+    "emitDeclarationOnly": false,
+    "rootDir": ".",
+    "types": [
+      "vite/client",
+      "vitest/globals",
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "testSupport/**/*.ts"
+  ],
+  "exclude": [
+    "dist"
+  ]
 }

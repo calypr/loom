@@ -19,6 +19,72 @@ func TestParseServerOptionsWithoutConfigUsesFlags(t *testing.T) {
 	}
 }
 
+func TestParseServerOptionsDefaultsRootQueryPageRows(t *testing.T) {
+	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.RecipeQueryPageRows != defaultRecipeQueryPageRows {
+		t.Fatalf("root query page rows = %d, want %d", options.Server.RecipeQueryPageRows, defaultRecipeQueryPageRows)
+	}
+}
+
+func TestDevFaultOverridesAreNoAuthOnly(t *testing.T) {
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "1")
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_DISTINCT_KEYS", "2")
+	t.Setenv("LOOM_DEV_ACTIVATION_CONFLICT_ONCE", "true")
+	t.Setenv("LOOM_DEV_ARTIFACT_MAX_ROWS", "3")
+	t.Setenv("LOOM_DEV_ARTIFACT_ROW_DELAY_MS", "25")
+
+	options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseServerOptions() error = %v", err)
+	}
+	if options.Server.RecipeQualityMaxRows != 1 || options.Server.RecipeQualityMaxDistinctKeys != 2 || !options.Server.DevActivationConflictOnce || options.Server.ArtifactMaxRows != 3 || options.Server.DevArtifactRowDelay != 25*time.Millisecond {
+		t.Fatalf("dev fault overrides = %#v", options.Server)
+	}
+
+	secure := DefaultConfig()
+	secure.Server.RecipeQualityMaxRows = 17
+	secure.Auth.Basic.Username = "loom"
+	secure.Auth.Basic.Password = "secret"
+	if err := applyDevFaultOverrides(&secure); err != nil {
+		t.Fatalf("authenticated override check = %v", err)
+	}
+	if secure.Server.RecipeQualityMaxRows != 17 || secure.Server.DevActivationConflictOnce || secure.Server.ArtifactMaxRows != 10_000_000 || secure.Server.DevArtifactRowDelay != 0 {
+		t.Fatalf("authenticated config was changed by dev fault overrides: %#v", secure.Server)
+	}
+}
+
+func TestDevFaultOverridesRejectInvalidValues(t *testing.T) {
+	t.Setenv("LOOM_DEV_RECIPE_QUALITY_MAX_ROWS", "zero")
+	cfg := DefaultConfig()
+	cfg.Server.AllowUnauthenticated = true
+	cfg.Auth.AllowUnauthenticated = true
+	if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), "LOOM_DEV_RECIPE_QUALITY_MAX_ROWS") {
+		t.Fatalf("invalid quality limit error = %v", err)
+	}
+}
+
+func TestDevArtifactFaultOverridesRejectInvalidValues(t *testing.T) {
+	for _, test := range []struct {
+		name, key, value string
+	}{
+		{name: "row limit", key: "LOOM_DEV_ARTIFACT_MAX_ROWS", value: "zero"},
+		{name: "row delay", key: "LOOM_DEV_ARTIFACT_ROW_DELAY_MS", value: "-1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			cfg := DefaultConfig()
+			cfg.Server.AllowUnauthenticated = true
+			cfg.Auth.AllowUnauthenticated = true
+			if err := applyDevFaultOverrides(&cfg); err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("invalid artifact fault error = %v", err)
+			}
+		})
+	}
+}
+
 func TestLocalWorkspaceWritebackRequiresNoAuth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "workspace.json")
 	if _, err := parseServerOptions([]string{"--dataframer-recipe", "recipe.json", "--local-workspace-writeback", path, "--local-workspace-project", "project-a"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "requires unauthenticated") {
@@ -60,8 +126,8 @@ func TestConfigDefaultsToBasicAndRequiresCredentials(t *testing.T) {
 
 func TestRecipeQueryPageRowsCanBeConfiguredOrDisabled(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Server.RecipeQueryPageRows != 25 {
-		t.Fatalf("default recipe query page rows = %d, want 25", cfg.Server.RecipeQueryPageRows)
+	if cfg.Server.RecipeQueryPageRows != defaultRecipeQueryPageRows {
+		t.Fatalf("default recipe query page rows = %d, want %d", cfg.Server.RecipeQueryPageRows, defaultRecipeQueryPageRows)
 	}
 	cfg.Server.RecipeQueryPageRows = 0
 	cfg.Auth.AllowUnauthenticated = true
@@ -75,9 +141,44 @@ func TestRecipeQueryPageRowsCanBeConfiguredOrDisabled(t *testing.T) {
 	}
 }
 
+func TestArtifactConfigurationHasBoundedDefaultsAndEnvironmentOverride(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Server.ArtifactDirectory == "" || cfg.Server.ArtifactTTL != 24*time.Hour || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
+		t.Fatalf("artifact defaults = %#v", cfg.Server)
+	}
+	t.Setenv("LOOM_ARTIFACT_DIRECTORY", filepath.Join(t.TempDir(), "exports"))
+	loaded, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Server.ArtifactDirectory != os.Getenv("LOOM_ARTIFACT_DIRECTORY") {
+		t.Fatalf("artifact directory = %q", loaded.Server.ArtifactDirectory)
+	}
+	loaded.Server.ArtifactMaxBytes = 0
+	loaded.Auth.AllowUnauthenticated = true
+	loaded.Server.ClickHouse.Enabled = false
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "artifact directory") {
+		t.Fatalf("invalid artifact bound error = %v", err)
+	}
+}
+
+func TestLoadConfigPreservesExplicitRecipeQueryPageRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  recipe_query_page_rows: 37\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Server.RecipeQueryPageRows != 37 {
+		t.Fatalf("explicit YAML root query page rows = %d, want 37", cfg.Server.RecipeQueryPageRows)
+	}
+}
+
 func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("server:\n  listen: :18080\n  dataframer:\n    recipe: /etc/loom/dataframer.json\nauth:\n  mode: calypr\n  calypr:\n    trusted_issuer: https://fence.example.test\n    request_timeout: 7s\n    cache_ttl: 45s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadConfig(path)
@@ -87,7 +188,7 @@ func TestLoadConfigStrictlyDecodesAndAppliesAuthSettings(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
+	if cfg.Server.Listen != ":18080" || cfg.Server.Dataframer.Recipe != "/etc/loom/dataframer.json" || cfg.Server.RecipeQueryPageRows != defaultRecipeQueryPageRows || cfg.Auth.Calypr.TrustedIssuer != "https://fence.example.test" || cfg.Auth.Calypr.RequestTimeout != 7*time.Second || cfg.Auth.Calypr.CacheTTL != 45*time.Second {
 		t.Fatalf("config = %#v", cfg)
 	}
 }
@@ -172,5 +273,84 @@ func TestInvalidRequiredDataframeSelectorsEnvironmentIsRejected(t *testing.T) {
 	t.Setenv("LOOM_REQUIRED_DATAFRAME_SELECTORS", `{not-json}`)
 	if _, err := LoadConfig(""); err == nil || !strings.Contains(err.Error(), "LOOM_REQUIRED_DATAFRAME_SELECTORS") {
 		t.Fatalf("invalid selector environment = %v", err)
+	}
+}
+
+func TestPopulationMappingCursorSecretFromEnvironment(t *testing.T) {
+	t.Setenv("LOOM_POPULATION_MAPPING_CURSOR_SECRET", "configured-population-cursor-secret")
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.PopulationMappingCursorSecret != "configured-population-cursor-secret" {
+		t.Fatalf("population mapping cursor secret = %q", cfg.Server.PopulationMappingCursorSecret)
+	}
+}
+
+func TestCalyprAuthRequiresValidTrustedIssuer(t *testing.T) {
+	t.Setenv("LOOM_AUTH_CALYPR_TRUSTED_ISSUER", "")
+
+	cfg := DefaultConfig()
+	cfg.Auth.Mode = "calypr"
+	cfg.Server.ClickHouse.Enabled = false
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth.calypr.trusted_issuer is required") {
+		t.Fatalf("missing trusted issuer error = %v", err)
+	}
+
+	cfg.Auth.Calypr.TrustedIssuer = "not-a-url"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auth.calypr.trusted_issuer") {
+		t.Fatalf("invalid trusted issuer error = %v", err)
+	}
+
+	cfg.Auth.Calypr.TrustedIssuer = "https://fence.example.test"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid trusted issuer: %v", err)
+	}
+}
+
+func TestCalyprTrustedIssuerEnvironmentFallback(t *testing.T) {
+	t.Setenv("LOOM_AUTH_CALYPR_TRUSTED_ISSUER", " https://env-fence.example.test/ ")
+
+	cfg, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Auth.Calypr.TrustedIssuer != "https://env-fence.example.test/" {
+		t.Fatalf("trusted issuer from environment = %q", cfg.Auth.Calypr.TrustedIssuer)
+	}
+
+	cfg.Auth.Mode = "calypr"
+	cfg.Server.ClickHouse.Enabled = false
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("environment issuer did not validate: %v", err)
+	}
+
+	cfg.Auth.Calypr.TrustedIssuer = "https://config-fence.example.test"
+	resolved, err := applyEnvironment(cfg)
+	if err != nil {
+		t.Fatalf("applyEnvironment() error = %v", err)
+	}
+	if resolved.Auth.Calypr.TrustedIssuer != cfg.Auth.Calypr.TrustedIssuer {
+		t.Fatalf("configured trusted issuer was overridden: got %q, want %q", resolved.Auth.Calypr.TrustedIssuer, cfg.Auth.Calypr.TrustedIssuer)
+	}
+}
+
+func TestCalyprAuthNoAuthBypassDoesNotRequireTrustedIssuer(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		set  func(*Config)
+	}{
+		{name: "server bypass", set: func(cfg *Config) { cfg.Server.AllowUnauthenticated = true }},
+		{name: "auth bypass", set: func(cfg *Config) { cfg.Auth.AllowUnauthenticated = true }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Auth.Mode = "calypr"
+			cfg.Server.ClickHouse.Enabled = false
+			test.set(&cfg)
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("no-auth Calypr config unexpectedly failed validation: %v", err)
+			}
+		})
 	}
 }

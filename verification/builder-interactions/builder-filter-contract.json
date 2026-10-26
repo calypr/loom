@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "models": {
+    "BuilderJourney": {
+      "module": "BuilderJourney.tla",
+      "safetyConfig": "BuilderJourney.cfg",
+      "actions": [
+        "Group",
+        "GroupAgain",
+        "ChoicePreview",
+        "ChoicePreviewComplete",
+        "ChoicePreviewError",
+        "AddColumn",
+        "CancelFilter",
+        "EditGroup",
+        "RemoveGroup",
+        "Pivot",
+        "Preview",
+        "PreviewComplete",
+        "PreviewError",
+        "LatePreviewCompleteIgnored",
+        "LatePreviewErrorIgnored"
+      ]
+    }
+  },
+  "actionBindings": {
+    "Group": {
+      "event": "group",
+      "trigger": "first group-and-summarize proposal applied"
+    },
+    "GroupAgain": {
+      "event": "group",
+      "trigger": "second group-and-summarize proposal applied"
+    },
+    "Pivot": {
+      "event": "pivot",
+      "trigger": "pivot categories into columns applied after two reshapes"
+    },
+    "Preview": {
+      "event": "preview",
+      "trigger": "candidate proposal preview requested before the corresponding Apply command"
+    },
+    "PreviewComplete": {
+      "event": "preview-response",
+      "trigger": "preview response accepted with rendered rows"
+    },
+    "PreviewError": {
+      "event": "preview-response",
+      "trigger": "preview response rejected or transport error"
+    },
+    "LatePreviewCompleteIgnored": {
+      "event": "preview-response",
+      "trigger": "stale preview response arrived after a newer proposal preview owner became current and was ignored"
+    },
+    "LatePreviewErrorIgnored": {
+      "event": "preview-response",
+      "trigger": "stale preview transport failure arrived after a newer proposal preview owner became current and was ignored"
+    },
+    "AddColumn": {
+      "event": "add-column",
+      "trigger": "first add-column selection applied"
+    },
+    "CancelFilter": {
+      "event": "cancel-filter",
+      "trigger": "filter proposal cancelled"
+    },
+    "EditGroup": {
+      "event": "edit-group",
+      "trigger": "saved group edited"
+    },
+    "RemoveGroup": {
+      "event": "remove-group",
+      "trigger": "saved group removed"
+    },
+    "ChoicePreview": {
+      "event": "choice-preview",
+      "trigger": "construction-choice-proposals request started for a selected field command"
+    },
+    "ChoicePreviewComplete": {
+      "event": "choice-preview-response",
+      "trigger": "successful 2xx READY choice preview with non-empty receipt/output IDs and rendered rows for the same command ID"
+    },
+    "ChoicePreviewError": {
+      "event": "choice-preview-response",
+      "trigger": "choice preview request failed or returned an unusable preview before AddColumn could consume it"
+    }
+  },
+  "observationFields": [
+    "status",
+    "canApply",
+    "proposalIdPresent",
+    "previewReceiptPresent",
+    "rowsPresent",
+    "receiptPresent"
+  ],
+  "phase1": {
+    "expectedTraceCount": 1,
+    "expectedScheduleCount": 1,
+    "expectedFindingCount": 0,
+    "requiredModels": [
+      "BuilderJourney"
+    ],
+    "requiredActions": [
+      "Preview",
+      "PreviewComplete",
+      "CancelFilter"
+    ],
+    "requiredEvents": [
+      "preview",
+      "preview-response",
+      "cancel-filter"
+    ]
+  },
+  "unmodeledEventPolicy": {
+    "capability-read": "The journey model does not own capability discovery.",
+    "semantic-inventory": "The journey model does not own field inventory.",
+    "configured-column-context": "The journey model does not own column context.",
+    "construction-capabilities": "The journey model does not own reshape capability discovery.",
+    "reconcile": "The journey model does not own draft reconciliation.",
+    "commands": "Draft command persistence is below the row-definition journey boundary.",
+    "row-definition-choices": "The journey model does not own row-choice inventory.",
+    "reload": "Page reload is a lifecycle event outside the in-memory journey model."
+  }
+}

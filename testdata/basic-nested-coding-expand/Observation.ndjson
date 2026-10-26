@@ -1,0 +1,8 @@
+{"resourceType":"Observation","id":"basic-nested-001","status":"final","code":{"text":"Basic fixture Observation"},"subject":{"reference":"Patient/basic-nested-patient-001"},"component":[{"valueString":"owner-alpha","code":{"coding":[{"system":"urn:loom:basic-nested","code":"ALPHA-1"},{"system":"urn:loom:basic-nested","code":"ALPHA-2"}]}}]}
+{"resourceType":"Observation","id":"basic-nested-002","status":"final","code":{"text":"Basic fixture Observation"},"subject":{"reference":"Patient/basic-nested-patient-002"},"component":[{"valueString":"owner-beta","code":{"coding":[{"system":"urn:loom:basic-nested","code":"BETA-1"}]}}]}
+{"resourceType":"Observation","id":"basic-nested-003","status":"final","code":{"text":"Basic fixture Observation"},"component":[{"valueString":"owner-missing-coding","code":{}}]}
+{"resourceType":"Observation","id":"basic-nested-004","status":"final","code":{"text":"Basic fixture Observation"},"component":[{"valueString":"owner-null-coding","code":{"coding":null}}]}
+{"resourceType":"Observation","id":"basic-nested-005","status":"final","code":{"text":"Basic fixture Observation"},"component":[{"valueString":"owner-empty-coding","code":{"coding":[]}}]}
+{"resourceType":"Observation","id":"basic-nested-006","status":"final","code":{"text":"Basic fixture Observation"},"component":[]}
+{"resourceType":"Observation","id":"basic-nested-007","status":"final","code":{"text":"Basic fixture Observation"},"component":null}
+{"resourceType":"Observation","id":"basic-nested-008","status":"final","code":{"text":"Basic fixture Observation"}}

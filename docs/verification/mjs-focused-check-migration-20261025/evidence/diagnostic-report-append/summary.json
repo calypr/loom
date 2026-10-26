@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "status": "checks-passed",
+  "startedAt": "2026-10-25T04:28:46.350Z",
+  "scenario": "cda-current-draft-diagnostic-report-append",
+  "case": "diagnostic-report-append",
+  "nativeSpec": "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+  "explicitGrep": null,
+  "resolvedGrep": null,
+  "mode": "checks-only",
+  "targetIdentity": null,
+  "targetConfigPath": null,
+  "targetValidation": {
+    "scope": "checks-only",
+    "registryBinding": "unbound",
+    "runtimeDatasetIdentity": "not-checked",
+    "configPath": null,
+    "project": null,
+    "generation": null
+  },
+  "registryValidation": {
+    "status": "valid",
+    "unmappedLifecycleCount": 1,
+    "rows": [
+      {
+        "scenario": "builder-authoring",
+        "feature": "coded Pivot",
+        "reason": "The integer and string coded Pivot lifecycles are registered separately. Other source resource types, coding systems, value families, and coded GROUP remain outside those exact mode contracts."
+      }
+    ]
+  },
+  "runDirectory": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl",
+  "commands": {
+    "focused-diagnostic-report-append-raw-oracle": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "--test",
+        "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+      ],
+      "cwd": "/private/tmp/loom-migration-final-apply",
+      "timeoutMs": 60000,
+      "exitCode": 0,
+      "durationMs": 112,
+      "stdoutPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/logs/focused-diagnostic-report-append-raw-oracle.stdout.log",
+      "stderrPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/logs/focused-diagnostic-report-append-raw-oracle.stderr.log"
+    }
+  },
+  "evidence": {
+    "summary": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/summary.json",
+    "playwrightReport": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/playwright-report.json",
+    "domainReport": null,
+    "sourceBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/source-before.json",
+    "docsBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/docs-before.json",
+    "apiBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/api-identity-before.json",
+    "mountsBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/owned-mounts-before.json",
+    "sourceAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/source-after.json",
+    "docsAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/docs-after.json",
+    "apiAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/api-identity-after.json",
+    "mountsAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/owned-mounts-after.json",
+    "precheck": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/api-build-precheck.json",
+    "healthBefore": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/health-before.json",
+    "healthAfter": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/health-after.json"
+  },
+  "selection": null,
+  "focusedCheckCoverage": "registered",
+  "focusedChecks": {
+    "status": "passed",
+    "groups": [
+      {
+        "id": "diagnostic-report-append-raw-oracle",
+        "runner": "node-test",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 112,
+        "timeoutMs": 60000,
+        "timedOut": false,
+        "declaredInputsHash": "861f26d469024a4e0009e5aeb1551203c7aa641053448fabb71130074993f25a",
+        "inputs": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+            "sha256": "01704c2ef34b86463dbac9896ccae9d49a7d13e1c4af4c6de9ceff43ea66cc8e"
+          },
+          {
+            "path": "scripts/migrate-mjs-focused-checks.mjs",
+            "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+            "sha256": "eed9b0e4e0b9cf1412ba669c73b8d41b28bbc295a992e2b550a1b990457e54fb"
+          },
+          {
+            "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+            "sha256": "096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624"
+          },
+          {
+            "path": "scripts/verify-ui/registry.mjs",
+            "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43"
+          },
+          {
+            "path": "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+            "sha256": "2af2b5b80ea5a59aac6fe9af9e9334581f7327707e7526152b8d466fbbc7637f"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+            "sha256": "4e6d7cb58d69a147fa9e044e7b3499366ecbeae16c0672d6b16a995326595b69"
+          },
+          {
+            "path": "verification/builder-interactions/mjs-focused-check-families.json",
+            "sha256": "204e15ec3d9aa0889680269d5624929a0054fe1504c2721eda44e765f8b2b076"
+          }
+        ],
+        "inputsUnchanged": true,
+        "evidence": {
+          "stdout": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/logs/focused-diagnostic-report-append-raw-oracle.stdout.log",
+          "stderr": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/logs/focused-diagnostic-report-append-raw-oracle.stderr.log"
+        }
+      }
+    ]
+  },
+  "integrity": {
+    "status": "UNVERIFIED",
+    "dimensions": {}
+  },
+  "lifecycle": {
+    "reportStatus": null,
+    "reason": "Browser case has not produced a domain report."
+  },
+  "failureCategory": null,
+  "notes": [],
+  "finishedAt": "2026-10-25T04:28:46.471Z",
+  "durationMs": 121,
+  "workflowError": null,
+  "reviewPacket": {
+    "status": "checks-passed",
+    "scenario": "cda-current-draft-diagnostic-report-append",
+    "case": "diagnostic-report-append",
+    "focusedCheckCoverage": "registered",
+    "focusedChecks": {
+      "status": "passed",
+      "groups": [
+        {
+          "id": "diagnostic-report-append-raw-oracle",
+          "runner": "node-test",
+          "status": "passed",
+          "exitCode": 0,
+          "durationMs": 112,
+          "timeoutMs": 60000,
+          "timedOut": false,
+          "declaredInputsHash": "861f26d469024a4e0009e5aeb1551203c7aa641053448fabb71130074993f25a",
+          "inputs": [
+            {
+              "path": "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs",
+              "sha256": "01704c2ef34b86463dbac9896ccae9d49a7d13e1c4af4c6de9ceff43ea66cc8e"
+            },
+            {
+              "path": "scripts/migrate-mjs-focused-checks.mjs",
+              "sha256": "0d7b39513ab676b4efa7c2ac909ab66673db2e9f290c8a45a90420b6eca34f24"
+            },
+            {
+              "path": "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+              "sha256": "eed9b0e4e0b9cf1412ba669c73b8d41b28bbc295a992e2b550a1b990457e54fb"
+            },
+            {
+              "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
+              "sha256": "096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624"
+            },
+            {
+              "path": "scripts/verify-ui/registry.mjs",
+              "sha256": "1747316bfc29822dbab15b2f7894040fa7ce3b1c3de65478e74d4f36932e0f43"
+            },
+            {
+              "path": "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+              "sha256": "2af2b5b80ea5a59aac6fe9af9e9334581f7327707e7526152b8d466fbbc7637f"
+            },
+            {
+              "path": "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs",
+              "sha256": "4e6d7cb58d69a147fa9e044e7b3499366ecbeae16c0672d6b16a995326595b69"
+            },
+            {
+              "path": "verification/builder-interactions/mjs-focused-check-families.json",
+              "sha256": "204e15ec3d9aa0889680269d5624929a0054fe1504c2721eda44e765f8b2b076"
+            }
+          ],
+          "inputsUnchanged": true,
+          "evidence": {
+            "stdout": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/logs/focused-diagnostic-report-append-raw-oracle.stdout.log",
+            "stderr": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/logs/focused-diagnostic-report-append-raw-oracle.stderr.log"
+          }
+        }
+      ]
+    },
+    "firstFailureReason": null,
+    "pendingOwnedRequests": [],
+    "report": null,
+    "playwrightJson": null,
+    "summary": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-cda-current-draft-diagnostic-report-append-diagnostic-report-append-9k18gl/summary.json"
+  },
+  "nativeStatus": "not-run",
+  "durationScope": "checks-only-preparation"
+}

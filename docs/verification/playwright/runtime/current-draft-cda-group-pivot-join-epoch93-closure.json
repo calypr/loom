@@ -1,0 +1,222 @@
+{
+  "epoch": 93,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/source-before.json",
+        "sha256": "96fb3e78de541862e4b41636be704f83519f19489b156b949414f4104b6279cd"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/source-after.json",
+        "sha256": "ee79f16c263f8359ab4d0dbb435bdd8c64df8f9d331c5096186f6356af0b275b"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "6e489f7221966d902b999743e7aeee770ace2b469ec08aac7f0240c7a53aec4b",
+        "files": 223
+      },
+      "after": {
+        "sha256": "6e489f7221966d902b999743e7aeee770ace2b469ec08aac7f0240c7a53aec4b",
+        "files": 223
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/docs-before.json",
+        "sha256": "8f6bbfa8a5f02c9d31e4ec8c1ba5f57e7d681279ee0d85ffa485db7511042c0e"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/docs-after.json",
+        "sha256": "5948b7ef2e97a3b93765353329c9db68fc468f1304674133e9b5015a1f1b6ba0"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/api-identity-before.json",
+        "sha256": "834d53a9a05b97525b2f3013bf508a70e92e67b41d958d6f4914814869e87d20"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/api-identity-after.json",
+        "sha256": "1ccd537f55d2a977a3f64ce5ec7592347b7d577f58bc63eb982416b9e966a543"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/api-build-precheck-confirmed.json",
+        "sha256": "f553ba3a9ddbcca147b04a089caf7e60f385f4f74b2794affc4fc5decd042afb"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/owned-mounts-before.json",
+        "sha256": "893c8efa68bd5b0fd5155ff6c21870cca0809e26e7a14889dfe32910f5c152cc"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/owned-mounts-after.json",
+        "sha256": "0d609f9d67507e2003d0b4092b8621d5b013ce2543fafb33364a2da4abf0c4b3"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/health-before.json",
+        "sha256": "a0d6bc27e11c6b3d4d0dca4884fd0f8bf97e79da0c399e2c7ea49c41ab4997c6"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave93/health-after.json",
+        "sha256": "2eae16b00a3ccfbc017b3738dec3430d6c765e7ba6ce36894c4f4f0e92daa446"
+      }
+    }
+  },
+  "caseResult": {
+    "status": "PASSED",
+    "failureAttribution": "NONE",
+    "browserSession": 2209,
+    "browserExitCode": 0,
+    "caseDurationMs": 69135,
+    "reportObservedIntervalMs": 68470,
+    "testTitle": "exact Observation Groups feed a native Pivot and editable current-draft Join",
+    "requiredChecks": {
+      "total": 30,
+      "reached": 30,
+      "notReached": 0,
+      "notReachedNames": []
+    },
+    "assertions": {
+      "passed": 204,
+      "failed": 0,
+      "total": 204
+    },
+    "actions": {
+      "passed": 113,
+      "failed": 0,
+      "total": 113,
+      "maxElapsedMs": 1412
+    },
+    "dimensionsAsReported": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "rawOracle": {
+      "resource": "Observation",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "initialRowsReturned": 2000,
+      "initialQueryLimit": 2000,
+      "targetedRowsReturned": 406,
+      "targetedQueryLimit": 2000,
+      "leftSelectedFHIRIDCount": 4,
+      "rightSelectedFHIRIDCount": 3,
+      "sharedSubject": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+      "leftOnlySubject": "Patient/033718b9-adff-54b7-81a3-b1c390990d28",
+      "scope": "Exact project/generation; both raw queries individually bounded to 2,000 rows; selected immutable FHIR IDs reread exactly."
+    },
+    "expectedSelectionCancellation": {
+      "count": 1,
+      "method": "GET",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-2eac7206-0ef9-4e78-870b-34a24de9ac8d/selections/selection_a8cf0f91717333a7df27a03608cdcc1667528b1819bec4b4ba9fd249b07cab30",
+      "triggerAction": "Select right Group Pivot exact source population",
+      "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+      "expected": true
+    },
+    "nativeRequests": {
+      "recordedEntries": 168,
+      "statusCounts": {
+        "200": 164,
+        "None": 4
+      },
+      "unexpectedNetworkErrors": 0
+    },
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "artifacts": {
+      "report": {
+        "path": "/private/tmp/loom-native-parallel-wave93/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/cda-report.json",
+        "sha256": "7e43301e16b8b47a034984299b53666963544b54dbdb13fcf82af9c9776f33d3"
+      },
+      "results": {
+        "path": "/private/tmp/loom-native-parallel-wave93/cda-current-draft-group-pivot-join/attempt1/results.json",
+        "sha256": "9fb64c554a492cbf49dba9d638e6c7613dccb384aa354630944bf1fd4043a4b0"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave93/cda-current-draft-group-pivot-join/attempt1/runner.log",
+        "sha256": "fac61f67690ea3628478249ad29e90c6054bb1de819d80db9d2d734e3ff7551d"
+      }
+    }
+  },
+  "captureHandles": {
+    "precheck": {
+      "session": 86352,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 67041,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 6687,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 2209,
+      "exitCode": 0
+    },
+    "afterCapture": {
+      "session": 57842,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 47870,
+      "exitCode": 0
+    }
+  },
+  "rootAcceptance": {
+    "baselineAccepted": true,
+    "browserReleased": true,
+    "closureAccepted": false
+  }
+}

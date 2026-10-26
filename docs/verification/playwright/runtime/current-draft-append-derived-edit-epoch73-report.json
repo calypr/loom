@@ -1,0 +1,166 @@
+{
+  "epoch": 73,
+  "scenario": "builder-combine-draft",
+  "case": "append-derived-edit",
+  "title": "upstream Group→DERIVE edit recomputes APPEND and removal restores its current-draft sources",
+  "status": "failed",
+  "classification": "FAILED_NETWORK_UNCLASSIFIED",
+  "classificationNote": "Strict network assertion failed on request-450. Cause remains under investigation; no product-versus-harness attribution is made.",
+  "requiredChecks": {
+    "registered": 44,
+    "missing": 0,
+    "status": "reached; not a claim that the workflow passed"
+  },
+  "assertions": {
+    "passed": 140,
+    "failed": 1,
+    "total": 141,
+    "failedNames": [
+      "no unexpected network, module, or browser errors"
+    ],
+    "byDimension": {
+      "usability": {
+        "status": "passed",
+        "evidenceCount": 42
+      },
+      "correctness": {
+        "status": "failed",
+        "evidenceCount": 39
+      },
+      "persistence": {
+        "status": "passed",
+        "evidenceCount": 12
+      },
+      "performance": {
+        "status": "passed",
+        "evidenceCount": 48
+      }
+    }
+  },
+  "networkFailure": {
+    "kind": "network",
+    "method": "POST",
+    "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muwevdw9-e182f04/explorers/verify-w9-e182f04-draft-combine-append/authoring/v2/reconcile",
+    "resourceType": "fetch",
+    "errorText": "net::ERR_ABORTED",
+    "playwrightRequestId": "request-450",
+    "requestDetails": {
+      "requestId": "builder-1-1",
+      "draftVersion": 14,
+      "draftDigest": "sha256:bef014901f3ef29ba3210dd04a30fe2e46b0a47555e365d40294db73054367b6",
+      "outputId": null,
+      "stageId": null
+    }
+  },
+  "networkDiagnostics": {
+    "unexpectedRecordedErrors": 1,
+    "failureGate": "no unexpected network, module, or browser errors",
+    "unresolvedCause": true
+  },
+  "timing": {
+    "workflowCheckpointCount": 40,
+    "maxWorkflowCheckpointMs": 664,
+    "workflowCheckpointBudgetMs": 5000,
+    "runnerProcessDurationMs": null,
+    "runnerProcessDurationNote": "Not separately recorded in retained evidence."
+  },
+  "target": {
+    "project": "loom_dev_verify_muwevdw9-e182f04",
+    "generation": "fixture-v1",
+    "explorer": "verify-w9-e182f04-draft-combine-append",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiOrigin": "http://127.0.0.1:8188",
+    "uiOrigin": "http://127.0.0.1:30008"
+  },
+  "integrity": {
+    "sourceFingerprintSha256": "fadd833b762cacb8653c829f8fa9f9aae52c16dbf21dd584d2fafe10c8ed8969",
+    "sourceFiles": 1509,
+    "sourceManifestUnchanged": true,
+    "docsFingerprintSha256": "27083e9e66a4f931686a3b5cc5ffe5cad1923526d2a7bfa4eacc81b17da5a10a",
+    "docsFiles": 175,
+    "docsManifestUnchanged": true,
+    "apiBuildIdentityUnchanged": true,
+    "ownedMountsBeforeAfter": "PASS; target unchanged",
+    "healthBeforeAfter": "PASS, 3/3 samples each"
+  },
+  "timingSource": {
+    "browserSession": 64727,
+    "browserExitCode": 1,
+    "afterHealthSession": 59713,
+    "afterHealthExitCode": 0
+  },
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave73/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-21b71cbc18b96e5065778706cbaef2c05e6e6e3e.json",
+  "rawReportSha256": "b97191d2ff475076b0cea904b105aaf00bfdcaa30d4ab0f7b66d4c6e310d1b39",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave73/basic-append-derived-edit/attempt1/results.json",
+  "playwrightResultsSha256": "288e024537480eff22920f2560c873c18fe55d96161bfaa26c1ca8d19be22371",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave73/basic-append-derived-edit/attempt1/runner.log",
+  "runnerLogSha256": "beac189a20c8dbd5f172254580532aa5429a93a25997d082aa25e5b357f4d9ce",
+  "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave73/closure.json",
+  "coordinatorClosureSha256": "f4a54742f5901e4ddc85b23a33e540c2ec91b3783a05bc661295384f4394a53f",
+  "artifacts": {
+    "runPlan": {
+      "path": "/private/tmp/loom-native-parallel-wave73/run-plan.json",
+      "sha256": "4965cd66c8c3f067e9b7ef22a05a4111f4690f14860d2365d207f499a3909583"
+    },
+    "apiBuildPrecheck": {
+      "path": "/private/tmp/loom-native-parallel-wave73/api-build-precheck-confirmed.json",
+      "sha256": "28eb0c5bc49d646a925d0bf52935979155c3d4a59dce861f5be03563588d6746"
+    },
+    "sourceBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave73/source-before.json",
+      "sha256": "7e9aaf758dccf753522ad7bd89bdb02147c890a3416f8a7e8f6570d6c182535b"
+    },
+    "sourceAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave73/source-after.json",
+      "sha256": "9a2a3d9aafde1d017756b9cd488e398cd58d77a2e805e22951547ce4aae48518"
+    },
+    "docsBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave73/docs-before.json",
+      "sha256": "3e4fb0ef57ece09ffb315c84ac6ae6da867eee302ccc43a3bc79f2ac96c3b087"
+    },
+    "docsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave73/docs-after.json",
+      "sha256": "e5181ade68eb4a7aeb73bcd8d593c2a7d067e82c66af8227d7f1c979176597d3"
+    },
+    "apiIdentityBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave73/api-identity-before.json",
+      "sha256": "c48512d0d8eda1e1f56dc25c884b348415064a7d3652c42b68129a01eb5d7541"
+    },
+    "apiIdentityAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave73/api-identity-after.json",
+      "sha256": "a6a41519b2846ad51f7c75a048aeb9c47fb561e229ca0cca375d80c0b062820a"
+    },
+    "ownedMountsBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave73/owned-mounts-before.json",
+      "sha256": "927d3dd758b30e3a968cfe05e115235876630b83812e7f405ba66186013b887c"
+    },
+    "ownedMountsAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave73/owned-mounts-after.json",
+      "sha256": "43751ab3fab634c569ff6fe8e79e393d9c55bcc2743be67c55faaf75c5f26f69"
+    },
+    "healthBefore": {
+      "path": "/private/tmp/loom-native-parallel-wave73/health-before.json",
+      "sha256": "fea57aea0c3ff349a653d9b995887fe051b3eef0291ae9e48181f52493a7843f"
+    },
+    "healthAfter": {
+      "path": "/private/tmp/loom-native-parallel-wave73/health-after.json",
+      "sha256": "a90f38485c9af8b7525219223ff730ed7ff544362b9444b534d23f7966c105fe"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave73/basic-append-derived-edit/attempt1/results.json",
+      "sha256": "288e024537480eff22920f2560c873c18fe55d96161bfaa26c1ca8d19be22371"
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave73/basic-append-derived-edit/attempt1/runner.log",
+      "sha256": "beac189a20c8dbd5f172254580532aa5429a93a25997d082aa25e5b357f4d9ce"
+    },
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave73/closure.json",
+      "sha256": "f4a54742f5901e4ddc85b23a33e540c2ec91b3783a05bc661295384f4394a53f"
+    },
+    "rawVerificationReport": {
+      "path": "/private/tmp/loom-native-parallel-wave73/basic-append-derived-edit/attempt1/artifacts/draft-combine-Builder-Comb-807a0-s-its-current-draft-sources/attachments/loom-verification-report-json-21b71cbc18b96e5065778706cbaef2c05e6e6e3e.json",
+      "sha256": "b97191d2ff475076b0cea904b105aaf00bfdcaa30d4ab0f7b66d4c6e310d1b39"
+    }
+  }
+}

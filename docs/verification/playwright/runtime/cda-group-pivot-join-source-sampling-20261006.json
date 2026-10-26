@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "kind": "independent-cda-source-sampling",
+  "capturedDate": "2026-10-06",
+  "status": "bounded-witness-found",
+  "runtimeStatus": "not-run",
+  "scope": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "database": "loom_dev",
+    "container": "loom-dev-6d7df93d6a37-arangodb-1",
+    "readOnly": true
+  },
+  "sampling": {
+    "initialOrderedSample": {
+      "resourceType": "Observation",
+      "eligibility": "exact project and generation; nonempty subject.reference and status",
+      "order": "Arango _id ascending",
+      "returnedRows": 2000,
+      "returnedRowLimit": 2000,
+      "physicalDocumentScanLimit": false,
+      "statusDistribution": [
+        {
+          "value": "final",
+          "count": 2000
+        }
+      ],
+      "statusBasedWitness": null,
+      "rowsSha256": "77aff06b3cc3a08448e5c396064b4524d6f86cb0855e5ff9f3e3765289aadecc"
+    },
+    "targetedSubjectSample": {
+      "selection": "Top 10 subject references by counts in the original first-2,000 eligible sample; count descending, subject reference ascending for ties.",
+      "selectedSubjectCount": 10,
+      "returnedRows": 406,
+      "statusDistribution": [
+        {
+          "value": "final",
+          "count": 406
+        }
+      ],
+      "returnedRowLimit": 2000,
+      "combinedReturnedRowUpperBoundAcrossBothQueries": 4000,
+      "physicalDocumentScanLimit": false,
+      "rowsSha256": "d064d7b54e59d191b19a25a12d2bffb4a8c74aa135faa5a956048cdc3d268483",
+      "targetedReturnedSubjectCountsBasis": "These counts are recomputed from the 406 targeted returned rows; they are not the initial-sample counts used to rank/select subjects.",
+      "targetedReturnedSubjectCounts": [
+        {
+          "subjectReference": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+          "count": 57
+        },
+        {
+          "subjectReference": "Patient/32a12455-8373-5d0e-98a3-2c488fa6196c",
+          "count": 51
+        },
+        {
+          "subjectReference": "Patient/1c829609-1cfb-5326-aec2-7c4459c7cc7a",
+          "count": 48
+        },
+        {
+          "subjectReference": "Patient/2543a4d9-52e1-5727-a5c7-011ccb92f96f",
+          "count": 48
+        },
+        {
+          "subjectReference": "Patient/0d770871-d837-5b06-88a3-97c6390458cb",
+          "count": 46
+        },
+        {
+          "subjectReference": "Patient/2031371e-aa90-5539-97a9-2a494b240426",
+          "count": 46
+        },
+        {
+          "subjectReference": "Patient/033718b9-adff-54b7-81a3-b1c390990d28",
+          "count": 35
+        },
+        {
+          "subjectReference": "Patient/1d3bb478-d55c-57da-8702-2eca73e20a97",
+          "count": 33
+        },
+        {
+          "subjectReference": "Patient/28826c4a-54d9-55dd-a4e4-cb009a96e5b1",
+          "count": 26
+        },
+        {
+          "subjectReference": "Patient/0355764b-198e-5c34-aa12-f5ebb8db0546",
+          "count": 16
+        }
+      ]
+    }
+  },
+  "witness": {
+    "categoryField": "code.coding[0].code",
+    "categoryAliases": {
+      "A": "1222593009",
+      "B": "81247-9"
+    },
+    "statusIsNotThePivotCategory": true,
+    "sampledSharedSubject": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+    "sampledLeftOnlySubject": "Patient/033718b9-adff-54b7-81a3-b1c390990d28",
+    "sharedObservationFirstCodeCategories": {
+      "A": 2,
+      "B": 1
+    },
+    "sharedObservationRows": [
+      {
+        "arangodbDocumentKey": "Observation/g_0085ddbf0da77b57206f4b61163804ed6bf8acfd753ab0df2cfed281467795e4",
+        "fhirObservationId": "7d2fe423-f934-56ff-bd96-426fb1fdf94e",
+        "firstCodingCode": "81247-9"
+      },
+      {
+        "arangodbDocumentKey": "Observation/g_00949cd27ee02ff9d84c2ec3f7bbbd0310ec111549529630f72612193c5a7676",
+        "fhirObservationId": "26c7500c-f54f-5229-b5a7-a6757614bc21",
+        "firstCodingCode": "1222593009"
+      },
+      {
+        "arangodbDocumentKey": "Observation/g_2cf7f289f769d5ee33f965257888b111d64234e442fc59d5552868583265ff61",
+        "fhirObservationId": "64704041-c4da-5375-aac0-88f951f78344",
+        "firstCodingCode": "1222593009"
+      }
+    ],
+    "leftOnlyObservation": {
+      "arangodbDocumentKey": "Observation/g_002482914ae97ded29d46c1544fe91cfe27045c3bad2f6c2aa47c78d1aceba8a",
+      "fhirObservationId": "9bd424bb-9617-561e-a787-c9506066eb59",
+      "firstCodingCode": "81247-9"
+    },
+    "oracleExpectedShapes": {
+      "leftGroupSubjectCounts": [
+        {
+          "subjectReference": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+          "count": 3
+        },
+        {
+          "subjectReference": "Patient/033718b9-adff-54b7-81a3-b1c390990d28",
+          "count": 1
+        }
+      ],
+      "rightGroupSubjectCategoryCounts": [
+        {
+          "subjectReference": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+          "category": "1222593009",
+          "count": 2
+        },
+        {
+          "subjectReference": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+          "category": "81247-9",
+          "count": 1
+        }
+      ],
+      "pivot": {
+        "sharedSubject": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+        "firstCategoryCount": 2,
+        "secondCategoryCount": 1
+      },
+      "joinKeys": {
+        "leftRows": 2,
+        "rightRows": 1,
+        "matchedSubjectRows": 1,
+        "leftOnlyRows": 1
+      }
+    }
+  },
+  "limitsAndInterpretation": [
+    "The 2,000 and 2,000 limits cap returned rows; neither limits physical documents scanned by Arango.",
+    "The targeted subjects are selected only from counts in the initial 2,000-row sample. This does not establish absence or category distributions outside the returned samples.",
+    "All 2,000 initial rows have status final, so status cannot supply the repeated-and-other Pivot categories; the witness uses the first code.coding[].code value instead.",
+    "This records a bounded raw-data witness and oracle-shaped expected values only. It is not a Builder, browser, persistence, or runtime lifecycle pass.",
+    "The diagnostic checkpoint query and the browser workflow witness-eligibility query are not asserted to be byte-identical; this artifact records the checkpoint query results and hashes separately from the current workflow oracle source."
+  ],
+  "evidenceFiles": {
+    "checkpoint": "/private/tmp/loom-cda-group-pivot-join-witness-checkpoint-20261006/evidence.json",
+    "checkpointSha256": "3c04006d29cfff629a55702ef18b6678d8ca5113f0df55104244c8856df7ec34",
+    "targetedAudit": "/private/tmp/loom-cda-group-pivot-join-witness-checkpoint-20261006/targeted-subject-audit.json",
+    "targetedAuditSha256": "0c55c663cba81a766b1b2663049be9f946720b3a2b20ca154dd329a6332518f6",
+    "initialReturnedRowsSha256": "77aff06b3cc3a08448e5c396064b4524d6f86cb0855e5ff9f3e3765289aadecc",
+    "targetedReturnedRowsSha256": "d064d7b54e59d191b19a25a12d2bffb4a8c74aa135faa5a956048cdc3d268483"
+  },
+  "sourceReferences": {
+    "repositoryHead": "4a8d22ce01e499bd40486167d9ddb6c6b7ee513c",
+    "workingTreeFiles": [
+      {
+        "path": "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+        "sha256": "9da3bafb24bb5851ee26a14c1b9730b28c3a1fc5ea596ecbe93af37a6a3d5eb7"
+      },
+      {
+        "path": "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs",
+        "sha256": "eab816e60a60ea7512c277f282933b82b2853e76e53eab168c75eaee39189adb"
+      },
+      {
+        "path": "scripts/verify-ui/registry.mjs",
+        "sha256": "b8fbf0ba6527585411ce4ae83d1cc0a4bbe05139398a0bc68f7ac54dd255f8fd"
+      }
+    ],
+    "oracleMeaning": "The referenced helper selects at most 10 subjects from at most 2,000 supplied rows, recognizes repeated and other first-code categories, and computes Group/Pivot/Join expected tuples. Its contract is oracle code, not evidence that the browser lifecycle ran."
+  }
+}

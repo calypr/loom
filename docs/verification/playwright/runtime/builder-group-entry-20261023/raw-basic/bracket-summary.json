@@ -1,0 +1,483 @@
+{
+  "schemaVersion": 1,
+  "status": "passed",
+  "startedAt": "2026-10-23T00:23:37.977Z",
+  "scenario": "builder-authoring",
+  "case": "group-entry-raw-basic",
+  "nativeSpec": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
+  "explicitGrep": null,
+  "resolvedGrep": "Group edit and removal preserve the raw five-column Basic Patient table$",
+  "mode": "browser",
+  "targetIdentity": null,
+  "targetConfigPath": null,
+  "targetValidation": {
+    "scope": "environment-only",
+    "registryBinding": "unbound",
+    "runtimeDatasetIdentity": "not-checked",
+    "configPath": null,
+    "project": null,
+    "generation": null
+  },
+  "registryValidation": {
+    "status": "valid",
+    "unmappedLifecycleCount": 1,
+    "rows": [
+      {
+        "scenario": "builder-authoring",
+        "feature": "coded Pivot",
+        "reason": "The integer and string coded Pivot lifecycles are registered separately. Other source resource types, coding systems, value families, and coded GROUP remain outside those exact mode contracts."
+      }
+    ]
+  },
+  "runDirectory": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ",
+  "commands": {
+    "selectionList": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/node_modules/@playwright/test/cli.js",
+        "test",
+        "--config",
+        "scripts/playwright.config.mjs",
+        "--workers",
+        "1",
+        "--retries",
+        "0",
+        "verify-ui/specs/builder-authoring.spec.mjs",
+        "--grep",
+        "Group edit and removal preserve the raw five-column Basic Patient table$",
+        "--list"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 90000,
+      "exitCode": 0,
+      "durationMs": 571,
+      "stdoutPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/selectionList.stdout.log",
+      "stderrPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/selectionList.stderr.log"
+    },
+    "focused-group-entry-rendered-grid-contract": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "--test",
+        "scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 60000,
+      "exitCode": 0,
+      "durationMs": 102,
+      "stdoutPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/focused-group-entry-rendered-grid-contract.stdout.log",
+      "stderrPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/focused-group-entry-rendered-grid-contract.stderr.log"
+    },
+    "playwright": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/node_modules/@playwright/test/cli.js",
+        "test",
+        "--config",
+        "scripts/playwright.config.mjs",
+        "--workers",
+        "1",
+        "--retries",
+        "0",
+        "--output",
+        "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/playwright-results",
+        "--reporter=json",
+        "verify-ui/specs/builder-authoring.spec.mjs",
+        "--grep",
+        "Group edit and removal preserve the raw five-column Basic Patient table$"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 900000,
+      "environmentOverrides": {
+        "PLAYWRIGHT_JSON_OUTPUT_FILE": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/playwright-report.json"
+      },
+      "exitCode": 0,
+      "durationMs": 30300,
+      "stdoutPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/playwright.stdout.log",
+      "stderrPath": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/playwright.stderr.log"
+    },
+    "precheck": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/owned-stack-verification.mjs",
+        "--mode",
+        "precheck",
+        "--output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-build-precheck.json"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 90000,
+      "exitCode": 0,
+      "durationMs": 876,
+      "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/precheck.stdout.log",
+      "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/precheck.stderr.log"
+    },
+    "captureBefore": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/capture-owned-verification.mjs",
+        "--phase",
+        "before",
+        "--precheck-input",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-build-precheck.json",
+        "--source-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-before.json",
+        "--docs-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-before.json",
+        "--api-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-before.json",
+        "--mount-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-before.json"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 90000,
+      "exitCode": 0,
+      "durationMs": 3948,
+      "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureBefore.stdout.log",
+      "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureBefore.stderr.log"
+    },
+    "healthBefore": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/owned-stack-verification.mjs",
+        "--mode",
+        "health",
+        "--output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-before.json",
+        "--identity",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-before.json"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 90000,
+      "exitCode": 0,
+      "durationMs": 5049,
+      "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthBefore.stdout.log",
+      "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthBefore.stderr.log"
+    },
+    "captureAfter": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/capture-owned-verification.mjs",
+        "--phase",
+        "after",
+        "--source-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-after.json",
+        "--docs-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-after.json",
+        "--api-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-after.json",
+        "--mount-output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-after.json"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 90000,
+      "exitCode": 0,
+      "durationMs": 3975,
+      "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureAfter.stdout.log",
+      "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureAfter.stderr.log"
+    },
+    "healthAfter": {
+      "executable": "/Users/peterkor/.nvm/versions/node/v22.22.0/bin/node",
+      "arguments": [
+        "scripts/owned-stack-verification.mjs",
+        "--mode",
+        "health",
+        "--output",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-after.json",
+        "--identity",
+        "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-before.json"
+      ],
+      "cwd": "/private/tmp/loom-formal-verification",
+      "timeoutMs": 90000,
+      "exitCode": 0,
+      "durationMs": 4956,
+      "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthAfter.stdout.log",
+      "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthAfter.stderr.log"
+    }
+  },
+  "evidence": {
+    "summary": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/summary.json",
+    "playwrightReport": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/playwright-report.json",
+    "domainReport": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/playwright-results/builder-authoring-Builder--173a0--column-Basic-Patient-table/attachments/loom-verification-report-json-1637fbabc64fadbb487bb15ce20c45945e88703c.json",
+    "sourceBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-before.json",
+    "docsBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-before.json",
+    "apiBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-before.json",
+    "mountsBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-before.json",
+    "sourceAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-after.json",
+    "docsAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-after.json",
+    "apiAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-after.json",
+    "mountsAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-after.json",
+    "precheck": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-build-precheck.json",
+    "healthBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-before.json",
+    "healthAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-after.json",
+    "sharedBracket": {
+      "batchSummary": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/batch-summary.json",
+      "precheck": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-build-precheck.json",
+      "sourceBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-before.json",
+      "docsBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-before.json",
+      "apiBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-before.json",
+      "mountsBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-before.json",
+      "healthBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-before.json",
+      "sourceAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-after.json",
+      "docsAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-after.json",
+      "apiAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-after.json",
+      "mountsAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-after.json",
+      "healthAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-after.json"
+    }
+  },
+  "selection": {
+    "total": 1,
+    "listedFileCount": 1,
+    "cases": [
+      {
+        "file": "builder-authoring.spec.mjs",
+        "line": 19,
+        "column": 7,
+        "titlePath": "Builder authoring › group-entry-raw-basic › Group edit and removal preserve the raw five-column Basic Patient table",
+        "title": "Group edit and removal preserve the raw five-column Basic Patient table"
+      }
+    ],
+    "exact": true,
+    "reason": null
+  },
+  "focusedCheckCoverage": "registered",
+  "focusedChecks": {
+    "status": "passed",
+    "groups": [
+      {
+        "id": "group-entry-rendered-grid-contract",
+        "runner": "node-test",
+        "status": "passed",
+        "exitCode": 0,
+        "durationMs": 102,
+        "timeoutMs": 60000,
+        "timedOut": false,
+        "declaredInputsHash": "9392e7d527cd9170ae691efd94d6166c48b469a45e8e87116886475cb8b78afc",
+        "inputs": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs",
+            "sha256": "b33c200ffb021f6dc84a05119fe2cf897659d8ef92e66c16699b4ecbc3a4b359"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/builder-rendered-grid.mjs",
+            "sha256": "ea327158017f403eb88bc2994009d775628048b4becc76b646dfcb83836c3304"
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
+            "sha256": "84101424264c5591fd2e2e151ff7a7669c0c18743f42e6685e77dbe204add7db"
+          }
+        ],
+        "inputsUnchanged": true,
+        "evidence": {
+          "stdout": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/focused-group-entry-rendered-grid-contract.stdout.log",
+          "stderr": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/logs/focused-group-entry-rendered-grid-contract.stderr.log"
+        }
+      }
+    ]
+  },
+  "integrity": {
+    "status": "PASS",
+    "dimensions": {
+      "source": {
+        "status": "PASS",
+        "before": {
+          "sha256": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86",
+          "files": 2092
+        },
+        "after": {
+          "sha256": "223a81f4d671c322ec166243a95bdae7557f0552e106ba2bbd5f2ce186aafe86",
+          "files": 2092
+        },
+        "changedPaths": []
+      },
+      "docs": {
+        "status": "PASS",
+        "before": {
+          "sha256": "29425c5b11379bc9950a191f8cb8d1899e855467a53228d4a5ecdc43eaf1ab2c",
+          "files": 328
+        },
+        "after": {
+          "sha256": "29425c5b11379bc9950a191f8cb8d1899e855467a53228d4a5ecdc43eaf1ab2c",
+          "files": 328
+        },
+        "changedPaths": []
+      },
+      "apiBuildIdentity": {
+        "status": "PASS",
+        "before": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+        "after": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+        "precheckMatches": true,
+        "targetUnchanged": true
+      },
+      "ownedMounts": {
+        "status": "PASS",
+        "targetUnchanged": true,
+        "target": {
+          "project": "loom_dev_verify_mvk51st3-9e45d23",
+          "composeProject": "loom-dev-fcbf4d7d11f4",
+          "apiContainer": "loom-dev-fcbf4d7d11f4-loom-api-1",
+          "uiContainer": "loom-dev-fcbf4d7d11f4-loom-ui-1",
+          "arangoContainer": "loom-dev-fcbf4d7d11f4-arangodb-1",
+          "clickhouseContainer": "loom-dev-fcbf4d7d11f4-clickhouse-1",
+          "apiPort": "8180",
+          "uiPort": "3180",
+          "sourceRoot": "/private/tmp/loom-formal-verification",
+          "generation": "fixture-v1"
+        }
+      },
+      "healthBefore": {
+        "status": "PASS",
+        "sampleCount": 3,
+        "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41"
+      },
+      "healthAfter": {
+        "status": "PASS",
+        "sampleCount": 3,
+        "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41"
+      }
+    }
+  },
+  "lifecycle": {
+    "reportStatus": "passed",
+    "attachmentCount": 1,
+    "reportIdentity": {
+      "scenario": "builder-authoring",
+      "caseName": "group-entry-raw-basic"
+    },
+    "reportIdentityMatchesSelection": true,
+    "reportIdentityAliasesConsistent": true,
+    "requiredCheckCount": 17,
+    "passedCheckCount": 17,
+    "failedCheckNames": [],
+    "missingCheckNames": [],
+    "requiredCheckListMatchesRegistry": true,
+    "missingRequiredCheckCount": 0,
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "actionCount": 20,
+    "maximumMeasuredActionLatencyMs": 1433,
+    "renderCheckpointStatus": "present",
+    "renderCheckpointIssues": [],
+    "renderCheckpointCount": 1,
+    "maximumRenderCheckpointLatencyMs": 1433,
+    "renderCheckpoints": [
+      {
+        "checkName": "direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget",
+        "name": "direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget",
+        "durationMs": 1433,
+        "budgetMs": 5000,
+        "evidencePath": "assertions[].evidence.elapsedMs"
+      }
+    ]
+  },
+  "failureCategory": null,
+  "notes": [],
+  "workflowError": null,
+  "reviewPacket": {
+    "status": "passed",
+    "scenario": "builder-authoring",
+    "case": "group-entry-raw-basic",
+    "listedTest": {
+      "file": "builder-authoring.spec.mjs",
+      "line": 19,
+      "column": 7,
+      "titlePath": "Builder authoring › group-entry-raw-basic › Group edit and removal preserve the raw five-column Basic Patient table",
+      "title": "Group edit and removal preserve the raw five-column Basic Patient table"
+    },
+    "browserExitCode": 0,
+    "browserTestPassed": true,
+    "domainReportStatus": "passed",
+    "domainReportReason": null,
+    "domainReportIdentityMatchesSelection": true,
+    "integrityStatus": "PASS",
+    "firstFailureReason": null,
+    "failureContext": null,
+    "failedAction": null,
+    "lastCompletedAction": {
+      "label": "Apply keyed Group removal",
+      "status": "passed"
+    },
+    "pendingOwnedRequests": [],
+    "requiredCheckCount": 17,
+    "passedCheckCount": 17,
+    "failedCheckNames": [],
+    "missingCheckNames": [],
+    "maximumMeasuredActionLatencyMs": 1433,
+    "renderCheckpointCount": 1,
+    "maximumRenderCheckpointLatencyMs": 1433,
+    "renderCheckpointStatus": "present",
+    "renderCheckpointIssues": [],
+    "renderCheckpoints": [
+      {
+        "checkName": "direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget",
+        "name": "direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget",
+        "durationMs": 1433,
+        "budgetMs": 5000,
+        "evidencePath": "assertions[].evidence.elapsedMs"
+      }
+    ],
+    "report": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/playwright-results/builder-authoring-Builder--173a0--column-Basic-Patient-table/attachments/loom-verification-report-json-1637fbabc64fadbb487bb15ce20c45945e88703c.json",
+    "playwrightJson": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/playwright-report.json",
+    "summary": "/private/var/folders/v_/j3zplgbs155cgwtqjftj377nd_4gyt/T/loom-verification-brackets/run-builder-authoring-group-entry-raw-basic-nkUSWJ/summary.json"
+  },
+  "sharedBracket": {
+    "batchId": "run-batch-1792715017972-ZCk1IK",
+    "status": "PASS",
+    "summary": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/batch-summary.json",
+    "evidence": {
+      "batchSummary": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/batch-summary.json",
+      "precheck": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-build-precheck.json",
+      "sourceBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-before.json",
+      "docsBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-before.json",
+      "apiBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-before.json",
+      "mountsBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-before.json",
+      "healthBefore": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-before.json",
+      "sourceAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/source-after.json",
+      "docsAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/docs-after.json",
+      "apiAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/api-identity-after.json",
+      "mountsAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/owned-mounts-after.json",
+      "healthAfter": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/health-after.json"
+    },
+    "commands": {
+      "precheck": {
+        "exitCode": 0,
+        "timedOut": false,
+        "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/precheck.stdout.log",
+        "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/precheck.stderr.log"
+      },
+      "captureBefore": {
+        "exitCode": 0,
+        "timedOut": false,
+        "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureBefore.stdout.log",
+        "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureBefore.stderr.log"
+      },
+      "healthBefore": {
+        "exitCode": 0,
+        "timedOut": false,
+        "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthBefore.stdout.log",
+        "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthBefore.stderr.log"
+      },
+      "captureAfter": {
+        "exitCode": 0,
+        "timedOut": false,
+        "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureAfter.stdout.log",
+        "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/captureAfter.stderr.log"
+      },
+      "healthAfter": {
+        "exitCode": 0,
+        "timedOut": false,
+        "stdoutPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthAfter.stdout.log",
+        "stderrPath": "/private/tmp/loom-group-native-20261022/brackets/run-batch-1792715017972-ZCk1IK/logs/healthAfter.stderr.log"
+      }
+    }
+  },
+  "nativeStatus": "passed",
+  "timingInterpretation": "serial",
+  "finishedAt": "2026-10-23T00:24:27.787Z",
+  "durationMs": 49809,
+  "durationScope": "case-preparation-through-shared-closure",
+  "batchId": "run-batch-1792715017972-ZCk1IK"
+}

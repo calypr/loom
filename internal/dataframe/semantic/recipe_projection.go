@@ -72,7 +72,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 			return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 		}
 		fieldSemantic := SemanticField{
-			Name: field.Name, FieldRef: field.FieldRef, Expr: primary,
+			Name: field.Name, ColumnID: field.ColumnID, Label: field.Label, FieldRef: field.FieldRef, Expr: primary,
 			Fallbacks: fallbacks, Projection: projection, Discovered: field.Discovered,
 		}
 		if err := validateRecipeProjectionTypes(primary.Type, fallbacks); err != nil {
@@ -116,7 +116,7 @@ func normalizeRecipeProjection(field recipe.Field, scope scopeFrame, path string
 	if err != nil {
 		return SemanticField{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return SemanticField{Name: field.Name, FieldRef: field.FieldRef, Expr: projected, Projection: projection, Discovered: field.Discovered}, nil
+	return SemanticField{Name: field.Name, ColumnID: field.ColumnID, Label: field.Label, FieldRef: field.FieldRef, Expr: projected, Projection: projection, Discovered: field.Discovered}, nil
 }
 
 func semanticCardinality(input expression.Type) spec.Cardinality {

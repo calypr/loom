@@ -1,0 +1,1 @@
+{"resourceType":"DiagnosticReport","id":"dev-j02-report","status":"final","code":{"coding":[{"system":"urn:loom:devloop:j02","code":"route-report","display":"J02 route report"}]},"subject":{"reference":"Patient/dev-patient-001"},"result":[{"reference":"Observation/dev-observation-001"}]}

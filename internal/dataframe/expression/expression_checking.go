@@ -179,6 +179,12 @@ func (s *checkState) checkCall(c Call, path string, depth int) (Type, error) {
 }
 
 func inferCall(name string, args []Type, target *Type) (Type, error) {
+	if name == "length" {
+		if len(args) != 1 || args[0].Cardinality != Many {
+			return Type{}, fmt.Errorf("length requires one repeated argument")
+		}
+		return Type{Kind: KindInteger, Cardinality: RequiredOne}, nil
+	}
 	if name == "canonical_json" {
 		if len(args) != 1 || args[0].Cardinality == Many {
 			return Type{}, fmt.Errorf("canonical_json requires one scalar value")

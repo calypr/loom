@@ -1,0 +1,454 @@
+{
+  "schemaVersion": 2,
+  "epoch": 146,
+  "scenario": "builder-combine",
+  "case": "append",
+  "title": "APPEND preview, apply, edit, cancel, removal and reload",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "PUBLISHED_SOURCE_BASIC_APPEND_45_CHECK_LIFECYCLE_PASS",
+  "startedAt": "2026-10-07T09:14:34.828Z",
+  "finishedAt": "2026-10-07T09:14:55.242Z",
+  "bracketStartedAt": "2026-10-07T09:14:21.676Z",
+  "bracketFinishedAt": "2026-10-07T09:15:04.344Z",
+  "bracketDurationMs": 42668,
+  "durableClosurePath": "docs/verification/playwright/runtime/published-append-null-padding-epoch146-closure.json",
+  "durableClosureSha256": "96c69ea7ad6236ef945faad34097b3fd96db6376a4a44f21c43d0a4bade87078",
+  "acceptedCommit": {
+    "sha": "1944e2b86a3868ffee0a36c76b9cef099ba62974",
+    "provenance": "Frozen source commit accepted before the wave146 run; raw source/API capture hashes are linked below."
+  },
+  "scope": {
+    "fixture": "published-source Basic fixture",
+    "fixtureDirectory": "testdata/verify-combine",
+    "fixtureCounts": {
+      "Patient": 1,
+      "Observation": 4,
+      "DiagnosticReport": 3
+    },
+    "notCovered": [
+      "CDA source fixtures",
+      "unpublished/current-draft APPEND"
+    ]
+  },
+  "target": {
+    "kind": "isolated",
+    "project": "loom_dev_verify_muxw5mjg-008aee9",
+    "generation": "published-append-nullpadding-wave146",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceFingerprint": {
+      "sha256": "f22ad000f6f93af88ce279a160868b2e9ac4c66e6450292d57b55a57320a2ae4",
+      "files": 1590
+    },
+    "apiBuildIdentity": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+    "explorer": "verify-jg-008aee9-combine",
+    "sourceExplorer": "verify-jg-008aee9-combine",
+    "sourceExplorerTitle": "Verify jg-008aee9 combine"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_c89a69d7e137",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "group-pivot-append-wave142"
+  },
+  "rawOracle": {
+    "counts": {
+      "Patient": 1,
+      "Observation": 4,
+      "DiagnosticReport": 3
+    },
+    "headersAtSavedApply": [
+      "Record ID",
+      "Status",
+      "Patient gender"
+    ],
+    "headersAtEditedApply": [
+      "Record ID",
+      "Status",
+      "Patient sex"
+    ],
+    "rows": [
+      [
+        "combine-observation-final-1",
+        "final",
+        null
+      ],
+      [
+        "combine-observation-final-2",
+        "final",
+        null
+      ],
+      [
+        "combine-observation-preliminary",
+        "preliminary",
+        null
+      ],
+      [
+        "combine-observation-unmatched",
+        "unknown",
+        null
+      ],
+      [
+        "combine-observation-final-1",
+        "final",
+        null
+      ],
+      [
+        "combine-observation-final-2",
+        "final",
+        null
+      ],
+      [
+        "combine-observation-preliminary",
+        "preliminary",
+        null
+      ],
+      [
+        "combine-fixture-patient",
+        null,
+        "female"
+      ]
+    ],
+    "multiplicity": {
+      "combine-observation-final-1": 2,
+      "combine-observation-final-2": 2,
+      "combine-observation-preliminary": 2,
+      "combine-observation-unmatched": 1,
+      "combine-fixture-patient": 1
+    },
+    "nullPadding": "Each Observation/DiagnosticReport row has null Patient gender; the Patient row has null Status. Duplicate shared IDs are retained."
+  },
+  "requiredChecks": {
+    "total": 45,
+    "passed": 45,
+    "failed": 0,
+    "unrun": 0
+  },
+  "assertions": {
+    "total": 197,
+    "passed": 197,
+    "failed": 0
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed",
+      "assertions": 98
+    },
+    "correctness": {
+      "status": "passed",
+      "assertions": 31
+    },
+    "persistence": {
+      "status": "passed",
+      "assertions": 11
+    },
+    "performance": {
+      "status": "passed",
+      "assertions": 57
+    }
+  },
+  "lifecycle": {
+    "phases": [
+      "source publication",
+      "rooted target creation",
+      "initial APPEND proposal and Cancel",
+      "distinct target reconfiguration",
+      "preview and Apply",
+      "reload",
+      "saved edit preview and Cancel",
+      "saved edit Apply",
+      "reload",
+      "removal proposal and Cancel",
+      "removal Apply",
+      "reload/restoration"
+    ],
+    "reloadChecks": {
+      "Initial APPEND proposal Cancel reload reaches the exact rooted empty target within five seconds": {
+        "elapsedMs": 837.7413329999999,
+        "limitMs": 5000,
+        "outputId": "out_4a6408a29b485a81ca6a30c6",
+        "result": "exact rooted empty target DOM",
+        "rowCount": 0,
+        "headers": []
+      },
+      "APPEND Apply reload reaches the exact saved rows and headers within five seconds": {
+        "elapsedMs": 830.0988750000015,
+        "limitMs": 5000,
+        "outputId": "out_a4c7dc3f91a698f8e667945d",
+        "result": "exact saved APPEND row/header DOM",
+        "rowCount": 8,
+        "headers": [
+          "Record ID",
+          "Status",
+          "Patient gender"
+        ]
+      },
+      "APPEND saved-edit Cancel reload reaches the exact saved rows and headers within five seconds": {
+        "elapsedMs": 842.429415999999,
+        "limitMs": 5000,
+        "outputId": "out_a4c7dc3f91a698f8e667945d",
+        "result": "exact saved APPEND row/header DOM",
+        "rowCount": 8,
+        "headers": [
+          "Record ID",
+          "Status",
+          "Patient gender"
+        ]
+      },
+      "APPEND edit Apply reload reaches the exact saved rows and headers within five seconds": {
+        "elapsedMs": 847.0430840000008,
+        "limitMs": 5000,
+        "outputId": "out_a4c7dc3f91a698f8e667945d",
+        "result": "exact saved APPEND row/header DOM",
+        "rowCount": 8,
+        "headers": [
+          "Record ID",
+          "Status",
+          "Patient sex"
+        ]
+      },
+      "APPEND removal reload reaches the exact rooted empty target within five seconds": {
+        "elapsedMs": 850.9192919999987,
+        "limitMs": 5000,
+        "outputId": "out_a4c7dc3f91a698f8e667945d",
+        "result": "exact rooted empty target DOM",
+        "rowCount": 0,
+        "headers": []
+      }
+    },
+    "maximumFullReloadMs": 850.9192919999987,
+    "fullReloadLimitMs": 5000,
+    "maximumActionLatencyMs": 938,
+    "actionCount": 97
+  },
+  "networkClassification": {
+    "expectedSupersededAbortCount": 3,
+    "unexpectedNetworkErrors": 0,
+    "events": [
+      {
+        "requestSequence": 2,
+        "action": "apply Observation source fields and render its preview",
+        "error": "net::ERR_ABORTED",
+        "cancellationReason": "superseded capability binding has a later successful replacement",
+        "replacementSequence": 3,
+        "replacementStatus": 200,
+        "replacementFinished": true,
+        "replacementMatchesRequest": true,
+        "requestOutputId": "out_8bf0d8fc7583db34aa519341",
+        "replacementOutputId": "out_3ce0aff411464486c62507a9"
+      },
+      {
+        "requestSequence": 7,
+        "action": "select Combine target table",
+        "error": "net::ERR_ABORTED",
+        "cancellationReason": "superseded capability binding has a later successful replacement",
+        "replacementSequence": 8,
+        "replacementStatus": 200,
+        "replacementFinished": true,
+        "replacementMatchesRequest": true,
+        "requestOutputId": "out_8bf0d8fc7583db34aa519341",
+        "replacementOutputId": "out_4a6408a29b485a81ca6a30c6"
+      },
+      {
+        "requestSequence": 10,
+        "action": "select Combine target table",
+        "error": "net::ERR_ABORTED",
+        "cancellationReason": "superseded capability binding has a later successful replacement",
+        "replacementSequence": 11,
+        "replacementStatus": 200,
+        "replacementFinished": true,
+        "replacementMatchesRequest": true,
+        "requestOutputId": "out_8bf0d8fc7583db34aa519341",
+        "replacementOutputId": "out_a4c7dc3f91a698f8e667945d"
+      }
+    ],
+    "rule": "Only the three listed requests are classified as expected: each retained request event is marked superseded and paired with a finished status-200 response marked matching. Raw events remain in rawArtifacts.domainReport."
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "f22ad000f6f93af88ce279a160868b2e9ac4c66e6450292d57b55a57320a2ae4",
+        "files": 1590
+      },
+      "after": {
+        "sha256": "f22ad000f6f93af88ce279a160868b2e9ac4c66e6450292d57b55a57320a2ae4",
+        "files": 1590
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "4d3ff5131ff56cf3f83e83e68a82c78cf11f985edc5b7155a800ad899a4eadd3",
+        "files": 294
+      },
+      "after": {
+        "sha256": "4d3ff5131ff56cf3f83e83e68a82c78cf11f985edc5b7155a800ad899a4eadd3",
+        "files": 294
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "after": "47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:47ab963c82138165bf570b155bde5559fa83711ab2775ec5dc4fa4db25771111:f9d819db0aa31b233b2a4cae5b43295713bd0662eb5616fd8b72b32dca0e9b77",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_c89a69d7e137",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "group-pivot-append-wave142"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rawArtifacts": {
+    "summary": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/summary.json",
+      "sha256": "b6731e1fd20cf2bbfe0b7d48394ad09259f4b42e594f13d8129eacf621c85286",
+      "bytes": 155534
+    },
+    "playwrightReport": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/playwright-report.json",
+      "sha256": "950997ac89ade33236129d6090f54c1c711734bbaeda9ed06a817347cc3f2de0",
+      "bytes": 18502
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/playwright-results/append-APPEND-preview-apply-edit-cancel-removal-and-reload/attachments/loom-verification-report-json-602efebb7cd030d20dd6b3f6e9c88f80a0ecf8e8.json",
+      "sha256": "780f4ba23bdbca3c433fbf09787a8ed7cfb2044ada26f120b244ed77a0181e7a",
+      "bytes": 815724
+    },
+    "sourceBefore": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/source-before.json",
+      "sha256": "4b26bfb75911f1c5c01eeb93df07ebccc02739d9a7565fe5878eab6837e4b8cc",
+      "bytes": 204986
+    },
+    "sourceAfter": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/source-after.json",
+      "sha256": "aa1a5dc7d34c4663b0cff6476b38a3de4c832efecd89b3e429a96569b0d0f747",
+      "bytes": 204985
+    },
+    "docsBefore": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/docs-before.json",
+      "sha256": "9e2e490f535a0c40f7e2d92ae0f5f4ab2ff32af159cdb531b8211925537b455d",
+      "bytes": 44109
+    },
+    "docsAfter": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/docs-after.json",
+      "sha256": "7fd9e7e0aca6a5aadecb6f8b9992e4dcfe3ce35d5cb0a6f61bd08039e53be774",
+      "bytes": 44108
+    },
+    "precheck": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/api-build-precheck.json",
+      "sha256": "872b4e00c581682efa3dc6346be51004b2de3b7a2a2196c9b31f22d037fc3626",
+      "bytes": 686
+    },
+    "apiBefore": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/api-identity-before.json",
+      "sha256": "2013cbdfc9e5203d22f859ecd018bfc0a5bcca3abe6e929b0959f2b2e137c42b",
+      "bytes": 2844
+    },
+    "apiAfter": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/api-identity-after.json",
+      "sha256": "ebfd4a54c5bb0f8a72b13eb1c761af028b4c5aaadbd9af9e4119763895d0b026",
+      "bytes": 1876
+    },
+    "mountsBefore": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/owned-mounts-before.json",
+      "sha256": "b2e54b21be7faf8179e4320cae0c96edc453d7e5f0ce4384bcb1f8767d2f0e5f",
+      "bytes": 753
+    },
+    "mountsAfter": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/owned-mounts-after.json",
+      "sha256": "4503e2cb3060d12b4ecf69ee359a7fa7c0e0d44d355a601e62e8adf3ee877ea6",
+      "bytes": 752
+    },
+    "healthBefore": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/health-before.json",
+      "sha256": "2e402d65fa6dc4c19856100c4a650779327ae1d1af195585b8dcadf58fb739e6",
+      "bytes": 2076
+    },
+    "healthAfter": {
+      "path": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/health-after.json",
+      "sha256": "d11c03700d00f44a0b96d582d0e83179db40391bb21247f0a92889c888d2eccc",
+      "bytes": 2076
+    }
+  },
+  "historicalRun": {
+    "epoch": 145,
+    "status": "passed",
+    "requiredChecks": {
+      "passed": 37,
+      "total": 37
+    },
+    "summary": {
+      "path": "/private/tmp/loom-published-append-nullpadding-epoch145-retry2.mi4rdd/run-builder-combine-append-v8tjnI/summary.json",
+      "sha256": "230a6b5d492a06fad7d3ced853e9bf8b843b8a3cef7c1de1b59d613dacf00f5d"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-published-append-nullpadding-epoch145-retry2.mi4rdd/run-builder-combine-append-v8tjnI/playwright-results/append-APPEND-preview-apply-edit-cancel-removal-and-reload/attachments/loom-verification-report-json-2fa728b8de5c46421c18fb0a8aed629f173bbc1e.json",
+      "sha256": "81a5149d01a26335b246681477b09176c61a682f7574408dc8131defdefc7382"
+    },
+    "note": "Wave145 passed the prior 37-check registered contract; wave146 passes the expanded 45-check contract for the same published-source Basic lifecycle."
+  },
+  "invocation": {
+    "workingDirectory": "/private/tmp/loom-construction-implementation",
+    "spec": "scripts/verify-ui/specs/append.spec.mjs",
+    "title": "APPEND preview, apply, edit, cancel, removal and reload",
+    "selectedTestCount": 1,
+    "exactSelection": true,
+    "workers": 1,
+    "retries": 0,
+    "playwrightArguments": [
+      "scripts/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "scripts/playwright.config.mjs",
+      "--workers",
+      "1",
+      "--retries",
+      "0",
+      "--output",
+      "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/playwright-results",
+      "--reporter=json",
+      "scripts/verify-ui/specs/append.spec.mjs",
+      "--grep",
+      "APPEND preview, apply, edit, cancel, removal and reload$"
+    ],
+    "environmentOverrides": {
+      "PLAYWRIGHT_JSON_OUTPUT_FILE": "/private/tmp/loom-append-nullpadding-wave146.HX7V67/run-builder-combine-append-nuBUdp/playwright-report.json"
+    }
+  }
+}

@@ -1,0 +1,63 @@
+package published
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/calypr/loom/internal/dataframe/publication"
+)
+
+type selectionCatalog struct {
+	publication.BundleCatalog
+	execution publication.BundleExecution
+}
+
+func (c selectionCatalog) GetExecution(context.Context, string) (publication.BundleExecution, error) {
+	return c.execution, nil
+}
+
+func TestExactExecutionMaterializationAcceptsSyntheticOutputWithoutSourceRow(t *testing.T) {
+	reader := &Reader{Catalog: selectionCatalog{execution: publication.BundleExecution{
+		ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "project", DatasetGeneration: "generation", ReceiptID: "receipt", SchemaDigest: "schema"}, State: publication.BundlePublished,
+		Outputs: []publication.BundleOutputRecord{{Name: "files", PhysicalTable: "files_table", State: publication.BundlePublished, VerifiedAt: timePtr(time.Now())}},
+	}}}
+	materialization, err := reader.ExactExecutionMaterialization(context.Background(), "execution-a", "files")
+	if err != nil {
+		t.Fatalf("exact synthetic materialization error = %v", err)
+	}
+	if materialization.Name != "files" || materialization.SourceRow != nil {
+		t.Fatalf("synthetic materialization = %#v, want output name and no source row", materialization)
+	}
+	if _, _, err := SourceResourceRef(materialization, map[string]any{"id": "not-a-source-identity"}); !errors.Is(err, publication.ErrSelectionSourceNotAddressable) {
+		t.Fatalf("synthetic output source-ref error = %v, want source addressability failure", err)
+	}
+}
+
+func TestSourceResourceRefRequiresStringIdentity(t *testing.T) {
+	materialization := Materialization{Project: "project", DatasetGeneration: "generation", SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}}
+	if _, _, err := SourceResourceRef(materialization, map[string]any{"id": 42}); !errors.Is(err, publication.ErrSelectionSourceNotAddressable) {
+		t.Fatalf("numeric source id error = %v", err)
+	}
+	resourceType, id, err := SourceResourceRef(materialization, map[string]any{"id": "files001"})
+	if err != nil || resourceType != "DocumentReference" || id != "files001" {
+		t.Fatalf("source ref = %q/%q, err=%v", resourceType, id, err)
+	}
+}
+
+func TestSelectionSourceAdapterAcceptsOnlyEquivalentProjectIdentity(t *testing.T) {
+	reader := &Reader{Catalog: selectionCatalog{execution: publication.BundleExecution{
+		ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "Study-project", DatasetGeneration: "generation", ReceiptID: "receipt", SchemaDigest: "schema"}, State: publication.BundlePublished,
+		Outputs: []publication.BundleOutputRecord{{Name: "files", PhysicalTable: "files_table", State: publication.BundlePublished, VerifiedAt: timePtr(time.Now()), SourceRow: &publication.SourceRowMetadata{ResourceType: "DocumentReference", IDColumn: "id"}}},
+	}}}
+	adapter := SelectionSourceAdapter{Reader: reader}
+	if _, err := adapter.ResolveSelectionSource(context.Background(), "Study/project", "explorer", "execution-a", "files"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.ResolveSelectionSource(context.Background(), "Other/project", "explorer", "execution-a", "files"); !errors.Is(err, publication.ErrSelectionSourceIdentityChanged) {
+		t.Fatalf("foreign project error = %v", err)
+	}
+}
+
+func timePtr(value time.Time) *time.Time { return &value }

@@ -43,7 +43,7 @@ func TestSnapshotHashIsOrderIndependentAndIdentityComplete(t *testing.T) {
 		name string
 		edit func(*SnapshotIdentity)
 	}{
-		{"project", func(i *SnapshotIdentity) { i.Project = "other" }}, {"generation", func(i *SnapshotIdentity) { i.Generation = "other" }}, {"scope", func(i *SnapshotIdentity) { i.AuthorizationScopeDigest = "other" }}, {"schema", func(i *SnapshotIdentity) { i.SchemaDigest = "other" }}, {"inventory", func(i *SnapshotIdentity) { i.ResourceInventoryDigest = "other" }}, {"relationships", func(i *SnapshotIdentity) { i.RelationshipDigest = "other" }}, {"fields", func(i *SnapshotIdentity) { i.FieldDigest = "other" }}, {"protocol", func(i *SnapshotIdentity) { i.ProtocolVersion = "other" }}, {"compiler", func(i *SnapshotIdentity) { i.CompilerVersion = "other" }}, {"traversal", func(i *SnapshotIdentity) { i.TraversalPolicyVersion = "other" }}, {"projection", func(i *SnapshotIdentity) { i.ProjectionPolicyVersion = "other" }},
+		{"project", func(i *SnapshotIdentity) { i.Project = "other" }}, {"generation", func(i *SnapshotIdentity) { i.Generation = "other" }}, {"scope", func(i *SnapshotIdentity) { i.AuthorizationScopeDigest = "other" }}, {"cache version", func(i *SnapshotIdentity) { i.CacheVersion = "other" }}, {"schema", func(i *SnapshotIdentity) { i.SchemaDigest = "other" }}, {"inventory", func(i *SnapshotIdentity) { i.ResourceInventoryDigest = "other" }}, {"relationships", func(i *SnapshotIdentity) { i.RelationshipDigest = "other" }}, {"fields", func(i *SnapshotIdentity) { i.FieldDigest = "other" }}, {"protocol", func(i *SnapshotIdentity) { i.ProtocolVersion = "other" }}, {"compiler", func(i *SnapshotIdentity) { i.CompilerVersion = "other" }}, {"traversal", func(i *SnapshotIdentity) { i.TraversalPolicyVersion = "other" }}, {"projection", func(i *SnapshotIdentity) { i.ProjectionPolicyVersion = "other" }},
 	}
 	for _, tc := range fields {
 		id := testIdentity()
@@ -74,6 +74,91 @@ func TestBuilderUsesProofAndCopiesObservation(t *testing.T) {
 	}
 }
 
+func TestAvailabilityRetainsObservedFactsOutsideCompilerEligibleGraph(t *testing.T) {
+	evidence := Evidence{
+		Resources: []ResourceObservation{
+			{ResourceType: "Patient", DocumentCount: 2, Populated: true},
+			{ResourceType: "Organization", DocumentCount: 1, Populated: true},
+		},
+		Relationships: []RelationshipObservation{{
+			SourceResourceType: "Patient", TargetResourceType: "Organization", Label: "managingOrganization",
+			StorageDirection: "OUTBOUND", BuilderDirection: "OUTBOUND", ObservedEdgeCount: 1,
+		}},
+		Fields: []FieldObservation{
+			{ResourceType: "Patient", Path: "id", Label: "ID", Observed: true, ObservedShapeKind: "scalar", ObservedDocumentCount: 2},
+			{ResourceType: "Organization", Path: "meta.profile", Label: "Profile", Observed: true, ObservedShapeKind: "array", ObservedDocumentCount: 1},
+		},
+		ObservedFields: []ObservedField{
+			{ResourceType: "Patient", Path: "id", ShapeKind: "scalar", PathObservedCount: 2, Examples: []string{"p-1"}, SemanticObservations: []ConceptCandidate{}},
+			{ResourceType: "Organization", Path: "meta.profile", ShapeKind: "array", PathObservedCount: 1, Examples: []string{"urn:profile"}, SemanticObservations: []ConceptCandidate{{SourceResourceType: "Organization", Code: "profile", Completeness: "partial", Status: "UNPROVEN", Population: 1}}},
+		},
+		ObservedRelationships: []ObservedRelationship{{
+			SourceResourceType: "Patient", TargetResourceType: "Organization", Label: "managingOrganization",
+			StorageDirection: "OUTBOUND", BuilderDirection: "OUTBOUND", ObservedEdgeCount: 1,
+		}},
+		AvailabilityReadiness: AvailabilityReadiness{
+			Status: "UNKNOWN", Reason: "profile coverage marker is absent",
+			ResourceInventory: AvailabilitySourceReadiness{Status: "COMPLETE"},
+			Relationships:     AvailabilitySourceReadiness{Status: "COMPLETE"},
+			FieldProfiles:     AvailabilitySourceReadiness{Status: "UNKNOWN", Reason: "profile coverage marker is absent"},
+		},
+	}
+	builder := testBuilder(evidence)
+	builder.Compiler.Node = func(_ context.Context, node Node) (NodeProof, error) {
+		if node.ResourceType == "Patient" {
+			return NodeProof{Allowed: true, RowRootEligible: true, RowGrain: "RESOURCE", SupportedOperations: []Operation{OperationSelect}}, nil
+		}
+		return NodeProof{Reason: "compiler does not prove this resource as a row root"}, nil
+	}
+	builder.Compiler.Edge = func(context.Context, Edge) (EdgeProof, error) {
+		return EdgeProof{Reason: "compiler does not prove this traversal"}, nil
+	}
+
+	snapshot, err := builder.Build(context.Background())
+	if err != nil || !snapshot.Usable() {
+		t.Fatalf("Build() = usable %t, err %v", snapshot.Usable(), err)
+	}
+	if len(snapshot.Nodes) != 1 || snapshot.Nodes[0].ResourceType != "Patient" || len(snapshot.Edges) != 0 || len(snapshot.Candidates) != 1 || snapshot.Candidates[0].FieldPath != "id" {
+		t.Fatalf("compiler-eligible graph changed: nodes=%#v edges=%#v candidates=%#v", snapshot.Nodes, snapshot.Edges, snapshot.Candidates)
+	}
+	if len(snapshot.AuditNodes) != 1 || snapshot.AuditNodes[0].BlockedReason == "" || len(snapshot.AuditEdges) != 1 || snapshot.AuditEdges[0].BlockedReason == "" || len(snapshot.AuditCandidates) != 1 || snapshot.AuditCandidates[0].BlockedReason == "" {
+		t.Fatalf("unproven facts were not retained with compiler blockers: nodes=%#v edges=%#v fields=%#v", snapshot.AuditNodes, snapshot.AuditEdges, snapshot.AuditCandidates)
+	}
+	availability := snapshot.Availability
+	if availability == nil || availability.Readiness.Status != "UNKNOWN" || availability.Readiness.FieldProfiles.Status != "UNKNOWN" || len(availability.Resources) != 2 || len(availability.Fields) != 2 || len(availability.Relationships) != 1 {
+		t.Fatalf("availability did not retain observations and readiness: %#v", availability)
+	}
+	var profile *ObservedField
+	for i := range availability.Fields {
+		if availability.Fields[i].ResourceType == "Organization" && availability.Fields[i].Path == "meta.profile" {
+			profile = &availability.Fields[i]
+			break
+		}
+	}
+	if profile == nil || profile.ShapeKind != "array" || profile.PathObservedCount != 1 || len(profile.Examples) != 1 || profile.Examples[0] != "urn:profile" || len(profile.SemanticObservations) != 1 || profile.SemanticObservations[0].Status != "UNPROVEN" {
+		t.Fatalf("observed unproven field was lost or changed: %#v", profile)
+	}
+	if availability.Relationships[0].StorageDirection != "OUTBOUND" || availability.Relationships[0].BuilderDirection != "OUTBOUND" {
+		t.Fatalf("relationship directions = %#v", availability.Relationships[0])
+	}
+	clone := snapshot.Clone()
+	var cloneProfile *ObservedField
+	for i := range clone.Availability.Fields {
+		if clone.Availability.Fields[i].ResourceType == "Organization" && clone.Availability.Fields[i].Path == "meta.profile" {
+			cloneProfile = &clone.Availability.Fields[i]
+			break
+		}
+	}
+	if cloneProfile == nil {
+		t.Fatalf("clone lost observed profile field: %#v", clone.Availability.Fields)
+	}
+	cloneProfile.Examples[0] = "mutated"
+	cloneProfile.SemanticObservations[0].Code = "mutated"
+	if profile.Examples[0] != "urn:profile" || profile.SemanticObservations[0].Code != "profile" {
+		t.Fatal("snapshot clone shares nested availability values")
+	}
+}
+
 func TestUnpopulatedInventoryResourcesStayOutOfUsableNodes(t *testing.T) {
 	obs := Evidence{Resources: []ResourceObservation{{ResourceType: "Patient", Populated: true, DocumentCount: 1}, {ResourceType: "Observation", DocumentCount: 0}}, Fields: []FieldObservation{}}
 	s, err := testBuilder(obs).Build(context.Background())
@@ -85,6 +170,9 @@ func TestUnpopulatedInventoryResourcesStayOutOfUsableNodes(t *testing.T) {
 	}
 	if len(s.AuditNodes) != 1 || s.AuditNodes[0].BlockedReason == "" {
 		t.Fatalf("unpopulated resource was not retained for audit: %#v", s.AuditNodes)
+	}
+	if s.Availability == nil || len(s.Availability.Resources) != 1 || s.Availability.Resources[0].ResourceType != "Patient" {
+		t.Fatalf("schema-only resource was exposed as populated availability: %#v", s.Availability)
 	}
 }
 

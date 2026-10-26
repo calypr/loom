@@ -55,9 +55,10 @@ type PhysicalTraversalSubset struct {
 // future sharing rewrite. PrefixKey is stable across generated local variable
 // and target-type bind names, but differs for any scoped physical behavior.
 type PhysicalTraversalPrefixDecomposition struct {
-	Prefix    PhysicalTraversalPrefix
-	Subset    PhysicalTraversalSubset
-	PrefixKey string
+	Prefix           PhysicalTraversalPrefix
+	PrefixOperations []PhysicalOperation
+	Subset           PhysicalTraversalSubset
+	PrefixKey        string
 }
 
 type PhysicalTraversalPrefixRejectionReason string
@@ -172,7 +173,8 @@ func decomposePhysicalTraversalPrefix(plan PhysicalPlan, set PhysicalSet, setInd
 		return PhysicalTraversalPrefixDecomposition{}, err
 	}
 	return PhysicalTraversalPrefixDecomposition{
-		Prefix: prefix,
+		Prefix:           prefix,
+		PrefixOperations: clonePhysicalOperations(set.Subplan.Operations[:1+len(scope)]),
 		Subset: PhysicalTraversalSubset{
 			TargetTypeBindKey:  traversal.TargetTypeBindKey,
 			TargetVariable:     traversal.TargetVariable,
@@ -195,14 +197,7 @@ func physicalUnnestScopeIdentityAt(plan PhysicalPlan, operationIndex int) (strin
 	if operationIndex > len(plan.Operations) {
 		return "", fmt.Errorf("operation index %d is outside plan", operationIndex)
 	}
-	type unnestScope struct {
-		InputVariable  string
-		OutputVariable string
-		Ordinality     string
-		Expression     PhysicalExpression
-		JoinMode       PhysicalUnnestJoinMode
-	}
-	active := make([]unnestScope, 0)
+	active := make([]PhysicalUnnest, 0)
 	for index := 0; index < operationIndex; index++ {
 		operation := plan.Operations[index]
 		if operation.Kind != PhysicalUnnestOp {
@@ -212,13 +207,7 @@ func physicalUnnestScopeIdentityAt(plan PhysicalPlan, operationIndex int) (strin
 			return "", fmt.Errorf("unnest operation %d has no payload", index)
 		}
 		unnest := operation.Unnest
-		active = append(active, unnestScope{
-			InputVariable:  unnest.InputVariable,
-			OutputVariable: unnest.OutputVariable,
-			Ordinality:     unnest.Ordinality,
-			Expression:     unnest.Expression,
-			JoinMode:       unnest.JoinMode,
-		})
+		active = append(active, *unnest)
 	}
 	if len(active) == 0 {
 		return "", nil

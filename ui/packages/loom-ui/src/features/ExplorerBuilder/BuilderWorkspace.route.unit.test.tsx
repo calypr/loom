@@ -4,6 +4,7 @@ import { vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
+  useAssessExplorerRowChangeMutation,
   useCreateExplorerAuthoringMutation,
   useDeleteExplorerAuthoringMutation,
   useGetExplorerAuthoringCapabilityV2Query,
@@ -11,23 +12,47 @@ import {
   useGetExplorerBuilderStateV2Query,
   useGetExplorerCandidateSuggestionsV2Mutation,
   usePreviewExplorerAuthoringV2Mutation,
+  usePopulationMappingMutation,
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 
-vi.mock('../../react', () => ({
-  useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
-  useCreateExplorerAuthoringMutation: vi.fn(),
-  useDeleteExplorerAuthoringMutation: vi.fn(),
-  useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
-  useGetExplorerAuthoringExplorersQuery: vi.fn(),
-  useGetExplorerBuilderStateV2Query: vi.fn(),
-  useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
-  usePreviewExplorerAuthoringV2Mutation: vi.fn(),
-  usePublishExplorerAuthoringV2Mutation: vi.fn(),
-  useReconcileExplorerBuilderV2Mutation: vi.fn(),
-}));
+const mockLoomClient = vi.hoisted(() => ({ getSelection: vi.fn(), createSelection: vi.fn() }));
+
+vi.mock('../../react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../react')>();
+  return {
+    ...actual,
+    useLoomClient: () => mockLoomClient,
+    useApplyExplorerBuilderCommandsV2Mutation: vi.fn(),
+    useAssessExplorerRowChangeMutation: vi.fn(),
+    useCreateExplorerAuthoringMutation: vi.fn(),
+    useDeleteExplorerAuthoringMutation: vi.fn(),
+    useGetExplorerAuthoringCapabilityV2Query: vi.fn(),
+    useGetExplorerAuthoringExplorersQuery: vi.fn(),
+    useGetExplorerBuilderStateV2Query: vi.fn(),
+    useResolveConfiguredColumnContextsQuery: vi.fn(() => ({
+      data: undefined,
+      error: undefined,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })),
+    useResolvePopulationSelectionQuery: vi.fn(() => ({
+      data: undefined,
+      error: undefined,
+      isLoading: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    })),
+    useGetExplorerCandidateSuggestionsV2Mutation: vi.fn(),
+    usePreviewExplorerAuthoringV2Mutation: vi.fn(),
+    usePopulationMappingMutation: vi.fn(),
+    usePublishExplorerAuthoringV2Mutation: vi.fn(),
+    useReconcileExplorerBuilderV2Mutation: vi.fn(),
+  };
+});
 
 const mutationResult = () => [vi.fn(), { isLoading: false }];
 const newBuilderState = () => ({
@@ -71,6 +96,9 @@ describe('BuilderWorkspace route selection', () => {
     (useApplyExplorerBuilderCommandsV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );
+    (useAssessExplorerRowChangeMutation as Mock).mockReturnValue(
+      mutationResult(),
+    );
     (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );
@@ -80,6 +108,7 @@ describe('BuilderWorkspace route selection', () => {
     (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );
+    (usePopulationMappingMutation as Mock).mockReturnValue(mutationResult());
     (usePublishExplorerAuthoringV2Mutation as Mock).mockReturnValue(
       mutationResult(),
     );

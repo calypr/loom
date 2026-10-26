@@ -1,0 +1,633 @@
+import type {
+  ConstructionChoice,
+  ConstructionChoiceForm,
+  ConstructionChoiceSelection,
+  ContributorPredicate,
+  ExplorerBuilderCatalog,
+  ExplorerBuilderCandidate,
+  FieldChoiceSource,
+  FieldPresentation,
+  FieldPresentationRequest,
+  SemanticInventoryItemIdentity,
+  SemanticInventoryItem,
+  SemanticInventorySelectionMode,
+} from '../../types';
+
+export type CatalogItem =
+  | {
+      readonly kind: 'FIELD';
+      readonly candidate: ExplorerBuilderCandidate;
+      readonly constructionChoice: ConstructionChoice & {
+        readonly source: FieldChoiceSource;
+      };
+    }
+  | {
+      readonly kind: 'SEMANTIC';
+      readonly item: SemanticInventoryItem;
+      readonly constructionChoice?: ConstructionChoice;
+    };
+
+export type CatalogChoiceIntent = {
+  readonly constructionChoice: ConstructionChoiceSelection;
+  readonly title?: string;
+  readonly contributorPredicate?: ContributorPredicate;
+  readonly relatedSource?: {
+    readonly choice: ConstructionChoice;
+    readonly candidate: ExplorerBuilderCandidate;
+  };
+};
+
+export type SemanticSourceFieldLink = {
+  readonly field: Extract<CatalogItem, { readonly kind: 'FIELD' }>;
+  readonly replacements: ReadonlyArray<Extract<CatalogItem, { readonly kind: 'SEMANTIC' }>>;
+  readonly requestKey: string;
+};
+
+export const semanticInventoryIdentityKey = (
+  identity: SemanticInventoryItemIdentity,
+): string => {
+  switch (identity.kind) {
+    case 'EXACT_CONCEPT':
+      return JSON.stringify([identity.kind, identity.conceptId, identity.bindingId]);
+    case 'SYSTEM_VERSION_CATEGORY':
+      return JSON.stringify([identity.kind, identity.familyId, identity.bindingId]);
+    default: {
+      const exhaustive: never = identity;
+      return exhaustive;
+    }
+  }
+};
+
+export const semanticIdentityForItem = (
+  item: SemanticInventoryItem,
+): SemanticInventoryItemIdentity | undefined => {
+  if (item.selectionMode === 'SYSTEM_VERSION_CATEGORY' && item.familyId) {
+    return {
+      kind: 'SYSTEM_VERSION_CATEGORY',
+      familyId: item.familyId,
+      bindingId: item.bindingId,
+    };
+  }
+  if (item.selectionMode === undefined && item.familyId === undefined) {
+    return {
+      kind: 'EXACT_CONCEPT',
+      conceptId: item.conceptId,
+      bindingId: item.bindingId,
+    };
+  }
+  return undefined;
+};
+
+export const semanticItemMatchesIdentity = (
+  item: SemanticInventoryItem,
+  identity: SemanticInventoryItemIdentity,
+): boolean => {
+  const itemIdentity = semanticIdentityForItem(item);
+  return itemIdentity !== undefined &&
+    semanticInventoryIdentityKey(itemIdentity) === semanticInventoryIdentityKey(identity);
+};
+
+export const fieldPresentationMatchesRequest = ({
+  presentation,
+  request,
+  project,
+  explorerId,
+  snapshotToken,
+  outputId,
+  datasetGeneration,
+  inventoryBuildId,
+  authorizationScopeDigest,
+}: {
+  readonly presentation: FieldPresentation | undefined;
+  readonly request: FieldPresentationRequest;
+  readonly project: string;
+  readonly explorerId: string;
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly datasetGeneration: string;
+  readonly inventoryBuildId: string;
+  readonly authorizationScopeDigest?: string;
+}): boolean => {
+  if (presentation?.kind !== 'READY') return false;
+  const { context, decisions } = presentation;
+  const expectedCandidateIds = new Set(request.candidateIds);
+  const decisionCandidateIds = decisions.map((decision) => decision.candidateId);
+  const contextMatches = context.project === project &&
+    (authorizationScopeDigest === undefined || context.authorizationScopeDigest === authorizationScopeDigest) &&
+    context.explorerId === explorerId &&
+    context.snapshotToken === snapshotToken &&
+    context.datasetGeneration === datasetGeneration &&
+    context.inventoryBuildId === inventoryBuildId &&
+    context.outputId === outputId &&
+    context.draftVersion === request.expectedDraftVersion &&
+    context.draftDigest === request.expectedDraftDigest &&
+    context.sourceNodeId === request.sourceNodeId &&
+    context.occurrenceId === request.occurrenceId &&
+    context.stageId === request.stageId;
+  const decisionsMatch = decisions.length === expectedCandidateIds.size &&
+    new Set(decisionCandidateIds).size === expectedCandidateIds.size &&
+    decisionCandidateIds.every((candidateId) => expectedCandidateIds.has(candidateId));
+  return contextMatches && decisionsMatch;
+};
+
+export const CODED_VALUE_RULE_HINT = 'CODED_VALUE_V1';
+export const CODED_CONCEPT_RULE_HINT = 'CODED_CONCEPT_V1';
+export const CODED_CATEGORY_RULE_HINT = 'CODED_CATEGORY_V1';
+export const CODED_SEMANTIC_RULE_HINTS = [
+  CODED_VALUE_RULE_HINT,
+  CODED_CONCEPT_RULE_HINT,
+  CODED_CATEGORY_RULE_HINT,
+] as const;
+export type CodedSemanticRuleHint = (typeof CODED_SEMANTIC_RULE_HINTS)[number];
+
+export type CatalogChoiceGroup = {
+  readonly item: CatalogItem;
+  readonly choices: ReadonlyArray<ConstructionChoice>;
+  readonly complete: boolean;
+  readonly truncated: boolean;
+  readonly nextCursor?: string;
+  readonly semanticContext?: {
+    readonly contextToken: string;
+    readonly buildId: string;
+  };
+};
+
+export type CatalogItemAvailability =
+  | { readonly selectable: true }
+  | { readonly selectable: false; readonly reason: string };
+
+export type CatalogSourceOption =
+  | {
+      readonly kind: 'ALL';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType?: never;
+      readonly sourceNodeId?: never;
+    }
+  | {
+      readonly kind: 'ROOT';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType: string;
+      readonly sourceNodeId?: string;
+    }
+  | {
+      readonly kind: 'RELATED';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType: string;
+      readonly sourceNodeId: string;
+    }
+  | {
+      readonly kind: 'SAVED_OCCURRENCE';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType?: string;
+      readonly sourceNodeId: string;
+    };
+
+export const catalogSourceOptions = (
+  catalog: ExplorerBuilderCatalog,
+  rowRoot: string,
+  savedOccurrenceNodeId?: string,
+): ReadonlyArray<CatalogSourceOption> => {
+  const rootNodes = catalog.nodes.filter((node) => node.resourceType === rowRoot);
+  const rootSeeds = rootNodes.filter((node) => node.rowRootEligible);
+  const seeds = rootSeeds.length > 0 ? rootSeeds : rootNodes;
+  const reachableNodeIds = new Set(seeds.map((node) => node.nodeId));
+  const queue = seeds.map((node) => node.nodeId);
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const currentNodeId = queue[queueIndex];
+    if (!currentNodeId) continue;
+    for (const edge of catalog.edges) {
+      const nextNodeId = edge.fromNodeId === currentNodeId
+        ? edge.toNodeId
+        : edge.toNodeId === currentNodeId
+          ? edge.fromNodeId
+          : undefined;
+      if (!nextNodeId || reachableNodeIds.has(nextNodeId)) continue;
+      reachableNodeIds.add(nextNodeId);
+      queue.push(nextNodeId);
+    }
+  }
+
+  const savedRootNode = rootNodes.find(
+    (node) => node.nodeId === savedOccurrenceNodeId,
+  );
+  const options: CatalogSourceOption[] = [{
+    kind: 'ROOT',
+    key: `root:${rowRoot}`,
+    label: `${rowRoot} — table rows${savedRootNode ? ' · selected occurrence' : ''}`,
+    resourceType: rowRoot,
+    ...(savedRootNode ? { sourceNodeId: savedRootNode.nodeId } : {}),
+  }];
+
+  for (const node of catalog.nodes) {
+    if (!reachableNodeIds.has(node.nodeId) || node.resourceType === rowRoot) continue;
+    options.push({
+      kind: 'RELATED',
+      key: `node:${node.nodeId}`,
+      label: `${node.resourceType} — related source${node.nodeId === savedOccurrenceNodeId ? ' · selected occurrence' : ''}`,
+      resourceType: node.resourceType,
+      sourceNodeId: node.nodeId,
+    });
+  }
+
+  if (savedOccurrenceNodeId && !options.some(
+    (option) => option.sourceNodeId === savedOccurrenceNodeId,
+  )) {
+    const savedNode = catalog.nodes.find(
+      (node) => node.nodeId === savedOccurrenceNodeId,
+    );
+    options.push({
+      kind: 'SAVED_OCCURRENCE',
+      key: `occurrence:${savedOccurrenceNodeId}`,
+      label: savedNode
+        ? `${savedNode.resourceType} — selected occurrence`
+        : 'Selected occurrence',
+      ...(savedNode ? { resourceType: savedNode.resourceType } : {}),
+      sourceNodeId: savedOccurrenceNodeId,
+    });
+  }
+
+  return options;
+};
+
+export const catalogItemKey = (item: CatalogItem): string => {
+  switch (item.kind) {
+    case 'FIELD':
+      return JSON.stringify(['FIELD', item.constructionChoice.choiceId]);
+    case 'SEMANTIC':
+      return JSON.stringify([
+        'SEMANTIC',
+        item.constructionChoice?.choiceId ?? item.item.conceptId,
+        item.item.bindingId,
+      ]);
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
+};
+
+const fieldPathLabel = (path: string): string => {
+  const words: string[] = [];
+  for (const segment of path.replace(/^root\./, '').split('.')) {
+    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+    if (!readable || words.at(-1)?.toLowerCase() === readable.toLowerCase()) continue;
+    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
+  }
+  return words.join(' ');
+};
+
+export const catalogItemLabel = (
+  item: CatalogItem,
+): string => {
+  switch (item.kind) {
+    case 'FIELD': {
+      const label = item.candidate.label.trim();
+      const path = item.candidate.fieldPath.replace(/^root\./, '');
+      if (label && label !== item.candidate.fieldPath && label !== path && label !== `${item.constructionChoice.source.resourceType}.${path}`) return label;
+      return path === 'id'
+        ? `${item.constructionChoice.source.resourceType} ID`
+        : fieldPathLabel(path);
+    }
+    case 'SEMANTIC':
+      return semanticConceptLabel(item.item);
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
+};
+
+const semanticStructuralLabel = (item: SemanticInventoryItem): string => {
+  const structuralPath = fieldPathLabel(item.sourcePath);
+  return [item.resourceType, structuralPath].filter(Boolean).join(' ') || item.resourceType;
+};
+
+export const semanticConceptTitle = (item: SemanticInventoryItem): string => {
+  const label = item.display.trim() || item.code.trim() || item.sourcePath;
+  return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(label)
+    ? label.replaceAll('_', ' ').replace(/^./, (first) => first.toUpperCase())
+    : label;
+};
+
+export const semanticConceptLabel = (item: SemanticInventoryItem): string =>
+  semanticConceptTitle(item);
+
+export const semanticConceptSelectionLabel = (
+  item: SemanticInventoryItem,
+  selectionMode?: SemanticInventorySelectionMode,
+): string => {
+  if (item.selectionMode !== 'SYSTEM_VERSION_CATEGORY' && selectionMode !== 'SYSTEM_VERSION_CATEGORY') {
+    return semanticConceptTitle(item);
+  }
+  const categoryQualifier = item.selectionMode === 'SYSTEM_VERSION_CATEGORY' ? 'category' : undefined;
+  const systemQualifier = item.system.trim()
+    ? `system ${item.system.trim()}`
+    : 'system not specified';
+  const versionQualifier = item.codingVersion.trim()
+    ? `version ${item.codingVersion.trim()}`
+    : 'version unversioned';
+  const codeQualifier = item.code.trim() ? `code ${item.code.trim()}` : undefined;
+  return [
+    semanticConceptTitle(item),
+    categoryQualifier,
+    semanticStructuralLabel(item),
+    systemQualifier,
+    versionQualifier,
+    codeQualifier,
+  ].filter((qualifier): qualifier is string => qualifier !== undefined).join(' · ');
+};
+
+export const catalogItemSelectionLabel = (
+  item: CatalogItem,
+  selectionMode?: SemanticInventorySelectionMode,
+): string => {
+  switch (item.kind) {
+    case 'FIELD':
+      return catalogItemLabel(item);
+    case 'SEMANTIC':
+      return semanticConceptSelectionLabel(item.item, selectionMode);
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
+};
+
+export const catalogItemTitle = (item: CatalogItem): string =>
+  item.kind === 'SEMANTIC' ? semanticConceptTitle(item.item) : catalogItemLabel(item);
+
+const isRelatedFieldSource = (
+  sourceResourceType: string,
+  routeLength: number,
+  rowRoot: string,
+): boolean => sourceResourceType !== rowRoot || routeLength > 0;
+
+export const isRelatedFieldCatalogItem = (
+  item: CatalogItem,
+  rowRoot: string,
+): boolean => item.kind === 'FIELD' && isRelatedFieldSource(
+  item.constructionChoice.source.resourceType,
+  item.constructionChoice.route.length,
+  rowRoot,
+);
+
+const supportsRelatedFieldSource = (
+  cardinality: string,
+  repeatedBoundaries: ReadonlyArray<unknown> | undefined,
+): boolean =>
+  (cardinality === 'required_one' || cardinality === 'optional_one') &&
+  (repeatedBoundaries?.length ?? 0) === 0;
+
+export const catalogChoiceIntent = ({
+  item,
+  choice,
+  form,
+  rowRoot,
+  rowValuePolicy,
+}: {
+  readonly item: CatalogItem;
+  readonly choice: ConstructionChoice;
+  readonly form: ConstructionChoiceForm;
+  readonly rowRoot?: string;
+  readonly rowValuePolicy?: ConstructionChoiceSelection['rowValuePolicy'];
+}): CatalogChoiceIntent => {
+  const relatedSource = item.kind === 'FIELD' &&
+    rowRoot !== undefined &&
+    (form === 'ALL' || form === 'COUNT' || form === 'PRESENCE') &&
+    isRelatedFieldCatalogItem(item, rowRoot) &&
+    choice.source.kind === 'FIELD' &&
+    choice.source.candidateId === item.candidate.candidateId &&
+    choice.source.nodeId === item.candidate.nodeId &&
+    choice.source.resourceType === item.constructionChoice.source.resourceType &&
+    choice.source.path === item.candidate.fieldPath &&
+    choice.source.cardinality === item.candidate.cardinality &&
+    supportsRelatedFieldSource(choice.source.cardinality, choice.source.repeatedBoundaries) &&
+    choice.options.some((option) => option.form === form && option.support === 'SUPPORTED')
+      ? { choice, candidate: item.candidate }
+      : undefined;
+
+  return {
+    constructionChoice: {
+      choiceId: choice.choiceId,
+      form,
+      ...(rowValuePolicy === 'ONE' ? { rowValuePolicy } : {}),
+    },
+    title: catalogItemTitle(item),
+    ...(relatedSource ? { relatedSource } : {}),
+  };
+};
+
+export const catalogItemConstructionChoice = (
+  item: CatalogItem,
+): ConstructionChoice | undefined => {
+  switch (item.kind) {
+    case 'FIELD':
+      return item.constructionChoice;
+    case 'SEMANTIC':
+      return item.constructionChoice;
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
+};
+
+export const catalogItemAvailability = (
+  item: CatalogItem,
+): CatalogItemAvailability => {
+  switch (item.kind) {
+    case 'FIELD':
+      if (item.constructionChoice.source.kind !== 'FIELD') {
+        return {
+          selectable: false,
+          reason: 'Loom did not provide a field construction choice for this source.',
+        };
+      }
+      return item.constructionChoice.options.some((option) => option.support === 'SUPPORTED')
+        ? { selectable: true }
+        : {
+            selectable: false,
+            reason: 'Loom did not provide a supported form for this field.',
+          };
+    case 'SEMANTIC': {
+      const readiness = item.item.readiness;
+      if (readiness.status === 'NEEDS_MAPPING' || readiness.status === 'UNSUPPORTED') {
+        return { selectable: false, reason: readiness.message };
+      }
+      if (!item.constructionChoice) {
+        return {
+          selectable: false,
+          reason: 'Loom has not provided a compiler-proved output form for this concept.',
+        };
+      }
+      if (item.constructionChoice.source.kind !== 'SEMANTIC') {
+        return {
+          selectable: false,
+          reason: 'Loom returned a construction choice for a different source kind.',
+        };
+      }
+      if (!item.constructionChoice.options.some((option) => option.support === 'SUPPORTED')) {
+        return {
+          selectable: false,
+          reason: 'Loom did not provide a supported form for this concept.',
+        };
+      }
+      if (
+        item.constructionChoice.source.conceptId !== item.item.conceptId ||
+        item.constructionChoice.source.bindingId !== item.item.bindingId ||
+        item.constructionChoice.source.resourceType !== item.item.resourceType
+      ) {
+        return {
+          selectable: false,
+          reason: 'Loom returned a construction choice for a different concept binding.',
+        };
+      }
+      return { selectable: true };
+    }
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
+};
+
+export const catalogItemDefaultForm = (
+  choice: ConstructionChoice,
+): ConstructionChoiceForm | undefined => {
+  const defaults = choice.options.filter((option) => option.decision === 'DEFAULT');
+  return defaults.length === 1 ? defaults[0]?.form : undefined;
+};
+
+export const directCatalogChoiceIntents = (
+  items: ReadonlyArray<CatalogItem>,
+  rowRoot: string,
+): ReadonlyArray<CatalogChoiceIntent> | undefined => {
+  if (items.length === 0) return undefined;
+  const selections: CatalogChoiceIntent[] = [];
+  for (const item of items) {
+    const choice = catalogItemConstructionChoice(item);
+    if (
+      !choice ||
+      !catalogItemAvailability(item).selectable ||
+      choice.options.length !== 1
+    ) {
+      return undefined;
+    }
+    const [option] = choice.options;
+    if (!option || option.decision !== 'DEFAULT') return undefined;
+    const intent = catalogChoiceIntent({
+      item,
+      choice,
+      form: option.form,
+      rowRoot,
+    });
+    if (isRelatedFieldCatalogItem(item, rowRoot) && !intent.relatedSource) return undefined;
+    selections.push(intent);
+  }
+  return selections;
+};
+
+export const fieldCatalogItems = (
+  catalog: ExplorerBuilderCatalog,
+  rowRoot: string,
+  resourceType: string | undefined,
+  query: string,
+  sourceNodeId?: string,
+  includeRelated = false,
+): ReadonlyArray<CatalogItem> => {
+  const search = query.trim().toLowerCase();
+  const rootPriority = (item: CatalogItem): number =>
+    item.kind === 'FIELD' && item.constructionChoice.source.resourceType === rowRoot
+      ? 0
+      : 1;
+  return (catalog.candidates ?? []).flatMap((candidate) => {
+    const choice = candidate.constructionChoice;
+    if (!choice) return [];
+    const source = choice.source;
+    const node = catalog.nodes.find(
+      (candidateNode) => candidateNode.nodeId === candidate.nodeId,
+    );
+    if (
+      candidate.populated !== true ||
+      !node ||
+      (resourceType
+        ? node.resourceType !== resourceType
+        : !includeRelated && !search && node.resourceType !== rowRoot) ||
+      (sourceNodeId && node.nodeId !== sourceNodeId) ||
+      source.kind !== 'FIELD' ||
+      source.candidateId !== candidate.candidateId ||
+      source.nodeId !== node.nodeId ||
+      source.resourceType !== node.resourceType ||
+      source.path !== candidate.fieldPath ||
+      source.cardinality !== candidate.cardinality
+    ) {
+      return [];
+    }
+
+    if (
+      isRelatedFieldSource(source.resourceType, choice.route.length, rowRoot) &&
+      !supportsRelatedFieldSource(candidate.cardinality, candidate.repeatedBoundaries)
+    ) {
+      return [];
+    }
+
+    const item: CatalogItem = {
+      kind: 'FIELD',
+      candidate,
+      constructionChoice: { ...choice, source },
+    };
+    if (!search) return [item];
+    const searchable = [
+      candidate.label,
+      candidate.fieldPath,
+      candidate.logicalType,
+      candidate.cardinality,
+    ].join(' ').toLowerCase();
+    return searchable.includes(search) ? [item] : [];
+  }).sort((left, right) => rootPriority(left) - rootPriority(right));
+};
+
+export const rootFieldCatalogItems = (
+  catalog: ExplorerBuilderCatalog,
+  rowRoot: string,
+  query: string,
+): ReadonlyArray<CatalogItem> => fieldCatalogItems(catalog, rowRoot, rowRoot, query);
+
+export const semanticItemMatchesRule = (
+  item: SemanticInventoryItem,
+  ruleHint: string,
+): boolean => {
+  const source = item.constructionChoice?.source;
+  return source?.kind === 'SEMANTIC' &&
+    source.ruleHint === ruleHint &&
+    source.conceptId === item.conceptId &&
+    source.bindingId === item.bindingId &&
+    source.resourceType === item.resourceType;
+};
+
+export const semanticItemMatchesAnyRule = (
+  item: SemanticInventoryItem,
+  ruleHints: ReadonlyArray<CodedSemanticRuleHint>,
+): boolean => ruleHints.some((ruleHint) => semanticItemMatchesRule(item, ruleHint));
+
+export const semanticCatalogItems = (
+  items: ReadonlyArray<SemanticInventoryItem>,
+  resourceType?: string,
+  sourceNodeId?: string,
+  ruleHints?: ReadonlyArray<CodedSemanticRuleHint>,
+): ReadonlyArray<CatalogItem> => items
+  .filter((item) =>
+    (!resourceType || item.resourceType === resourceType) &&
+    (!sourceNodeId || item.constructionChoice?.source.nodeId === sourceNodeId) &&
+    (!ruleHints || semanticItemMatchesAnyRule(item, ruleHints)),
+  )
+  .map((item) => ({
+    kind: 'SEMANTIC',
+    item,
+    constructionChoice: item.constructionChoice,
+  }));

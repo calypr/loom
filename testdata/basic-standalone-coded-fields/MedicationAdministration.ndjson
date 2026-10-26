@@ -1,0 +1,2 @@
+{"resourceType":"MedicationAdministration","id":"coded-catalog-administration-01","status":"completed","subject":{"reference":"Patient/coded-catalog-patient-01"},"medication":{"reference":{"reference":"Medication/coded-catalog-medication-01"}},"effectiveDateTime":"2026-01-01T12:00:00Z"}
+{"resourceType":"MedicationAdministration","id":"coded-catalog-administration-02","status":"completed","subject":{"reference":"Patient/coded-catalog-patient-02"},"medication":{"reference":{"reference":"Medication/coded-catalog-medication-02"}},"effectiveDateTime":"2026-01-02T12:00:00Z"}

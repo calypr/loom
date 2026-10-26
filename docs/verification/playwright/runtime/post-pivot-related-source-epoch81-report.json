@@ -1,0 +1,242 @@
+{
+  "scenario": "standalone-reshape-related-source-after-pivot",
+  "case": "related-source-after-pivot",
+  "title": "standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot",
+  "epoch": 81,
+  "status": "untested",
+  "coverageStatus": "untested",
+  "runnerStatus": "failed_before_native_lifecycle_explorer_not_found",
+  "classification": "Source-attributed fixture identity mismatch; the raw observation oracle passed, but no Builder lifecycle action ran. This is a harness/setup failure, not evidence of a product failure or lifecycle pass.",
+  "browserProcess": {
+    "session": 54403,
+    "exitCode": 1
+  },
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "failed",
+    "durationMs": 8793,
+    "diagnosticLimit": 100,
+    "droppedDiagnostics": 0,
+    "droppedNavigationTimings": 0
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "requestedExplorerName": "qa-reshape-related-source-after-pivot-5bb03aa9-854a-4cd4-99b2-076555f7708e",
+    "requestedExplorerNameLength": 74,
+    "stableExplorerIDLimit": 64,
+    "stableExplorerIDFromRequest": "qa-reshape-related-source-after-pivot-5bb03aa9-854a-4cd4-99b2-07"
+  },
+  "requiredChecks": {
+    "total": 25,
+    "passed": 3,
+    "missing": 22,
+    "missingNames": [
+      "Fresh Explorer binds the exact two-root Observation population to its direct source table",
+      "Native Pivot preview matches the two exact source categories and coalesces one row",
+      "Pivot Cancel preserves exact source workspace and rows after reload",
+      "Confirmed Pivot proposal retains exact typed category and value bindings",
+      "Applied Pivot persists typed categories and one independently verified coalesced row after reload",
+      "Pivot compiler stage exposes the exact row identity and RELATED_SOURCE capability",
+      "Post-Pivot Patient.id ALL proposal retains both source contributors",
+      "Native chooser and candidate bind Patient.id ALL through exact Observation.subject → Patient",
+      "Post-Pivot ALL returns both independently resolved Patient IDs on one Pivot row",
+      "Related-source Cancel preserves the exact saved Pivot and its raw values after reload",
+      "Confirmed post-Pivot Patient.id ALL preview",
+      "Applied post-Pivot RELATED_SOURCE retains exact ALL binding and contributors after reload",
+      "Edited related-source label keeps exact contributor values",
+      "Editing the saved related source and Cancel preserves its exact construction and ALL values",
+      "Apply related-source edit preserves the post-Pivot binding",
+      "Applied related-source edit changes only the label and survives reload with exact Patient values",
+      "Related-source removal preview restores exact Pivot values",
+      "Related-source removal Cancel preserves the edited binding and exact ALL values after reload",
+      "Confirmed related-source removal restores the exact Pivot row",
+      "Applying related-source removal restores the exact pre-source Pivot workspace and values",
+      "No unexpected native network, module, or browser errors occurred",
+      "All native lifecycle actions complete within five seconds"
+    ]
+  },
+  "passedAssertions": [
+    "CDA raw oracle selects two same-status Observation roots with distinct Patient references",
+    "Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents",
+    "CDA watched source and API build stayed unchanged"
+  ],
+  "nativeActions": {
+    "count": 0,
+    "productLifecycleExercised": false
+  },
+  "oracle": {
+    "boundedObservationScan": 2000,
+    "selectedObservations": 2,
+    "status": "final",
+    "distinctPatientReferences": 2,
+    "exactScopedSubjectPatientEdgesResolved": 2,
+    "rawOraclePassed": true
+  },
+  "dimensions": {
+    "usability": "untested",
+    "correctness": "untested",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "failure": {
+    "endpoint": "GET /api/v1/projects/loom_dev_cda_fhir/explorers/{requestedExplorer}/authoring/v2/builder",
+    "code": "EXPLORER_NOT_FOUND",
+    "httpStatus": "error as reported by Builder API",
+    "stage": "before native lifecycle actions",
+    "sourceFreezeProductFailure": false
+  },
+  "integrity": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "31d22c21e72c4f46456714b6c9cc9a181b3b5dbe43ee09ab8ca90ded9a462dfb",
+        "files": 1522
+      },
+      "after": {
+        "sha256": "31d22c21e72c4f46456714b6c9cc9a181b3b5dbe43ee09ab8ca90ded9a462dfb",
+        "files": 1522
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/source-before.json",
+        "sha256": "15151f636d6003dc0695ce27d8994b0b6b59056bbbec38ad997ba6ac03306606"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/source-after.json",
+        "sha256": "1c291a4826ff6aaeac0fc5ee28ec9b7d65560c2d45b09ef16d049f2de33674a1"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "38899e2f0c440cdbf6b8a9585e46c4c3aaa4d49348a30c3bc0151d07cd47d0c9",
+        "files": 191
+      },
+      "after": {
+        "sha256": "38899e2f0c440cdbf6b8a9585e46c4c3aaa4d49348a30c3bc0151d07cd47d0c9",
+        "files": 191
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/docs-before.json",
+        "sha256": "f59edf7559236fa32b70a45dd1414545dd916b8a9ac2bd679154278a0d90a581"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/docs-after.json",
+        "sha256": "c106295162d1c9ea15e040ff3b97c7218761e01a1890dcb649d16a4bf5b07c2d"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-identity-before.json",
+        "sha256": "936959a787ce35e6fc2e33fb2cc23cf3dafb2e5e69c14db138caeb73eaa1bfda"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-identity-after.json",
+        "sha256": "884168933d00231d74ecfcde676893c359cb3cbab86a7b4cdb4172c3c30190c0"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/api-build-precheck-confirmed.json",
+        "sha256": "7a57e66ef6fecfcbc1d397be513f2dbbb404b6fc620d65e0db03ba7a6859f102"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/owned-mounts-before.json",
+        "sha256": "b60b29863f2a27935ad897b40ab7024af9e9ab5eae5a50127cd1dbf2a9e22147"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/owned-mounts-after.json",
+        "sha256": "d1d111f69df5ec97843f5182d8d260e2474b99a409a53a10b4d493f71c512ef0"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/health-before.json",
+        "sha256": "73140ddaf9e96f89a98890a4e1733f032f5118fe42c40f2f49f4892d9faaad98"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave81/health-after.json",
+        "sha256": "70e0bc1728b4202cd95ff139783c79d72fc434e40166ba47c9124fb4241bd40b"
+      }
+    }
+  },
+  "originalCaptureCommand": "set -euo pipefail\nsource '/private/tmp/loom-native-parallel-wave81/browser-environment.sh'\nexport LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\"\nexport LOOM_ARANGO_DATABASE='loom_dev'\nunset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER\nmkdir -p '/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1'\nPLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "runnableCommand": "set -euo pipefail; cd '/private/tmp/loom-construction-implementation'; source '/private/tmp/loom-native-parallel-wave81/browser-environment.sh'; export LOOM_ARANGO_CONTAINER=\"$LOOM_CDA_ARANGO_CONTAINER\" LOOM_ARANGO_DATABASE='loom_dev'; unset LOOM_CDA_EXPLORER_ID LOOM_CDA_EXPLORER LOOM_QA_EXPLORER; mkdir -p '/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1'; PLAYWRIGHT_JSON_OUTPUT_FILE='/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/results.json' npm --prefix scripts run test:browser -- 'verify-ui/specs/standalone-reshape.spec.mjs' --grep 'standalone CDA reshape workflows related-source-after-pivot related-source-after-pivot$' --output '/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/artifacts' 2>&1 | tee '/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/runner.log'",
+  "laterReadOnlyDiagnosis": {
+    "classification": "fixture identity mismatch; attribution added after the run; raw coordinator closure remains unchanged and historically marks attribution pending",
+    "mechanism": "The spec creates a 74-character requested Explorer name. The create service passes the name through StableExplorerID, which truncates IDs to 64 characters. The workflow ignores the create response and immediately GETs the Builder using the original 74-character name, so it addresses an Explorer ID that was never stored.",
+    "sourceReferences": [
+      {
+        "path": "scripts/verify-ui/specs/standalone-reshape.spec.mjs",
+        "lines": "25-35",
+        "fact": "The case name is embedded in qa-reshape-${name}-${randomUUID()}."
+      },
+      {
+        "path": "internal/explorer/lifecycle/query.go",
+        "lines": "41-62",
+        "fact": "Create calls StableExplorerID(request.Name) and returns the stored ExplorerID in its summary."
+      },
+      {
+        "path": "internal/explorer/identity.go",
+        "lines": "9-33",
+        "fact": "StableExplorerID normalizes the name and truncates IDs longer than 64 characters."
+      },
+      {
+        "path": "scripts/verify-ui/workflows/verify-cda-related-source-after-pivot-browser.mjs",
+        "lines": "105-117, 476-477",
+        "fact": "The workflow constructs endpoints from cda.explorer, posts create without retaining its response, then GETs the Builder using that requested identifier."
+      }
+    ],
+    "suggestedCorrection": "Use the canonical Explorer ID returned by create when setting the fixture target/workflow endpoint; alternatively generate a request name whose normalized form is at most 64 characters.",
+    "independentBrowserRerun": "not run"
+  },
+  "rawArtifacts": {
+    "domainReportPath": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/cda-report.json",
+    "domainReportSha256": "ff71225f2dfe9fc9f8e4551fa64add697cfa4bfb1ff570dfa37bce969ba21167",
+    "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/results.json",
+    "playwrightResultsSha256": "2187100927d5c0a5f8d6cb6f1c24339b76e7b3af3cfa26bb51462e2637b50705",
+    "runnerLogPath": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/runner.log",
+    "runnerLogSha256": "06fe4ed4f0b84f8dcfbe859dac569ee8ae18a360501933deecfe7ae0a011a368",
+    "errorContextPath": "/private/tmp/loom-native-parallel-wave81/standalone-reshape-related-source-after-pivot/attempt1/artifacts/standalone-reshape-standal-689d5--related-source-after-pivot/error-context.md",
+    "errorContextSha256": "3f5348eb49e8b4880a7ed6bd77c32c8f5ed7b5ec4d3a0ab186e8974a1a5c4e55",
+    "runPlanPath": "/private/tmp/loom-native-parallel-wave81/run-plan.json",
+    "runPlanSha256": "d0171b223060d42873880ceca43f4c8a0cc40af8df5cc6d25b6fc0a2dee3548a",
+    "coordinatorClosurePath": "/private/tmp/loom-native-parallel-wave81/closure.json",
+    "coordinatorClosureSha256": "e48eb46a3e71f452be0432ec2e7065087f0bd512fed38f993c9023c38d9458c9",
+    "durableClosurePath": "docs/verification/playwright/runtime/post-pivot-related-source-epoch81-closure.json",
+    "durableClosureSha256": "e48eb46a3e71f452be0432ec2e7065087f0bd512fed38f993c9023c38d9458c9"
+  }
+}

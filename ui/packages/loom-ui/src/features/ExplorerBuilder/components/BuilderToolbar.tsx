@@ -22,14 +22,115 @@ interface BuilderToolbarProps {
   onDuplicateTable: () => void;
   onDeleteTable: () => void;
   onReorderTable: (outputId: string, before?: string) => void;
-  onPreview: () => void;
+  onReview: () => void;
+  reviewExpanded: boolean;
   onPublish: () => void;
-  previewDisabled: boolean;
   publishDisabled: boolean;
   publishing: boolean;
   busy?: boolean;
   columnCreationSupported?: boolean;
   tableToolbarHost?: HTMLElement | null;
+}
+
+export type NewExplorerCreationMode = 'blank-only' | 'blank-or-copy' | 'copy-only';
+
+export function NewExplorerControl({
+  onCreateExplorer,
+  mode,
+  busy = false,
+}: {
+  readonly onCreateExplorer: (name: string, fromDefault: boolean) => void;
+  readonly mode: NewExplorerCreationMode;
+  readonly busy?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useDismissibleLayer<HTMLDetailsElement>(open, setOpen);
+  const [name, setName] = useState('');
+  const [fromDefault, setFromDefault] = useState(false);
+  const copyOnly = mode === 'copy-only';
+  const allowsCopy = mode === 'blank-or-copy';
+
+  const create = () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    onCreateExplorer(trimmedName, copyOnly || (allowsCopy && fromDefault));
+    setName('');
+    setFromDefault(false);
+    setOpen(false);
+  };
+
+  return (
+    <details
+      ref={ref}
+      open={open}
+      className="relative shrink-0"
+    >
+      <summary
+        onClick={(event) => {
+          event.preventDefault();
+          setOpen((current) => !current);
+        }}
+        className="cursor-pointer list-none rounded-md border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-50"
+      >
+        New explorer
+      </summary>
+      <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+        <label
+          className="block text-xs font-semibold text-slate-600"
+          htmlFor="new-explorer-name"
+        >
+          Explorer name
+        </label>
+        <input
+          id="new-explorer-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') create();
+          }}
+          placeholder="e.g. Clinical overview"
+          className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          autoFocus={open}
+        />
+        {allowsCopy ? (
+          <label className="mt-2 flex items-start gap-2 text-xs text-slate-600">
+            <input
+              type="checkbox"
+              checked={fromDefault}
+              onChange={(event) => setFromDefault(event.currentTarget.checked)}
+              className="mt-0.5 accent-blue-700"
+            />
+            Start with a copy of the current explorer
+          </label>
+        ) : copyOnly ? (
+          <p className="mt-2 text-xs text-slate-600">
+            The new Explorer will start with a copy of the current configured tables.
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-slate-600">
+            The new Explorer will start empty so you can create its first table.
+          </p>
+        )}
+        <div className="mt-2 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={create}
+            disabled={!name.trim() || busy}
+            className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Create {copyOnly || (allowsCopy && fromDefault) ? 'copy' : 'blank'}
+          </button>
+        </div>
+      </div>
+    </details>
+  );
 }
 
 const TableToolbar = ({
@@ -168,7 +269,7 @@ const TableToolbar = ({
       <button
         type="button"
         onClick={onDeleteTable}
-        disabled={!selectedTable || tables.length <= 1 || busy}
+        disabled={!selectedTable || busy}
         aria-label="Delete table"
         title="Delete table"
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
@@ -195,33 +296,18 @@ export function BuilderToolbar({
   onDuplicateTable,
   onDeleteTable,
   onReorderTable,
-  onPreview,
+  onReview,
+  reviewExpanded,
   onPublish,
-  previewDisabled,
   publishDisabled,
   publishing,
   busy = false,
   columnCreationSupported = true,
   tableToolbarHost,
 }: BuilderToolbarProps) {
-  const [newExplorerOpen, setNewExplorerOpen] = useState(false);
-  const newExplorerRef = useDismissibleLayer<HTMLDetailsElement>(
-    newExplorerOpen,
-    setNewExplorerOpen,
-  );
-  const [newExplorerName, setNewExplorerName] = useState('');
-  const [newExplorerFromDefault, setNewExplorerFromDefault] = useState(false);
   const selectedTable = tables.find(
     (table) => table.outputId === selectedOutputId,
   );
-  const createExplorer = (fromDefault: boolean) => {
-    const name = newExplorerName.trim();
-    if (!name) return;
-    onCreateExplorer(name, fromDefault);
-    setNewExplorerName('');
-    setNewExplorerFromDefault(false);
-    setNewExplorerOpen(false);
-  };
   const tableToolbar = (
     <TableToolbar
       tables={tables}
@@ -242,7 +328,7 @@ export function BuilderToolbar({
       className="min-w-0 border-l border-slate-200 bg-white pl-4"
       data-explorer-delete-supported={deleteSupported}
     >
-      <div className="flex min-w-0 items-center gap-2 py-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 py-1">
         <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-600">
           <span className="sr-only">Explorer</span>
           <select
@@ -260,109 +346,37 @@ export function BuilderToolbar({
           </select>
         </label>
 
-        <details
-          ref={newExplorerRef}
-          open={newExplorerOpen}
-          className="relative shrink-0"
-        >
-          <summary
-            onClick={(event) => {
-              event.preventDefault();
-              setNewExplorerOpen((open) => !open);
-            }}
-            className="cursor-pointer list-none rounded-md border border-blue-300 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-50"
-          >
-            New explorer
-          </summary>
-          <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
-            <label
-              className="block text-xs font-semibold text-slate-600"
-              htmlFor="new-explorer-name"
-            >
-              Explorer name
-            </label>
-            <input
-              id="new-explorer-name"
-              value={newExplorerName}
-              onChange={(event) => setNewExplorerName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter')
-                  createExplorer(
-                    columnCreationSupported ? newExplorerFromDefault : true,
-                  );
-              }}
-              placeholder="e.g. Clinical overview"
-              className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-              autoFocus={newExplorerOpen}
-            />
-            {columnCreationSupported ? (
-              <label className="mt-2 flex items-start gap-2 text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={newExplorerFromDefault}
-                  onChange={(event) =>
-                    setNewExplorerFromDefault(event.currentTarget.checked)
-                  }
-                  className="mt-0.5 accent-blue-700"
-                />
-                Start with a copy of the current explorer
-              </label>
-            ) : (
-              <p className="mt-2 text-xs text-slate-600">
-                The new Explorer will start with a copy of the current
-                configured tables.
-              </p>
-            )}
-            <div className="mt-2 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setNewExplorerOpen(false)}
-                className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  createExplorer(
-                    columnCreationSupported ? newExplorerFromDefault : true,
-                  )
-                }
-                disabled={!newExplorerName.trim() || busy}
-                className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Create{' '}
-                {!columnCreationSupported || newExplorerFromDefault
-                  ? 'copy'
-                  : 'blank'}
-              </button>
-            </div>
-          </div>
-        </details>
-        <button
-          type="button"
-          onClick={onDeleteExplorer}
-          disabled={!deleteSupported || deleteDisabled || busy}
-          aria-label="Delete explorer"
-          title={
-            deleteSupported
-              ? deleteDisabled
+        <NewExplorerControl
+          onCreateExplorer={onCreateExplorer}
+          mode={columnCreationSupported ? 'blank-or-copy' : 'copy-only'}
+          busy={busy}
+        />
+        {deleteSupported ? (
+          <button
+            type="button"
+            onClick={onDeleteExplorer}
+            disabled={deleteDisabled || busy}
+            aria-label="Delete explorer"
+            title={
+              deleteDisabled
                 ? 'Create or select another Explorer before deleting this one'
                 : 'Delete explorer'
-              : 'Explorer deletion is not supported for this configuration'
-          }
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <IconTrash size={16} stroke={1.8} />
-        </button>
+            }
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <IconTrash size={16} stroke={1.8} />
+          </button>
+        ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={onPreview}
-            disabled={!selectedTable || busy || previewDisabled}
-            className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            onClick={onReview}
+            aria-expanded={reviewExpanded}
+            aria-controls="dataset-review-panel"
+            className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+            disabled={busy}
           >
-            Preview
+            Review dataset
           </button>
           <button
             type="button"

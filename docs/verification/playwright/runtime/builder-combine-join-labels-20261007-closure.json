@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 2,
+  "status": "CLOSED_PASS",
+  "case": {
+    "scenarioId": "builder-combine",
+    "caseName": "join",
+    "title": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload",
+    "status": "passed",
+    "classificationNote": "Complete native Basic fixture Combine KEY_JOIN lifecycle with human-readable pinned schema, key and output choices plus exact INNER/LEFT preview rows. Not CDA evidence.",
+    "requiredChecks": {
+      "passed": 39,
+      "total": 39,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0
+    },
+    "assertions": {
+      "passed": 131,
+      "total": 131
+    },
+    "actions": {
+      "passed": 54,
+      "maximumMeasuredMs": 903
+    },
+    "renderCheckpoints": {
+      "passed": 5,
+      "maximumMs": 907,
+      "budgetMs": 5000
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "lastCompletedAction": {
+      "label": "Remove KEY_JOIN and restore the rooted empty target",
+      "status": "passed"
+    },
+    "pendingOwnedRequests": [],
+    "failedChecks": [],
+    "missingChecks": []
+  },
+  "scope": {
+    "fixture": "published-source Basic fixture created by the native case",
+    "notCovered": [
+      "CDA Join",
+      "restricted authorization scopes"
+    ]
+  },
+  "run": {
+    "runId": "run-builder-combine-join-nWxw2K",
+    "startedAt": "2026-10-07T20:17:32.022Z",
+    "finishedAt": "2026-10-07T20:18:17.490Z",
+    "durationMs": 45463,
+    "nativeSpec": "scripts/verify-ui/specs/join.spec.mjs",
+    "grep": "KEY_JOIN INNER/LEFT preview, apply, cancel, removal and reload$",
+    "browserLifecycleDurationMs": 14203,
+    "reportPath": "docs/verification/playwright/runtime/builder-combine-join-labels-20261007-report.json",
+    "reportSha256": "a6ed7979b9632a937fde82b15516e3f894ff4964b420ffb4e8de19ecfd0ca341",
+    "coordinatorSummaryExternalPath": "/private/tmp/loom-verification-runs/run-builder-combine-join-nWxw2K/summary.json",
+    "coordinatorSummarySha256": "b681f90b0031fcb15b9224d4ace44e639da21f7824489093d0044878a1bd200a"
+  },
+  "source": {
+    "checkout": "/private/tmp/loom-construction-implementation",
+    "gitHead": "458eeefaeb1e02b30e85340ff75e46cefc6a69ca",
+    "sourceFingerprint": {
+      "sha256": "7b9eeae67ce6167166fabcea0d7d6170b3b3ef3c6054dc7017582fe7cbcb466c",
+      "files": 1602
+    },
+    "sourceFingerprintAfter": {
+      "sha256": "7b9eeae67ce6167166fabcea0d7d6170b3b3ef3c6054dc7017582fe7cbcb466c",
+      "files": 1602
+    },
+    "changedPaths": [],
+    "workflowFile": "scripts/verify-ui/workflows/builder-combine.mjs",
+    "workflowBlobAtRun": "819be8acb8dc458cd06925c89bcb9baecbfb4354",
+    "workflowSha256AtRun": "986c10f2a170a80612b3374b9d471ed25996b6313496c00b5dbeee7f3e866ad7",
+    "historical": true,
+    "historicalReason": "Subsequent verification source changes mean this is evidence for the exact recorded fingerprint, not a current-source browser pass."
+  },
+  "apiBuild": {
+    "identityBefore": "891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:4663a6741ed1c3ba096ef1e190ca785619d475dd59a1bf50a20e20e18adc4ea3",
+    "identityAfter": "891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:891040c0d55b7baeaba663b4fa9d46472095b6c87b603d43581e3ab378c180d1:4663a6741ed1c3ba096ef1e190ca785619d475dd59a1bf50a20e20e18adc4ea3",
+    "targetUnchanged": true
+  },
+  "target": {
+    "project": "loom_dev_verify_muyjujtm-3909682",
+    "generation": "fixture-v1",
+    "uiUrl": "http://127.0.0.1:30008",
+    "ownedComposeProject": "loom-dev-6d7df93d6a37",
+    "healthBefore": "PASS",
+    "healthAfter": "PASS",
+    "ownedMountsUnchanged": true
+  },
+  "observed": {
+    "sourceTables": {
+      "Observation": {
+        "outputTitle": "Observations",
+        "previewHeaders": [
+          "Observation ID",
+          "Status",
+          "Value Integer"
+        ],
+        "labels": [
+          "Observation ID",
+          "Status"
+        ]
+      },
+      "DiagnosticReport": {
+        "outputTitle": "Diagnostic reports",
+        "previewHeaders": [
+          "DiagnosticReport ID",
+          "Status"
+        ],
+        "labels": [
+          "DiagnosticReport ID",
+          "Status"
+        ]
+      }
+    },
+    "selectedJoinKeys": [
+      {
+        "label": "Observation ID",
+        "visibleText": "Observation ID · String",
+        "columnId": "source_c8fba180667d5b66a39fd47c"
+      },
+      {
+        "label": "DiagnosticReport ID",
+        "visibleText": "DiagnosticReport ID · String",
+        "columnId": "source_f50ffd8087bd78a2ca8646bd"
+      }
+    ],
+    "selectedOutputSources": [
+      {
+        "label": "Observation ID",
+        "visibleText": "Observation ID · string · nullable",
+        "columnId": "source_c8fba180667d5b66a39fd47c"
+      },
+      {
+        "label": "Status",
+        "visibleText": "Status · string · nullable",
+        "columnId": "source_bd7c5c108b3773861f08024f"
+      },
+      {
+        "label": "DiagnosticReport ID",
+        "visibleText": "DiagnosticReport ID · string · nullable",
+        "columnId": "source_f50ffd8087bd78a2ca8646bd"
+      },
+      {
+        "label": "Status",
+        "visibleText": "Status · string · nullable",
+        "columnId": "source_a992529ac3942603dbbf3eef"
+      }
+    ],
+    "innerPreview": {
+      "headers": [
+        "Observation ID",
+        "Status",
+        "DiagnosticReport ID",
+        "Status"
+      ],
+      "rows": [
+        [
+          "combine-observation-final-1",
+          "final",
+          "combine-observation-final-1",
+          "final"
+        ],
+        [
+          "combine-observation-final-2",
+          "final",
+          "combine-observation-final-2",
+          "final"
+        ],
+        [
+          "combine-observation-preliminary",
+          "preliminary",
+          "combine-observation-preliminary",
+          "preliminary"
+        ]
+      ]
+    },
+    "leftPreview": {
+      "headers": [
+        "Observation ID",
+        "Status",
+        "DiagnosticReport ID",
+        "Status"
+      ],
+      "rows": [
+        [
+          "combine-observation-final-1",
+          "final",
+          "combine-observation-final-1",
+          "final"
+        ],
+        [
+          "combine-observation-final-2",
+          "final",
+          "combine-observation-final-2",
+          "final"
+        ],
+        [
+          "combine-observation-preliminary",
+          "preliminary",
+          "combine-observation-preliminary",
+          "preliminary"
+        ],
+        [
+          "combine-observation-unmatched",
+          "unknown",
+          "—",
+          "—"
+        ]
+      ],
+      "unmatchedNullDisplay": [
+        "—",
+        "—"
+      ]
+    },
+    "reloadMs": {
+      "innerApply": 848,
+      "cancelToSavedInner": 904,
+      "leftApply": 835,
+      "removeToRootedEmpty": 907
+    },
+    "restoration": "After removing KEY_JOIN and reloading, the target returned to the same rooted empty Observation document."
+  },
+  "integrity": {
+    "status": "PASS",
+    "source": "PASS",
+    "apiBuild": "PASS",
+    "docs": "PASS",
+    "ownedMounts": "PASS",
+    "healthSamplesBeforeAfter": [
+      3,
+      3
+    ],
+    "registryRequiredChecksMatch": true
+  },
+  "diagnostics": "The retained browser report records two superseded construction-capabilities request cancellations and one favicon 404; no owned requests were pending and the lifecycle error list was empty."
+}

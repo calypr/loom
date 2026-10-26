@@ -1,0 +1,2 @@
+{"resourceType":"Medication","id":"coded-catalog-medication-01","status":"active","code":{"coding":[{"system":"urn:loom:basic-coded-semantic:medication","version":"1","code":"medication-alpha","display":"Medication Alpha"},{"system":"urn:loom:basic-coded-semantic:medication","version":"1","code":"medication-beta","display":"Medication Beta"}]}}
+{"resourceType":"Medication","id":"coded-catalog-medication-02","status":"active","code":{"text":"Medication without a Coding"}}

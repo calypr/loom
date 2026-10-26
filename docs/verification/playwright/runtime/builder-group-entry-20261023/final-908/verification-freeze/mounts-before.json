@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-10-23T00:49:56.926Z",
+  "phase": "before",
+  "status": "PASS",
+  "validator": "assertOwnedCdaTarget",
+  "expectedComposeProject": "loom-dev-fcbf4d7d11f4",
+  "expectedSourceRoot": "/private/tmp/loom-formal-verification",
+  "target": {
+    "project": "loom_dev_verify_mvk88qka-15c9c79",
+    "composeProject": "loom-dev-fcbf4d7d11f4",
+    "apiContainer": "loom-dev-fcbf4d7d11f4-loom-api-1",
+    "uiContainer": "loom-dev-fcbf4d7d11f4-loom-ui-1",
+    "arangoContainer": "loom-dev-fcbf4d7d11f4-arangodb-1",
+    "clickhouseContainer": "loom-dev-fcbf4d7d11f4-clickhouse-1",
+    "apiPort": "8180",
+    "uiPort": "3180",
+    "sourceRoot": "/private/tmp/loom-formal-verification",
+    "generation": "fixture-v1"
+  }
+}

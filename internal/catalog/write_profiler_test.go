@@ -62,12 +62,92 @@ func TestFieldCatalogProfilerBoundsHighCardinalityValues(t *testing.T) {
 	}
 }
 
+func TestFieldCatalogProfilerBoundsAggregateRetainedBytes(t *testing.T) {
+	limits := ProfileLimits{
+		MaxFields:                  8,
+		MaxDistinctValuesPerField:  8,
+		MaxDistinctValueBytes:      64,
+		MaxPivotColumnsPerField:    8,
+		MaxExtensionValuesPerField: 8,
+		MaxShapePlans:              8,
+		MaxRetainedBytes:           300,
+	}
+	profiler := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", nil, limits)
+	for _, value := range []string{"one", "two", "three", "four"} {
+		profiler.ObservePayload(map[string]any{"id": value}, map[string]float64{})
+	}
+
+	idField := catalogDocumentForPath(t, profiler.Documents(), "id")
+	if profiler.RetentionBytes() > limits.MaxRetainedBytes {
+		t.Fatalf("retained bytes = %d, want at most %d", profiler.RetentionBytes(), limits.MaxRetainedBytes)
+	}
+	if !profiler.Truncated() || !idField.DistinctTruncated {
+		t.Fatalf("profiler truncation = %v, id field = %#v, want aggregate truncation evidence", profiler.Truncated(), idField)
+	}
+}
+
+func TestFieldCatalogProfilerMergeHonorsAggregateRetainedBytes(t *testing.T) {
+	limits := ProfileLimits{
+		MaxFields:                  8,
+		MaxDistinctValuesPerField:  8,
+		MaxDistinctValueBytes:      64,
+		MaxPivotColumnsPerField:    8,
+		MaxExtensionValuesPerField: 8,
+		MaxShapePlans:              8,
+		MaxRetainedBytes:           300,
+	}
+	cache := NewShapePlanCacheWithLimits(limits.MaxShapePlans, limits.MaxRetainedBytes)
+	left := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", cache, limits)
+	right := NewProfilerForGenerationWithLimits("TEST", "generation-a", "", "Patient", cache, limits)
+	left.ObservePayload(map[string]any{"id": "left"}, map[string]float64{})
+	right.ObservePayload(map[string]any{"id": "right"}, map[string]float64{})
+
+	if err := left.Merge(right); err != nil {
+		t.Fatal(err)
+	}
+	if left.RetentionBytes() > limits.MaxRetainedBytes || !left.Truncated() {
+		t.Fatalf("merged profiler retained bytes = %d, truncated = %v, want bounded truncated result", left.RetentionBytes(), left.Truncated())
+	}
+}
+
 func TestShapePlanCacheHonorsLimit(t *testing.T) {
 	cache := NewShapePlanCacheWithLimit(1)
 	cache.getOrBuild("shape-a", map[string]any{"id": "a"})
 	cache.getOrBuild("shape-b", map[string]any{"name": "b"})
 	if got := len(cache.plans); got != 1 {
 		t.Fatalf("shape plan cache size = %d, want 1", got)
+	}
+}
+
+func TestShapePlanCacheHonorsByteLimit(t *testing.T) {
+	cache := NewShapePlanCacheWithLimits(8, 100)
+	cache.getOrBuild("shape-a", map[string]any{"id": "a", "name": "b"})
+	if got := cache.retainedBytes; got > cache.maxBytes {
+		t.Fatalf("shape plan cache bytes = %d, want at most %d", got, cache.maxBytes)
+	}
+	cache.getOrBuild("shape-b", map[string]any{"long": strings.Repeat("value", 32)})
+	if got := cache.retainedBytes; got > cache.maxBytes {
+		t.Fatalf("shape plan cache bytes after oversized plan = %d, want at most %d", got, cache.maxBytes)
+	}
+}
+
+func TestFieldCatalogProfilerRecordsExactNestedArrayMaxima(t *testing.T) {
+	profiler := NewProfilerForGeneration("TEST", "generation-a", "", "Patient", nil)
+	profiler.ObservePayload(map[string]any{
+		"name": []any{
+			map[string]any{"given": []any{"A", "B"}},
+			map[string]any{"given": []any{"C", "D", "E"}},
+		},
+	}, map[string]float64{})
+
+	maxima := map[string]int{}
+	for _, document := range profiler.Documents() {
+		if document.Kind == fieldKindArray {
+			maxima[document.Path] = document.MaxItems
+		}
+	}
+	if maxima["name[]"] != 2 || maxima["name[].given[]"] != 3 {
+		t.Fatalf("array maxima = %#v, want name=2 and given=3", maxima)
 	}
 }
 
@@ -287,6 +367,54 @@ func TestFieldCatalogObservationPivotMetadata(t *testing.T) {
 	if found.PivotValueSelect != "valueQuantity.value" {
 		t.Fatalf("unexpected value selector: %q", found.PivotValueSelect)
 	}
+}
+
+func TestProfilerCoverageRetainsRawCodingPathWithUnrepresentedMetadata(t *testing.T) {
+	profiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
+	inventoryProfiler := NewProfilerForGeneration("project", "generation", "scope-a", "Observation", nil)
+	payload := map[string]any{
+		"resourceType": "Observation",
+		"status":       "final",
+		"code": map[string]any{"coding": []any{map[string]any{
+			"system": "urn:test", "version": "v1", "code": "one", "userSelected": true,
+		}}},
+	}
+	var contribution SemanticCoverageSourceContribution
+	var coverageSemantic []SemanticInventoryContribution
+	err := profiler.ObservePayloadWithCoverage(
+		payload,
+		map[string]float64{},
+		"retained:Observation/raw-coding",
+		"schema-sha256-test",
+		func(value SemanticInventoryContribution) { coverageSemantic = append(coverageSemantic, value) },
+		nil,
+		func(value SemanticCoverageSourceContribution) error {
+			contribution = value
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("observe payload with coverage: %v", err)
+	}
+	var inventorySemantic []SemanticInventoryContribution
+	inventoryProfiler.ObservePayloadWithInventory(payload, map[string]float64{}, "retained:Observation/raw-coding", func(value SemanticInventoryContribution) {
+		inventorySemantic = append(inventorySemantic, value)
+	})
+	if !reflect.DeepEqual(profiler.Documents(), inventoryProfiler.Documents()) {
+		t.Fatalf("coverage field documents differ from inventory-only output\ncoverage: %#v\ninventory: %#v", profiler.Documents(), inventoryProfiler.Documents())
+	}
+	if !reflect.DeepEqual(coverageSemantic, inventorySemantic) {
+		t.Fatalf("coverage semantic inventory differs from inventory-only output\ncoverage: %#v\ninventory: %#v", coverageSemantic, inventorySemantic)
+	}
+	for _, path := range contribution.Paths {
+		if path.Kind == SemanticCoverageCoding && path.CanonicalPath == "code.coding[]" {
+			if path.Disposition != SemanticCoverageRawRetainedDisposition || path.Reason != SemanticCoverageReasonUnrepresentedMetadata {
+				t.Fatalf("coding path disposition/reason = %q/%q, want raw retained for unrepresented metadata", path.Disposition, path.Reason)
+			}
+			return
+		}
+	}
+	t.Fatalf("coverage omitted raw-retained code.coding[] path: %#v", contribution.Paths)
 }
 
 func TestGenerationProfilerSeparatesCatalogDocumentsAndKeys(t *testing.T) {

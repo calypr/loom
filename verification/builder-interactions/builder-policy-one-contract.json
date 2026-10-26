@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "sourceProfile": "journey",
+  "sourceCommit": "b6fb8f8b2534663191b1259f5abacf2ae6556100",
+  "models": {
+    "PolicyOneDisagreement": {
+      "module": "PolicyOneDisagreement.tla",
+      "safetyConfig": "PolicyOneDisagreement.cfg",
+      "actions": [
+        "GroupPreviewSubmitted",
+        "GroupPreviewReady",
+        "GroupApplySubmitted",
+        "GroupApplied",
+        "OneSubmitted",
+        "OneRejected",
+        "SelectAll",
+        "AllSubmitted",
+        "AllReady",
+        "AllApplySubmitted",
+        "AllApplied",
+        "ReloadedAll",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalCancelled",
+        "RemovalApplySubmitted",
+        "RemovalApplied",
+        "ReloadedSource"
+      ]
+    }
+  },
+  "actionBindings": {
+    "GroupPreviewSubmitted": { "event": "preview", "trigger": "empty-key COUNT_ROWS proposal request started" },
+    "GroupPreviewReady": { "event": "preview-response", "trigger": "one-row Group preview and response observed" },
+    "GroupApplySubmitted": { "event": "begin-apply", "trigger": "empty-key Group proposal applied" },
+    "GroupApplied": { "event": "finish-apply", "trigger": "saved Group observed after Apply" },
+    "OneSubmitted": { "event": "choice-preview", "trigger": "raw Patient.id construction choice requested with ONE" },
+    "OneRejected": { "event": "choice-preview-response", "trigger": "owned multiple-values 422 observed with saved Group unchanged" },
+    "SelectAll": { "event": "choice-policy-selected", "trigger": "same editor selection changed to ALL" },
+    "AllSubmitted": { "event": "choice-preview", "trigger": "raw Patient.id construction choice requested with ALL" },
+    "AllReady": { "event": "choice-preview-response", "trigger": "ALL preview returned both literal Patient IDs" },
+    "AllApplySubmitted": { "event": "apply-construction-choice", "trigger": "ALL preview applied using its command" },
+    "AllApplied": { "event": "apply-construction-choice-response", "trigger": "saved ALL row values read back after Apply" },
+    "ReloadedAll": { "event": "reload", "trigger": "reload retained ALL policy and literal Patient IDs" },
+    "RemovalPreviewSubmitted": { "event": "preview", "trigger": "Group removal candidate preview requested" },
+    "RemovalPreviewReady": { "event": "preview-response", "trigger": "Group removal candidate preview returned original Patient rows" },
+    "RemovalCancelled": { "event": "cancel", "trigger": "first Group removal candidate cancelled without changing saved state" },
+    "RemovalApplySubmitted": { "event": "begin-apply", "trigger": "second Group removal candidate applied" },
+    "RemovalApplied": { "event": "finish-apply", "trigger": "saved source fields and rows observed after Group removal" },
+    "ReloadedSource": { "event": "reload", "trigger": "reload retained restored source fields and rows" }
+  },
+  "phase1": {
+    "expectedTraceCount": 1,
+    "expectedScheduleCount": 1,
+    "expectedFindingCount": 0,
+    "requiredModels": ["PolicyOneDisagreement"],
+    "requiredActions": [
+      "GroupPreviewSubmitted",
+      "GroupPreviewReady",
+      "GroupApplySubmitted",
+      "GroupApplied",
+      "OneSubmitted",
+      "OneRejected",
+      "SelectAll",
+      "AllSubmitted",
+      "AllReady",
+      "AllApplySubmitted",
+      "AllApplied",
+      "ReloadedAll",
+      "RemovalPreviewSubmitted",
+      "RemovalPreviewReady",
+      "RemovalCancelled",
+      "RemovalApplySubmitted",
+      "RemovalApplied",
+      "ReloadedSource"
+    ],
+    "requiredActionsByTrace": {
+      "builder-authoring:patient-one-disagreement": [
+        "GroupPreviewSubmitted",
+        "GroupPreviewReady",
+        "GroupApplySubmitted",
+        "GroupApplied",
+        "OneSubmitted",
+        "OneRejected",
+        "SelectAll",
+        "AllSubmitted",
+        "AllReady",
+        "AllApplySubmitted",
+        "AllApplied",
+        "ReloadedAll",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalCancelled",
+        "RemovalApplySubmitted",
+        "RemovalApplied",
+        "ReloadedSource"
+      ]
+    },
+    "requiredActionCountsByTrace": {
+      "builder-authoring:patient-one-disagreement": {
+        "GroupPreviewSubmitted": 1,
+        "GroupPreviewReady": 1,
+        "GroupApplySubmitted": 1,
+        "GroupApplied": 1,
+        "OneSubmitted": 1,
+        "OneRejected": 1,
+        "SelectAll": 1,
+        "AllSubmitted": 1,
+        "AllReady": 1,
+        "AllApplySubmitted": 1,
+        "AllApplied": 1,
+        "ReloadedAll": 1,
+        "RemovalPreviewSubmitted": 2,
+        "RemovalPreviewReady": 2,
+        "RemovalCancelled": 1,
+        "RemovalApplySubmitted": 1,
+        "RemovalApplied": 1,
+        "ReloadedSource": 1
+      }
+    },
+    "requiredEvents": [
+      "preview",
+      "preview-response",
+      "begin-apply",
+      "finish-apply",
+      "choice-preview",
+      "choice-preview-response",
+      "choice-policy-selected",
+      "apply-construction-choice",
+      "apply-construction-choice-response",
+      "reload",
+      "cancel"
+    ]
+  },
+  "nativeJourney": {
+    "captureAdapter": "policy-one-disagreement-v1",
+    "nativeCaseKey": "builder-authoring/patient-one-disagreement",
+    "traceName": "builder-authoring:patient-one-disagreement",
+    "model": "PolicyOneDisagreement",
+    "coverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. Completed POST frame-source-options reads must use the exact formal Explorer owner scope, output, initial snapshot, and root resource type; their captured HTTP 200 response must echo the output and snapshot while retaining the source-list completion, truncation, and count facts. These reads receive no mutation or action credit. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
+    "exactActionCounts": true,
+    "requiredMutationControlNames": [
+      "wrong-owner",
+      "stale-cas",
+      "out-of-order-repair",
+      "stale-restoration",
+      "request-body-ledger-drift",
+      "setup-command-response-owner",
+      "wrong-row-value-output",
+      "non-array-row-value-output"
+    ],
+    "uncoveredAssertions": [
+      {
+        "claim": "same-editor ALL repair preview matches both literal raw Patient IDs",
+        "status": "uncovered",
+        "reason": "The current direct-field choice path obtains preview rows from the response and immediately applies the command; it does not render those candidate rows before Apply. The API response assertion and post-Apply/reload grid checks are separate observations.",
+        "sourceEvidence": [
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "symbol": "addSelectedFeatures",
+            "fact": "The non-related choice branch awaits proposeConstructionChoices, validates response.preview, then immediately calls applyCommandsWithResult."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "symbol": "candidatePreviewElement",
+            "fact": "The rendered ConstructionProposalPreview is derived from constructionLifecycle.proposal ready/applying state, which the direct-field choice branch does not set."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "symbol": "appliedChoicePreview",
+            "fact": "The choice response preview is handed to the normal table preview only after applyCommandsWithResult succeeds."
+          },
+          {
+            "path": "scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs",
+            "symbol": "responsePreview",
+            "fact": "The current same-editor assertion reads the ALL preview from the captured HTTP response body."
+          }
+        ]
+      }
+    ],
+    "actions": [
+      { "label": "GroupPreviewSubmitted", "event": "preview" },
+      { "label": "GroupPreviewReady", "event": "preview-response" },
+      { "label": "GroupApplySubmitted", "event": "begin-apply" },
+      { "label": "GroupApplied", "event": "finish-apply" },
+      { "label": "OneSubmitted", "event": "choice-preview" },
+      { "label": "OneRejected", "event": "choice-preview-response" },
+      { "label": "SelectAll", "event": "choice-policy-selected" },
+      { "label": "AllSubmitted", "event": "choice-preview" },
+      { "label": "AllReady", "event": "choice-preview-response" },
+      { "label": "AllApplySubmitted", "event": "apply-construction-choice" },
+      { "label": "AllApplied", "event": "apply-construction-choice-response" },
+      { "label": "ReloadedAll", "event": "reload" },
+      { "label": "RemovalPreviewSubmitted", "event": "preview" },
+      { "label": "RemovalPreviewReady", "event": "preview-response" },
+      { "label": "RemovalCancelled", "event": "cancel" },
+      { "label": "RemovalPreviewSubmitted", "event": "preview" },
+      { "label": "RemovalPreviewReady", "event": "preview-response" },
+      { "label": "RemovalApplySubmitted", "event": "begin-apply" },
+      { "label": "RemovalApplied", "event": "finish-apply" },
+      { "label": "ReloadedSource", "event": "reload" }
+    ]
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-23T19:22:17.846Z",
+  "status": "CLOSED_PASS",
+  "scope": "First actual Group lifecycle observation and replay unit for the registered authored-three and raw-five Builder workflows.",
+  "sourceCommit": "1918824fe1eb3ceb3a24f7b93249d0c5faa963e3",
+  "runs": [
+    {
+      "case": "group-entry",
+      "kind": "authored-three",
+      "status": "passed",
+      "qaProject": "loom_dev_verify_mvlck4u7-bc83d6e",
+      "generation": "fixture-v1",
+      "composeProject": "loom-dev-fcbf4d7d11f4",
+      "uiUrl": "http://127.0.0.1:30000",
+      "apiUrl": "http://127.0.0.1:8180",
+      "sourceCommit": "1918824fe1eb3ceb3a24f7b93249d0c5faa963e3",
+      "sourceFingerprint": "454c888d012b6f76763317e4740b11fff0ee98909ead697977df3c9272bd7903",
+      "sourceFiles": 2093,
+      "sourceUnchanged": true,
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "apiUnchanged": true,
+      "nativeChecks": {
+        "passed": 19,
+        "total": 19
+      },
+      "tla": {
+        "status": "pass",
+        "traceCount": 1,
+        "validatedCount": 1,
+        "invalidCount": 0,
+        "model": "BuilderJourney",
+        "stateCount": 31,
+        "distinctStateCount": 30,
+        "depth": 30
+      },
+      "selfTest": {
+        "status": "pass",
+        "exitCode": 0,
+        "groupControls": [
+          "PASS edit-group-again-noncurrent-owner: validator rejected the mutation",
+          "SKIP late-aborted-preview-current-error-control: captured Group trace has no LatePreviewErrorIgnored paired with a distinct later Preview using the same P1/P2 attempt; this stale-current error behavior remains model-only and needs observation.",
+          "PASS group-edit-cancel-must-preserve-saved-group: validator rejected the mutation",
+          "PASS group-removal-cancel-must-preserve-draft-version: validator rejected the mutation",
+          "PASS reload-must-restore-same-cardinality-group-keys: validator rejected the mutation",
+          "PASS reload-must-restore-saved-group-step: validator rejected the mutation",
+          "PASS group-apply-must-consume-current-candidate: validator rejected the mutation",
+          "PASS group-apply-must-consume-current-preview-owner: validator rejected the mutation",
+          "PASS group-trace-requires-exactly-two-reloads: validator rejected the mutation"
+        ],
+        "lateSameAttemptControl": "SKIP late-aborted-preview-current-error-control: captured Group trace has no LatePreviewErrorIgnored paired with a distinct later Preview using the same P1/P2 attempt; this stale-current error behavior remains model-only and needs observation."
+      },
+      "originalRunArtifacts": {
+        "nativeReportSha256": "255924a7f9739610bb23b8ff6e2b76429ef23d44d1c2bc70c09295ad10106a28",
+        "bracketSummarySha256": "414209e4383f6cb66fff7b18e6a6b905d9234de30817f0b66eed54a2358a72d1"
+      },
+      "retainedArtifacts": {
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/native-report.json",
+          "sha256": "255924a7f9739610bb23b8ff6e2b76429ef23d44d1c2bc70c09295ad10106a28",
+          "bytes": 1355373
+        },
+        "bracketSummary": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/bracket-summary.json",
+          "sha256": "3107cf2b998c08583c1134f896f68d1379526887b4bcc9dd48a4b60f1626171d",
+          "bytes": 17972
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/trace.json",
+          "sha256": "9303f6d4234c5022ba77dd6d460b3559d71ee5dab2a5864ec6ae7612137881bc",
+          "bytes": 240808
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/tla-report.json",
+          "sha256": "30adfb05215cc01501d6318bce29b56da7e51dbe4a56232c9b90284840690964",
+          "bytes": 1317
+        },
+        "selfTest": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/self-test.json",
+          "sha256": "9672baf068e16bb74e1bf7f9556cae989f966878eb3e0a5e54ff0f550f836edf",
+          "bytes": 3078
+        }
+      },
+      "nativeBrowserActions": 28,
+      "traceActions": 29,
+      "tlaActions": 29,
+      "requiredChecks": {
+        "passed": 19,
+        "total": 19
+      }
+    },
+    {
+      "case": "group-entry-raw-basic",
+      "kind": "raw-five",
+      "status": "passed",
+      "qaProject": "loom_dev_verify_mvlcmr18-dc7a845",
+      "generation": "fixture-v1",
+      "composeProject": "loom-dev-fcbf4d7d11f4",
+      "uiUrl": "http://127.0.0.1:30000",
+      "apiUrl": "http://127.0.0.1:8180",
+      "sourceCommit": "1918824fe1eb3ceb3a24f7b93249d0c5faa963e3",
+      "sourceFingerprint": "454c888d012b6f76763317e4740b11fff0ee98909ead697977df3c9272bd7903",
+      "sourceFiles": 2093,
+      "sourceUnchanged": true,
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "apiUnchanged": true,
+      "nativeChecks": {
+        "passed": 19,
+        "total": 19
+      },
+      "tla": {
+        "status": "pass",
+        "traceCount": 1,
+        "validatedCount": 1,
+        "invalidCount": 0,
+        "model": "BuilderJourney",
+        "stateCount": 25,
+        "distinctStateCount": 24,
+        "depth": 24
+      },
+      "selfTest": {
+        "status": "pass",
+        "exitCode": 0,
+        "groupControls": [
+          "PASS edit-group-again-noncurrent-owner: validator rejected the mutation",
+          "PASS group-entry-raw-basic-repeat-edit-required: validator rejected the mutation",
+          "SKIP late-aborted-preview-current-error-control: captured Group trace has no LatePreviewErrorIgnored paired with a distinct later Preview using the same P1/P2 attempt; this stale-current error behavior remains model-only and needs observation.",
+          "PASS group-edit-cancel-must-preserve-saved-group: validator rejected the mutation",
+          "PASS group-removal-cancel-must-preserve-draft-version: validator rejected the mutation",
+          "PASS reload-must-restore-same-cardinality-group-keys: validator rejected the mutation",
+          "PASS reload-must-restore-saved-group-step: validator rejected the mutation",
+          "PASS group-apply-must-consume-current-candidate: validator rejected the mutation",
+          "PASS group-apply-must-consume-current-preview-owner: validator rejected the mutation",
+          "PASS group-trace-requires-exactly-two-reloads: validator rejected the mutation"
+        ],
+        "lateSameAttemptControl": "SKIP late-aborted-preview-current-error-control: captured Group trace has no LatePreviewErrorIgnored paired with a distinct later Preview using the same P1/P2 attempt; this stale-current error behavior remains model-only and needs observation."
+      },
+      "originalRunArtifacts": {
+        "nativeReportSha256": "b4d4cf90695a63175686a6150478de9f3ed97227221f6b21460cc89f85053446",
+        "bracketSummarySha256": "bd7366a364a00aee47da20463858bf751446c10406ed91cab99792509cc44ef7"
+      },
+      "retainedArtifacts": {
+        "nativeReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/native-report.json",
+          "sha256": "b4d4cf90695a63175686a6150478de9f3ed97227221f6b21460cc89f85053446",
+          "bytes": 1283126
+        },
+        "bracketSummary": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/bracket-summary.json",
+          "sha256": "8e67c03ea5672ec6047c52dff2eded1542955344b68428c52f247773c89d305f",
+          "bytes": 18272
+        },
+        "trace": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/trace.json",
+          "sha256": "e2e25f660a116e512fd569c2636829b52e102d86e60b5a2c0e90288a22218000",
+          "bytes": 223664
+        },
+        "tlaReport": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/tla-report.json",
+          "sha256": "d42bd0510022ff6125a8e98d07e225bebc92ea9d334e85aca87eeb0690058530",
+          "bytes": 1327
+        },
+        "selfTest": {
+          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/self-test.json",
+          "sha256": "a568e8baac66d0d2c0ba9af0826f9485cea0b207d2171006cc63e413ebc3e0c1",
+          "bytes": 3098
+        }
+      },
+      "nativeBrowserActions": 23,
+      "traceActions": 23,
+      "tlaActions": 23,
+      "requiredChecks": {
+        "passed": 19,
+        "total": 19
+      }
+    }
+  ],
+  "limitations": [
+    "Coverage is limited to these two registered fixture workflows; this does not claim all Group aggregates or key shapes are covered.",
+    "The late same-attempt, after-replacement preview/error schedule was not captured in either browser trace and remains model-only; the permanent self-test reports this as SKIP."
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "run": "basic-temporal-filter/date run5",
+  "target": {
+    "kind": "isolated",
+    "project": "loom_dev_verify_mvoai9hj-5634eb4",
+    "generation": "fixture-v1",
+    "fixtureDir": "$CHECKOUT/testdata/basic-temporal-filter",
+    "explorer": "verify-hj-5634eb4-patient-birthdate-filter",
+    "fixtureRawOracle": {
+      "path": "$CHECKOUT/testdata/basic-temporal-filter/Patient.ndjson",
+      "sha256": "d1c2cf2e33b58e4d8cf290d2ea22dcb133afce495b2c8cb267f7fccb9be9d5c0",
+      "project": "loom_dev_verify_mvoai9hj-5634eb4",
+      "generation": "fixture-v1",
+      "resourceType": "Patient",
+      "fieldPath": "birthDate",
+      "rows": [
+        {
+          "id": "dev-patient-001",
+          "value": "1980-01-02"
+        },
+        {
+          "id": "dev-patient-002",
+          "value": "1985-03-04"
+        }
+      ]
+    },
+    "qaIsolation": {
+      "project": "loom_dev_verify_mvoai9hj-5634eb4",
+      "generation": "fixture-v1",
+      "fixtureDir": "$CHECKOUT/testdata/basic-temporal-filter",
+      "bootstrapExplorerId": "loom-dev-bootstrap",
+      "explorer": "verify-hj-5634eb4-patient-birthdate-filter",
+      "fixtureRows": [
+        {
+          "id": "dev-patient-001",
+          "value": "1980-01-02"
+        },
+        {
+          "id": "dev-patient-002",
+          "value": "1985-03-04"
+        }
+      ],
+      "mutations": [
+        "native blank Explorer creation: verify-hj-5634eb4-patient-birthdate-filter",
+        "native Patient table creation",
+        "native birthDate column addition",
+        "native FILTER proposal/apply/edit/remove"
+      ],
+      "cleanup": "The harness retains this run-unique Basic fixture project and Explorer; filter removal restores the saved source table."
+    }
+  }
+}

@@ -1,0 +1,295 @@
+{
+  "epoch": 96,
+  "scenario": "builder-population-member-removal",
+  "case": "mapped-plus-orphan-to-empty",
+  "title": "Builder population member removal removes the mapped source member and restores the full population after undo",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "classification": "PASS_COMPLETE_NATIVE_CDA_POPULATION_MEMBER_REMOVAL_LIFECYCLE",
+  "classificationNote": "The exact mapped-plus-orphan Specimen case completed the registered removal lifecycle and the separate Undo restoration assertions. The compact dimension assessments below are derived from the named assertions, native actions, lifecycle checkpoints, and nested request records; the raw report dimension values are retained separately.",
+  "browserProcess": {
+    "session": 75229,
+    "exitCode": 0,
+    "playwrightReportedTestDurationMs": 37106,
+    "playwrightRunDurationMs": 38790.892,
+    "reportObservedIntervalMs": 35435,
+    "runnerWallDurationMs": null,
+    "runnerWallDurationNote": "Not separately measured; do not infer runner wall time from the Playwright durations."
+  },
+  "requiredChecks": {
+    "passed": 10,
+    "failed": 0,
+    "unrun": 0,
+    "total": 10,
+    "names": [
+      "bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation",
+      "saved source table contains the exact Observation population route followed by GROUP and RELATED_SOURCE COUNT",
+      "opening native Rows settings reveals the attached starting collection and mapped member within five seconds",
+      "mapped-member click automatically previews an exact base-minus-one candidate with the correct proposal, draft, output, snapshot, and scope bindings",
+      "Cancel leaves the exact saved workspace, draft version, digest, and base selection attached",
+      "reopening issues a fresh request for the current intent and returns its content-addressed candidate selection",
+      "Apply sends only the exact APPLY_POPULATION_MEMBER_PROPOSAL command and attaches that proposal candidate",
+      "candidate membership is the exact base membership minus the mapped member while the immutable base remains unchanged",
+      "reload preserves project, generation, route, GROUP, RELATED_SOURCE, output columns, and the exact empty candidate preview",
+      "native removal, Apply, and reload stay within five seconds; product API errors fail and incidental favicon 404s are recorded separately"
+    ]
+  },
+  "assertionCounts": {
+    "outerReport": {
+      "passed": 40,
+      "failed": 0,
+      "total": 40
+    },
+    "populationMemberRemoval": {
+      "passed": 11,
+      "failed": 0,
+      "total": 11
+    },
+    "undoAssertion": {
+      "name": "Undo restores the original population and its exact attached selection",
+      "passed": true,
+      "countedAsRegisteredRequiredCheck": false
+    }
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "rawDimensionsAsReported": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "dimensionAssessment": {
+    "usability": {
+      "status": "passed",
+      "evidence": "All 27 tracked UI actions passed; native Rows settings, related chooser, remove/cancel/reopen/apply controls and resulting rows were exercised."
+    },
+    "correctness": {
+      "status": "passed",
+      "evidence": "The independent bounded mapped/orphan oracle and all ten named registered lifecycle checks passed, including exact candidate membership and immutable-base preservation."
+    },
+    "persistence": {
+      "status": "passed",
+      "evidence": "Cancel preserved base state; reopen returned a fresh scoped candidate; Apply and reload preserved the empty candidate; Undo and restored-state reload returned the original population and attached selection."
+    },
+    "performance": {
+      "status": "passed",
+      "evidence": "The registered five-second timing check passed; all nine measured lifecycle checkpoints were <= 5,000 ms (maximum 2,382 ms), and the slowest tracked UI action was 982 ms."
+    },
+    "method": "These assessments are derived from actual named lifecycle evidence. Raw dimensionsAsReported is preserved without alteration; raw persistence/performance were marked untested by the report helper."
+  },
+  "nativeActions": {
+    "passed": 27,
+    "failed": 0,
+    "total": 27,
+    "maxElapsedMs": 982,
+    "maxActionLabel": "click [data-testid=\"construction-action-group-rows\"]",
+    "budgetMs": 5000
+  },
+  "lifecycleCheckpoints": {
+    "count": 9,
+    "measurements": [
+      {
+        "checkpoint": "open-row-settings-to-attached-mapped-member",
+        "phase": "durationMs",
+        "elapsedMs": 732
+      },
+      {
+        "checkpoint": "mapped-member-auto-impact-preview",
+        "phase": "durationMs",
+        "elapsedMs": 984
+      },
+      {
+        "checkpoint": "cancel-leaves-base-draft-and-selection-attached",
+        "phase": "durationMs",
+        "elapsedMs": 603
+      },
+      {
+        "checkpoint": "mapped-member-auto-impact-preview",
+        "phase": "durationMs",
+        "elapsedMs": 978
+      },
+      {
+        "checkpoint": "reopen-uses-fresh-request-and-exact-base-cas",
+        "phase": "durationMs",
+        "elapsedMs": 897
+      },
+      {
+        "checkpoint": "apply-exact-proposal-to-empty-related-source",
+        "phase": "durationMs",
+        "elapsedMs": 1080
+      },
+      {
+        "checkpoint": "reload-applied-candidate-to-render",
+        "phase": "durationMs",
+        "elapsedMs": 1844
+      },
+      {
+        "checkpoint": "undo-restores-original-membership-and-rows",
+        "phase": "durationMs",
+        "elapsedMs": 410
+      },
+      {
+        "checkpoint": "undo-restores-original-membership-and-rows",
+        "phase": "verificationDurationMs",
+        "elapsedMs": 1275
+      },
+      {
+        "checkpoint": "reload-restored-original-collection-and-rows",
+        "phase": "durationMs",
+        "elapsedMs": 2382
+      }
+    ],
+    "maxElapsed": {
+      "checkpoint": "reload-restored-original-collection-and-rows",
+      "phase": "durationMs",
+      "elapsedMs": 2382
+    },
+    "budgetMs": 5000
+  },
+  "nativeRequestEvidence": {
+    "nestedPopulationMemberRemovalRequests": 90,
+    "nestedStatusCounts": {
+      "200": 90
+    },
+    "nestedNon200OrNoStatus": 0,
+    "unexpectedNetworkErrors": 0,
+    "domainErrors": 0,
+    "rawOuterNativeRequestsArrayLength": 0,
+    "note": "The raw report outer nativeRequests array is empty; the case-scoped populationMemberRemoval.nativeRequests contains 90 native requests, all HTTP 200. This summary uses the nested lifecycle-owned records."
+  },
+  "network": {
+    "unexpectedNetworkErrors": 0,
+    "domainErrors": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "fixtureOracle": {
+    "status": "passed",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "resourceType": "Specimen",
+    "scanLimit": 2000,
+    "witness": "One mapped Specimen with 1..24 distinct routed Observations and one orphan Specimen with no parent route and zero routed Observations.",
+    "registeredCheck": "bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation"
+  },
+  "workflowAssertionsBeyondRegistry": {
+    "countedAsRegisteredRequiredChecks": false,
+    "name": "Undo restores the original population and its exact attached selection",
+    "status": "passed",
+    "verified": "The workflow executed Undo restoration, verified original population/attached selection, and reloaded the restored collection and rows.",
+    "additionalAssertionsFromWorkflowContract": "Workflow additionally asserts exact workspace restoration, restored digest, advanced draft version, original selection/construction/columns, unchanged base membership, restored rows, and restoration reload.",
+    "checkpointEvidence": [
+      {
+        "name": "undo-restores-original-membership-and-rows",
+        "durationMs": 410,
+        "verificationDurationMs": 1275
+      },
+      {
+        "name": "reload-restored-original-collection-and-rows",
+        "durationMs": 2382
+      }
+    ]
+  },
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "population-member-removal-1791298477073",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "sourceFingerprint": {
+      "sha256": "8e91728ccc9abc0eb72bbfd0e3fcb4d4ae41a487533669f8ab382d80fa8e0849",
+      "files": 1528
+    },
+    "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+  },
+  "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "8e91728ccc9abc0eb72bbfd0e3fcb4d4ae41a487533669f8ab382d80fa8e0849",
+        "files": 1528
+      },
+      "after": {
+        "sha256": "8e91728ccc9abc0eb72bbfd0e3fcb4d4ae41a487533669f8ab382d80fa8e0849",
+        "files": 1528
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "f3c95230c0f6031fee3d7bcdd42564d86ce8d19732d1e6de98e5b40c3bc423cc",
+        "files": 226
+      },
+      "after": {
+        "sha256": "f3c95230c0f6031fee3d7bcdd42564d86ce8d19732d1e6de98e5b40c3bc423cc",
+        "files": 226
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "lifecycleCompletion": "Opened Rows settings on the exact saved GROUP→RELATED_SOURCE source; removed the mapped member; verified an empty automatic candidate; exercised Cancel and fresh reopen; applied the exact proposal; reloaded; then Undo restored the original population and attached selection, followed by restored-state reload.",
+  "scopeLimitations": [
+    "This proves the registered mapped-plus-orphan-to-empty case on project loom_dev_cda_fhir / generation cda-fhir-v1; do not generalize to unrelated routes, datasets, or authorization contexts."
+  ],
+  "nextCheck": "The mapped-plus-orphan-to-empty population member removal lifecycle is closed for this registered case. Keep other route shapes and authorization contexts as separate coverage.",
+  "timing": {
+    "fixtureSetupMs": 3261,
+    "browserLifecycleDurationMs": 35571,
+    "playwrightReportedTestDurationMs": 37106,
+    "playwrightRunDurationMs": 38790.892,
+    "maxTrackedUiActionMs": 982,
+    "maxLifecycleCheckpointMs": 2382,
+    "budgetMs": 5000,
+    "runnerWallDurationMs": null
+  },
+  "rawReportPath": "/private/tmp/loom-native-population-member-removal-wave96/attempt1/artifacts/population-member-removal--5760a--full-population-after-undo/attachments/cda-domain-report-json-27a4e398ec83863b3e9125fe4a10c4de716fb883.json",
+  "rawReportSha256": "83fc81cbb1ae76158b342b3ecb7629525b87a6f8989ce82d41437632378277ae",
+  "playwrightResultsPath": "/private/tmp/loom-native-population-member-removal-wave96/attempt1/results.json",
+  "playwrightResultsSha256": "fab09d1811826153ebe47072b5c66ea01a875e87e0311bce016d5e51a30b45d9",
+  "runnerLogPath": "/private/tmp/loom-native-population-member-removal-wave96/attempt1/runner.log",
+  "runnerLogSha256": "aed1ce63a19438a5fcb6f8b72353995728e92a0b65a46b0c9c56941fadfd9840",
+  "coordinatorClosurePath": "/private/tmp/loom-native-population-member-removal-wave96/closure.json",
+  "coordinatorClosureSha256": "d9b31c3a25662201d153302802b16d878be246a1ff0e6e05b2869bb2129b2e87",
+  "durableClosurePath": "docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-lifecycle-closure.json",
+  "byteExactCoordinatorClosurePath": "docs/verification/playwright/runtime/current-draft-cda-population-member-removal-epoch96-closure.json"
+}

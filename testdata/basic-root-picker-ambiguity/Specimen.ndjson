@@ -1,0 +1,4 @@
+{"resourceType":"Specimen","id":"specimen-stage-route"}
+{"resourceType":"Specimen","id":"specimen-focus-route"}
+{"resourceType":"Specimen","id":"specimen-subject-route","subject":{"reference":"Patient/patient-subject-anchor"}}
+{"resourceType":"Specimen","id":"specimen-unmatched","subject":{"reference":"Patient/patient-unmatched"}}

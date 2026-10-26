@@ -172,7 +172,7 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 	totalCount := int(page.TotalCount)
 	return &model.DataframeRowConnection{
 		Materialization: dataframeapi.Model(page.Materialization),
-		Columns:         append([]string(nil), page.Columns...), Rows: rows, TotalCount: &totalCount,
+		Columns:         append([]string(nil), page.Columns...), Rows: rows, RowIds: append([]string(nil), page.RowIDs...), TotalCount: &totalCount,
 		PageInfo: &model.DataframePageInfo{HasNextPage: page.HasNext, EndCursor: cursor},
 	}, nil
 }

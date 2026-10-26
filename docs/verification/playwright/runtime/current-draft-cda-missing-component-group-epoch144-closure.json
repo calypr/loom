@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "epoch": 144,
+  "status": "CLOSED_PASS",
+  "sourceCommit": "739c788cafbbafceb0ca7a52c228cded3899e654",
+  "case": {
+    "scenarioId": "cda-repeated-missing-component-group",
+    "caseName": "missing-component-expanded-group-cancel-restore",
+    "title": "preserves missing-component owners through EXPANDED and GROUP removal Cancel",
+    "status": "passed",
+    "requiredChecks": {
+      "passed": 17,
+      "total": 17,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "evidence": [
+        {
+          "name": "bounded raw oracle selects one two-item and three missing-component Observations",
+          "status": "passed"
+        },
+        {
+          "name": "fresh owned Explorer and selection preserve the exact scoped Observation IDs",
+          "status": "passed"
+        },
+        {
+          "name": "PRESERVE_PARENT expansion returns five exact item and missing-owner rows",
+          "status": "passed"
+        },
+        {
+          "name": "Cancel restores exact source EXPANDED component rows before Apply",
+          "status": "passed"
+        },
+        {
+          "name": "Apply and reload preserve all five raw-oracle EXPANDED rows",
+          "status": "passed"
+        },
+        {
+          "name": "COUNT_ROWS Group proposal returns four exact Observation ID cardinalities",
+          "status": "passed"
+        },
+        {
+          "name": "authored GROUP is composed after source EXPANDED without changing source bindings",
+          "status": "passed"
+        },
+        {
+          "name": "applied GROUP renders the exact four-row table before reload",
+          "status": "passed"
+        },
+        {
+          "name": "applied Group survives reload with exact four-row counts",
+          "status": "passed"
+        },
+        {
+          "name": "saved GROUP output-label edit proposal preserves exact four COUNT_ROWS rows and stable step/output IDs",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling saved GROUP output-label edit preserves the original saved label and exact four-row table",
+          "status": "passed"
+        },
+        {
+          "name": "Applying saved GROUP output-label edit preserves stable step/output IDs and exact rows after reload",
+          "status": "passed"
+        },
+        {
+          "name": "Canceling GROUP removal leaves the saved GROUP workspace and exact four-row preview unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "applying GROUP removal restores the exact five-row source EXPANDED table after reload",
+          "status": "passed"
+        },
+        {
+          "name": "all native action-to-render checkpoints complete within five seconds",
+          "status": "passed"
+        },
+        {
+          "name": "no unexpected browser, module, console, or HTTP errors",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    },
+    "assertions": {
+      "passed": 57,
+      "failed": 0,
+      "total": 57
+    },
+    "actions": {
+      "passed": 38,
+      "total": 38,
+      "maximumLatencyMs": 242
+    },
+    "renderCheckpoints": {
+      "count": 34,
+      "maximumLatencyMs": 1388,
+      "budgetMs": 5000
+    },
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    }
+  },
+  "execution": {
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "workingDirectory": "/private/tmp/loom-construction-implementation",
+    "scenario": "cda-repeated-missing-component-group",
+    "case": "missing-component-expanded-group-cancel-restore",
+    "grep": "preserves missing-component owners through EXPANDED and GROUP removal Cancel$",
+    "exactCommand": "node scripts/run-native-verification-bracket.mjs --scenario cda-repeated-missing-component-group --case missing-component-expanded-group-cancel-restore --grep \"preserves missing-component owners through EXPANDED and GROUP removal Cancel$\" --evidence-parent /private/tmp/loom-cda-missing-component-group-epoch143b.za3jir",
+    "selectedTests": 1,
+    "workers": 1,
+    "retries": 0,
+    "browserSessionId": 46617,
+    "environmentLoaders": [
+      {
+        "order": 1,
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave111/browser-environment.sh",
+        "sha256": "19ef5337e2979d83c68675827822855182344d42aba0a319a29a25167c5c9900"
+      },
+      {
+        "order": 2,
+        "path": "/private/tmp/loom-native-root-quantity-pivot-wave111/capture-environment.sh",
+        "sha256": "c6984f88d17a18c87cfb3dd238db609c63d7585f14f3a9ca9faad00766d64f48"
+      }
+    ],
+    "evidenceParent": "/private/tmp/loom-cda-missing-component-group-epoch143b.za3jir",
+    "runDirectory": "/private/tmp/loom-cda-missing-component-group-epoch143b.za3jir/run-cda-repeated-missing-component-group-missing-component-expanded-group-cancel-restore-tjOCeP",
+    "browserExitCode": 0
+  },
+  "prelaunchHarnessOverhead": [
+    {
+      "category": "cwd launch-path correction",
+      "command": "node scripts/run-native-verification-bracket.mjs (same scenario/case/grep/evidence parent)",
+      "workingDirectory": "/private/tmp/loom-construction-implementation/scripts",
+      "error": "Cannot find module '/private/tmp/loom-construction-implementation/scripts/scripts/run-native-verification-bracket.mjs'",
+      "result": "wrapper was not found; no selection, precheck, capture, browser, or case action started; corrected by running from repository root",
+      "productFailure": false
+    }
+  ],
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "5b15bd2a60b0d253dafa00934159483274c248831a6b3a4cdb8d5aebab4c254c",
+        "files": 1583
+      },
+      "after": {
+        "sha256": "5b15bd2a60b0d253dafa00934159483274c248831a6b3a4cdb8d5aebab4c254c",
+        "files": 1583
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "docs": {
+      "before": {
+        "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+        "files": 290
+      },
+      "after": {
+        "sha256": "f6b11f6d94ef22d84369b0c8b5b09562b2d02838e99db0ed7eb3b41cb9ebba9f",
+        "files": 290
+      },
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "after": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "precheck": "ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:ab11a3b84d44dad4cd628c2a2fdd65065b5f76f53e203186b6134e90a7430df8:9c49edecc4e062e3c4e6b9752e24d6b59696d614a9abf18aa3ade24636d169e9",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "artifacts": {
+    "report": {
+      "path": "docs/verification/playwright/runtime/current-draft-cda-missing-component-group-epoch144-report.json",
+      "sha256": "a994987310d7c0110881c6268e8bdcb68efbcabf1909201af7b8561decc3a15a"
+    },
+    "bracketSummary": {
+      "path": "/private/tmp/loom-cda-missing-component-group-epoch143b.za3jir/run-cda-repeated-missing-component-group-missing-component-expanded-group-cancel-restore-tjOCeP/summary.json",
+      "sha256": "020bd7889afd4937b6d40e9687ac0e433a9acfe63b20aa28ebb54989e521cfda",
+      "sizeBytes": 70186
+    },
+    "rawDomainReport": {
+      "path": "/private/tmp/loom-cda-missing-component-group-epoch143b.za3jir/run-cda-repeated-missing-component-group-missing-component-expanded-group-cancel-restore-tjOCeP/playwright-results/standalone-cda-rows-CDA-mi-98caa-ED-and-GROUP-removal-Cancel/attachments/cda-domain-report-json-b6269f2d175a5d92dc56224528f664a2fd3c7790.json",
+      "sha256": "c367a666cef27e2310089e2786897d8bad2b889f6da8b6bafa7f8c51060501f3",
+      "sizeBytes": 1405149
+    }
+  }
+}

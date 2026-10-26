@@ -116,6 +116,7 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 		"project":                  identity.Project,
 		"generation":               identity.Generation,
 		"authorizationScopeDigest": identity.AuthorizationScopeDigest,
+		"cacheVersion":             identity.CacheVersion,
 		"schemaDigest":             identity.SchemaDigest,
 		"resourceInventoryDigest":  identity.ResourceInventoryDigest,
 		"relationshipDigest":       identity.RelationshipDigest,
@@ -178,6 +179,7 @@ FOR d IN @@c
   FILTER d.identity.project == @project
     AND d.identity.generation == @generation
     AND d.identity.authorizationScopeDigest == @authorizationScopeDigest
+    AND NOT_NULL(d.identity.cacheVersion, "") == @cacheVersion
 		AND d.identity.schemaDigest == @schemaDigest
 		AND d.identity.resourceInventoryDigest == @resourceInventoryDigest
 		AND d.identity.relationshipDigest == @relationshipDigest

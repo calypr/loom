@@ -2,6 +2,7 @@ package arango
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -21,6 +22,14 @@ func (c *capabilitySnapshotClient) WithTransaction(ctx context.Context, _ storep
 
 func (c *capabilitySnapshotClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
 	c.calls = append(c.calls, queryCall{query: query, binds: binds})
+	if query == capabilitySnapshotGetByIdentityAQL && c.row != nil {
+		storedIdentity, _ := c.row["identity"].(map[string]any)
+		storedVersion, _ := storedIdentity["cacheVersion"].(string)
+		requestedVersion, _ := binds["cacheVersion"].(string)
+		if storedVersion != requestedVersion {
+			return nil
+		}
+	}
 	if c.row != nil {
 		return visit(c.row)
 	}
@@ -77,6 +86,7 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 	for _, required := range []string{
 		"d.identity.project == @project", "d.identity.generation == @generation",
 		"d.identity.authorizationScopeDigest == @authorizationScopeDigest",
+		`NOT_NULL(d.identity.cacheVersion, "") == @cacheVersion`,
 		"d.identity.protocolVersion == @protocolVersion", "d.identity.compilerVersion == @compilerVersion",
 		"d.status IN @statuses",
 	} {
@@ -89,6 +99,49 @@ func TestCapabilitySnapshotStoreBindsImmutableIdentity(t *testing.T) {
 	}
 	if got := identityCall.binds["generation"]; got != snapshot.Identity.Generation {
 		t.Fatalf("generation bind=%v", got)
+	}
+	if got := identityCall.binds["cacheVersion"]; got != "" {
+		t.Fatalf("legacy cache version bind=%v, want empty string", got)
+	}
+}
+
+func TestCapabilitySnapshotStoreCacheVersionSeparatesIdentityAndKeepsLegacyToken(t *testing.T) {
+	client := &capabilitySnapshotClient{}
+	adapter, err := NewCapabilitySnapshotStore(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := testCapabilitySnapshot()
+	client.row, err = canonicalSnapshotDocument(legacy, capabilitySnapshotKey(legacy.Token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Put(context.Background(), legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	currentIdentity := legacy.Identity
+	currentIdentity.CacheVersion = "observed-availability-v1"
+	if _, err := adapter.GetByIdentity(context.Background(), currentIdentity); !errors.Is(err, capability.ErrNotFound) {
+		t.Fatalf("new cache identity reused legacy snapshot: %v", err)
+	}
+	identityCall := client.calls[len(client.calls)-1]
+	if got := identityCall.binds["cacheVersion"]; got != currentIdentity.CacheVersion {
+		t.Fatalf("current cache version bind=%v", got)
+	}
+	legacyToken, err := adapter.GetByToken(context.Background(), legacy.Token)
+	if err != nil || legacyToken.Token != legacy.Token {
+		t.Fatalf("legacy token changed after cache identity upgrade: %#v err=%v", legacyToken, err)
+	}
+
+	current := capability.NewSnapshot(currentIdentity, legacy.Policy, legacy.Status, legacy.Complete, legacy.Truncated, legacy.Nodes, legacy.Edges, legacy.Candidates, legacy.Diagnostics)
+	client.row, err = canonicalSnapshotDocument(current, capabilitySnapshotKey(current.Token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := adapter.GetByIdentity(context.Background(), currentIdentity)
+	if err != nil || resolved.Token != current.Token {
+		t.Fatalf("current cache identity lookup = %#v err=%v", resolved, err)
 	}
 }
 

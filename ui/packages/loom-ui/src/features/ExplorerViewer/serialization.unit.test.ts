@@ -51,16 +51,40 @@ describe('Explorer Viewer request serialization', () => {
     expect(request.after).toBeUndefined();
     expect(request.facets).toEqual([
       { name: 'loom:patients:status', kind: 'TERMS', column: 'status', size: 50, excludeSelfFilter: true },
-      { name: 'loom:patients:chart:status', kind: 'TERMS', column: 'status', size: 12 },
     ]);
   });
 
-  it('drops chart aggregation work while charts are hidden', () => {
+  it('starts a fresh Viewer state without selected local or shared values while retaining configured fixed filters', () => {
+    let selected = createViewerReducerState(runtime);
+    selected = viewerReducer(selected, { type: 'setFilter', outputId: 'patients', column: 'status', values: ['active'] });
+    selected = viewerReducer(selected, { type: 'setSharedFilter', name: 'cohort', values: ['reviewed'] });
+
+    expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, selected, runtime.outputs[0]).filters).toEqual([
+      { column: 'project', op: 'EQ', value: 'NCPI' },
+      { column: 'status', op: 'EQ', value: 'reviewed' },
+    ]);
+
+    const reloaded = createViewerReducerState(runtime);
+
+    expect(reloaded.outputs.patients.filterValues).toEqual({});
+    expect(reloaded.sharedFilters).toEqual({});
+    expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, reloaded, runtime.outputs[0]).filters).toEqual([
+      { column: 'project', op: 'EQ', value: 'NCPI' },
+    ]);
+  });
+
+  it('requests filter and chart facets only when their controls are opened', () => {
     const initial = createViewerReducerState(runtime);
-    const state = viewerReducer(initial, { type: 'toggleCharts', outputId: 'patients' });
+    expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, initial, runtime.outputs[0]).facets).toEqual([]);
+    const withFilter = viewerReducer(initial, {
+      type: 'toggleFacet',
+      facet: 'patients:filter:status',
+    });
+    const state = viewerReducer(withFilter, { type: 'toggleCharts', outputId: 'patients' });
 
     expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, state, runtime.outputs[0]).facets).toEqual([
       { name: 'loom:patients:status', kind: 'TERMS', column: 'status', size: 50, excludeSelfFilter: true },
+      { name: 'loom:patients:chart:status', kind: 'TERMS', column: 'status', size: 12 },
     ]);
   });
 });

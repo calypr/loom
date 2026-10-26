@@ -1,0 +1,3 @@
+{"resourceType":"Observation","id":"dev-observation-001","status":"final","code":{"coding":[{"system":"https://example.test/codes","code":"date-time-1"}]},"effectiveDateTime":"2026-01-02T00:00:00Z","subject":{"reference":"Patient/dev-patient-001"}}
+{"resourceType":"Observation","id":"dev-observation-002","status":"final","code":{"coding":[{"system":"https://example.test/codes","code":"date-time-2"}]},"effectiveDateTime":"2026-01-02T00:00:00Z","subject":{"reference":"Patient/dev-patient-002"}}
+{"resourceType":"Observation","id":"dev-observation-003","status":"final","code":{"coding":[{"system":"https://example.test/codes","code":"date-time-3"}]},"effectiveDateTime":"2026-01-02T00:00:00Z","subject":{"reference":"Patient/dev-patient-001"}}

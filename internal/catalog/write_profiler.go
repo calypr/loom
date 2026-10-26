@@ -12,7 +12,14 @@ import (
 )
 
 func NewShapePlanCacheWithLimit(maxPlans int) *ShapePlanCache {
-	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans}
+	return NewShapePlanCacheWithLimits(maxPlans, 0)
+}
+
+func NewShapePlanCacheWithLimits(maxPlans, maxBytes int) *ShapePlanCache {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxRetainedBytes
+	}
+	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans, maxBytes: maxBytes, budget: newRetentionBudget(maxBytes)}
 }
 
 // NewProfilerForGenerationWithLimits constructs a profiler with explicit
@@ -20,22 +27,61 @@ func NewShapePlanCacheWithLimit(maxPlans int) *ShapePlanCache {
 func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache, limits ProfileLimits) *Profiler {
 	limits = limits.normalized()
 	if cache == nil {
-		cache = NewShapePlanCacheWithLimit(limits.MaxShapePlans)
+		cache = NewShapePlanCacheWithLimits(limits.MaxShapePlans, limits.MaxRetainedBytes)
 	}
 	return &Profiler{
-		project:           project,
-		datasetGeneration: NormalizeDatasetGeneration(datasetGeneration),
-		authResourcePath:  authResourcePath,
-		resourceType:      resourceType,
-		limits:            limits,
-		shapeCache:        cache,
-		stats:             make(map[string]*fieldCatalogStats),
+		project:                  project,
+		datasetGeneration:        NormalizeDatasetGeneration(datasetGeneration),
+		semanticInventoryBuildID: SemanticInventoryBuildID(project, datasetGeneration),
+		authResourcePath:         authResourcePath,
+		resourceType:             resourceType,
+		semanticSourceKind:       SemanticInventorySourceFile,
+		limits:                   limits,
+		shapeCache:               cache,
+		stats:                    make(map[string]*fieldCatalogStats),
+		budget:                   cache.retentionBudget(limits.MaxRetainedBytes),
 	}
 }
 
-func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) {
+func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) error {
+	return p.observePayload(payload, timings, "", nil, nil, "", nil)
+}
+
+// ObservePayloadWithInventory profiles a source record and emits each semantic
+// observation through the same extractor used by the bounded field summary.
+func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) error {
+	return p.observePayload(payload, timings, sourceID, sink, nil, "", nil)
+}
+
+// ObservePayloadWithCoverage profiles one source record, emits semantic
+// observations and ephemeral concrete-owner evidence, then writes exactly one
+// aggregated source coverage contribution through coverageSink.
+func (p *Profiler) ObservePayloadWithCoverage(
+	payload map[string]any,
+	timings map[string]float64,
+	sourceID string,
+	schemaIdentity string,
+	semanticSink SemanticInventoryObservationSink,
+	emissionSink SemanticCoverageEmissionSink,
+	coverageSink SemanticCoverageSourceSink,
+) error {
+	if coverageSink == nil {
+		return fmt.Errorf("semantic coverage source sink is required")
+	}
+	return p.observePayload(payload, timings, sourceID, semanticSink, emissionSink, schemaIdentity, coverageSink)
+}
+
+func (p *Profiler) observePayload(
+	payload map[string]any,
+	timings map[string]float64,
+	sourceID string,
+	semanticSink SemanticInventoryObservationSink,
+	emissionSink SemanticCoverageEmissionSink,
+	schemaIdentity string,
+	coverageSink SemanticCoverageSourceSink,
+) error {
 	if payload == nil {
-		return
+		return nil
 	}
 	fingerprintStart := time.Now()
 	fingerprint := shapeFingerprintForValue(payload)
@@ -46,29 +92,39 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	timings["field_shape_plan"] += time.Since(planStart).Seconds()
 
 	observeStart := time.Now()
+	var rawPaths map[string]struct{}
+	if coverageSink != nil {
+		rawPaths = make(map[string]struct{}, len(plan.fields))
+	}
 	for _, field := range plan.fields {
 		values, ok := extractAccessorValues(payload, field.Accessor)
 		if !ok {
 			continue
+		}
+		if rawPaths != nil {
+			rawPaths[field.Path] = struct{}{}
 		}
 		stat := p.ensureStat(field)
 		if stat == nil {
 			continue
 		}
 		stat.docCount++
+		if field.Kind == fieldKindArray {
+			stat.maxItems = max(stat.maxItems, maxArrayItems(payload, field.Accessor))
+		}
 		switch field.Kind {
 		case fieldKindScalar:
 			for _, value := range values {
 				if text, ok := scalarStringValue(value); ok {
-					stat.addDistinctWithLimits(text, p.limits)
+					p.addDistinctWithLimits(stat, text)
 				}
 			}
 		case fieldKindCodeableConcept:
 			for _, value := range values {
 				if cc, ok := value.(map[string]any); ok {
 					for _, col := range codeableConceptColumns(cc) {
-						stat.addPivotColumnWithLimits(col, p.limits)
-						stat.addDistinctWithLimits(col, p.limits)
+						p.addPivotColumnWithLimits(stat, col)
+						p.addDistinctWithLimits(stat, col)
 					}
 				}
 			}
@@ -76,7 +132,14 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	}
 	p.observeObservationCodePivot(payload)
 	p.observeExtensionValues(payload)
+	var semanticErr error
+	if coverageSink != nil {
+		semanticErr = p.observeSemanticObservationsWithCoverage(payload, sourceID, schemaIdentity, semanticSink, emissionSink, coverageSink, rawPaths)
+	} else {
+		semanticErr = p.observeSemanticObservations(payload, sourceID, semanticSink)
+	}
 	timings["field_profile"] += time.Since(observeStart).Seconds()
+	return semanticErr
 }
 
 // ErrProfilerIdentityMismatch reports an attempted merge between independently
@@ -125,13 +188,26 @@ func (p *Profiler) Merge(other *Profiler) error {
 			otherIdentity.resourceType,
 		)
 	}
+	if p.budget == other.budget && p.budget != nil {
+		p.budget.release(other.retainedBytes)
+		other.retainedBytes = 0
+	}
 	if p.stats == nil {
 		p.stats = make(map[string]*fieldCatalogStats)
 	}
+	p.truncated = p.truncated || other.Truncated()
+	p.enrichmentTruncated = p.enrichmentTruncated || other.enrichmentTruncated
 	for path, otherStat := range other.stats {
 		stat, ok := p.stats[path]
 		if !ok {
 			if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+				p.truncated = true
+				p.enrichmentTruncated = true
+				continue
+			}
+			if !p.reserve(fieldStatsWeight(otherStat.path, otherStat.kind)) {
+				p.truncated = true
+				p.enrichmentTruncated = true
 				continue
 			}
 			stat = &fieldCatalogStats{
@@ -148,22 +224,25 @@ func (p *Profiler) Merge(other *Profiler) error {
 				distinctSet:           make(map[string]struct{}),
 				pivotColumnSet:        make(map[string]struct{}),
 				extensionValueSet:     make(map[string]struct{}),
+				semanticObservations:  make(map[string]*semanticObservationStats),
 			}
 			p.stats[path] = stat
 		}
 		stat.docCount += otherStat.docCount
+		stat.maxItems = max(stat.maxItems, otherStat.maxItems)
 		stat.distinctTruncated = stat.distinctTruncated || otherStat.distinctTruncated
 		stat.setPivotDefaults(otherStat.pivotFamily, otherStat.pivotColumnSelect, otherStat.pivotValueSelect)
 		stat.setPivotScope(otherStat.pivotItemSource, otherStat.pivotItemResourceType, otherStat.pivotValueSelectors)
 		for _, value := range otherStat.distinctValues {
-			stat.addDistinctWithLimits(value, p.limits)
+			p.addDistinctWithLimits(stat, value)
 		}
 		for _, value := range otherStat.pivotColumns {
-			stat.addPivotColumnWithLimits(value, p.limits)
+			p.addPivotColumnWithLimits(stat, value)
 		}
 		for _, observation := range otherStat.extensionValues {
-			stat.addExtensionValueWithLimits(observation, p.limits)
+			p.addExtensionValueWithLimits(stat, observation)
 		}
+		mergeSemanticObservations(stat, otherStat)
 	}
 	return nil
 }
@@ -176,11 +255,44 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 	}
 	sort.Strings(paths)
 	datasetGeneration := NormalizeDatasetGeneration(p.datasetGeneration)
+	enrichmentTruncated := p.enrichmentTruncated
+	enrichmentComplete := !enrichmentTruncated
+	if len(paths) == 0 && enrichmentTruncated {
+		return []FieldCatalogDocument{{
+			Key:        "fpe_" + catalogIdentityDigest("field-profile-status/v1", p.project, datasetGeneration, p.authResourcePath, p.resourceType),
+			RecordType: FieldProfileStatusRecordType, Project: p.project, DatasetGeneration: datasetGeneration,
+			AuthResourcePath: p.authResourcePath, ResourceType: p.resourceType,
+			EnrichmentComplete: &enrichmentComplete, EnrichmentTruncated: true,
+		}}
+	}
 	for _, path := range paths {
 		stat := p.stats[path]
 		distinctValues := append([]string(nil), stat.distinctValues...)
 		pivotColumns := append([]string(nil), stat.pivotColumns...)
 		extensionValues := append([]ExtensionValueObservation(nil), stat.extensionValues...)
+		semanticObservations := make([]SemanticObservation, 0, len(stat.semanticObservations))
+		for _, observation := range stat.semanticObservations {
+			semanticObservations = append(semanticObservations, semanticObservationValues(observation))
+		}
+		mixedChoices := make(map[string]map[string]struct{})
+		for _, observation := range semanticObservations {
+			key := strings.Join([]string{observation.Source.Canonical, observation.OwningScope, observation.Key.System, observation.Key.Code, observation.Key.Selector}, "\x00")
+			if mixedChoices[key] == nil {
+				mixedChoices[key] = map[string]struct{}{}
+			}
+			mixedChoices[key][observation.ChoiceArm] = struct{}{}
+		}
+		for index := range semanticObservations {
+			observation := &semanticObservations[index]
+			key := strings.Join([]string{observation.Source.Canonical, observation.OwningScope, observation.Key.System, observation.Key.Code, observation.Key.Selector}, "\x00")
+			if len(mixedChoices[key]) > 1 {
+				observation.Status = "MIXED_CHOICE"
+				observation.Completeness = SemanticPartial
+			}
+		}
+		sort.Slice(semanticObservations, func(i, j int) bool {
+			return semanticObservationKey(semanticObservations[i]) < semanticObservationKey(semanticObservations[j])
+		})
 		slices.Sort(distinctValues)
 		slices.Sort(pivotColumns)
 		sort.Slice(extensionValues, func(i, j int) bool {
@@ -204,9 +316,12 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			Path:                  stat.path,
 			Kind:                  stat.kind,
 			DocCount:              stat.docCount,
+			MaxItems:              stat.maxItems,
 			SampleCount:           len(distinctValues),
 			DistinctValues:        distinctValues,
 			DistinctTruncated:     stat.distinctTruncated,
+			EnrichmentComplete:    &enrichmentComplete,
+			EnrichmentTruncated:   enrichmentTruncated,
 			PivotCandidate:        stat.pivotCandidate,
 			PivotKind:             stat.pivotKind,
 			PivotColumns:          pivotColumns,
@@ -217,9 +332,60 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			PivotItemResourceType: stat.pivotItemResourceType,
 			PivotValueSelectors:   append([]string(nil), stat.pivotValueSelectors...),
 			ExtensionValues:       extensionValues,
+			SemanticObservations:  semanticObservations,
 		})
 	}
 	return out
+}
+
+func maxArrayItems(root any, accessor []pathStep) int {
+	if len(accessor) == 0 || !accessor[len(accessor)-1].iterateArray {
+		return 0
+	}
+	nodes := []any{root}
+	for index, step := range accessor {
+		last := index == len(accessor)-1
+		next := make([]any, 0, len(nodes))
+		for _, node := range nodes {
+			object, ok := node.(map[string]any)
+			if !ok {
+				continue
+			}
+			value, ok := object[step.field]
+			if !ok || value == nil {
+				continue
+			}
+			if step.iterateArray {
+				items, ok := value.([]any)
+				if !ok {
+					continue
+				}
+				if last {
+					return maxLength(nodes, step.field)
+				}
+				next = append(next, items...)
+				continue
+			}
+			next = append(next, value)
+		}
+		nodes = next
+	}
+	return 0
+}
+
+func maxLength(nodes []any, field string) int {
+	maximum := 0
+	for _, node := range nodes {
+		object, ok := node.(map[string]any)
+		if !ok {
+			continue
+		}
+		items, ok := object[field].([]any)
+		if ok {
+			maximum = max(maximum, len(items))
+		}
+	}
+	return maximum
 }
 
 func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
@@ -227,6 +393,13 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 		return stat
 	}
 	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+		p.truncated = true
+		p.enrichmentTruncated = true
+		return nil
+	}
+	if !p.reserve(fieldStatsWeight(field.Path, field.Kind)) {
+		p.truncated = true
+		p.enrichmentTruncated = true
 		return nil
 	}
 	stat := &fieldCatalogStats{
@@ -250,6 +423,115 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 	}
 	p.stats[field.Path] = stat
 	return stat
+}
+
+func (p *Profiler) RetentionBytes() int {
+	if p.budget != nil {
+		return p.budget.usage()
+	}
+	return p.retainedBytes
+}
+
+func (p *Profiler) Truncated() bool {
+	return p.truncated || (p.shapeCache != nil && p.shapeCache.isTruncated())
+}
+
+func (p *Profiler) reserve(weight int) bool {
+	if weight <= 0 {
+		return true
+	}
+	if p.budget != nil && !p.budget.reserve(weight) {
+		return false
+	}
+	p.retainedBytes += weight
+	return true
+}
+
+func fieldStatsWeight(path, kind string) int {
+	return 96 + len(path) + len(kind)
+}
+
+func distinctValueWeight(value string) int { return 32 + len(value) }
+
+func pivotColumnWeight(value string) int { return 32 + len(value) }
+
+func extensionValueWeight(observation ExtensionValueObservation) int {
+	weight := 64 + len(observation.URL) + len(observation.SourcePath) + len(observation.ValuePath) + len(observation.ValueType)
+	for _, path := range observation.URLPath {
+		weight += len(path)
+	}
+	return weight
+}
+
+func (p *Profiler) addDistinctWithLimits(stat *fieldCatalogStats, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if _, ok := stat.distinctSet[value]; ok {
+		return
+	}
+	if len(value) > p.limits.MaxDistinctValueBytes || len(stat.distinctValues) >= p.limits.MaxDistinctValuesPerField || !p.reserve(distinctValueWeight(value)) {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	stat.distinctSet[value] = struct{}{}
+	stat.distinctValues = append(stat.distinctValues, value)
+}
+
+func (p *Profiler) addPivotColumnWithLimits(stat *fieldCatalogStats, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	if _, ok := stat.pivotColumnSet[value]; ok {
+		return
+	}
+	if len(value) > p.limits.MaxDistinctValueBytes || len(stat.pivotColumns) >= p.limits.MaxPivotColumnsPerField || !p.reserve(pivotColumnWeight(value)) {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	stat.pivotColumnSet[value] = struct{}{}
+	stat.pivotColumns = append(stat.pivotColumns, value)
+}
+
+func (p *Profiler) addExtensionValueWithLimits(stat *fieldCatalogStats, observation ExtensionValueObservation) {
+	observation.URL = strings.TrimSpace(observation.URL)
+	observation.SourcePath = strings.TrimSpace(observation.SourcePath)
+	observation.ValuePath = strings.TrimSpace(observation.ValuePath)
+	observation.ValueType = strings.TrimSpace(observation.ValueType)
+	if observation.URL == "" || observation.SourcePath == "" || observation.ValueType == "" {
+		return
+	}
+	if len(observation.URL) > p.limits.MaxDistinctValueBytes || len(observation.SourcePath) > p.limits.MaxDistinctValueBytes || len(observation.ValuePath) > p.limits.MaxDistinctValueBytes {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	for _, ancestor := range observation.URLPath {
+		if len(ancestor) > p.limits.MaxDistinctValueBytes {
+			stat.distinctTruncated = true
+			p.truncated = true
+			return
+		}
+	}
+	key := extensionObservationKey(observation)
+	if _, ok := stat.extensionValueSet[key]; ok {
+		return
+	}
+	if len(stat.extensionValues) >= p.limits.MaxExtensionValuesPerField || !p.reserve(extensionValueWeight(observation)) {
+		stat.distinctTruncated = true
+		p.truncated = true
+		return
+	}
+	stat.extensionValueSet[key] = struct{}{}
+	stat.extensionValues = append(stat.extensionValues, observation)
+}
+
+func extensionObservationKey(observation ExtensionValueObservation) string {
+	return observation.URL + "\x00" + strings.Join(observation.URLPath, "\x00") + "\x00" + observation.SourcePath + "\x00" + observation.ValuePath + "\x00" + observation.ValueType
 }
 
 func (s *fieldCatalogStats) addDistinctWithLimits(value string, limits ProfileLimits) {
@@ -342,7 +624,7 @@ func walkExtensionValuesWithAncestors(value any, path string, profiler *Profiler
 					continue
 				}
 				valuePath, valueType := extensionValueMapping(key, raw)
-				stat.addExtensionValueWithLimits(ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)}, profiler.limits)
+				profiler.addExtensionValueWithLimits(stat, ExtensionValueObservation{URL: url, SourcePath: path, ValuePath: valuePath, ValueType: valueType, URLPath: append([]string(nil), ancestors...)})
 			}
 		}
 		for _, key := range sortedKeys(typed) {
@@ -376,6 +658,13 @@ func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
 		return stat
 	}
 	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+		p.truncated = true
+		p.enrichmentTruncated = true
+		return nil
+	}
+	if !p.reserve(fieldStatsWeight(path, fieldKindScalar)) {
+		p.truncated = true
+		p.enrichmentTruncated = true
 		return nil
 	}
 	stat := &fieldCatalogStats{path: path, kind: fieldKindScalar, distinctSet: make(map[string]struct{}), pivotColumnSet: make(map[string]struct{}), extensionValueSet: make(map[string]struct{})}
@@ -457,11 +746,29 @@ func (c *ShapePlanCache) getOrBuild(fingerprint string, payload map[string]any) 
 		return plan
 	}
 	plan = buildShapePlan(payload)
+	weight := shapePlanWeight(plan)
 	if c.maxPlans > 0 && len(c.plans) >= c.maxPlans {
+		c.truncated = true
+		return plan
+	}
+	if c.budget != nil && !c.budget.reserve(weight) {
+		c.truncated = true
 		return plan
 	}
 	c.plans[fingerprint] = plan
+	c.retainedBytes += weight
 	return plan
+}
+
+func shapePlanWeight(plan *shapePlan) int {
+	weight := 64
+	for _, field := range plan.fields {
+		weight += 48 + len(field.Path) + len(field.Kind) + len(field.PivotKind)
+		for _, step := range field.Accessor {
+			weight += 24 + len(step.field)
+		}
+	}
+	return weight
 }
 
 func buildShapePlan(payload map[string]any) *shapePlan {
@@ -600,6 +907,13 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	stat, ok := p.stats["code"]
 	if !ok {
 		if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
+			p.truncated = true
+			p.enrichmentTruncated = true
+			return
+		}
+		if !p.reserve(fieldStatsWeight("code", fieldKindCodeableConcept)) {
+			p.truncated = true
+			p.enrichmentTruncated = true
 			return
 		}
 		stat = &fieldCatalogStats{
@@ -620,7 +934,7 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	}
 	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, columnSelector, valueSelector)
 	for _, col := range codeableConceptColumns(codeValue) {
-		stat.addPivotColumnWithLimits(col, p.limits)
+		p.addPivotColumnWithLimits(stat, col)
 	}
 }
 

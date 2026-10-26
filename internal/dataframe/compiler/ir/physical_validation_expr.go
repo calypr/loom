@@ -2,8 +2,9 @@ package ir
 
 import (
 	"fmt"
-
 	"strings"
+
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func validatePhysicalExpression(expression PhysicalExpression, defined map[string]bool, bindVars map[string]any) error {
@@ -32,6 +33,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Pivot != nil {
 		payloads++
 	}
+	if expression.OwnerRecords != nil {
+		payloads++
+	}
 	if expression.Slice != nil {
 		payloads++
 	}
@@ -50,7 +54,13 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Object != nil {
 		payloads++
 	}
+	if expression.Subplan != nil {
+		payloads++
+	}
 	if expression.Call != nil {
+		payloads++
+	}
+	if expression.RelatedField != nil {
 		payloads++
 	}
 	if payloads != 1 {
@@ -85,6 +95,25 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalPivot(*expression.Pivot, defined, bindVars)
+	case PhysicalOwnerRecordsExpression:
+		if expression.OwnerRecords == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if expression.OwnerRecords.Correlation.ValueScope == fhirschema.CorrelatedValueScopeCoding {
+			return fmt.Errorf("owner records does not support Coding value scope")
+		}
+		if err := validatePhysicalCorrelation(expression.OwnerRecords.Correlation, defined, bindVars); err != nil {
+			return fmt.Errorf("owner records correlation: %w", err)
+		}
+		for _, key := range []string{expression.OwnerRecords.OwnerPathBindKey, expression.OwnerRecords.ChoiceArmBindKey, expression.OwnerRecords.LogicalTypeBindKey} {
+			if err := requireBind(bindVars, key); err != nil {
+				return err
+			}
+			if _, ok := bindVars[key].(string); !ok {
+				return fmt.Errorf("owner records bind %q must be a string", key)
+			}
+		}
+		return nil
 	case PhysicalSliceExpression:
 		if expression.Slice == nil {
 			return fmt.Errorf("expression payload does not match kind")
@@ -121,14 +150,62 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalObject(*expression.Object, defined, bindVars)
+	case PhysicalSubplanExpression:
+		if expression.Subplan == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if expression.Cardinality != PhysicalArrayCardinality {
+			return fmt.Errorf("SUBPLAN expression must be array-valued, got %q", expression.Cardinality)
+		}
+		if expression.NullBehavior != PhysicalEmptyOnNull {
+			return fmt.Errorf("SUBPLAN expression must use EMPTY_ON_NULL, got %q", expression.NullBehavior)
+		}
+		return validatePhysicalSubplan(*expression.Subplan, defined, bindVars)
 	case PhysicalCallExpression:
 		if expression.Call == nil {
 			return fmt.Errorf("expression payload does not match kind")
 		}
+		if strings.EqualFold(strings.TrimSpace(expression.Call.Name), "distinct_present_one") &&
+			(expression.Cardinality != PhysicalScalarCardinality || expression.NullBehavior != PhysicalPreserveNull) {
+			return fmt.Errorf("distinct_present_one must produce a nullable scalar")
+		}
 		return validatePhysicalCall(*expression.Call, defined, bindVars)
+	case PhysicalRelatedFieldExpression:
+		if expression.RelatedField == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if expression.Cardinality != PhysicalScalarCardinality || expression.NullBehavior != PhysicalPreserveNull {
+			return fmt.Errorf("related field expression must be a nullable scalar")
+		}
+		if err := validatePhysicalValue(expression.RelatedField.DocumentID, defined, bindVars); err != nil {
+			return fmt.Errorf("related field document ID: %w", err)
+		}
+		if expression.RelatedField.ResourceType == "" || len(expression.RelatedField.Path) == 0 || expression.RelatedField.Path[0] != "payload" {
+			return fmt.Errorf("related field path is empty")
+		}
+		for index, segment := range expression.RelatedField.Path {
+			if !validPhysicalFieldPathSegment(segment) {
+				return fmt.Errorf("related field path segment %d is invalid", index)
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown expression kind %q", expression.Kind)
 	}
+}
+
+func validPhysicalFieldPathSegment(segment string) bool {
+	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
+		return false
+	}
+	for index := 1; index < len(segment); index++ {
+		character := segment[index]
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, bindVars map[string]any) error {
@@ -138,7 +215,7 @@ func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, b
 	if !physicalVariablePattern.MatchString(keyed.ItemVariable) {
 		return fmt.Errorf("keyed map item variable %q is unsafe", keyed.ItemVariable)
 	}
-	if keyed.Reduction != PhysicalMapFirst && keyed.Reduction != PhysicalMapFirstSorted {
+	if keyed.Reduction != PhysicalMapFirst && keyed.Reduction != PhysicalMapFirstSorted && keyed.Reduction != PhysicalMapAll && keyed.Reduction != PhysicalMapDistinct {
 		return fmt.Errorf("unsupported keyed map reduction %q", keyed.Reduction)
 	}
 	if err := validatePhysicalExpression(keyed.Source, defined, bindVars); err != nil {
@@ -193,14 +270,15 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		return fmt.Errorf("call name is required")
 	}
 	known := map[string]bool{
-		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true,
+		"coalesce": true, "coalesce_string": true, "fallback": true, "first": true, "all": true, "distinct": true, "distinct_present_one": true, "length": true,
 		"canonical_json": true,
 		"concat":         true, "join": true, "cast": true, "reference_id": true,
 		"path_segment": true, "basename": true, "last_segment": true,
 		"sanitize_name": true, "sanitize_graphql_name": true, "uuid3": true, "uuid5": true,
 		"if": true, "case": true, "not": true, "and": true, "or": true,
 		"eq": true, "neq": true, "gt": true, "gte": true, "lt": true, "lte": true,
-		"contains": true,
+		"contains": true, "assert": true,
+		"add": true, "subtract": true, "multiply": true, "divide": true,
 	}
 	if !known[name] {
 		return fmt.Errorf("unsupported call %q", call.Name)
@@ -214,7 +292,16 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		default:
 			return fmt.Errorf("cast target kind %q is unsupported", call.TargetKind)
 		}
-	} else if call.TargetKind != "" {
+	} else if name == "distinct_present_one" {
+		if len(call.Args) != 1 || call.Args[0].Cardinality != PhysicalArrayCardinality ||
+			(call.TargetKind != "STRING" && call.TargetKind != "INTEGER" && call.TargetKind != "DECIMAL" && call.TargetKind != "BOOLEAN") {
+			return fmt.Errorf("distinct_present_one requires one array argument and a table scalar target kind")
+		}
+	} else if name == "assert" && len(call.Args) != 2 {
+		return fmt.Errorf("assert requires a condition and message")
+	} else if (name == "add" || name == "subtract" || name == "multiply" || name == "divide") && len(call.Args) != 2 {
+		return fmt.Errorf("%s requires two arguments", name)
+	} else if name != "distinct_present_one" && call.TargetKind != "" {
 		return fmt.Errorf("target kind is only valid for cast")
 	}
 	for index, arg := range call.Args {
@@ -225,19 +312,20 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 	return nil
 }
 
-// validatePhysicalExpressionObjectCycles protects the recursive expression
-// validator from a malformed in-memory plan containing a cycle of
-// PhysicalObject pointers. JSON decoding cannot produce such a cycle, but
-// plans are also assembled by compiler stages and tests, where pointers can
-// be wired directly. The active/visited split permits shared (DAG) objects
+// validatePhysicalExpressionObjectCycles protects recursive expression and
+// subplan validation from malformed in-memory plans containing pointer cycles.
+// JSON decoding cannot produce such cycles, but compiler stages and tests can
+// wire pointers directly. The active/visited split permits shared DAG nodes
 // while rejecting only true recursion.
 func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error {
 	active := map[*PhysicalObject]bool{}
 	visited := map[*PhysicalObject]bool{}
+	activeSubplans := map[*PhysicalSubplan]bool{}
+	visitedSubplans := map[*PhysicalSubplan]bool{}
 	var visitExpression func(PhysicalExpression) error
 	var visitObject func(*PhysicalObject) error
 	var visitPredicate func(*PhysicalPredicateExpression) error
-	var visitSubplan func(PhysicalSubplan) error
+	var visitSubplan func(*PhysicalSubplan) error
 	visitExpression = func(current PhysicalExpression) error {
 		if current.Object != nil {
 			if err := visitObject(current.Object); err != nil {
@@ -294,6 +382,11 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				}
 			}
 		}
+		if current.Subplan != nil {
+			if err := visitSubplan(current.Subplan); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	visitPredicate = func(predicate *PhysicalPredicateExpression) error {
@@ -311,12 +404,24 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 			}
 		}
 		if predicate.Exists != nil {
-			return visitSubplan(*predicate.Exists)
+			return visitSubplan(predicate.Exists)
 		}
 		return nil
 	}
-	visitSubplan = func(subplan PhysicalSubplan) error {
-		for _, operation := range subplan.Operations {
+	visitSubplan = func(subplan *PhysicalSubplan) error {
+		if subplan == nil {
+			return nil
+		}
+		if activeSubplans[subplan] {
+			return fmt.Errorf("physical subplan expression contains a recursive cycle")
+		}
+		if visitedSubplans[subplan] {
+			return nil
+		}
+		activeSubplans[subplan] = true
+		defer delete(activeSubplans, subplan)
+		for index := range subplan.Operations {
+			operation := &subplan.Operations[index]
 			switch operation.Kind {
 			case PhysicalFilterOp:
 				if operation.Filter != nil && operation.Filter.Expression != nil {
@@ -324,9 +429,15 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 						return err
 					}
 				}
+			case PhysicalExpressionLetOp:
+				if operation.ExpressionLet != nil {
+					if err := visitExpression(operation.ExpressionLet.Expression); err != nil {
+						return err
+					}
+				}
 			case PhysicalSetOp:
 				if operation.Set != nil {
-					if err := visitSubplan(operation.Set.Subplan); err != nil {
+					if err := visitSubplan(&operation.Set.Subplan); err != nil {
 						return err
 					}
 				}
@@ -335,10 +446,27 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 					if err := visitExpression(operation.Unnest.Expression); err != nil {
 						return err
 					}
+					for _, step := range operation.Unnest.Owner.Route {
+						routeScope := PhysicalSubplan{Operations: step.Scope}
+						if err := visitSubplan(&routeScope); err != nil {
+							return err
+						}
+					}
+				}
+			case PhysicalPathExtendOp:
+				if operation.PathExtend != nil {
+					routeScope := PhysicalSubplan{Operations: operation.PathExtend.Scope}
+					if err := visitSubplan(&routeScope); err != nil {
+						return err
+					}
 				}
 			}
 		}
-		return visitExpression(subplan.Return)
+		if err := visitExpression(subplan.Return); err != nil {
+			return err
+		}
+		visitedSubplans[subplan] = true
+		return nil
 	}
 	visitObject = func(object *PhysicalObject) error {
 		if active[object] {

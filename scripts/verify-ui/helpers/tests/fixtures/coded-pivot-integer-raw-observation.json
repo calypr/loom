@@ -1,0 +1,59 @@
+{
+  "capturedAt": "2026-10-09T04:49:40.404Z",
+  "query": "FOR d IN Observation FILTER d.id == \"485e2567-b566-56f3-b5bd-5f025f37cd95\" AND d.project == \"loom_dev_cda_fhir\" AND d.dataset_generation == \"cda-fhir-v1\" LIMIT 2 RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,component:d.payload.component}",
+  "scope": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "id": "485e2567-b566-56f3-b5bd-5f025f37cd95"
+  },
+  "rowCount": 1,
+  "rows": [
+    {
+      "id": "485e2567-b566-56f3-b5bd-5f025f37cd95",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "resourceType": "Observation",
+      "component": [
+        {
+          "code": {
+            "coding": [
+              {
+                "system": "https://cda.readthedocs.io",
+                "code": "days_to_collection",
+                "display": "days_to_collection"
+              }
+            ],
+            "text": "days_to_collection"
+          },
+          "valueInteger": 162
+        },
+        {
+          "code": {
+            "coding": [
+              {
+                "system": "https://cda.readthedocs.io",
+                "code": "specimen_type",
+                "display": "specimen_type"
+              }
+            ],
+            "text": "specimen_type"
+          },
+          "valueString": "analyte"
+        },
+        {
+          "valueString": "Ductal and lobular neoplasms",
+          "code": {
+            "text": "primary_disease_type",
+            "coding": [
+              {
+                "system": "https://cda.readthedocs.io",
+                "code": "primary_disease_type",
+                "display": "primary_disease_type"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

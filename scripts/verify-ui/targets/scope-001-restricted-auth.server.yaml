@@ -1,0 +1,21 @@
+server:
+  listen: ":8080"
+  url: http://arangodb:8529
+  database: loom_dev
+  schema: /workspace/schemas/graph-fhir.json
+  clickhouse:
+    enabled: true
+    url: clickhouse://clickhouse:9000
+    database: loom_dev
+    username: loom_dev
+    password: loom_dev_password
+  dataframer:
+    recipe: /workspace/testdata/devloop-fixture/recipe.json
+  recipe_query_page_rows: 25
+  allow_unauthenticated: false
+auth:
+  mode: calypr
+  allow_unauthenticated: false
+  calypr:
+    request_timeout: 2s
+    cache_ttl: 1s

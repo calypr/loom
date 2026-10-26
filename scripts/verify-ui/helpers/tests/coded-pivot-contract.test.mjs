@@ -1,0 +1,796 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { chromium } from 'playwright';
+import { hasLifecycleContract, registry, scenarioCaseFor } from '../../registry.mjs';
+import { DEFAULT_ACTION_TO_RENDER_BUDGET_MS, recordPivotActionToRender } from '../quantity-pivot-budget.mjs';
+import {
+  CODED_PIVOT_OBSERVATION_ID,
+  codedPivotExpectedHeaderValuesFor,
+  codedPivotFirstTableReady,
+  codedPivotBackToTableControl,
+  codedPivotFixtureFor,
+  codedPivotRemovalProposalReady,
+  codedPivotRenderedValuesFor,
+  codedPivotRestoredSourceRowVisible,
+  codedPivotSourceRadioFor,
+  codedPivotValuesFor,
+} from '../coded-pivot-fixture.mjs';
+import {
+  codedPivotProposalRequestMatches,
+  codedPivotRemovalRequestMatches,
+  codedPivotPersistedSourceBindingsEqual,
+  codedPivotPersistedSourceBindingsFor,
+  codedPivotPersistedSourceMatchesOption,
+} from '../coded-pivot-native-evidence.mjs';
+import { sameWorkspaceIgnoringEmptySourceConstruction } from '../../workflows/verify-cda-related-source-after-pivot-browser.mjs';
+
+const scenarioID = 'standalone-reshape-coded-pivot';
+const source = (component, overrides = {}) => ({
+  id: CODED_PIVOT_OBSERVATION_ID,
+  project: 'loom_dev_cda_fhir',
+  generation: 'cda-fhir-v1',
+  resourceType: 'Observation',
+  component,
+  ...overrides,
+});
+const codedComponent = (code, value) => ({
+  code: { coding: [{ system: 'https://cda.readthedocs.io', code }] },
+  ...value,
+});
+
+test('integer and string coded Pivot fixtures require the exact scoped Observation values', () => {
+  const integer = codedPivotFixtureFor('integer');
+  assert.deepEqual(integer.map(({ system, code, type, value }) => ({ system, code, type, value })), [{ system: 'https://cda.readthedocs.io', code: 'days_to_collection', type: 'integer', value: '162' }]);
+  const rawArtifact = JSON.parse(readFileSync(new URL('./fixtures/coded-pivot-integer-raw-observation.json', import.meta.url), 'utf8'));
+  assert.equal(rawArtifact.rowCount, 1);
+  const observedInteger = { ...rawArtifact.rows[0], project: rawArtifact.scope.project, generation: rawArtifact.scope.generation };
+  assert.deepEqual(codedPivotValuesFor(observedInteger, { mode: 'integer', project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' }), [
+    { code: 'days_to_collection', type: 'integer', value: '162' },
+  ]);
+
+  const strings = codedPivotFixtureFor('string');
+  assert.deepEqual(strings.map(({ code, value }) => [code, value]), [
+    ['specimen_type', 'analyte'],
+    ['primary_disease_type', 'Ductal and lobular neoplasms'],
+  ]);
+  assert.deepEqual(codedPivotValuesFor(source([
+    codedComponent('specimen_type', { valueString: 'analyte' }),
+    codedComponent('primary_disease_type', { valueString: 'Ductal and lobular neoplasms' }),
+  ]), { mode: 'string', project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' }), [
+    { code: 'specimen_type', type: 'string', value: 'analyte' },
+    { code: 'primary_disease_type', type: 'string', value: 'Ductal and lobular neoplasms' },
+  ]);
+});
+
+test('retained coded Pivot removal diffs permit only the canonical empty source construction', () => {
+  // The retained bounded reports preserve each prePivotSource.document and the
+  // failing assert's complete actual diff. In both, every displayed document
+  // field matches and the sole addition is construction:{version:1,steps:[]}.
+  // Report SHA-256s: integer 6cc8c01e8492b57c2c4c738fc277ce5a0a46cf0e231883a7b6e5f8a326788387;
+  // string 83d7f9bbad6090b1071fd4ceeddae12a89f5320f3977501d4fbcf8f5ebb54d1a.
+  const retainedSourceDocuments = [
+    {
+      outputId: 'out_9b8e7f441ce8908077ef8813',
+      document: {
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'out_9b8e7f441ce8908077ef8813', title: 'Coded pivot integer QA 1791534719945' },
+        rootResourceType: 'Observation',
+        route: { occurrenceId: 'base', resourceType: 'Observation' },
+        rows: { kind: 'RECORDS', records: {} },
+        population: {
+          selectionRevisionId: 'selection_505cd7ee80ea0486253e10a84222672aced5c3bbd7ad4bf30e2774321616d848',
+          route: [],
+        },
+        columns: [{
+          columnId: 'source_e8b94c008f51f2ab785d2646',
+          column: 'col_1e92a10748c5abb0c144fc98',
+          label: 'Observation ID',
+          logicalType: 'string',
+          occurrenceId: 'base',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    },
+    {
+      outputId: 'out_9082c0b54524fa2f9fbbec84',
+      document: {
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'out_9082c0b54524fa2f9fbbec84', title: 'Coded pivot string QA 1791534716434' },
+        rootResourceType: 'Observation',
+        route: { occurrenceId: 'base', resourceType: 'Observation' },
+        rows: { kind: 'RECORDS', records: {} },
+        population: {
+          selectionRevisionId: 'selection_aad0e9545a25c53583aa7330e22ef229f5757fee5e0220b7d0e11cafc6abf2cd',
+          route: [],
+        },
+        columns: [{
+          columnId: 'source_da7cde2990e548ad3ab97ac0',
+          column: 'col_db6e9e5c800d4abc6badde9c',
+          label: 'Observation ID',
+          logicalType: 'string',
+          occurrenceId: 'base',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+          table: { visible: true, order: 0 },
+        }],
+      },
+    },
+  ];
+
+  for (const { outputId, document } of retainedSourceDocuments) {
+    const before = { workspace: { documents: [document] } };
+    const after = structuredClone(before);
+    after.workspace.documents[0].construction = { version: 1, steps: [] };
+    assert.notDeepEqual(after.workspace.documents[0], document,
+      'The retained report reproduces the strict-equality mismatch that failed the native workflow.');
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, after, outputId), true);
+
+    const changedSource = structuredClone(after);
+    changedSource.workspace.documents[0].columns[0].column = 'different-column';
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, changedSource, outputId), false,
+      'Empty construction normalization must not mask other source-document changes.');
+    const nonemptyConstruction = structuredClone(after);
+    nonemptyConstruction.workspace.documents[0].construction.steps.push({ id: 'unexpected-step' });
+    assert.equal(sameWorkspaceIgnoringEmptySourceConstruction(before, nonemptyConstruction, outputId), false,
+      'Nonempty construction must remain a restoration failure.');
+  }
+});
+
+test('coded Pivot raw oracle rejects scope drift, duplicate codes, and wrong scalar types', () => {
+  const options = { mode: 'integer', project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' };
+  const exact = codedComponent('days_to_collection', { valueInteger: 162 });
+  assert.throws(() => codedPivotValuesFor(source([exact], { id: 'different-observation' }), options), /exact Observation fixture/);
+  assert.throws(() => codedPivotValuesFor(source([exact], { resourceType: 'Patient' }), options), /exact Observation fixture/);
+  assert.throws(() => codedPivotValuesFor(source([exact], { project: 'different-project' }), options), /project and generation/);
+  assert.throws(() => codedPivotValuesFor(source([exact], { generation: 'other-generation' }), options), /project and generation/);
+  assert.throws(() => codedPivotValuesFor(source([exact, exact]), options), /exactly one raw component/);
+  assert.throws(() => codedPivotValuesFor(source([]), options), /exactly one raw component/);
+  assert.throws(() => codedPivotValuesFor(source([codedComponent('days_to_collection', { valueInteger: '162' })]), options), /integer/);
+  const rawArtifact = JSON.parse(readFileSync(new URL('./fixtures/coded-pivot-integer-raw-observation.json', import.meta.url), 'utf8'));
+  const rawSource = () => ({ ...rawArtifact.rows[0], project: rawArtifact.scope.project, generation: rawArtifact.scope.generation });
+  const wrongValue = rawSource();
+  wrongValue.component[0].valueInteger = 163;
+  assert.throws(() => codedPivotValuesFor(wrongValue, options), /must equal 162/);
+  const missingValue = rawSource();
+  delete missingValue.component[0].valueInteger;
+  assert.throws(() => codedPivotValuesFor(missingValue, options), /must equal 162/);
+  const quantityInsteadOfInteger = rawSource();
+  delete quantityInsteadOfInteger.component[0].valueInteger;
+  quantityInsteadOfInteger.component[0].valueQuantity = { value: 162 };
+  assert.throws(() => codedPivotValuesFor(quantityInsteadOfInteger, options), /must equal 162/);
+  assert.throws(() => codedPivotValuesFor(source([
+    codedComponent('specimen_type', { valueString: 42 }),
+    codedComponent('primary_disease_type', { valueString: 'Ductal and lobular neoplasms' }),
+  ]), { ...options, mode: 'string' }), /string/);
+  assert.throws(() => codedPivotFixtureFor('decimal'), /Unsupported coded Pivot fixture mode/);
+});
+
+test('saved coded Pivot retains the selected native frame as canonical source bindings', () => {
+  // Captured selected options and proposal source DTOs from the retained native
+  // integer/string runs; the signed choice is sent to the proposal endpoint,
+  // which returns the canonical candidate/node identity persisted by Apply.
+  const retainedBindings = [
+    {
+      selectedOption: {
+        bindingId: 'd7048a207d827b0bccfc316f91919b6034e5fa834e0e81d13c945f7e48023646',
+        resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+        owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueInteger', logicalType: 'integer', route: [],
+      },
+      source: {
+        candidateId: 'c_324e141020d913db3a403878', nodeId: 'n_f396c8ca728f4349fa8d2e3c',
+        fieldPath: 'component[].valueInteger', route: [],
+        family: {
+          bindingId: 'd7048a207d827b0bccfc316f91919b6034e5fa834e0e81d13c945f7e48023646',
+          resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+          owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueInteger',
+          choiceArms: ['valueInteger'], logicalType: 'integer', ruleVersion: '4', schemaVersion: 3,
+        },
+      },
+    },
+    {
+      selectedOption: {
+        bindingId: '900b911e87387e947c1e245abaaa1dc129c05c81ee0b0e9248a7be5df929fb09',
+        resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+        owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueString', logicalType: 'string', route: [],
+      },
+      source: {
+        candidateId: 'c_8a521937841fa94c13f8ca21', nodeId: 'n_f396c8ca728f4349fa8d2e3c',
+        fieldPath: 'component[].valueString', route: [],
+        family: {
+          bindingId: '900b911e87387e947c1e245abaaa1dc129c05c81ee0b0e9248a7be5df929fb09',
+          resourceType: 'Observation', sourcePath: 'component[]', sourceCanonical: 'Observation.component[]',
+          owningScope: 'component[]', keyPath: 'component[].code.coding[]', valuePath: 'valueString',
+          choiceArms: ['valueString'], logicalType: 'string', ruleVersion: '4', schemaVersion: 3,
+        },
+      },
+    },
+  ];
+
+  const stepFor = source => ({ operation: { kind: 'CODED_PIVOT', codedPivot: { source } } });
+  for (const { selectedOption, source } of retainedBindings) {
+    const proposalStep = stepFor(source);
+    const savedStep = stepFor(structuredClone(source));
+    assert.deepEqual(codedPivotPersistedSourceBindingsFor(savedStep), source);
+    assert.equal(codedPivotPersistedSourceMatchesOption(savedStep, selectedOption), true);
+    assert.equal(codedPivotPersistedSourceBindingsEqual(proposalStep, savedStep), true);
+
+    for (const field of ['candidateId', 'nodeId']) {
+      const changedSource = { ...source, [field]: `${source[field]}-other` };
+      assert.equal(codedPivotPersistedSourceBindingsEqual(proposalStep, stepFor(changedSource)), false,
+        `changed ${field} must not survive proposal-to-saved source binding comparison`);
+    }
+    const changedFamily = { ...source, family: { ...source.family, bindingId: 'unrelated-frame-binding' } };
+    assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedFamily), selectedOption), false);
+    const changedScalar = { ...source, fieldPath: 'component[].valueQuantity.value', family: {
+      ...source.family, valuePath: 'valueQuantity.value', choiceArms: ['valueQuantity.value'],
+    } };
+    assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedScalar), selectedOption), false);
+    const changedRoute = { ...source, route: [{ stepId: 'unrelated-step' }] };
+    assert.equal(codedPivotPersistedSourceMatchesOption(stepFor(changedRoute), selectedOption), false);
+  }
+});
+
+test('coded Pivot proposal matcher accepts retained integer and string native request shapes', () => {
+  // Reduced literal DTOs from bounded reports: integer SHA-256 70f2c13139dd129d5c4e8ddaa82a9e793fdd7dc645e864419ef29ea3bc5c0ea9
+  // (nativeRequests[26], [45]); string SHA-256 ab8ba56cb2c54826229acd9a61c292412d031fcf9fe43ec3107af5f1d7e027cb
+  // (nativeRequests[26], [45]). Run-scoped signed choice IDs, snapshot tokens, and draft digests use explicit redacted stand-ins;
+  // output, step, and column IDs are stable aliases, with all same-request equality links preserved.
+  const snapshotToken = 'sha256:<redacted-run-snapshot>';
+  const outputId = 'out_<redacted-run-output>';
+  const stepId = 'coded-pivot_<redacted-run-step>';
+  const integerSourceChoiceId = 'cc2.<redacted-integer-frame-choice>';
+  const stringSourceChoiceId = 'cc2.<redacted-string-frame-choice>';
+  const integerCategoryChoiceId = 'cc2.<redacted-days-to-collection-category-choice>';
+  const specimenCategoryChoiceId = 'cc2.<redacted-specimen-type-category-choice>';
+  const diseaseCategoryChoiceId = 'cc2.<redacted-primary-disease-type-category-choice>';
+  const system = 'https://cda.readthedocs.io';
+
+  const cases = [
+    {
+      name: 'integer initial NULL proposal from nativeRequests[26]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'sha256:<redacted-integer-initial-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: integerSourceChoiceId,
+              categories: [{ choiceId: integerCategoryChoiceId, outputColumnId: 'coded-column_<days_to_collection>' }],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL',
+            } },
+            outputs: [{ id: 'coded-column_<days_to_collection>', name: 'days_to_collection', label: 'Days to collection', type: 'INFER' }],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: integerSourceChoiceId, missingCellPolicy: 'NULL', stepId,
+        categories: [{ system, code: 'days_to_collection', label: 'Days to collection', choiceId: integerCategoryChoiceId }],
+      },
+    },
+    {
+      name: 'integer edit ERROR proposal from nativeRequests[45]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 4,
+        expectedDraftDigest: 'sha256:<redacted-integer-edit-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: integerSourceChoiceId,
+              categories: [{ system, code: 'days_to_collection', outputColumnId: 'coded-column_<days_to_collection>' }],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'ERROR',
+            } },
+            outputs: [{ id: 'coded-column_<days_to_collection>', name: 'days_to_collection', label: 'Days to collection', type: 'INFER' }],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: integerSourceChoiceId, missingCellPolicy: 'ERROR', stepId,
+        categories: [{ system, code: 'days_to_collection', label: 'Days to collection', outputColumnId: 'coded-column_<days_to_collection>' }],
+      },
+    },
+    {
+      name: 'string initial NULL proposal from nativeRequests[26]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'sha256:<redacted-string-initial-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: stringSourceChoiceId,
+              categories: [
+                { choiceId: specimenCategoryChoiceId, outputColumnId: 'coded-column_<specimen_type>' },
+                { choiceId: diseaseCategoryChoiceId, outputColumnId: 'coded-column_<primary_disease_type>' },
+              ],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'NULL',
+            } },
+            outputs: [
+              { id: 'coded-column_<specimen_type>', name: 'specimen_type', label: 'Specimen type', type: 'INFER' },
+              { id: 'coded-column_<primary_disease_type>', name: 'primary_disease_type', label: 'Primary disease type', type: 'INFER' },
+            ],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: stringSourceChoiceId, missingCellPolicy: 'NULL', stepId,
+        categories: [
+          { system, code: 'specimen_type', label: 'Specimen type', choiceId: specimenCategoryChoiceId },
+          { system, code: 'primary_disease_type', label: 'Primary disease type', choiceId: diseaseCategoryChoiceId },
+        ],
+      },
+    },
+    {
+      name: 'string edit ERROR proposal from nativeRequests[45]',
+      request: {
+        snapshotToken,
+        expectedDraftVersion: 4,
+        expectedDraftDigest: 'sha256:<redacted-string-edit-draft-digest>',
+        outputId,
+        changedStepId: stepId,
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: stepId,
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'CODED_PIVOT', codedPivot: {
+              constructionId: stepId,
+              sourceChoiceId: stringSourceChoiceId,
+              categories: [
+                { system, code: 'specimen_type', outputColumnId: 'coded-column_<specimen_type>' },
+                { system, code: 'primary_disease_type', outputColumnId: 'coded-column_<primary_disease_type>' },
+              ],
+              duplicatePolicy: 'ERROR', missingCellPolicy: 'ERROR',
+            } },
+            outputs: [
+              { id: 'coded-column_<specimen_type>', name: 'specimen_type', label: 'Specimen type', type: 'INFER' },
+              { id: 'coded-column_<primary_disease_type>', name: 'primary_disease_type', label: 'Primary disease type', type: 'INFER' },
+            ],
+          }],
+        },
+        limit: 25,
+      },
+      expected: {
+        outputId, snapshotToken, sourceChoiceId: stringSourceChoiceId, missingCellPolicy: 'ERROR', stepId,
+        categories: [
+          { system, code: 'specimen_type', label: 'Specimen type', outputColumnId: 'coded-column_<specimen_type>' },
+          { system, code: 'primary_disease_type', label: 'Primary disease type', outputColumnId: 'coded-column_<primary_disease_type>' },
+        ],
+      },
+    },
+  ];
+
+  for (const { name, request, expected } of cases) {
+    assert.equal(codedPivotProposalRequestMatches(request, expected), true, name);
+    assert.equal(codedPivotProposalRequestMatches({ ...request, outputId: 'out_wrong' }, expected), false, `${name}: output binding`);
+    assert.equal(codedPivotProposalRequestMatches({ ...request, snapshotToken: 'sha256:wrong' }, expected), false, `${name}: snapshot binding`);
+    assert.equal(codedPivotProposalRequestMatches(request, { ...expected, sourceChoiceId: 'cc2.<wrong-choice>' }), false, `${name}: source choice`);
+    assert.equal(codedPivotProposalRequestMatches(request, { ...expected, missingCellPolicy: expected.missingCellPolicy === 'NULL' ? 'ERROR' : 'NULL' }), false,
+      `${name}: missing-cell policy`);
+
+    const wrongOutput = structuredClone(request);
+    wrongOutput.candidateConstruction.steps[0].outputs[0].label = 'Swapped output';
+    assert.equal(codedPivotProposalRequestMatches(wrongOutput, expected), false, `${name}: category-to-output association`);
+    const wrongChangedStep = { ...request, changedStepId: 'coded-pivot_other-step' };
+    assert.equal(codedPivotProposalRequestMatches(wrongChangedStep, expected), false, `${name}: changed step`);
+  }
+
+  const integerInitial = cases[0];
+  const extraStep = structuredClone(integerInitial.request);
+  extraStep.candidateConstruction.steps.push(structuredClone(extraStep.candidateConstruction.steps[0]));
+  assert.equal(codedPivotProposalRequestMatches(extraStep, integerInitial.expected), false, 'A proposal must contain exactly one CODED_PIVOT step.');
+  const wrongInputs = structuredClone(integerInitial.request);
+  wrongInputs.candidateConstruction.steps[0].inputs = [];
+  assert.equal(codedPivotProposalRequestMatches(wrongInputs, integerInitial.expected), false, 'The native source-projection input is part of the proposal contract.');
+});
+
+test('coded Pivot removal matcher accepts the UI removal-only request and empty source-base construction', () => {
+  // BuilderWorkspace.removeConstructionStep filters the current steps, sets removeStepIds:[stepId], and omits changedStepId.
+  // The retained prePivotSource.document has no `construction` key, so workflow fallback is the literal empty base below.
+  // useConstructionLifecycle.unit.test.tsx already proves removal-only transport; this is not a retained native removal request.
+  const prePivotConstruction = { version: 1, steps: [] };
+  const request = {
+    outputId: 'out_<redacted-run-output>',
+    snapshotToken: 'sha256:<redacted-run-snapshot>',
+    candidateConstruction: prePivotConstruction,
+    removeStepIds: ['coded-pivot_<redacted-run-step>'],
+  };
+  const expected = {
+    outputId: 'out_<redacted-run-output>',
+    snapshotToken: 'sha256:<redacted-run-snapshot>',
+    removedStepId: 'coded-pivot_<redacted-run-step>',
+    candidateConstruction: { version: 1, steps: [] },
+  };
+
+  assert.equal(codedPivotRemovalRequestMatches(request, expected), true);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, changedStepId: expected.removedStepId }, expected), false,
+    'Removal must not send changedStepId.');
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, removeStepIds: ['different-step'] }, expected), false);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, outputId: 'out_wrong' }, expected), false);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, snapshotToken: 'sha256:wrong' }, expected), false);
+  assert.equal(codedPivotRemovalRequestMatches({ ...request, candidateConstruction: { version: 1, steps: [{ operation: { kind: 'CODED_PIVOT' } }] } }, expected), false);
+});
+
+test('rendered coded values bind each exact Coding to its persisted output header and cell', () => {
+  const expected = codedPivotFixtureFor('string');
+  const codedStep = {
+    operation: { kind: 'CODED_PIVOT', codedPivot: { categories: [
+      { system: expected[0].system, code: expected[0].code, outputColumnId: 'coded-specimen' },
+      { system: expected[1].system, code: expected[1].code, outputColumnId: 'coded-disease' },
+    ] } },
+    outputs: [
+      { id: 'coded-specimen', label: 'Specimen type' },
+      { id: 'coded-disease', label: 'Primary disease type' },
+    ],
+  };
+  const rendered = {
+    headers: ['OBSERVATION ID', 'SPECIMEN TYPE', 'PRIMARY DISEASE TYPE'],
+    rows: [[CODED_PIVOT_OBSERVATION_ID, 'analyte', 'Ductal and lobular neoplasms']],
+  };
+  assert.deepEqual(codedPivotExpectedHeaderValuesFor(codedStep, expected), [
+    { system: expected[0].system, code: expected[0].code, outputColumnId: 'coded-specimen', label: 'Specimen type', value: 'analyte' },
+    { system: expected[1].system, code: expected[1].code, outputColumnId: 'coded-disease', label: 'Primary disease type', value: 'Ductal and lobular neoplasms' },
+  ]);
+  assert.deepEqual(codedPivotRenderedValuesFor(rendered, codedStep, expected).map(({ system, code, label, value }) => ({ system, code, label, value })), [
+    { system: expected[0].system, code: expected[0].code, label: 'Specimen type', value: 'analyte' },
+    { system: expected[1].system, code: expected[1].code, label: 'Primary disease type', value: 'Ductal and lobular neoplasms' },
+  ]);
+  assert.throws(() => codedPivotRenderedValuesFor({ ...rendered, rows: [[CODED_PIVOT_OBSERVATION_ID, 'Ductal and lobular neoplasms', 'analyte']] }, codedStep, expected), /specimen_type value must be "analyte" under "Specimen type"/);
+});
+
+test('coded Pivot restoration wait requires one exact source preview row in native Playwright', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const previewMarkup = ({
+    headers = ['Observation ID'],
+    rows = [[CODED_PIVOT_OBSERVATION_ID]],
+    tableCount = 1,
+    loading = false,
+    includePreview = true,
+  } = {}) => `<!doctype html><html><body>
+    ${includePreview ? `<div data-testid="preview-table-scroll">
+      ${loading ? '<p>Loading your table…</p>' : ''}
+      ${Array.from({ length: tableCount }, () => `<div role="table" aria-rowcount="${rows.length + 1}" aria-colcount="${headers.length}">
+        <div role="row">${headers.map(header => `<div role="columnheader">${header}</div>`).join('')}</div>
+        ${rows.map(values => `<div role="row"><button type="button" aria-label="Inspect row 1 identity">1</button>
+          ${values.map(value => `<div role="cell"><div>${value}</div></div>`).join('')}
+        </div>`).join('')}
+      </div>`).join('')}
+    </div>` : ''}
+  </body></html>`;
+  const ready = () => page.evaluate(codedPivotRestoredSourceRowVisible, { id: CODED_PIVOT_OBSERVATION_ID });
+
+  await page.setContent(previewMarkup({ includePreview: false }));
+  assert.equal(await ready(), false, 'A missing preview is not restoration evidence.');
+  await page.setContent(previewMarkup({ rows: [], loading: true }));
+  assert.equal(await ready(), false, 'The transitional loading preview is not restoration evidence.');
+
+  await page.setContent(previewMarkup());
+  assert.equal(await ready(), true, 'The exact single-row Observation preview is restoration evidence.');
+  assert.equal(await page.evaluate(codedPivotRestoredSourceRowVisible, { id: 'different-observation' }), false,
+    'A different requested source ID cannot satisfy the wait.');
+
+  await page.setContent(previewMarkup({ rows: [['different-observation']] }));
+  assert.equal(await ready(), false, 'A preview row with the wrong ID is rejected.');
+  await page.setContent(previewMarkup({ rows: [[CODED_PIVOT_OBSERVATION_ID], ['extra-observation']] }));
+  assert.equal(await ready(), false, 'An extra body row is rejected even when the expected ID is present.');
+  await page.setContent(previewMarkup({ headers: ['Observation ID', 'Unexpected column'], rows: [[CODED_PIVOT_OBSERVATION_ID, 'extra']] }));
+  assert.equal(await ready(), false, 'An extra header is rejected.');
+  await page.setContent(previewMarkup({ tableCount: 2 }));
+  assert.equal(await ready(), false, 'Multiple preview tables are rejected.');
+});
+
+test('serialized removal predicate binds readiness to the exact proposal and preview rows', () => {
+  const removalPredicateFor = ({
+    panelStatus = 'ready',
+    proposalId = 'receipt-1',
+    previewStatus = 'ready',
+    previewReceiptId = 'receipt-1',
+    panelText = 'Removal preview',
+    rows = [{ innerText: `Observation ${CODED_PIVOT_OBSERVATION_ID}` }],
+  } = {}) => {
+    const calls = [];
+    const panel = {
+      innerText: panelText,
+      getAttribute(name) {
+        if (name === 'data-proposal-status') return panelStatus;
+        if (name === 'data-proposal-id') return proposalId;
+        return null;
+      },
+    };
+    const preview = {
+      getAttribute(name) {
+        if (name === 'data-preview-status') return previewStatus;
+        if (name === 'data-preview-receipt-id') return previewReceiptId;
+        return null;
+      },
+      querySelectorAll(selector) {
+        calls.push(selector);
+        return selector === '[data-testid="construction-proposal-preview-row"]' ? rows : [];
+      },
+    };
+    const predicate = runInNewContext(`(${codedPivotRemovalProposalReady.toString()})`, {
+      document: {
+        querySelector(selector) {
+          calls.push(selector);
+          if (selector === '[data-testid="construction-proposal-panel"]') return panel;
+          if (selector === '[data-testid="construction-proposal-preview"]') return preview;
+          return null;
+        },
+      },
+    });
+    return { evaluate: id => predicate({ id }), calls };
+  };
+
+  const readyRemoval = removalPredicateFor();
+  assert.equal(readyRemoval.evaluate(CODED_PIVOT_OBSERVATION_ID), true);
+  assert.equal(readyRemoval.evaluate('different-observation'), false);
+  assert.deepEqual(readyRemoval.calls, [
+    '[data-testid="construction-proposal-panel"]',
+    '[data-testid="construction-proposal-preview"]',
+    '[data-testid="construction-proposal-preview-row"]',
+    '[data-testid="construction-proposal-panel"]',
+    '[data-testid="construction-proposal-preview"]',
+    '[data-testid="construction-proposal-preview-row"]',
+  ]);
+  assert.equal(removalPredicateFor({
+    panelText: `Removal preview mentions ${CODED_PIVOT_OBSERVATION_ID}`,
+    rows: [{ innerText: 'Different Observation ID' }],
+  }).evaluate(CODED_PIVOT_OBSERVATION_ID), false, 'The panel summary cannot stand in for the preview row.');
+  assert.equal(removalPredicateFor({ previewReceiptId: 'other-receipt' }).evaluate(CODED_PIVOT_OBSERVATION_ID), false,
+    'The rendered preview must carry the exact proposal receipt.');
+  assert.equal(removalPredicateFor({ panelStatus: 'previewing' }).evaluate(CODED_PIVOT_OBSERVATION_ID), false);
+  assert.equal(removalPredicateFor({ previewStatus: 'previewing' }).evaluate(CODED_PIVOT_OBSERVATION_ID), false);
+});
+
+test('coded Pivot removal readiness follows the native sibling preview and exact receipt', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const fixture = ({
+    panelStatus = 'ready',
+    proposalId = 'proposal-42',
+    previewStatus = 'ready',
+    previewReceiptId = 'proposal-42',
+    rowId = CODED_PIVOT_OBSERVATION_ID,
+    includePreview = true,
+  } = {}) => `<!doctype html><html><body>
+    <section data-testid="construction-proposal-panel" data-proposal-status="${panelStatus}" data-proposal-id="${proposalId}">
+      <div data-testid="construction-proposal-ready"><p>Remove coded Pivot. The preview shows the resulting table.</p></div>
+    </section>
+    ${includePreview ? `<section aria-label="Table result">
+      <div data-testid="construction-proposal-preview" data-preview-status="${previewStatus}" data-preview-receipt-id="${previewReceiptId}" data-preview-output-id="out-coded">
+        <table><tbody><tr data-testid="construction-proposal-preview-row"><td>${rowId}</td></tr></tbody></table>
+      </div>
+    </section>` : ''}
+  </body></html>`;
+
+  await page.setContent(fixture());
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), true,
+    'A ready panel and its linked sibling preview row restore the exact source Observation.');
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: 'different-observation' }), false,
+    'A different Observation must not satisfy the restoration check.');
+
+  await page.setContent(fixture({ previewReceiptId: 'other-proposal' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false,
+    'A preview from another receipt cannot satisfy the removal proposal.');
+
+  await page.setContent(fixture({ rowId: 'different-observation' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false,
+    'The linked preview must contain the exact Observation row.');
+
+  await page.setContent(fixture({ includePreview: false }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false,
+    'The summary panel alone is not proof of the resulting table.');
+
+  await page.setContent(fixture({ panelStatus: 'previewing' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false);
+  await page.setContent(fixture({ previewStatus: 'previewing' }));
+  assert.equal(await page.evaluate(codedPivotRemovalProposalReady, { id: CODED_PIVOT_OBSERVATION_ID }), false);
+});
+
+test('first-table readiness predicate accepts the retained heading and enabled Observation choice in native Playwright', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const capturedPage = (heading = 'Build your first table', disabled = false) => `
+    <main>
+      <section>
+        <h2>${heading}</h2>
+        <p>Choose a populated record type. Loom will add its direct ID column and load a preview. The table name is optional.</p>
+        <section aria-label="Choose row type">
+          <button type="button" aria-label="Choose Observation rows" ${disabled ? 'disabled' : ''}>
+            <span>Observation</span><span>815,261 authorized records</span>
+          </button>
+        </section>
+      </section>
+    </main>`;
+  await page.route('http://coded-pivot.test/**', route => route.fulfill({
+    contentType: 'text/html',
+    body: '<!doctype html><html><body></body></html>',
+  }));
+  const baseURL = 'http://coded-pivot.test/?project=loom_dev_cda_fhir&explorer=owned-explorer&mode=builder';
+  const selectedURL = `${baseURL}&selection=owned-selection`;
+
+  for (const url of [baseURL, selectedURL]) {
+    await page.goto(url);
+    await page.setContent(capturedPage());
+    assert.equal(page.url(), url);
+    assert.equal(await page.evaluate(codedPivotFirstTableReady), true);
+    assert.equal(await page.getByRole('button', { name: 'Choose Observation rows' }).isEnabled(), true);
+  }
+
+  await page.setContent(capturedPage('Build another table'));
+  assert.equal(await page.evaluate(codedPivotFirstTableReady), false);
+
+  await page.setContent(capturedPage('Build your first table', true));
+  assert.equal(await page.evaluate(codedPivotFirstTableReady), false);
+  assert.equal(await page.getByRole('button', { name: 'Choose Observation rows' }).isEnabled(), false);
+});
+
+test('coded Pivot Back to table control locator follows the operation editor markup in native Playwright', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  // BuilderWorkspace.tsx around line 3102 renders this button with visible text "Back to table"
+  // but aria-label="Close operation editor", which takes precedence as its accessible name.
+  await page.setContent(`<!doctype html><html><body>
+    <button type="button" aria-label="Close operation editor" data-testid="construction-close-operation-editor" class="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100">
+      Back to table
+    </button>
+  </body></html>`);
+
+  const control = codedPivotBackToTableControl(page);
+  assert.equal(await control.count(), 1);
+  assert.equal(await control.getAttribute('aria-label'), 'Close operation editor');
+  assert.equal((await control.innerText()).trim(), 'Back to table');
+  assert.equal(await control.isVisible(), true);
+  assert.equal(await control.isEnabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Back to table', exact: true }).count(), 0,
+    'The visible Back to table text is not the accessible name when aria-label is present.');
+  await page.evaluate(() => {
+    document.body.addEventListener('click', event => {
+      document.body.dataset.clickedTestId = event.target?.getAttribute('data-testid') ?? '';
+    });
+  });
+  await control.click();
+  assert.equal(await page.locator('body').getAttribute('data-clicked-test-id'), 'construction-close-operation-editor');
+});
+
+test('coded Pivot source options select the exact native integer and string radios', async t => {
+  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const description = 'Codes and their paired values on Observation records.';
+  const sourceLabels = [
+    { mode: 'string', title: 'Observation component values (string)' },
+    { mode: 'integer', title: 'Observation component values (integer)' },
+  ];
+  await page.setContent(`<!doctype html><html><body>
+    <style>.block { display: block; }</style>
+    <section aria-label="Coded values as columns">
+      <fieldset>
+        <legend>Source of coded values</legend>
+        ${sourceLabels.map(({ title }) => `<label><input type="radio" name="coded-pivot-source"><span><strong class="block">${title}</strong><span class="text-xs text-slate-600">${description}</span></span></label>`).join('')}
+      </fieldset>
+    </section>
+  </body></html>`);
+
+  for (const { mode, title } of sourceLabels) {
+    const sourceRadio = codedPivotSourceRadioFor(page, `${title} ${description}`);
+    assert.equal(await sourceRadio.count(), 1, `The native chooser must expose one direct ${mode} source.`);
+    assert.equal(await sourceRadio.isVisible(), true);
+    assert.equal(await sourceRadio.isEnabled(), true);
+    await sourceRadio.click();
+    assert.equal(await sourceRadio.isChecked(), true, `The ${mode} source must be selected through its native radio control.`);
+    const other = sourceLabels.find(source => source.mode !== mode);
+    assert.equal(await codedPivotSourceRadioFor(page, `${other.title} ${description}`).isChecked(), false,
+      'Selecting a coded source must clear the other mode through native radio behavior.');
+  }
+});
+test('integer and string coded Pivot cases retain exact native outcomes and separate lifecycle contracts', () => {
+  const scenario = registry.find(entry => entry.id === scenarioID);
+  assert(scenario, 'The native coded Pivot scenario is registered.');
+  assert.equal(scenario.script, 'verify-cda-coded-pivot.mjs');
+  assert.ok(scenario.endpoints.includes('POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals'));
+  assert.ok(scenario.endpoints.includes('POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands'));
+
+  for (const mode of ['integer', 'string']) {
+    const caseName = `coded-pivot-${mode}`;
+    const contract = scenarioCaseFor(scenario, caseName);
+    assert.equal(contract.playwrightTest, 'scripts/verify-ui/specs/standalone-reshape.spec.mjs');
+    assert.match(contract.playwrightGrep, new RegExp(`${caseName}\\$`));
+    assert.deepEqual(contract.expectedIdentity, { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' });
+    assert.equal(contract.lifecycleEvidence.performance.check, contract.performanceCheckName);
+    assert.equal(contract.lifecycleEvidence.performance.checkpointBudgetMs, DEFAULT_ACTION_TO_RENDER_BUDGET_MS);
+    assert.equal(contract.requiredChecks.length, 9);
+    assert.match(contract.requiredChecks[0], /exact project, generation, ID, Coding\.system\/code/);
+    assert.match(contract.requiredChecks[1], /Native chooser selects the direct/);
+    assert.match(contract.requiredChecks[2], /Native coded Pivot proposal renders the exact/);
+    assert.match(contract.requiredChecks[3], /Cancel preserves the exact saved CODED_PIVOT and values without a command/);
+    assert.match(contract.requiredChecks[4], /Apply and reload persist the exact coded Pivot source/);
+    assert.match(contract.requiredChecks[5], /Edit and reload preserve the ERROR missing-cell policy/);
+    assert.match(contract.requiredChecks[6], /Removing coded Pivot and reloading restores the exact source row and schema/);
+    assert.match(contract.requiredChecks[7], /five seconds/);
+    assert.equal(contract.requiredChecks[8], 'No unexpected native requests or browser errors occurred');
+  }
+
+  const sourceText = readFileSync(new URL('../../workflows/verify-cda-coded-pivot.mjs', import.meta.url), 'utf8');
+  const nativeEvidenceText = readFileSync(new URL('../coded-pivot-native-evidence.mjs', import.meta.url), 'utf8');
+  for (const [index, dimension] of [
+    [0, 'correctness'], [1, 'usability'], [2, 'correctness'], [3, 'persistence'],
+    [4, 'persistence'], [5, 'persistence'], [6, 'persistence'], [7, 'performance'], [8, 'correctness'],
+  ]) assert.match(sourceText, new RegExp(`recordCheck\\(${index}, '${dimension}'`));
+  assert.match(sourceText, /scenarioCaseFor\('standalone-reshape-coded-pivot', `coded-pivot-\$\{mode\}`\)/);
+  assert.match(sourceText, /sourceOptionsRequest = await requestCapture\.waitForResponse\(entry => \{\s+const request = requestCapture\.requestBody\(entry\);\s+return entry\.path === sourceOptionsEndpointPath/);
+  assert.match(sourceText, /codedPivotProposalRequestMatches\(entry\.request,/);
+  assert.match(sourceText, /assert\.equal\(proposal\.status, 200/);
+  assert.match(sourceText, /proposal\.response\?\.proposalId/);
+  assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(proposedCodedStep, selectedSourceOption\)/);
+  assert.match(sourceText, /codedPivotPersistedSourceMatchesOption\(codedStep, selectedSourceOption\)/);
+  assert.match(sourceText, /recordPivotActionToRender\(/);
+  assert.match(sourceText, /codedPivotRenderedValuesFor\(/);
+  assert.match(sourceText, /codedPivotRemovalRequestMatches\(entry\.request,/);
+  assert.match(sourceText, /report\.cancelReloadAssociation, report\.outputAssociation/);
+  assert.match(sourceText, /codedPivotBindingsFor\(editedCodedStep\), report\.initialStepBindings/);
+  assert.match(nativeEvidenceText, /export const codedPivotProposalRequestMatches/);
+  assert.match(nativeEvidenceText, /export const codedPivotRemovalRequestMatches/);
+
+  const checkpoints = [];
+  assert.deepEqual(recordPivotActionToRender({ cases: checkpoints, name: 'apply-to-render', startedAt: 100, finishedAt: 137,
+    budgetMs: DEFAULT_ACTION_TO_RENDER_BUDGET_MS }), { name: 'apply-to-render', durationMs: 37, budgetMs: DEFAULT_ACTION_TO_RENDER_BUDGET_MS });
+  assert.deepEqual(checkpoints, [{ name: 'apply-to-render', durationMs: 37, budgetMs: DEFAULT_ACTION_TO_RENDER_BUDGET_MS }]);
+});
+test('coverage maps only the exact integer and string coded forms and leaves other coded forms open', () => {
+  const owner = registry.find(entry => entry.id === 'builder-authoring');
+  const broadGap = owner.coverage.find(entry => entry.feature === 'coded Pivot');
+  assert.equal(broadGap.acceptance.kind, 'unmapped');
+  assert.match(broadGap.acceptance.unmappedReason, /Other source resource types/);
+
+  for (const [feature, caseName] of [
+    ['integer coded Pivot columns', 'coded-pivot-integer'],
+    ['string coded Pivot columns', 'coded-pivot-string'],
+  ]) {
+    const coverage = registry.find(entry => entry.id === scenarioID).coverage.find(entry => entry.feature === `native ${feature === 'integer coded Pivot columns' ? 'integer' : 'string'} coded Pivot values on one exact CDA Observation`);
+    assert.equal(coverage.status, 'untested');
+    assert.equal(coverage.acceptance.kind, 'lifecycle');
+    assert.equal(coverage.acceptance.case, caseName);
+    assert.equal(hasLifecycleContract(coverage, registry.find(entry => entry.id === scenarioID)), true);
+  }
+});
+
+test('both native coded forms join the exact scenario while retaining distinct Playwright case names', () => {
+  const spec = readFileSync(new URL('../../specs/standalone-reshape.spec.mjs', import.meta.url), 'utf8');
+  const codedCaseNames = [...spec.matchAll(/register\('coded-pivot-([^']+)'/g)].map(([, mode]) => `coded-pivot-${mode}`);
+  assert.deepEqual(codedCaseNames, ['coded-pivot-integer', 'coded-pivot-string']);
+
+  const codedRegistrations = [...spec.matchAll(/register\('coded-pivot-(integer|string)',\s*runCodedPivotWorkflow,\s*\{\s*mode:\s*'(integer|string)'\s*\},\s*\{\s*cdaScenarioID:\s*'standalone-reshape-coded-pivot'\s*,?\s*\}\s*\);/g)]
+    .map(([, caseMode, workflowMode]) => [caseMode, workflowMode]);
+  assert.deepEqual(codedRegistrations, [['integer', 'integer'], ['string', 'string']],
+    'Each explicit native case must bind its matching fixture mode to the shared coded Pivot scenario.');
+});

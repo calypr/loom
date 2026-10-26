@@ -4,6 +4,9 @@ package main
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"strings"
 )
@@ -31,8 +34,8 @@ func fixGeneratedSource(source string) (string, error) {
 	var err error
 	source, err = replaceInFunction(source,
 		"func (ec *executionContext) unmarshalNJSON2",
-		"return &res, graphql.ErrorOnPath(ctx, err)",
-		"return res, graphql.ErrorOnPath(ctx, err)",
+		"&res",
+		"res",
 	)
 	if err != nil {
 		return "", fmt.Errorf("fix JSON unmarshal return: %w", err)
@@ -46,11 +49,11 @@ func fixGeneratedSource(source string) (string, error) {
 		return "", fmt.Errorf("fix aggregate input unmarshal return: %w", err)
 	}
 	if !strings.Contains(source, "func MarshalJSON(") {
-		const imports = "\t\"errors\"\n"
-		if !strings.Contains(source, imports) {
-			return "", fmt.Errorf("generated import anchor not found")
+		var importErr error
+		source, importErr = addImport(source, "io")
+		if importErr != nil {
+			return "", importErr
 		}
-		source = strings.Replace(source, imports, imports+"\t\"io\"\n", 1)
 		source += jsonScalarHelpers
 	}
 	return source, nil
@@ -83,23 +86,80 @@ func replaceInFunctionIfPresent(contents, signature, old, replacement string) (s
 }
 
 func replaceInFunction(contents, signature, old, replacement string) (string, error) {
-	start := strings.Index(contents, signature)
-	if start < 0 {
-		return "", fmt.Errorf("function %q not found", signature)
+	name := strings.TrimPrefix(signature, "func (ec *executionContext) ")
+	if index := strings.IndexByte(name, '('); index >= 0 {
+		name = name[:index]
 	}
-	rest := contents[start:]
-	end := strings.Index(rest, "\n}\n")
-	if end < 0 {
-		return "", fmt.Errorf("function %q has no closing brace", signature)
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, "generated.go", contents, 0)
+	if err != nil {
+		return "", fmt.Errorf("parse generated source while locating %q: %w", name, err)
 	}
-	function := rest[:end+3]
-	if strings.Contains(function, old) {
-		return contents[:start] + strings.Replace(function, old, replacement, 1) + rest[end+3:], nil
+	var function *ast.FuncDecl
+	ast.Inspect(file, func(node ast.Node) bool {
+		declaration, ok := node.(*ast.FuncDecl)
+		if !ok || declaration.Name == nil || (declaration.Name.Name != name && !strings.HasPrefix(declaration.Name.Name, name)) {
+			return true
+		}
+		function = declaration
+		return false
+	})
+	if function == nil || function.Body == nil {
+		return "", fmt.Errorf("generated function %q not found", name)
 	}
-	if strings.Contains(function, replacement) {
-		return contents, nil
+	fileToken := fileSet.File(function.Pos())
+	var returnStart, returnEnd int
+	var returnText string
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		if returnText != "" {
+			return false
+		}
+		returnStmt, ok := node.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		start := fileToken.Offset(returnStmt.Pos())
+		end := fileToken.Offset(returnStmt.End())
+		if start < 0 || end > len(contents) || end <= start {
+			return true
+		}
+		candidate := contents[start:end]
+		if strings.Contains(candidate, old) || strings.Contains(candidate, replacement) {
+			returnStart, returnEnd, returnText = start, end, candidate
+		}
+		return false
+	})
+	if returnText == "" {
+		return "", fmt.Errorf("generated function %q has neither expected return nor corrected return", name)
 	}
-	return "", fmt.Errorf("function %q has neither expected return", signature)
+	if strings.Contains(returnText, old) {
+		return contents[:returnStart] + strings.Replace(returnText, old, replacement, 1) + contents[returnEnd:], nil
+	}
+	return contents, nil
+}
+
+func addImport(source, importPath string) (string, error) {
+	quoted := fmt.Sprintf("\"%s\"", importPath)
+	if strings.Contains(source, quoted) {
+		return source, nil
+	}
+	if start := strings.Index(source, "import ("); start >= 0 {
+		lineEnd := strings.IndexByte(source[start:], '\n')
+		if lineEnd < 0 {
+			return "", fmt.Errorf("generated import block has no line ending; add %s manually", quoted)
+		}
+		lineEnd += start + 1
+		return source[:lineEnd] + "\t" + quoted + "\n" + source[lineEnd:], nil
+	}
+	if start := strings.Index(source, "import "); start >= 0 {
+		lineEnd := strings.IndexByte(source[start:], '\n')
+		if lineEnd < 0 {
+			return "", fmt.Errorf("generated import declaration has no line ending; add %s manually", quoted)
+		}
+		lineEnd += start + 1
+		return source[:lineEnd] + "import " + quoted + "\n" + source[lineEnd:], nil
+	}
+	return "", fmt.Errorf("generated import block not found; add %s manually", quoted)
 }
 
 func fail(format string, args ...any) {

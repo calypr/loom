@@ -1,0 +1,52 @@
+TAP version 13
+# Subtest: bounded witness uses the first raw code and yields exact overlapping Observation populations
+ok 1 - bounded witness uses the first raw code and yields exact overlapping Observation populations
+  ---
+  duration_ms: 9.0745
+  type: 'test'
+  ...
+# Subtest: oracle computes Group counts, coding-code Pivot multiplicity, and LEFT/INNER null semantics
+ok 2 - oracle computes Group counts, coding-code Pivot multiplicity, and LEFT/INNER null semantics
+  ---
+  duration_ms: 1.368666
+  type: 'test'
+  ...
+# Subtest: exact scoped reread preserves every selected raw document and coding array
+ok 3 - exact scoped reread preserves every selected raw document and coding array
+  ---
+  duration_ms: 1.847708
+  type: 'test'
+  ...
+# Subtest: subject selector ranks counts deterministically and returns at most ten scoped subjects
+ok 4 - subject selector ranks counts deterministically and returns at most ten scoped subjects
+  ---
+  duration_ms: 0.448334
+  type: 'test'
+  ...
+# Subtest: subjects with an empty or blank first code are not eligible witness members
+ok 5 - subjects with an empty or blank first code are not eligible witness members
+  ---
+  duration_ms: 0.23925
+  type: 'test'
+  ...
+# Subtest: bounded selector and witness reject malformed code arrays, duplicate IDs, and scope mismatches
+ok 6 - bounded selector and witness reject malformed code arrays, duplicate IDs, and scope mismatches
+  ---
+  duration_ms: 1.565416
+  type: 'test'
+  ...
+# Subtest: bounded witness absence remains unverified instead of widening or inventing a category
+ok 7 - bounded witness absence remains unverified instead of widening or inventing a category
+  ---
+  duration_ms: 0.400875
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 77.871375

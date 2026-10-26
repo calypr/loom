@@ -1,4 +1,4 @@
-import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
+import type { ElkNode } from 'elkjs/lib/elk.bundled.js';
 
 export interface GraphLayoutNode {
   readonly id: string;
@@ -20,7 +20,17 @@ export interface GraphLayoutResult {
   readonly routes: ReadonlyMap<string, string>;
 }
 
-const elk = new ELK();
+let elkPromise: Promise<InstanceType<typeof import('elkjs/lib/elk.bundled.js').default>> | undefined;
+
+const loadElk = (): Promise<InstanceType<typeof import('elkjs/lib/elk.bundled.js').default>> => {
+  elkPromise ??= import('elkjs/lib/elk.bundled.js').then(({ default: ELK }) => new ELK());
+  return elkPromise;
+};
+
+const finitePosition = (node: ElkNode): { readonly x: number; readonly y: number } | undefined =>
+  typeof node.x === 'number' && Number.isFinite(node.x) && typeof node.y === 'number' && Number.isFinite(node.y)
+    ? { x: node.x, y: node.y }
+    : undefined;
 
 const routePath = (
   section:
@@ -50,6 +60,7 @@ export const layoutDatasetGraph = async (
   edges: ReadonlyArray<GraphLayoutEdge>,
 ): Promise<GraphLayoutResult> => {
   if (nodes.length === 0) return { positions: new Map(), routes: new Map() };
+  const elk = await loadElk();
   const input: ElkNode = {
     id: 'dataset-graph',
     layoutOptions: {
@@ -84,24 +95,20 @@ export const layoutDatasetGraph = async (
   };
   const graph = await elk.layout(input);
   const children = graph.children ?? [];
-  const missingPosition = nodes.find((node) => {
-    const laidOut = children.find((candidate) => candidate.id === node.id);
-    return (
-      !laidOut || !Number.isFinite(laidOut.x) || !Number.isFinite(laidOut.y)
-    );
-  });
+  const positions = new Map(
+    children.flatMap((node) => {
+      const position = finitePosition(node);
+      return position ? [[node.id, position] as const] : [];
+    }),
+  );
+  const missingPosition = nodes.find((node) => !positions.has(node.id));
   if (missingPosition) {
     throw new Error(
       `ELK returned no finite position for graph node ${missingPosition.id}.`,
     );
   }
   return {
-    positions: new Map(
-      children.map((node) => [
-        node.id,
-        { x: node.x as number, y: node.y as number },
-      ]),
-    ),
+    positions,
     routes: new Map(
       (graph.edges ?? []).flatMap((edge) => {
         const path = routePath(edge.sections?.[0]);

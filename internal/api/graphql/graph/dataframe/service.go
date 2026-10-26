@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/calypr/loom/internal/api/authpolicy"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -157,14 +158,9 @@ func mapReaderError(err error) error {
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
 	}
-	if errors.Is(err, authscope.ErrUnauthenticated) {
-		return dataframeerrors.NewError(dataframeerrors.CodeUnauthenticated, "")
-	}
-	if errors.Is(err, authscope.ErrForbidden) {
-		return dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
-	}
-	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) {
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+	classified := authpolicy.Classify(err, authpolicy.OperationDataframeRead)
+	if _, ok := dataframeerrors.AsUserError(classified); ok {
+		return classified
 	}
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }

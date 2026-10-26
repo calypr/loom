@@ -8,17 +8,20 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 type FenceUserAccessClient struct {
-	client   *http.Client
-	cacheTTL time.Duration
-	mu       sync.Mutex
-	cache    map[string]cachedResourceAccess
+	client        *http.Client
+	trustedIssuer string
+	cacheTTL      time.Duration
+	mu            sync.Mutex
+	cache         map[string]cachedResourceAccess
 }
 
 type cachedResourceAccess struct {
@@ -26,18 +29,59 @@ type cachedResourceAccess struct {
 	expiresAt time.Time
 }
 
-func NewFenceUserAccessClient(client *http.Client) *FenceUserAccessClient {
-	return NewFenceUserAccessClientWithTTL(client, 30*time.Second)
+func NewFenceUserAccessClientWithTrustedIssuer(client *http.Client, trustedIssuer string, cacheTTL time.Duration) (*FenceUserAccessClient, error) {
+	if err := ValidateTrustedFenceIssuer(trustedIssuer); err != nil {
+		return nil, err
+	}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return newFenceUserAccessClient(&clientCopy, trustedIssuer, cacheTTL), nil
 }
 
-func NewFenceUserAccessClientWithTTL(client *http.Client, cacheTTL time.Duration) *FenceUserAccessClient {
+func newFenceUserAccessClient(client *http.Client, trustedIssuer string, cacheTTL time.Duration) *FenceUserAccessClient {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	if cacheTTL <= 0 {
 		cacheTTL = 30 * time.Second
 	}
-	return &FenceUserAccessClient{client: client, cacheTTL: cacheTTL, cache: make(map[string]cachedResourceAccess)}
+	return &FenceUserAccessClient{client: client, trustedIssuer: trustedIssuer, cacheTTL: cacheTTL, cache: make(map[string]cachedResourceAccess)}
+}
+
+// ValidateTrustedFenceIssuer requires an absolute HTTP(S) issuer URL without
+// userinfo, query, or fragment. The URL path is allowed because some issuers
+// expose their user endpoint below a base path.
+func ValidateTrustedFenceIssuer(issuer string) error {
+	_, err := parseTrustedFenceIssuer(issuer)
+	return err
+}
+
+func parseTrustedFenceIssuer(issuer string) (*url.URL, error) {
+	if issuer == "" || strings.TrimSpace(issuer) != issuer {
+		return nil, fmt.Errorf("trusted Fence issuer is required and must not have surrounding whitespace")
+	}
+	parsed, err := url.Parse(issuer)
+	if err != nil {
+		return nil, fmt.Errorf("trusted Fence issuer must be an absolute HTTP(S) URL: %w", err)
+	}
+	if !parsed.IsAbs() || parsed.Opaque != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return nil, fmt.Errorf("trusted Fence issuer must be an absolute HTTP(S) URL")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return nil, fmt.Errorf("trusted Fence issuer must not include userinfo, query, or fragment")
+	}
+	if port := parsed.Port(); port != "" {
+		value, err := strconv.Atoi(port)
+		if err != nil || value < 1 || value > 65535 {
+			return nil, fmt.Errorf("trusted Fence issuer has an invalid port")
+		}
+	}
+	return parsed, nil
 }
 
 func (c *FenceUserAccessClient) GetAllowedResources(ctx context.Context, authorizationHeader, method, service string) ([]string, error) {
@@ -61,7 +105,18 @@ type resourceAccessRecord struct {
 }
 
 func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authorizationHeader string) (map[string][]resourceAccessRecord, error) {
-	sum := sha256.Sum256([]byte(authorizationHeader))
+	authHeader, err := validateAuthorizationHeader(authorizationHeader)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+	issuer, err := issuerFromAuthorizationHeader(authHeader)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
+	}
+	if issuer != c.trustedIssuer {
+		return nil, fmt.Errorf("%w: token issuer does not match the configured Fence issuer", ErrUnauthenticated)
+	}
+	sum := sha256.Sum256([]byte(authHeader))
 	key := fmt.Sprintf("%x", sum[:])
 	now := time.Now()
 	c.mu.Lock()
@@ -71,13 +126,9 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 		return snapshot, nil
 	}
 	c.mu.Unlock()
-	endpoint, err := fenceUserEndpoint(authorizationHeader)
+	endpoint, err := fenceUserEndpoint(c.trustedIssuer)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrAuthorizationBackendUnavailable, err)
-	}
-	authHeader, err := validateAuthorizationHeader(authorizationHeader)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrUnauthenticated, err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -93,14 +144,14 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 	if err != nil {
 		return nil, fmt.Errorf("%w: read authorization snapshot response: %w", ErrAuthorizationBackendUnavailable, err)
 	}
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 300 {
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, fmt.Errorf("%w: authorization snapshot rejected", ErrUnauthenticated)
 		}
 		if resp.StatusCode == http.StatusForbidden {
 			return nil, fmt.Errorf("%w: authorization snapshot denied", ErrForbidden)
 		}
-		return nil, fmt.Errorf("%w: authorization snapshot request failed", ErrAuthorizationBackendUnavailable)
+		return nil, fmt.Errorf("%w: authorization snapshot request failed with HTTP %d", ErrAuthorizationBackendUnavailable, resp.StatusCode)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -256,7 +307,7 @@ func subjectFromAuthorizationHeader(authHeader string) string {
 	return ""
 }
 
-func fenceUserEndpoint(authorizationHeader string) (string, error) {
+func issuerFromAuthorizationHeader(authorizationHeader string) (string, error) {
 	token := cleanAccessToken(authorizationHeader)
 	if token == "" {
 		return "", fmt.Errorf("authorization header is required")
@@ -273,12 +324,21 @@ func fenceUserEndpoint(authorizationHeader string) (string, error) {
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return "", fmt.Errorf("parse authorization token payload: %w", err)
 	}
-	iss, _ := claims["iss"].(string)
-	iss = strings.TrimSpace(iss)
-	if iss == "" {
+	issuer, _ := claims["iss"].(string)
+	if issuer == "" {
 		return "", fmt.Errorf("authorization token does not include iss")
 	}
-	return strings.TrimRight(iss, "/") + "/user", nil
+	return issuer, nil
+}
+
+func fenceUserEndpoint(trustedIssuer string) (string, error) {
+	issuer, err := parseTrustedFenceIssuer(trustedIssuer)
+	if err != nil {
+		return "", err
+	}
+	issuer.Path = strings.TrimRight(issuer.Path, "/") + "/user"
+	issuer.RawPath = ""
+	return issuer.String(), nil
 }
 
 func validateAuthorizationHeader(raw string) (string, error) {

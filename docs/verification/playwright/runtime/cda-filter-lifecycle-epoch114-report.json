@@ -1,0 +1,1052 @@
+{
+  "schemaVersion": 1,
+  "epoch": 114,
+  "scenario": "cda-filter-browser",
+  "case": "filter-lifecycle",
+  "title": "create, edit, cancel, apply, and remove a typed CDA filter",
+  "status": "passed",
+  "runnerStatus": "passed",
+  "coverageStatus": "passed",
+  "startedAt": "2026-10-06T19:46:44.223Z",
+  "finishedAt": "2026-10-06T19:47:12.674Z",
+  "requiredChecks": {
+    "total": 8,
+    "passed": 8,
+    "failed": 0,
+    "unrun": 0,
+    "passedNames": [
+      "native Filter rows controls expose an enabled source column and typed condition",
+      "filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds",
+      "Cancel preserves the exact pre-proposal construction and rendered rows within five seconds",
+      "Apply persists the filter construction and exact result rows within five seconds",
+      "saved filter rows match the independent scoped CDA oracle",
+      "reload restores the saved filter and exact rendered rows",
+      "edit reopens the exact saved column and condition before applying a replacement within five seconds",
+      "filter removal restores the exact source columns, population, and rows after reload"
+    ],
+    "failedNames": [],
+    "unrunNames": []
+  },
+  "actualExplorer": {
+    "id": "filter-browser-1791316006692",
+    "freshSpecOwnedExplorer": true,
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "workflowApiRequests": 21,
+    "nativeBrowserRequestRecords": 52
+  },
+  "fixture": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "rawOracle": {
+      "kind": "independent scoped Arango query",
+      "resourceType": "Specimen",
+      "scope": {
+        "project": "loom_dev_cda_fhir",
+        "generation": "cda-fhir-v1",
+        "limit": 1
+      },
+      "query": "FOR s IN Specimen FILTER s.project == \"loom_dev_cda_fhir\" AND s.dataset_generation == \"cda-fhir-v1\"  LIMIT 1 RETURN {id:s.id,generation:s.dataset_generation,value:s.id}",
+      "selected": {
+        "id": "b7cad184-db67-5542-a975-10fffa3e89e7",
+        "generation": "cda-fhir-v1",
+        "value": "b7cad184-db67-5542-a975-10fffa3e89e7"
+      },
+      "missingConditionRows": [],
+      "equalityConditionRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ]
+    }
+  },
+  "verificationScope": {
+    "authorizationMode": "Local no-auth development mode; native request records show no Authorization header.",
+    "authorizationHeaderObserved": false,
+    "restrictedAuthorizationExclusionProven": false,
+    "capturedSourceFingerprint": {
+      "sha256": "3dcdf47f809fb34cffe6f0b78fb2880a2e124866b123b42f27b6cf9c2b46c89e",
+      "files": 1538
+    },
+    "historicalRelativeToCurrentSource": false
+  },
+  "target": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": 8188,
+    "uiPort": 30008,
+    "sourceRoot": "$TMP/<path>",
+    "kind": "owned-cda",
+    "composeFile": "$TMP/<path>",
+    "fixtureDir": "$HOME/Desktop/BMEG/loom/CDA-FHIR/META",
+    "fixtureLoadTimeout": 180000,
+    "fixtureProject": "loom_dev_cda_fhir",
+    "fixtureGeneration": "cda-fhir-v1",
+    "host": "127.0.0.1",
+    "populationMappingCursorSecret": "[REDACTED]",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "artifacts": "$TMP/<path>",
+    "explorer": "filter-browser-1791316006692",
+    "apiOrigin": "http://127.0.0.1:8188",
+    "uiOrigin": "http://127.0.0.1:30008",
+    "generation": "cda-fhir-v1",
+    "sourceFingerprint": {
+      "sha256": "3dcdf47f809fb34cffe6f0b78fb2880a2e124866b123b42f27b6cf9c2b46c89e",
+      "files": 1538
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed"
+    },
+    "correctness": {
+      "status": "passed"
+    },
+    "persistence": {
+      "status": "passed"
+    },
+    "performance": {
+      "status": "untested"
+    }
+  },
+  "performanceEvidence": {
+    "rawDimensionStatus": "untested",
+    "actionBudgetMs": 5000,
+    "checkpointBudgetMs": 5000,
+    "checkpointCount": 14,
+    "maximumMeasuredCheckpointMs": 2328,
+    "timedCheckpoints": [
+      {
+        "name": "reload-to-persisted-state",
+        "durationMs": 2328
+      },
+      {
+        "name": "open-filter-editor",
+        "durationMs": 230
+      },
+      {
+        "name": "missing-ID-preview",
+        "durationMs": 855
+      },
+      {
+        "name": "cancel-to-source-rows",
+        "durationMs": 896
+      },
+      {
+        "name": "confirmed-missing-ID-preview",
+        "durationMs": 692
+      },
+      {
+        "name": "apply-to-persisted-state",
+        "durationMs": 1198
+      },
+      {
+        "name": "reload-to-persisted-state",
+        "durationMs": 1988
+      },
+      {
+        "name": "edit-filter-to-controls",
+        "durationMs": 937
+      },
+      {
+        "name": "edit-equality-preview",
+        "durationMs": 783
+      },
+      {
+        "name": "apply-to-persisted-state",
+        "durationMs": 1059
+      },
+      {
+        "name": "reload-to-persisted-state",
+        "durationMs": 2069
+      },
+      {
+        "name": "remove-filter-preview",
+        "durationMs": 750
+      },
+      {
+        "name": "apply-to-persisted-state",
+        "durationMs": 1125
+      },
+      {
+        "name": "filter-removal-to-restored-state",
+        "durationMs": 2013
+      }
+    ],
+    "interpretation": "Recorded lifecycle checkpoint timers all remained within budget; the raw generic performance dimension remains untested."
+  },
+  "lifecycle": {
+    "choice": {
+      "status": "passed",
+      "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+      "columnDisabled": false,
+      "condition": "MISSING",
+      "conditionDisabled": false,
+      "enabledConditions": [
+        "EXISTS",
+        "EQUALS",
+        "NOT_EQUALS",
+        "IN",
+        "CONTAINS_TEXT",
+        "MISSING"
+      ],
+      "durationMs": 230
+    },
+    "proposal": {
+      "status": "passed",
+      "name": "missing-ID-preview",
+      "durationMs": 855,
+      "rows": [],
+      "source": {
+        "id": "b7cad184-db67-5542-a975-10fffa3e89e7",
+        "generation": "cda-fhir-v1",
+        "value": "b7cad184-db67-5542-a975-10fffa3e89e7"
+      }
+    },
+    "cancel": {
+      "status": "passed",
+      "preservedDraftDigest": "sha256:a46cc25b291ebac9c9b971e2b95a80e13248d19df53c4d84dd68012d19b4fbf0",
+      "expectedRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "actualRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "durationMs": 896
+    },
+    "apply": {
+      "status": "passed",
+      "stepId": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+      "draftVersion": 5,
+      "draftDigest": "sha256:cb1e012ed1923980827f25388f4b33d0c4b9c4f544672b7d31d6ada464a25e1f",
+      "construction": {
+        "version": 1,
+        "steps": [
+          {
+            "id": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+            "inputs": [
+              {
+                "kind": "SOURCE_PROJECTION"
+              }
+            ],
+            "operation": {
+              "kind": "FILTER",
+              "filter": {
+                "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+                "operator": "EQUALS",
+                "values": [
+                  {
+                    "kind": "STRING",
+                    "string": "b7cad184-db67-5542-a975-10fffa3e89e7"
+                  }
+                ]
+              }
+            },
+            "outputs": [
+              {
+                "id": "source_fc2a3a866597ef5c8dcd1b98",
+                "name": "col_56050fb45dadca17a481248f",
+                "label": "Specimen ID",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "expectedRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "actualRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "durationMs": 1059
+    },
+    "savedRows": {
+      "status": "passed",
+      "expectedRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "actualRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "source": {
+        "id": "b7cad184-db67-5542-a975-10fffa3e89e7",
+        "generation": "cda-fhir-v1",
+        "value": "b7cad184-db67-5542-a975-10fffa3e89e7"
+      }
+    },
+    "reload": {
+      "status": "passed",
+      "stepId": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+      "draftVersion": 5,
+      "draftDigest": "sha256:cb1e012ed1923980827f25388f4b33d0c4b9c4f544672b7d31d6ada464a25e1f",
+      "construction": {
+        "version": 1,
+        "steps": [
+          {
+            "id": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+            "inputs": [
+              {
+                "kind": "SOURCE_PROJECTION"
+              }
+            ],
+            "operation": {
+              "kind": "FILTER",
+              "filter": {
+                "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+                "operator": "EQUALS",
+                "values": [
+                  {
+                    "kind": "STRING",
+                    "string": "b7cad184-db67-5542-a975-10fffa3e89e7"
+                  }
+                ]
+              }
+            },
+            "outputs": [
+              {
+                "id": "source_fc2a3a866597ef5c8dcd1b98",
+                "name": "col_56050fb45dadca17a481248f",
+                "label": "Specimen ID",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "expectedRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "actualRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "durationMs": 2069
+    },
+    "edit": {
+      "status": "passed",
+      "stepId": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+      "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+      "condition": "MISSING",
+      "controlsDurationMs": 937,
+      "proposal": {
+        "construction": {
+          "steps": [
+            {
+              "id": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+              "inputs": [
+                {
+                  "kind": "SOURCE_PROJECTION"
+                }
+              ],
+              "operation": {
+                "filter": {
+                  "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+                  "operator": "EQUALS",
+                  "values": [
+                    {
+                      "kind": "STRING",
+                      "string": "b7cad184-db67-5542-a975-10fffa3e89e7"
+                    }
+                  ]
+                },
+                "kind": "FILTER"
+              },
+              "outputs": [
+                {
+                  "id": "source_fc2a3a866597ef5c8dcd1b98",
+                  "label": "Specimen ID",
+                  "name": "col_56050fb45dadca17a481248f",
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "version": 1
+        },
+        "candidateWorkspaceDigest": "sha256:cb1e012ed1923980827f25388f4b33d0c4b9c4f544672b7d31d6ada464a25e1f"
+      },
+      "applied": {
+        "draftDigest": "sha256:cb1e012ed1923980827f25388f4b33d0c4b9c4f544672b7d31d6ada464a25e1f",
+        "durationMs": 1059,
+        "construction": {
+          "version": 1,
+          "steps": [
+            {
+              "id": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+              "inputs": [
+                {
+                  "kind": "SOURCE_PROJECTION"
+                }
+              ],
+              "operation": {
+                "kind": "FILTER",
+                "filter": {
+                  "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+                  "operator": "EQUALS",
+                  "values": [
+                    {
+                      "kind": "STRING",
+                      "string": "b7cad184-db67-5542-a975-10fffa3e89e7"
+                    }
+                  ]
+                }
+              },
+              "outputs": [
+                {
+                  "id": "source_fc2a3a866597ef5c8dcd1b98",
+                  "name": "col_56050fb45dadca17a481248f",
+                  "label": "Specimen ID",
+                  "type": "string"
+                }
+              ]
+            }
+          ]
+        },
+        "rows": [
+          [
+            "b7cad184-db67-5542-a975-10fffa3e89e7"
+          ]
+        ]
+      },
+      "reloaded": {
+        "draftDigest": "sha256:cb1e012ed1923980827f25388f4b33d0c4b9c4f544672b7d31d6ada464a25e1f",
+        "durationMs": 2069,
+        "construction": {
+          "version": 1,
+          "steps": [
+            {
+              "id": "filter_573f468f-62d7-4035-a2d7-58bffd21aba9",
+              "inputs": [
+                {
+                  "kind": "SOURCE_PROJECTION"
+                }
+              ],
+              "operation": {
+                "kind": "FILTER",
+                "filter": {
+                  "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+                  "operator": "EQUALS",
+                  "values": [
+                    {
+                      "kind": "STRING",
+                      "string": "b7cad184-db67-5542-a975-10fffa3e89e7"
+                    }
+                  ]
+                }
+              },
+              "outputs": [
+                {
+                  "id": "source_fc2a3a866597ef5c8dcd1b98",
+                  "name": "col_56050fb45dadca17a481248f",
+                  "label": "Specimen ID",
+                  "type": "string"
+                }
+              ]
+            }
+          ]
+        },
+        "rows": [
+          [
+            "b7cad184-db67-5542-a975-10fffa3e89e7"
+          ]
+        ]
+      }
+    },
+    "restoration": {
+      "status": "passed",
+      "baselineDraftDigest": "sha256:a46cc25b291ebac9c9b971e2b95a80e13248d19df53c4d84dd68012d19b4fbf0",
+      "removalCandidateDigest": "sha256:288e123784405a4119e82a571ba68d33b58f2e47445978dd47e0e10d597eaa14",
+      "restoredDraftDigest": "sha256:288e123784405a4119e82a571ba68d33b58f2e47445978dd47e0e10d597eaa14",
+      "normalizedBaselineDocument": {
+        "kind": "ExplorerBuilderDocument",
+        "output": {
+          "id": "out_3b4000398cf1cf7460bc09ed",
+          "title": "Filter lifecycle QA"
+        },
+        "rootResourceType": "Specimen",
+        "route": {
+          "occurrenceId": "base",
+          "resourceType": "Specimen"
+        },
+        "rows": {
+          "kind": "RECORDS",
+          "records": {}
+        },
+        "population": {
+          "selectionRevisionId": "selection_37e9284acf91b0afa511a3be29397f334894989bb9958b6cf8bf5d8e6ec31d6d",
+          "route": []
+        },
+        "columns": [
+          {
+            "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+            "column": "col_56050fb45dadca17a481248f",
+            "label": "Specimen ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        ],
+        "construction": {
+          "version": 1,
+          "steps": []
+        }
+      },
+      "restoredDocument": {
+        "kind": "ExplorerBuilderDocument",
+        "output": {
+          "id": "out_3b4000398cf1cf7460bc09ed",
+          "title": "Filter lifecycle QA"
+        },
+        "rootResourceType": "Specimen",
+        "route": {
+          "occurrenceId": "base",
+          "resourceType": "Specimen"
+        },
+        "rows": {
+          "kind": "RECORDS",
+          "records": {}
+        },
+        "population": {
+          "selectionRevisionId": "selection_37e9284acf91b0afa511a3be29397f334894989bb9958b6cf8bf5d8e6ec31d6d",
+          "route": []
+        },
+        "columns": [
+          {
+            "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+            "column": "col_56050fb45dadca17a481248f",
+            "label": "Specimen ID",
+            "logicalType": "string",
+            "occurrenceId": "base",
+            "source": {
+              "kind": "field",
+              "field": {
+                "path": "id",
+                "projectionMode": "VALUE"
+              }
+            },
+            "table": {
+              "visible": true,
+              "order": 0
+            }
+          }
+        ],
+        "construction": {
+          "version": 1,
+          "steps": []
+        }
+      },
+      "constructionSteps": [],
+      "population": {
+        "selectionRevisionId": "selection_37e9284acf91b0afa511a3be29397f334894989bb9958b6cf8bf5d8e6ec31d6d",
+        "route": []
+      },
+      "columns": [
+        {
+          "columnId": "source_fc2a3a866597ef5c8dcd1b98",
+          "column": "col_56050fb45dadca17a481248f",
+          "label": "Specimen ID",
+          "logicalType": "string",
+          "occurrenceId": "base",
+          "source": {
+            "kind": "field",
+            "field": {
+              "path": "id",
+              "projectionMode": "VALUE"
+            }
+          },
+          "table": {
+            "visible": true,
+            "order": 0
+          }
+        }
+      ],
+      "rows": {
+        "kind": "RECORDS",
+        "records": {}
+      },
+      "expectedRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "actualRows": [
+        [
+          "b7cad184-db67-5542-a975-10fffa3e89e7"
+        ]
+      ],
+      "durationMs": 2013
+    }
+  },
+  "assertions": [
+    {
+      "dimension": "usability",
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Filter rows: Choose which rows appear in the table output. completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Select MISSING completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Cancel completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Filter rows: Choose which rows appear in the table output. completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Select EQUALS completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Select MISSING completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "1. Filter rows completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Edit completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Select EQUALS completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Value completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply change completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "1. Filter rows completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Remove completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply removal completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "▤ Filter lifecycle QA completed",
+      "status": "passed"
+    },
+    {
+      "dimension": "usability",
+      "name": "native Filter rows controls expose an enabled source column and typed condition",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "filter proposals and rendered result values match an independent scoped CDA source oracle within five seconds",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "Cancel preserves the exact pre-proposal construction and rendered rows within five seconds",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "Apply persists the filter construction and exact result rows within five seconds",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "saved filter rows match the independent scoped CDA oracle",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "reload restores the saved filter and exact rendered rows",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "edit reopens the exact saved column and condition before applying a replacement within five seconds",
+      "status": "passed"
+    },
+    {
+      "dimension": "persistence",
+      "name": "filter removal restores the exact source columns, population, and rows after reload",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "dimension": "correctness",
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    }
+  ],
+  "actions": [
+    {
+      "id": "cda-action-1",
+      "label": "▤ Filter lifecycle QA",
+      "status": "passed",
+      "elapsedMs": 123
+    },
+    {
+      "id": "cda-action-2",
+      "label": "Filter rows: Choose which rows appear in the table output.",
+      "status": "passed",
+      "elapsedMs": 121
+    },
+    {
+      "id": "cda-action-3",
+      "label": "Select MISSING",
+      "status": "passed",
+      "elapsedMs": 60
+    },
+    {
+      "id": "cda-action-4",
+      "label": "Cancel",
+      "status": "passed",
+      "elapsedMs": 196
+    },
+    {
+      "id": "cda-action-5",
+      "label": "Filter rows: Choose which rows appear in the table output.",
+      "status": "passed",
+      "elapsedMs": 82
+    },
+    {
+      "id": "cda-action-6",
+      "label": "Select EQUALS",
+      "status": "passed",
+      "elapsedMs": 43
+    },
+    {
+      "id": "cda-action-7",
+      "label": "Select MISSING",
+      "status": "passed",
+      "elapsedMs": 49
+    },
+    {
+      "id": "cda-action-8",
+      "label": "Apply change",
+      "status": "passed",
+      "elapsedMs": 95
+    },
+    {
+      "id": "cda-action-9",
+      "label": "▤ Filter lifecycle QA",
+      "status": "passed",
+      "elapsedMs": 97
+    },
+    {
+      "id": "cda-action-10",
+      "label": "1. Filter rows",
+      "status": "passed",
+      "elapsedMs": 113
+    },
+    {
+      "id": "cda-action-11",
+      "label": "Edit",
+      "status": "passed",
+      "elapsedMs": 96
+    },
+    {
+      "id": "cda-action-12",
+      "label": "Select EQUALS",
+      "status": "passed",
+      "elapsedMs": 26
+    },
+    {
+      "id": "cda-action-13",
+      "label": "Value",
+      "status": "passed",
+      "elapsedMs": 74
+    },
+    {
+      "id": "cda-action-14",
+      "label": "Apply change",
+      "status": "passed",
+      "elapsedMs": 97
+    },
+    {
+      "id": "cda-action-15",
+      "label": "▤ Filter lifecycle QA",
+      "status": "passed",
+      "elapsedMs": 183
+    },
+    {
+      "id": "cda-action-16",
+      "label": "1. Filter rows",
+      "status": "passed",
+      "elapsedMs": 114
+    },
+    {
+      "id": "cda-action-17",
+      "label": "Remove",
+      "status": "passed",
+      "elapsedMs": 75
+    },
+    {
+      "id": "cda-action-18",
+      "label": "Apply removal",
+      "status": "passed",
+      "elapsedMs": 91
+    },
+    {
+      "id": "cda-action-19",
+      "label": "▤ Filter lifecycle QA",
+      "status": "passed",
+      "elapsedMs": 143
+    }
+  ],
+  "network": {
+    "workflowApiRequests": 21,
+    "nativeBrowserRequestRecords": 52,
+    "nativeRequestStatusCounts": {
+      "200": 52,
+      "201": 0,
+      "204": 0,
+      "404": 0,
+      "None": 0
+    },
+    "unexpectedNetworkFailures": 0,
+    "errors": [],
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      },
+      {
+        "kind": "console",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "requestRecordMeaning": "The report has separate workflow requests and Playwright-observed native browser requests."
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "3dcdf47f809fb34cffe6f0b78fb2880a2e124866b123b42f27b6cf9c2b46c89e",
+        "files": 1538
+      },
+      "after": {
+        "sha256": "3dcdf47f809fb34cffe6f0b78fb2880a2e124866b123b42f27b6cf9c2b46c89e",
+        "files": 1538
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/source-before.json",
+        "sha256": "c6880ee58d2965e552aa614a06a95cac56cd691df7575aaa6aa0c4fcc18153f9"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/source-after.json",
+        "sha256": "87cb68db28071714f21f730b85cfeddcb413f5e74c2178b59730994285c99b05"
+      }
+    },
+    "docsBeforeAfter": {
+      "before": {
+        "sha256": "c13c5479500ffe6e9b4466b38a2491c6991abd8b8c02724249b0a921ddb48470",
+        "files": 262
+      },
+      "after": {
+        "sha256": "c13c5479500ffe6e9b4466b38a2491c6991abd8b8c02724249b0a921ddb48470",
+        "files": 262
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/docs-before.json",
+        "sha256": "017feacb5f2e01ace77f57c1bbc449b829fead0e706326212c50702d89a85fe8"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/docs-after.json",
+        "sha256": "f6ef04f94d2ede43120850eb83cd5a5342dbb0bbef306f398fa8e79e0cc45aa2"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/api-identity-before.json",
+        "sha256": "86eac2dabba0c652a0ca3e62c3438b03649a6244db05188edf1e869d379d06ce"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/api-identity-after.json",
+        "sha256": "6b7d6134da787dd0482345245db9e6b34e023b68d413c59133e46a0b6eb1b416"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/api-build-precheck.json",
+        "sha256": "f06a31309fb4a0f6024612d125be83485a372a95287ed171eb1a78b5b78d1801"
+      }
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/owned-mounts-before.json",
+        "sha256": "de4f789ae1f2e8526119b1f8b27d2c6597a225b7dd9cbac4ea4fca95338fbaec"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/owned-mounts-after.json",
+        "sha256": "123f6d920decc8beb8b9c08a0300fb9c9462760695215024c90dc77b3fbdb66f"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/health-before.json",
+        "sha256": "bbcdeb1e30ce243529d8b69ab3aa035b303e9062674b189452b80bac3e2e9c2a"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave114/health-after.json",
+        "sha256": "2ae9599c0efd2dba8c5c83db942f6047192951ec81415e0bc292affbc11e5bbf"
+      }
+    }
+  },
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-filter-lifecycle-epoch114-closure.json",
+  "rawArtifacts": {
+    "nativeLifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave114/cda-filter-lifecycle/attempt1/artifacts/standalone-cda-other-CDA-f-1afeb-d-remove-a-typed-CDA-filter/cda-report.json",
+      "sha256": "550d099ab1fbde1f74e952c935e520a5b60075b30be3ef8debd8ca814287e448",
+      "sizeBytes": 17951274
+    },
+    "browserResults": {
+      "path": "/private/tmp/loom-native-parallel-wave114/cda-filter-lifecycle/attempt1/results.json",
+      "sha256": "304d02d13481b351f43a04ddc8aabb0fc39c91f6fb3bbc4e1983821719b88b86",
+      "sizeBytes": 8218
+    },
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave114/cda-filter-lifecycle/attempt1/runner.log",
+      "sha256": "44e40ea81abb78d0f5e01cf21378a1c986f72747e89f8aae0b8fd2f949476422",
+      "sizeBytes": 642
+    },
+    "rawCoordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave114/closure.json",
+      "sha256": "ad14b8e607d664c609235983a0d6d20495a0729884dfdf0ac8a284bd7502c388",
+      "sizeBytes": 9783
+    },
+    "strictIntegrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave114/integrity-closure.json",
+      "sha256": "c633080eb7e7f1d6d8b27fd32c838ef9710a1d9960a525c2c4a3ec87f754b7bf",
+      "sizeBytes": 4500
+    },
+    "rootAcceptanceReceipt": {
+      "path": "/private/tmp/loom-native-parallel-wave114/root-acceptance.json",
+      "sha256": "4e2103040571f44da0ddb4e3e3c4eaf83038a332b1e6ba8cbe2e18a73be31196",
+      "sizeBytes": 567
+    },
+    "fullReportCommitted": false
+  }
+}

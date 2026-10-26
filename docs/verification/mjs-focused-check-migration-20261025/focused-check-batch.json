@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "scenario": "cda-workspace-combine",
+      "case": "group-pivot-join",
+      "target": { "mode": "environment" }
+    },
+    {
+      "scenario": "cda-current-draft-diagnostic-report-append",
+      "case": "diagnostic-report-append",
+      "target": { "mode": "environment" }
+    }
+  ]
+}

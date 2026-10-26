@@ -154,6 +154,7 @@ const table = (rootNodeId: string): DraftTable => ({
         catalog.nodes.find((node) => node.nodeId === rootNodeId)
           ?.resourceType ?? rootNodeId,
     },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 });
@@ -170,6 +171,7 @@ const renderGraph = (currentTable: DraftTable) =>
       onChangeBase={vi.fn()}
       onAppendEdge={vi.fn()}
       onChangeEdge={vi.fn()}
+      onChangeMatchMode={vi.fn()}
       onTruncate={vi.fn()}
     />,
   );
@@ -242,6 +244,14 @@ describe('GuidedGraphWorkspace', () => {
       '4',
     );
     expect(screen.getByTestId('graph-node-node-orphan')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show orphans' }));
+    expect(screen.getByTestId('mock-react-flow')).toHaveAttribute(
+      'data-node-count',
+      '3',
+    );
+    expect(
+      screen.queryByTestId('graph-node-node-orphan'),
+    ).not.toBeInTheDocument();
 
     expect(
       screen.queryByRole('button', { name: 'Focus route' }),
@@ -276,6 +286,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={vi.fn()}
         onAppendEdge={vi.fn()}
         onChangeEdge={vi.fn()}
+        onChangeMatchMode={vi.fn()}
         onTruncate={vi.fn()}
       />,
     );
@@ -305,6 +316,7 @@ describe('GuidedGraphWorkspace', () => {
       onChangeBase: vi.fn(),
       onAppendEdge: vi.fn(),
       onChangeEdge: vi.fn(),
+      onChangeMatchMode: vi.fn(),
       onTruncate: vi.fn(),
     };
     const view = render(
@@ -404,11 +416,14 @@ describe('GuidedGraphWorkspace', () => {
             },
           ],
         },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [],
       },
     };
     const onSelectOccurrence = vi.fn();
     const onChangeEdge = vi.fn();
+    const onChangeMatchMode = vi.fn();
+    const onChangeBase = vi.fn();
 
     render(
       <GuidedGraphWorkspace
@@ -418,9 +433,10 @@ describe('GuidedGraphWorkspace', () => {
         disabled={false}
         onSelectOccurrence={onSelectOccurrence}
         onSetBase={vi.fn()}
-        onChangeBase={vi.fn()}
+        onChangeBase={onChangeBase}
         onAppendEdge={vi.fn()}
         onChangeEdge={onChangeEdge}
+        onChangeMatchMode={onChangeMatchMode}
         onTruncate={vi.fn()}
       />,
     );
@@ -434,9 +450,16 @@ describe('GuidedGraphWorkspace', () => {
     expect(
       screen.getByRole('button', { name: 'Observation' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Patient' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Patient' })).toHaveAttribute(
+      'data-occurrence-id',
+      'patient',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Patient' }));
     expect(onSelectOccurrence).toHaveBeenCalledWith('patient');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Make each Patient one row' }),
+    );
+    expect(onChangeBase).toHaveBeenCalledWith('node-patient');
     fireEvent.change(
       screen.getByRole('combobox', {
         name: 'Relationship for Patient occurrence',
@@ -447,6 +470,10 @@ describe('GuidedGraphWorkspace', () => {
       'patient',
       'specimen-patient-participant',
     );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Require Patient match' }),
+    );
+    expect(onChangeMatchMode).toHaveBeenCalledWith('patient', 'REQUIRED');
   });
 
   it('inspects an existing resource when another relationship can add a new occurrence', async () => {
@@ -502,6 +529,7 @@ describe('GuidedGraphWorkspace', () => {
             },
           ],
         },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [],
       },
     };
@@ -519,6 +547,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={vi.fn()}
         onAppendEdge={onAppendEdge}
         onChangeEdge={vi.fn()}
+        onChangeMatchMode={vi.fn()}
         onTruncate={vi.fn()}
       />,
     );
@@ -550,6 +579,7 @@ describe('GuidedGraphWorkspace', () => {
         onChangeBase={vi.fn()}
         onAppendEdge={onAppendEdge}
         onChangeEdge={vi.fn()}
+        onChangeMatchMode={vi.fn()}
         onTruncate={vi.fn()}
         onTableToolbarHostChange={onTableToolbarHostChange}
       />,

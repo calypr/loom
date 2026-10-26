@@ -34,3 +34,7 @@ func invalidRequest() error {
 func invalidCursor() error {
 	return dataframeerrors.NewError(dataframeerrors.CodeInvalidCursor, "")
 }
+
+func staleCursor() error {
+	return dataframeerrors.NewError(dataframeerrors.CodeStaleCursor, "")
+}

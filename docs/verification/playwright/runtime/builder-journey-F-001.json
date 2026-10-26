@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "finding": "F-001",
+  "journey": "group-pivot-preview",
+  "observedAt": "2026-10-21",
+  "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/projects/<project>/explorers/<explorer>/authoring/v2/construction-proposals",
+    "input": {
+      "groupBy": [
+        "id"
+      ],
+      "category": "gender",
+      "values": "name__count",
+      "duplicatePolicy": "ERROR",
+      "missingCellPolicy": "NULL",
+      "unlistedCategoryPolicy": "ERROR"
+    }
+  },
+  "response": {
+    "status": 500,
+    "code": "CONSTRUCTION_RECEIPT_INPUT_MISSING",
+    "message": "the compiled receipt references construction input column \"source_child_v1_...\" but that column is absent from the prior stage; the authored construction and compiler schema disagree",
+    "requestId": "construction-proposal-8bc2c5fa-9767-4e3b-b43e-37229cf55622"
+  },
+  "capture": "Playwright response listener on the real Builder UI. The response body was read but not retained as a raw file.",
+  "status": "open",
+  "next": "Fix the reconciliation mismatch: the pivot output metadata references a source_child input column that is not in the prior stage. The 500 now identifies the missing column and suggests comparing the authored construction with the compiler schema.",
+  "latestRedRun": {
+    "observedAt": "2026-10-21",
+    "journey": "pivot-error",
+    "requestId": "construction-proposal-beb11c39-a416-4ae4-843e-05828a8a9afd",
+    "trace": ".artifacts/builder-journey/pivot-error-descriptive-trace.json",
+    "report": ".artifacts/builder-journey/pivot-error-descriptive-report.json"
+  },
+  "redSpecs": [
+    "scripts/verify-ui/journey-specs/group-pivot-preview.spec.mjs",
+    "scripts/verify-ui/journey-specs/pivot-error.spec.mjs"
+  ],
+  "trace": ".artifacts/builder-journey/group-pivot-preview-descriptive2-trace.json",
+  "report": ".artifacts/builder-journey/group-pivot-preview-descriptive2-report.json"
+}

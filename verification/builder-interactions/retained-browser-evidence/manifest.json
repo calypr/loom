@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "artifacts": [
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/native-report.json.gz",
+      "sha256": "dca5b068a3a9f5216a0a8f6feff3c445a6a3c47c5d9714fc3d05ee4b1ed5cfa6",
+      "bytes": 1284841,
+      "archiveSha256": "e9f2b0f3a4422dd0fde97fa7009eeb67343005862fcf6e0379f0f966bb1a0044",
+      "archiveBytes": 300319
+    },
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/formal-trace.json.gz",
+      "sha256": "4788c9b480629086a967b611031c9402026fa7bd659d24a5f98ab0f17cc306b1",
+      "bytes": 380668,
+      "archiveSha256": "f42cd186a10cbe689341b692a066dd5af0d5d0c04aa90f8b52da0c90bcc1f53f",
+      "archiveBytes": 26302
+    },
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace-tla.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/formal-tla-receipt.json.gz",
+      "sha256": "01ac9f74a3331aab117955c7993efe1b8e31f005508510f02c8178ce4c3c0202",
+      "bytes": 5890,
+      "archiveSha256": "13331a9501c180bf05e1518dbd48e39cbeeb259368925d4a9fba8800652bb956",
+      "archiveBytes": 2096
+    },
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace-self-test.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/formal-mutation-receipt.json.gz",
+      "sha256": "75806f3d830e3e8e90fc441017f6334e45cee37e924320f50da7101bd5026b29",
+      "bytes": 3263,
+      "archiveSha256": "14e0cae17b6a0538aa7f36cbfc474ce9eb8f4e3defdf231b3d27eb4f14d226a3",
+      "archiveBytes": 649
+    },
+    {
+      "path": ".artifacts/formal-temporal-datetime-50bed98d-run3/browser-run/playwright-results/basic-temporal-filter-Basi-08e66-ply-edit-removal-and-reload/attachments/loom-verification-report-json-ba40acc9cd0309536b48d1ff593d2f79a2b0c0bc.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/temporal-date-report.json.gz",
+      "sha256": "ca199643df381950b8ad8583d1d5ebf825735f262e2661bd5a5b0293ce898afe",
+      "bytes": 9841778,
+      "archiveSha256": "8a708ad5d32821830c00e5ba4519f50d6e02ded66b49d46dc3fa6f7a61c38b89",
+      "archiveBytes": 814988
+    }
+  ]
+}

@@ -1,0 +1,2148 @@
+{
+  "schemaVersion": 2,
+  "scenario": "builder-combine-draft",
+  "case": "membership",
+  "status": "passed",
+  "requiredChecks": [
+    "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+    "independent MEMBERSHIP oracle has four Observation rows, three DiagnosticReport rows, three matches, and one exclusion",
+    "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+    "first native source table establishes a versioned current draft under the exact scope",
+    "create current-draft Observation source table action-to-render within budget",
+    "Observation root Preview contains exact independent fixture IDs",
+    "Observation ID membership source reuses the unique root VALUE id projection by stable columnId",
+    "Observation ID membership source native GROUP binds the exact source projection columnId",
+    "create current-draft DiagnosticReport source table action-to-render within budget",
+    "DiagnosticReport root Preview contains exact independent fixture IDs",
+    "DiagnosticReport native source table establishes a versioned current draft under the exact scope",
+    "DiagnosticReport ID membership source reuses the unique root VALUE id projection by stable columnId",
+    "DiagnosticReport ID membership source native GROUP binds the exact source projection columnId",
+    "Observation ID membership source native GROUP count rows match the direct fixture oracle",
+    "Apply Observation ID membership source current-draft GROUP action-to-render within budget",
+    "Observation ID membership source GROUP automatic preview is within five seconds",
+    "DiagnosticReport ID membership source native GROUP count rows match the direct fixture oracle",
+    "Apply DiagnosticReport ID membership source current-draft GROUP action-to-render within budget",
+    "DiagnosticReport ID membership source GROUP automatic preview is within five seconds",
+    "open native Combine and create a separate empty target action-to-render within budget",
+    "native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source",
+    "MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and compiled nullability",
+    "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+    "INCLUDE MEMBERSHIP automatic preview completes within five seconds action-to-render within budget",
+    "INCLUDE preview keeps exactly the three independently matched Observation IDs",
+    "Cancel current-draft INCLUDE MEMBERSHIP preview action-to-render within budget",
+    "reload canceled INCLUDE MEMBERSHIP and select its unchanged empty target action-to-render within budget",
+    "Cancel leaves the entire MEMBERSHIP workspace and draft CAS unchanged after reload",
+    "second INCLUDE MEMBERSHIP automatic preview completes within five seconds action-to-render within budget",
+    "INCLUDE preview rows match the exact independent raw membership oracle",
+    "INCLUDE proposal retains left rows with one exact current-draft key pair",
+    "Apply current-draft INCLUDE MEMBERSHIP action-to-render within budget",
+    "saved INCLUDE MEMBERSHIP uses exactly the two unpublished current-draft ID sources",
+    "INCLUDE MEMBERSHIP output preserves left ID nullability",
+    "reload applied INCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+    "INCLUDE output values survive reload as the exact matched Observation IDs",
+    "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+    "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row action-to-render within budget",
+    "EXCLUDE preview changes to exactly the unmatched Observation ID",
+    "EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity",
+    "Apply saved MEMBERSHIP EXCLUDE edit action-to-render within budget",
+    "saved EXCLUDE MEMBERSHIP policy and stable output identity survive Apply",
+    "reload edited EXCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+    "EXCLUDE values survive reload as the exact unmatched Observation ID",
+    "propose Combine removal and render the exact rooted empty output action-to-render within budget",
+    "apply Combine removal to restore the empty target action-to-render within budget",
+    "reload removed Combine and select its exact rooted empty output action-to-render within budget",
+    "removing Combine and reloading restores its rooted empty target",
+    "removing MEMBERSHIP preserves both exact GROUP source outputs after reload",
+    "MEMBERSHIP lifecycle makes no Publish request or pinned revision reference"
+  ],
+  "missingRequiredChecks": [],
+  "assertions": [
+    {
+      "dimension": "correctness",
+      "name": "watched source fingerprint baseline captured before browser lifecycle",
+      "status": "passed",
+      "evidence": {
+        "fingerprint": {
+          "sha256": "b2ac66dec27775ab525776c55ab242701693216f0f5390742c8b16292a21a25d",
+          "files": 1503
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "API build identity baseline captured before browser lifecycle",
+      "status": "passed",
+      "evidence": {
+        "identity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+      "status": "passed",
+      "evidence": {
+        "source": "fresh project testdata/verify-combine NDJSON; rows are not derived from Builder previews",
+        "project": "loom_dev_verify_muw9wqty-312c32a",
+        "generation": "fixture-v1",
+        "patients": [
+          {
+            "id": "combine-fixture-patient",
+            "gender": "female"
+          }
+        ],
+        "observations": [
+          {
+            "id": "combine-observation-final-1",
+            "status": "final",
+            "valueInteger": 10
+          },
+          {
+            "id": "combine-observation-final-2",
+            "status": "final",
+            "valueInteger": 20
+          },
+          {
+            "id": "combine-observation-preliminary",
+            "status": "preliminary",
+            "valueInteger": 30
+          },
+          {
+            "id": "combine-observation-unmatched",
+            "status": "unknown",
+            "valueInteger": 40
+          }
+        ],
+        "diagnosticReports": [
+          {
+            "id": "combine-observation-final-1",
+            "status": "final"
+          },
+          {
+            "id": "combine-observation-final-2",
+            "status": "final"
+          },
+          {
+            "id": "combine-observation-preliminary",
+            "status": "preliminary"
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open Explorer creation completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 61
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open Explorer creation action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 61,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "create blank Explorer completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 114
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "create blank Explorer action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 114,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "created a fresh Explorer distinct from the bootstrap",
+      "status": "passed",
+      "evidence": {
+        "title": "Verify ty-312c32a draft-combine-membership"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+      "status": "passed",
+      "evidence": {
+        "ok": true,
+        "catalogBound": true,
+        "draftState": {
+          "ok": true,
+          "expectedState": "empty",
+          "actualState": "empty",
+          "empty": true,
+          "draft": false,
+          "workspaceDocumentCount": null,
+          "draftVersion": 0,
+          "draftDigest": ""
+        },
+        "requestURL": "http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/builder",
+        "project": "loom_dev_verify_muw9wqty-312c32a",
+        "explorer": "verify-ty-312c32a-draft-combine-membership",
+        "generation": "fixture-v1",
+        "expectedGeneration": "fixture-v1",
+        "snapshotToken": "sha256:7e304abdcfaf94d06505c3721bba15a1f49ab8fc2cd888fdfbf97c525ad681ca",
+        "draftVersion": 0,
+        "draftDigest": "",
+        "authorizationScopeDigest": "[REDACTED]"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "independent MEMBERSHIP oracle has four Observation rows, three DiagnosticReport rows, three matches, and one exclusion",
+      "status": "passed",
+      "evidence": {
+        "observationCount": 4,
+        "diagnosticReportCount": 3,
+        "observationIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary",
+          "combine-observation-unmatched"
+        ],
+        "diagnosticReportIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ],
+        "expectedObservationIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary",
+          "combine-observation-unmatched"
+        ],
+        "expectedDiagnosticReportIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ],
+        "oracleIncludeIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ],
+        "expectedIncludeIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ],
+        "oracleExcludeIDs": [
+          "combine-observation-unmatched"
+        ],
+        "expectedExcludeIDs": [
+          "combine-observation-unmatched"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "create current-draft Observation source table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 315
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "create current-draft Observation source table action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 315,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Observation root Preview contains exact independent fixture IDs",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Observation ID"
+        ],
+        "ids": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary",
+          "combine-observation-unmatched"
+        ],
+        "expectedIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary",
+          "combine-observation-unmatched"
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "first native source table establishes a versioned current draft under the exact scope",
+      "status": "passed",
+      "evidence": {
+        "scope": {
+          "ok": true,
+          "catalogBound": true,
+          "draftState": {
+            "ok": true,
+            "expectedState": "draft",
+            "actualState": "draft",
+            "empty": false,
+            "draft": true,
+            "workspaceDocumentCount": 1,
+            "draftVersion": 2,
+            "draftDigest": "sha256:f70f3cacb84f4183bd46c6d20aee5c7fcdb31b8de3b42dbbda700e1347f6159d"
+          },
+          "requestURL": "http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/builder",
+          "project": "loom_dev_verify_muw9wqty-312c32a",
+          "explorer": "verify-ty-312c32a-draft-combine-membership",
+          "generation": "fixture-v1",
+          "expectedGeneration": "fixture-v1",
+          "snapshotToken": "sha256:7e304abdcfaf94d06505c3721bba15a1f49ab8fc2cd888fdfbf97c525ad681ca",
+          "draftVersion": 2,
+          "draftDigest": "sha256:f70f3cacb84f4183bd46c6d20aee5c7fcdb31b8de3b42dbbda700e1347f6159d",
+          "authorizationScopeDigest": "[REDACTED]"
+        },
+        "expectedDocumentCount": 1,
+        "actualDocumentCount": 1,
+        "output": {
+          "id": "out_89497c74a7ec0ba99280ba47",
+          "title": "Observation ID membership source"
+        },
+        "draftVersion": 2,
+        "draftDigest": "sha256:f70f3cacb84f4183bd46c6d20aee5c7fcdb31b8de3b42dbbda700e1347f6159d"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Observation ID membership source reuses the unique root VALUE id projection by stable columnId",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_89497c74a7ec0ba99280ba47",
+        "outputTitle": "Observation ID membership source",
+        "expectedTitle": "Observation ID membership source",
+        "identity": {
+          "ok": true,
+          "fieldPath": "id",
+          "occurrenceId": "base",
+          "projectionMode": "VALUE",
+          "matches": [
+            {
+              "columnId": "source_b77515b359bfb4a50eee4fe8",
+              "column": "col_77413469c6ddaa11ed69e133",
+              "label": "Observation ID",
+              "occurrenceId": "base",
+              "fieldPath": "id",
+              "projectionMode": "VALUE"
+            }
+          ],
+          "binding": {
+            "columnId": "source_b77515b359bfb4a50eee4fe8",
+            "column": "col_77413469c6ddaa11ed69e133",
+            "label": "Observation ID",
+            "occurrenceId": "base",
+            "fieldPath": "id",
+            "projectionMode": "VALUE"
+          }
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Observation ID membership source native GROUP count rows match the direct fixture oracle",
+      "status": "passed",
+      "evidence": {
+        "fields": {
+          "key": null,
+          "id": {
+            "columnId": "source_b77515b359bfb4a50eee4fe8",
+            "column": "col_77413469c6ddaa11ed69e133",
+            "label": "Observation ID",
+            "occurrenceId": "base",
+            "fieldPath": "id",
+            "projectionMode": "VALUE"
+          },
+          "candidates": [
+            "Observation ID"
+          ]
+        },
+        "selectedKeys": [
+          {
+            "columnId": "source_b77515b359bfb4a50eee4fe8",
+            "column": "col_77413469c6ddaa11ed69e133",
+            "label": "Observation ID",
+            "occurrenceId": "base",
+            "fieldPath": "id",
+            "projectionMode": "VALUE"
+          }
+        ],
+        "headers": [
+          "Observation ID",
+          "Row count"
+        ],
+        "actual": [
+          [
+            "combine-observation-final-1",
+            1
+          ],
+          [
+            "combine-observation-final-2",
+            1
+          ],
+          [
+            "combine-observation-preliminary",
+            1
+          ],
+          [
+            "combine-observation-unmatched",
+            1
+          ]
+        ],
+        "expected": [
+          [
+            "combine-observation-final-1",
+            1
+          ],
+          [
+            "combine-observation-final-2",
+            1
+          ],
+          [
+            "combine-observation-preliminary",
+            1
+          ],
+          [
+            "combine-observation-unmatched",
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Observation ID membership source GROUP automatic preview is within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 938,
+        "selectedKeys": [
+          "source_b77515b359bfb4a50eee4fe8"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply Observation ID membership source current-draft GROUP completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 255
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Apply Observation ID membership source current-draft GROUP action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 255,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "Observation ID membership source native GROUP binds the exact source projection columnId",
+      "status": "passed",
+      "evidence": {
+        "expectedInputColumnIDs": [
+          "source_b77515b359bfb4a50eee4fe8"
+        ],
+        "actualInputColumnIDs": [
+          "source_b77515b359bfb4a50eee4fe8"
+        ]
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Observation ID membership source remains an unpublished current-draft grouped output",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_89497c74a7ec0ba99280ba47",
+        "rootResourceType": "Observation",
+        "steps": [
+          "GROUP"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "create current-draft DiagnosticReport source table completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 245
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "create current-draft DiagnosticReport source table action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 245,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "DiagnosticReport root Preview contains exact independent fixture IDs",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "DiagnosticReport ID"
+        ],
+        "ids": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ],
+        "expectedIDs": [
+          "combine-observation-final-1",
+          "combine-observation-final-2",
+          "combine-observation-preliminary"
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "DiagnosticReport native source table establishes a versioned current draft under the exact scope",
+      "status": "passed",
+      "evidence": {
+        "scope": {
+          "ok": true,
+          "catalogBound": true,
+          "draftState": {
+            "ok": true,
+            "expectedState": "draft",
+            "actualState": "draft",
+            "empty": false,
+            "draft": true,
+            "workspaceDocumentCount": 2,
+            "draftVersion": 5,
+            "draftDigest": "sha256:26a01bee83617f1566a94aa3278bc2221e458a683cc3b4ddde7d7a4ae6b50d17"
+          },
+          "requestURL": "http://127.0.0.1:8188/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/builder",
+          "project": "loom_dev_verify_muw9wqty-312c32a",
+          "explorer": "verify-ty-312c32a-draft-combine-membership",
+          "generation": "fixture-v1",
+          "expectedGeneration": "fixture-v1",
+          "snapshotToken": "sha256:7e304abdcfaf94d06505c3721bba15a1f49ab8fc2cd888fdfbf97c525ad681ca",
+          "draftVersion": 5,
+          "draftDigest": "sha256:26a01bee83617f1566a94aa3278bc2221e458a683cc3b4ddde7d7a4ae6b50d17",
+          "authorizationScopeDigest": "[REDACTED]"
+        },
+        "expectedDocumentCount": 2,
+        "actualDocumentCount": 2,
+        "output": {
+          "id": "out_e512607b447be2723fbceadc",
+          "title": "DiagnosticReport ID membership source"
+        },
+        "draftVersion": 5,
+        "draftDigest": "sha256:26a01bee83617f1566a94aa3278bc2221e458a683cc3b4ddde7d7a4ae6b50d17"
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "DiagnosticReport ID membership source reuses the unique root VALUE id projection by stable columnId",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_e512607b447be2723fbceadc",
+        "outputTitle": "DiagnosticReport ID membership source",
+        "expectedTitle": "DiagnosticReport ID membership source",
+        "identity": {
+          "ok": true,
+          "fieldPath": "id",
+          "occurrenceId": "base",
+          "projectionMode": "VALUE",
+          "matches": [
+            {
+              "columnId": "source_0eaf8b1aaabfdfa8477b1833",
+              "column": "col_c037b0a1dbdbd7baa9eabdbc",
+              "label": "DiagnosticReport ID",
+              "occurrenceId": "base",
+              "fieldPath": "id",
+              "projectionMode": "VALUE"
+            }
+          ],
+          "binding": {
+            "columnId": "source_0eaf8b1aaabfdfa8477b1833",
+            "column": "col_c037b0a1dbdbd7baa9eabdbc",
+            "label": "DiagnosticReport ID",
+            "occurrenceId": "base",
+            "fieldPath": "id",
+            "projectionMode": "VALUE"
+          }
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "DiagnosticReport ID membership source native GROUP count rows match the direct fixture oracle",
+      "status": "passed",
+      "evidence": {
+        "fields": {
+          "key": null,
+          "id": {
+            "columnId": "source_0eaf8b1aaabfdfa8477b1833",
+            "column": "col_c037b0a1dbdbd7baa9eabdbc",
+            "label": "DiagnosticReport ID",
+            "occurrenceId": "base",
+            "fieldPath": "id",
+            "projectionMode": "VALUE"
+          },
+          "candidates": [
+            "DiagnosticReport ID"
+          ]
+        },
+        "selectedKeys": [
+          {
+            "columnId": "source_0eaf8b1aaabfdfa8477b1833",
+            "column": "col_c037b0a1dbdbd7baa9eabdbc",
+            "label": "DiagnosticReport ID",
+            "occurrenceId": "base",
+            "fieldPath": "id",
+            "projectionMode": "VALUE"
+          }
+        ],
+        "headers": [
+          "DiagnosticReport ID",
+          "Row count"
+        ],
+        "actual": [
+          [
+            "combine-observation-final-1",
+            1
+          ],
+          [
+            "combine-observation-final-2",
+            1
+          ],
+          [
+            "combine-observation-preliminary",
+            1
+          ]
+        ],
+        "expected": [
+          [
+            "combine-observation-final-1",
+            1
+          ],
+          [
+            "combine-observation-final-2",
+            1
+          ],
+          [
+            "combine-observation-preliminary",
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "DiagnosticReport ID membership source GROUP automatic preview is within five seconds",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 604,
+        "selectedKeys": [
+          "source_0eaf8b1aaabfdfa8477b1833"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply DiagnosticReport ID membership source current-draft GROUP completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 261
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Apply DiagnosticReport ID membership source current-draft GROUP action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 261,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "DiagnosticReport ID membership source native GROUP binds the exact source projection columnId",
+      "status": "passed",
+      "evidence": {
+        "expectedInputColumnIDs": [
+          "source_0eaf8b1aaabfdfa8477b1833"
+        ],
+        "actualInputColumnIDs": [
+          "source_0eaf8b1aaabfdfa8477b1833"
+        ]
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "DiagnosticReport ID membership source remains an unpublished current-draft grouped output",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_e512607b447be2723fbceadc",
+        "rootResourceType": "DiagnosticReport",
+        "steps": [
+          "GROUP"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open native Combine and create a separate empty target completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 154
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open native Combine and create a separate empty target action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 154,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source",
+      "status": "passed",
+      "evidence": {
+        "ok": true,
+        "commandBound": true,
+        "resultBound": true,
+        "workspaceBound": true,
+        "editorBound": true,
+        "responseStatus": 200,
+        "commandId": "02d77243-48b3-4f4c-a562-131d9f9306e8",
+        "rootNodeId": "n_f79f3d00cbcd6fbb1d137728",
+        "expectedRootNodeIds": [
+          "n_f79f3d00cbcd6fbb1d137728"
+        ],
+        "outputId": "out_648b125d1e7969480ca40e3b",
+        "previousOutputIDs": [
+          "out_89497c74a7ec0ba99280ba47",
+          "out_e512607b447be2723fbceadc"
+        ],
+        "mountedOutputId": "out_648b125d1e7969480ca40e3b",
+        "workspaceTargetCount": 1,
+        "targetRootResourceType": "Observation",
+        "targetColumnCount": 0,
+        "targetConstructionSteps": 0
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and compiled nullability",
+      "status": "passed",
+      "evidence": {
+        "ok": true,
+        "checks": {
+          "requestRouteMatches": true,
+          "requestOriginMatches": true,
+          "requestOutputMatches": true,
+          "requestSnapshotMatches": true,
+          "requestDraftVersionMatches": true,
+          "requestDraftDigestMatches": true,
+          "builderGenerationMatches": true,
+          "responseSnapshotMatches": true,
+          "responseDraftVersionMatches": true,
+          "responseDraftDigestMatches": true,
+          "responseOutputMatches": true,
+          "responseStageMatches": true,
+          "responseStatusIsSuccess": true,
+          "exactSourceOutputs": true,
+          "sourceKeysAreScalarCompatibleStrings": true
+        },
+        "inputEvidence": [
+          {
+            "outputId": "out_89497c74a7ec0ba99280ba47",
+            "title": "Observation ID membership source",
+            "keyLabel": "Observation ID",
+            "groupKeyOutputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+            "exactGroupKeyOutputColumnId": true,
+            "matchingColumns": [
+              {
+                "appendCompatibilityKey": "string:String",
+                "cardinality": "optional_one",
+                "id": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                "joinCompatibilityKey": "String",
+                "label": "Observation ID",
+                "logicalType": "string",
+                "name": "col_77413469c6ddaa11ed69e133",
+                "nullable": true
+              }
+            ],
+            "keyReady": true,
+            "compiledNullable": true,
+            "outputUnique": true
+          },
+          {
+            "outputId": "out_e512607b447be2723fbceadc",
+            "title": "DiagnosticReport ID membership source",
+            "keyLabel": "DiagnosticReport ID",
+            "groupKeyOutputColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747",
+            "exactGroupKeyOutputColumnId": true,
+            "matchingColumns": [
+              {
+                "appendCompatibilityKey": "string:String",
+                "cardinality": "optional_one",
+                "id": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747",
+                "joinCompatibilityKey": "String",
+                "label": "DiagnosticReport ID",
+                "logicalType": "string",
+                "name": "col_c037b0a1dbdbd7baa9eabdbc",
+                "nullable": true
+              }
+            ],
+            "keyReady": true,
+            "compiledNullable": true,
+            "outputUnique": true
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "INCLUDE MEMBERSHIP automatic preview completes within five seconds completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 529
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "INCLUDE MEMBERSHIP automatic preview completes within five seconds action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 529,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "INCLUDE preview keeps exactly the three independently matched Observation IDs",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Observation ID"
+        ],
+        "expectedHeaders": [
+          "Observation ID"
+        ],
+        "rows": [
+          [
+            "combine-observation-final-1"
+          ],
+          [
+            "combine-observation-final-2"
+          ],
+          [
+            "combine-observation-preliminary"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "combine-observation-final-1"
+          ],
+          [
+            "combine-observation-final-2"
+          ],
+          [
+            "combine-observation-preliminary"
+          ]
+        ],
+        "ariaRowCount": null
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+      "status": "passed",
+      "evidence": {
+        "path": "/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "status": 200,
+        "project": "loom_dev_verify_muw9wqty-312c32a",
+        "explorer": "verify-ty-312c32a-draft-combine-membership",
+        "generation": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]",
+        "proposalOriginMatched": true,
+        "requestOrigin": "http://127.0.0.1:30008",
+        "expectedProposalOrigin": "http://127.0.0.1:30008",
+        "expectedDirectApiOrigin": "http://127.0.0.1:8188",
+        "scopeChecks": {
+          "routePathMatches": true,
+          "validatedUIProxyOriginMatches": true,
+          "generationMatches": true,
+          "authorizationScopeMatches": "[REDACTED]",
+          "snapshotTokenMatches": "[REDACTED]",
+          "expectedDraftVersionMatches": true,
+          "expectedDraftDigestMatches": true
+        },
+        "responseBound": true,
+        "responseChecks": {
+          "proposalIdMatchesDOM": true,
+          "previewReceiptMatchesDOM": true,
+          "previewOutputMatchesTarget": true,
+          "domOutputMatchesTarget": true,
+          "responseOutputMatchesTarget": true,
+          "snapshotTokenMatchesRequest": "[REDACTED]",
+          "draftVersionMatchesRequest": true,
+          "draftDigestMatchesRequest": true,
+          "previewStatusReady": true,
+          "candidateConstructionMatchesRequest": true
+        },
+        "domProposal": {
+          "proposalId": "receipt_9df11b6428f46e01200a121fccfed81943735735b683d5a38e1bf5c7affb4f20",
+          "receiptId": "receipt_9df11b6428f46e01200a121fccfed81943735735b683d5a38e1bf5c7affb4f20",
+          "outputId": "out_648b125d1e7969480ca40e3b"
+        },
+        "responseProposalId": "receipt_9df11b6428f46e01200a121fccfed81943735735b683d5a38e1bf5c7affb4f20",
+        "responseOutputId": "out_648b125d1e7969480ca40e3b",
+        "responsePreview": {
+          "receiptId": "receipt_9df11b6428f46e01200a121fccfed81943735735b683d5a38e1bf5c7affb4f20",
+          "outputId": "out_648b125d1e7969480ca40e3b"
+        },
+        "candidateStepKind": "COMBINE",
+        "candidateCombineKind": "MEMBERSHIP",
+        "requestCandidateConstruction": {
+          "version": 1,
+          "steps": [
+            {
+              "id": "combine_63c92d36-b139-43f2-bd79-425951c1620a",
+              "inputs": [
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_89497c74a7ec0ba99280ba47"
+                },
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_e512607b447be2723fbceadc"
+                }
+              ],
+              "operation": {
+                "kind": "COMBINE",
+                "combine": {
+                  "kind": "MEMBERSHIP",
+                  "keys": [
+                    {
+                      "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+                    }
+                  ],
+                  "projections": [
+                    {
+                      "outputColumnId": "combine_output_620988e7-4e55-49a3-9f9d-9460d98802a9",
+                      "inputIndex": 0,
+                      "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9"
+                    }
+                  ],
+                  "membershipMode": "INCLUDE"
+                }
+              },
+              "outputs": [
+                {
+                  "id": "combine_output_620988e7-4e55-49a3-9f9d-9460d98802a9",
+                  "name": "observation_id",
+                  "label": "Observation ID",
+                  "type": "string",
+                  "nullable": true
+                }
+              ]
+            }
+          ]
+        },
+        "responseCandidateConstruction": {
+          "steps": [
+            {
+              "id": "combine_63c92d36-b139-43f2-bd79-425951c1620a",
+              "inputs": [
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_89497c74a7ec0ba99280ba47"
+                },
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_e512607b447be2723fbceadc"
+                }
+              ],
+              "operation": {
+                "combine": {
+                  "keys": [
+                    {
+                      "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+                    }
+                  ],
+                  "kind": "MEMBERSHIP",
+                  "membershipMode": "INCLUDE",
+                  "projections": [
+                    {
+                      "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "inputIndex": 0,
+                      "outputColumnId": "combine_output_620988e7-4e55-49a3-9f9d-9460d98802a9"
+                    }
+                  ]
+                },
+                "kind": "COMBINE"
+              },
+              "outputs": [
+                {
+                  "id": "combine_output_620988e7-4e55-49a3-9f9d-9460d98802a9",
+                  "label": "Observation ID",
+                  "name": "observation_id",
+                  "nullable": true,
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "version": 1
+        },
+        "expectedProposalPath": "/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "evidence": {
+          "ok": true,
+          "actual": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "expected": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "refsExact": true,
+          "uniqueInputs": true,
+          "stepsAreSaved": true,
+          "noPublishedSource": true
+        }
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Cancel current-draft INCLUDE MEMBERSHIP preview completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 61
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Cancel current-draft INCLUDE MEMBERSHIP preview action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 61,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reload canceled INCLUDE MEMBERSHIP and select its unchanged empty target completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 467
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reload canceled INCLUDE MEMBERSHIP and select its unchanged empty target action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 467,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "Cancel leaves the entire MEMBERSHIP workspace and draft CAS unchanged after reload",
+      "status": "passed",
+      "evidence": {
+        "cancelEvidence": {
+          "ok": true,
+          "sameWorkspace": true,
+          "sameCAS": true,
+          "sameScope": true,
+          "beforeDraftVersion": 7,
+          "afterDraftVersion": 7,
+          "beforeDraftDigest": "sha256:51664e0a18a48a2d9203a3c27dd7d50bbfb87d74a4e8eb54e8af68f2edc2c74b",
+          "afterDraftDigest": "sha256:51664e0a18a48a2d9203a3c27dd7d50bbfb87d74a4e8eb54e8af68f2edc2c74b"
+        },
+        "targetStayedEmpty": true,
+        "targetOutputId": "out_648b125d1e7969480ca40e3b"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open native Combine and create a separate empty target completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 185
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open native Combine and create a separate empty target action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 185,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "native Combine uses CREATE_TABLE to make an empty rooted target without authoring a source",
+      "status": "passed",
+      "evidence": {
+        "ok": true,
+        "commandBound": true,
+        "resultBound": true,
+        "workspaceBound": true,
+        "editorBound": true,
+        "responseStatus": 200,
+        "commandId": "9aa9dd2f-1eb4-4081-863b-a19389cac775",
+        "rootNodeId": "n_f79f3d00cbcd6fbb1d137728",
+        "expectedRootNodeIds": [
+          "n_f79f3d00cbcd6fbb1d137728"
+        ],
+        "outputId": "out_6e74e84c344227af9231e21e",
+        "previousOutputIDs": [
+          "out_89497c74a7ec0ba99280ba47",
+          "out_e512607b447be2723fbceadc",
+          "out_648b125d1e7969480ca40e3b"
+        ],
+        "mountedOutputId": "out_6e74e84c344227af9231e21e",
+        "workspaceTargetCount": 1,
+        "targetRootResourceType": "Observation",
+        "targetColumnCount": 0,
+        "targetConstructionSteps": 0
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "MEMBERSHIP key choices use exact current-draft metadata with scalar String IDs and compiled nullability",
+      "status": "passed",
+      "evidence": {
+        "ok": true,
+        "checks": {
+          "requestRouteMatches": true,
+          "requestOriginMatches": true,
+          "requestOutputMatches": true,
+          "requestSnapshotMatches": true,
+          "requestDraftVersionMatches": true,
+          "requestDraftDigestMatches": true,
+          "builderGenerationMatches": true,
+          "responseSnapshotMatches": true,
+          "responseDraftVersionMatches": true,
+          "responseDraftDigestMatches": true,
+          "responseOutputMatches": true,
+          "responseStageMatches": true,
+          "responseStatusIsSuccess": true,
+          "exactSourceOutputs": true,
+          "sourceKeysAreScalarCompatibleStrings": true
+        },
+        "inputEvidence": [
+          {
+            "outputId": "out_89497c74a7ec0ba99280ba47",
+            "title": "Observation ID membership source",
+            "keyLabel": "Observation ID",
+            "groupKeyOutputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+            "exactGroupKeyOutputColumnId": true,
+            "matchingColumns": [
+              {
+                "appendCompatibilityKey": "string:String",
+                "cardinality": "optional_one",
+                "id": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                "joinCompatibilityKey": "String",
+                "label": "Observation ID",
+                "logicalType": "string",
+                "name": "col_77413469c6ddaa11ed69e133",
+                "nullable": true
+              }
+            ],
+            "keyReady": true,
+            "compiledNullable": true,
+            "outputUnique": true
+          },
+          {
+            "outputId": "out_e512607b447be2723fbceadc",
+            "title": "DiagnosticReport ID membership source",
+            "keyLabel": "DiagnosticReport ID",
+            "groupKeyOutputColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747",
+            "exactGroupKeyOutputColumnId": true,
+            "matchingColumns": [
+              {
+                "appendCompatibilityKey": "string:String",
+                "cardinality": "optional_one",
+                "id": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747",
+                "joinCompatibilityKey": "String",
+                "label": "DiagnosticReport ID",
+                "logicalType": "string",
+                "name": "col_c037b0a1dbdbd7baa9eabdbc",
+                "nullable": true
+              }
+            ],
+            "keyReady": true,
+            "compiledNullable": true,
+            "outputUnique": true
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "second INCLUDE MEMBERSHIP automatic preview completes within five seconds completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 534
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "second INCLUDE MEMBERSHIP automatic preview completes within five seconds action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 534,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "INCLUDE preview rows match the exact independent raw membership oracle",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Observation ID"
+        ],
+        "expectedHeaders": [
+          "Observation ID"
+        ],
+        "rows": [
+          [
+            "combine-observation-final-1"
+          ],
+          [
+            "combine-observation-final-2"
+          ],
+          [
+            "combine-observation-preliminary"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "combine-observation-final-1"
+          ],
+          [
+            "combine-observation-final-2"
+          ],
+          [
+            "combine-observation-preliminary"
+          ]
+        ],
+        "ariaRowCount": null
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+      "status": "passed",
+      "evidence": {
+        "path": "/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "status": 200,
+        "project": "loom_dev_verify_muw9wqty-312c32a",
+        "explorer": "verify-ty-312c32a-draft-combine-membership",
+        "generation": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]",
+        "proposalOriginMatched": true,
+        "requestOrigin": "http://127.0.0.1:30008",
+        "expectedProposalOrigin": "http://127.0.0.1:30008",
+        "expectedDirectApiOrigin": "http://127.0.0.1:8188",
+        "scopeChecks": {
+          "routePathMatches": true,
+          "validatedUIProxyOriginMatches": true,
+          "generationMatches": true,
+          "authorizationScopeMatches": "[REDACTED]",
+          "snapshotTokenMatches": "[REDACTED]",
+          "expectedDraftVersionMatches": true,
+          "expectedDraftDigestMatches": true
+        },
+        "responseBound": true,
+        "responseChecks": {
+          "proposalIdMatchesDOM": true,
+          "previewReceiptMatchesDOM": true,
+          "previewOutputMatchesTarget": true,
+          "domOutputMatchesTarget": true,
+          "responseOutputMatchesTarget": true,
+          "snapshotTokenMatchesRequest": "[REDACTED]",
+          "draftVersionMatchesRequest": true,
+          "draftDigestMatchesRequest": true,
+          "previewStatusReady": true,
+          "candidateConstructionMatchesRequest": true
+        },
+        "domProposal": {
+          "proposalId": "receipt_b39cd1cb8cdbbfcae0b4f97ba5ceaa47cbdc93569680362c697cb00984eea4e7",
+          "receiptId": "receipt_b39cd1cb8cdbbfcae0b4f97ba5ceaa47cbdc93569680362c697cb00984eea4e7",
+          "outputId": "out_6e74e84c344227af9231e21e"
+        },
+        "responseProposalId": "receipt_b39cd1cb8cdbbfcae0b4f97ba5ceaa47cbdc93569680362c697cb00984eea4e7",
+        "responseOutputId": "out_6e74e84c344227af9231e21e",
+        "responsePreview": {
+          "receiptId": "receipt_b39cd1cb8cdbbfcae0b4f97ba5ceaa47cbdc93569680362c697cb00984eea4e7",
+          "outputId": "out_6e74e84c344227af9231e21e"
+        },
+        "candidateStepKind": "COMBINE",
+        "candidateCombineKind": "MEMBERSHIP",
+        "requestCandidateConstruction": {
+          "version": 1,
+          "steps": [
+            {
+              "id": "combine_3c64e627-f98c-4958-a09a-9962ff05b4bf",
+              "inputs": [
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_89497c74a7ec0ba99280ba47"
+                },
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_e512607b447be2723fbceadc"
+                }
+              ],
+              "operation": {
+                "kind": "COMBINE",
+                "combine": {
+                  "kind": "MEMBERSHIP",
+                  "keys": [
+                    {
+                      "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+                    }
+                  ],
+                  "projections": [
+                    {
+                      "outputColumnId": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+                      "inputIndex": 0,
+                      "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9"
+                    }
+                  ],
+                  "membershipMode": "INCLUDE"
+                }
+              },
+              "outputs": [
+                {
+                  "id": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+                  "name": "observation_id",
+                  "label": "Observation ID",
+                  "type": "string",
+                  "nullable": true
+                }
+              ]
+            }
+          ]
+        },
+        "responseCandidateConstruction": {
+          "steps": [
+            {
+              "id": "combine_3c64e627-f98c-4958-a09a-9962ff05b4bf",
+              "inputs": [
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_89497c74a7ec0ba99280ba47"
+                },
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_e512607b447be2723fbceadc"
+                }
+              ],
+              "operation": {
+                "combine": {
+                  "keys": [
+                    {
+                      "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+                    }
+                  ],
+                  "kind": "MEMBERSHIP",
+                  "membershipMode": "INCLUDE",
+                  "projections": [
+                    {
+                      "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "inputIndex": 0,
+                      "outputColumnId": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9"
+                    }
+                  ]
+                },
+                "kind": "COMBINE"
+              },
+              "outputs": [
+                {
+                  "id": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+                  "label": "Observation ID",
+                  "name": "observation_id",
+                  "nullable": true,
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "version": 1
+        },
+        "expectedProposalPath": "/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "evidence": {
+          "ok": true,
+          "actual": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "expected": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "refsExact": true,
+          "uniqueInputs": true,
+          "stepsAreSaved": true,
+          "noPublishedSource": true
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "INCLUDE proposal retains left rows with one exact current-draft key pair",
+      "status": "passed",
+      "evidence": {
+        "modeIsInclude": true,
+        "oneKeyPair": true,
+        "projectionsUseOnlyLeftInput": true,
+        "stableLeftAndRightLabels": true,
+        "exactCapabilityKeyPair": true
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply current-draft INCLUDE MEMBERSHIP completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 370
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Apply current-draft INCLUDE MEMBERSHIP action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 370,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "saved INCLUDE MEMBERSHIP uses exactly the two unpublished current-draft ID sources",
+      "status": "passed",
+      "evidence": {
+        "stepId": "combine_3c64e627-f98c-4958-a09a-9962ff05b4bf",
+        "combine": {
+          "kind": "MEMBERSHIP",
+          "keys": [
+            {
+              "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+              "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+            }
+          ],
+          "projections": [
+            {
+              "outputColumnId": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+              "inputIndex": 0,
+              "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9"
+            }
+          ],
+          "membershipMode": "INCLUDE"
+        },
+        "sourceEvidence": {
+          "ok": true,
+          "actual": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "expected": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "refsExact": true,
+          "uniqueInputs": true,
+          "stepsAreSaved": true,
+          "noPublishedSource": true
+        }
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "INCLUDE MEMBERSHIP output preserves left ID nullability",
+      "status": "passed",
+      "evidence": {
+        "outputColumn": {
+          "id": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+          "name": "observation_id",
+          "label": "Observation ID",
+          "type": "string",
+          "nullable": true
+        },
+        "sourceCapabilityOutputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+        "ok": true,
+        "sourceCompiledNullable": true,
+        "outputNullable": true
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reload applied INCLUDE MEMBERSHIP and render its exact output completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 579
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reload applied INCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 579,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "INCLUDE output values survive reload as the exact matched Observation IDs",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Observation ID"
+        ],
+        "expectedHeaders": [
+          "Observation ID"
+        ],
+        "rows": [
+          [
+            "combine-observation-final-1"
+          ],
+          [
+            "combine-observation-final-2"
+          ],
+          [
+            "combine-observation-preliminary"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "combine-observation-final-1"
+          ],
+          [
+            "combine-observation-final-2"
+          ],
+          [
+            "combine-observation-preliminary"
+          ]
+        ],
+        "ariaRowCount": "4"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "open saved Combine editor after draft input schemas resolve completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 52
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 52,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 533
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 533,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE preview changes to exactly the unmatched Observation ID",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Observation ID"
+        ],
+        "expectedHeaders": [
+          "Observation ID"
+        ],
+        "rows": [
+          [
+            "combine-observation-unmatched"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "combine-observation-unmatched"
+          ]
+        ],
+        "ariaRowCount": null
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+      "status": "passed",
+      "evidence": {
+        "path": "/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "status": 200,
+        "project": "loom_dev_verify_muw9wqty-312c32a",
+        "explorer": "verify-ty-312c32a-draft-combine-membership",
+        "generation": "fixture-v1",
+        "authorizationScopeDigest": "[REDACTED]",
+        "proposalOriginMatched": true,
+        "requestOrigin": "http://127.0.0.1:30008",
+        "expectedProposalOrigin": "http://127.0.0.1:30008",
+        "expectedDirectApiOrigin": "http://127.0.0.1:8188",
+        "scopeChecks": {
+          "routePathMatches": true,
+          "validatedUIProxyOriginMatches": true,
+          "generationMatches": true,
+          "authorizationScopeMatches": "[REDACTED]",
+          "snapshotTokenMatches": "[REDACTED]",
+          "expectedDraftVersionMatches": true,
+          "expectedDraftDigestMatches": true
+        },
+        "responseBound": true,
+        "responseChecks": {
+          "proposalIdMatchesDOM": true,
+          "previewReceiptMatchesDOM": true,
+          "previewOutputMatchesTarget": true,
+          "domOutputMatchesTarget": true,
+          "responseOutputMatchesTarget": true,
+          "snapshotTokenMatchesRequest": "[REDACTED]",
+          "draftVersionMatchesRequest": true,
+          "draftDigestMatchesRequest": true,
+          "previewStatusReady": true,
+          "candidateConstructionMatchesRequest": true
+        },
+        "domProposal": {
+          "proposalId": "receipt_dd9188b5115878d71db0f86f0636db263d06c0d9c27b7339fd8ec2d9287f0442",
+          "receiptId": "receipt_dd9188b5115878d71db0f86f0636db263d06c0d9c27b7339fd8ec2d9287f0442",
+          "outputId": "out_6e74e84c344227af9231e21e"
+        },
+        "responseProposalId": "receipt_dd9188b5115878d71db0f86f0636db263d06c0d9c27b7339fd8ec2d9287f0442",
+        "responseOutputId": "out_6e74e84c344227af9231e21e",
+        "responsePreview": {
+          "receiptId": "receipt_dd9188b5115878d71db0f86f0636db263d06c0d9c27b7339fd8ec2d9287f0442",
+          "outputId": "out_6e74e84c344227af9231e21e"
+        },
+        "candidateStepKind": "COMBINE",
+        "candidateCombineKind": "MEMBERSHIP",
+        "requestCandidateConstruction": {
+          "version": 1,
+          "steps": [
+            {
+              "id": "combine_3c64e627-f98c-4958-a09a-9962ff05b4bf",
+              "inputs": [
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_89497c74a7ec0ba99280ba47"
+                },
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_e512607b447be2723fbceadc"
+                }
+              ],
+              "operation": {
+                "kind": "COMBINE",
+                "combine": {
+                  "kind": "MEMBERSHIP",
+                  "keys": [
+                    {
+                      "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+                    }
+                  ],
+                  "projections": [
+                    {
+                      "outputColumnId": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+                      "inputIndex": 0,
+                      "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9"
+                    }
+                  ],
+                  "membershipMode": "EXCLUDE"
+                }
+              },
+              "outputs": [
+                {
+                  "id": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+                  "name": "observation_id",
+                  "label": "Observation ID",
+                  "type": "string",
+                  "nullable": true
+                }
+              ]
+            }
+          ]
+        },
+        "responseCandidateConstruction": {
+          "steps": [
+            {
+              "id": "combine_3c64e627-f98c-4958-a09a-9962ff05b4bf",
+              "inputs": [
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_89497c74a7ec0ba99280ba47"
+                },
+                {
+                  "kind": "WORKSPACE_OUTPUT",
+                  "outputId": "out_e512607b447be2723fbceadc"
+                }
+              ],
+              "operation": {
+                "combine": {
+                  "keys": [
+                    {
+                      "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+                    }
+                  ],
+                  "kind": "MEMBERSHIP",
+                  "membershipMode": "EXCLUDE",
+                  "projections": [
+                    {
+                      "inputColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+                      "inputIndex": 0,
+                      "outputColumnId": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9"
+                    }
+                  ]
+                },
+                "kind": "COMBINE"
+              },
+              "outputs": [
+                {
+                  "id": "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9",
+                  "label": "Observation ID",
+                  "name": "observation_id",
+                  "nullable": true,
+                  "type": "string"
+                }
+              ]
+            }
+          ],
+          "version": 1
+        },
+        "expectedProposalPath": "/api/v1/projects/loom_dev_verify_muw9wqty-312c32a/explorers/verify-ty-312c32a-draft-combine-membership/authoring/v2/construction-proposals",
+        "evidence": {
+          "ok": true,
+          "actual": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "expected": [
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_89497c74a7ec0ba99280ba47"
+            },
+            {
+              "kind": "WORKSPACE_OUTPUT",
+              "outputId": "out_e512607b447be2723fbceadc"
+            }
+          ],
+          "refsExact": true,
+          "uniqueInputs": true,
+          "stepsAreSaved": true,
+          "noPublishedSource": true
+        }
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE edit changes membership policy while preserving exact inputs, keys, and output identity",
+      "status": "passed",
+      "evidence": {
+        "modeIsExclude": true,
+        "inputsUnchanged": true,
+        "keyPairUnchanged": true,
+        "stepIdentityUnchanged": true,
+        "outputIdentityUnchanged": true
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "Apply saved MEMBERSHIP EXCLUDE edit completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 350
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "Apply saved MEMBERSHIP EXCLUDE edit action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 350,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "saved EXCLUDE MEMBERSHIP policy and stable output identity survive Apply",
+      "status": "passed",
+      "evidence": {
+        "mode": "EXCLUDE",
+        "keys": [
+          {
+            "leftColumnId": "group-key_acaaa2ac-7e48-44a7-8735-55f4679f53b9",
+            "rightColumnId": "group-key_c9fa0e0a-fec5-4850-80c1-dc312045b747"
+          }
+        ],
+        "outputIDs": [
+          "combine_output_b359db5b-d7f2-427e-9547-f75e67c361f9"
+        ]
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reload edited EXCLUDE MEMBERSHIP and render its exact output completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 587
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reload edited EXCLUDE MEMBERSHIP and render its exact output action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 587,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "EXCLUDE values survive reload as the exact unmatched Observation ID",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "Observation ID"
+        ],
+        "expectedHeaders": [
+          "Observation ID"
+        ],
+        "rows": [
+          [
+            "combine-observation-unmatched"
+          ]
+        ],
+        "expectedRows": [
+          [
+            "combine-observation-unmatched"
+          ]
+        ],
+        "ariaRowCount": "2"
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "propose Combine removal and render the exact rooted empty output completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 490
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "propose Combine removal and render the exact rooted empty output action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 490,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "apply Combine removal to restore the empty target completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 161
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "apply Combine removal to restore the empty target action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 161,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "usability",
+      "name": "reload removed Combine and select its exact rooted empty output completed",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 455
+      }
+    },
+    {
+      "dimension": "performance",
+      "name": "reload removed Combine and select its exact rooted empty output action-to-render within budget",
+      "status": "passed",
+      "evidence": {
+        "elapsedMs": 455,
+        "budgetMs": 5000,
+        "waitTimeoutMs": 5000
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "removing Combine and reloading restores its rooted empty target",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_6e74e84c344227af9231e21e",
+        "rootResourceType": "Observation",
+        "columns": [],
+        "steps": []
+      }
+    },
+    {
+      "dimension": "persistence",
+      "name": "removing MEMBERSHIP preserves both exact GROUP source outputs after reload",
+      "status": "passed",
+      "evidence": {
+        "expectedSourceOutputIDs": [
+          "out_89497c74a7ec0ba99280ba47",
+          "out_e512607b447be2723fbceadc"
+        ],
+        "sources": [
+          {
+            "outputId": "out_89497c74a7ec0ba99280ba47",
+            "rootResourceType": "Observation",
+            "steps": [
+              {
+                "id": "group_d5ab4d84-ef46-4d5c-91eb-d40531ea0c11",
+                "operation": "GROUP"
+              }
+            ]
+          },
+          {
+            "outputId": "out_e512607b447be2723fbceadc",
+            "rootResourceType": "DiagnosticReport",
+            "steps": [
+              {
+                "id": "group_55ae7d72-0815-4ada-9f12-af8409fbf0f6",
+                "operation": "GROUP"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "MEMBERSHIP lifecycle makes no Publish request or pinned revision reference",
+      "status": "passed",
+      "evidence": {
+        "publishRequests": 0,
+        "inputKinds": [
+          "SOURCE_PROJECTION",
+          "SOURCE_PROJECTION"
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed",
+      "evidence": {
+        "failures": [
+          {
+            "kind": "asset-failure",
+            "url": "http://127.0.0.1:30008/favicon.ico",
+            "status": 404
+          }
+        ]
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "watched source stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": {
+          "sha256": "b2ac66dec27775ab525776c55ab242701693216f0f5390742c8b16292a21a25d",
+          "files": 1503
+        },
+        "after": {
+          "sha256": "b2ac66dec27775ab525776c55ab242701693216f0f5390742c8b16292a21a25d",
+          "files": 1503
+        },
+        "changedPaths": []
+      }
+    },
+    {
+      "dimension": "correctness",
+      "name": "API build identity stayed unchanged during browser run",
+      "status": "passed",
+      "evidence": {
+        "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+        "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+      }
+    }
+  ],
+  "errors": [],
+  "network": [],
+  "assetFailures": [
+    {
+      "kind": "asset-failure",
+      "url": "http://127.0.0.1:30008/favicon.ico",
+      "status": 404
+    }
+  ],
+  "timings": {
+    "open Explorer creation": 61,
+    "create blank Explorer": 114,
+    "create current-draft Observation source table": 315,
+    "Apply Observation ID membership source current-draft GROUP": 255,
+    "create current-draft DiagnosticReport source table": 245,
+    "Apply DiagnosticReport ID membership source current-draft GROUP": 261,
+    "open native Combine and create a separate empty target": 185,
+    "INCLUDE MEMBERSHIP automatic preview completes within five seconds": 529,
+    "Cancel current-draft INCLUDE MEMBERSHIP preview": 61,
+    "reload canceled INCLUDE MEMBERSHIP and select its unchanged empty target": 467,
+    "second INCLUDE MEMBERSHIP automatic preview completes within five seconds": 534,
+    "Apply current-draft INCLUDE MEMBERSHIP": 370,
+    "reload applied INCLUDE MEMBERSHIP and render its exact output": 579,
+    "open saved Combine editor after draft input schemas resolve": 52,
+    "edit saved MEMBERSHIP from INCLUDE to EXCLUDE and preview the exact unmatched row": 533,
+    "Apply saved MEMBERSHIP EXCLUDE edit": 350,
+    "reload edited EXCLUDE MEMBERSHIP and render its exact output": 587,
+    "propose Combine removal and render the exact rooted empty output": 490,
+    "apply Combine removal to restore the empty target": 161,
+    "reload removed Combine and select its exact rooted empty output": 455
+  },
+  "browserLifecycle": {
+    "kind": "official-playwright-page",
+    "status": "passed",
+    "durationMs": 11360,
+    "diagnosticLimit": 100,
+    "droppedDiagnostics": 0
+  },
+  "apiBuildFreeze": {
+    "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+    "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51"
+  },
+  "epoch": 66,
+  "scope": "basic fixture; real CDA Membership remains unverified",
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "passed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "evidenceReportPath": "/private/tmp/loom-native-parallel-wave66/basic-membership/attempt1/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-f71c8733c491aed7988260eeb398352a2c8c1fd4.json",
+  "evidenceReportSha256": "d71104240602b13a4ad03646bd8f28665b316f5f3c2969f69747cf8031b9e42c",
+  "sourceFingerprint": {
+    "sha256": "b2ac66dec27775ab525776c55ab242701693216f0f5390742c8b16292a21a25d",
+    "files": 1503
+  },
+  "actionCount": 21,
+  "assertionCount": 86
+}

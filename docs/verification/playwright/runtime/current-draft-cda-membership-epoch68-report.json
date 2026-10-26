@@ -1,0 +1,118 @@
+{
+  "epoch": 68,
+  "scenario": "cda-current-draft-membership",
+  "case": "membership",
+  "title": "native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations",
+  "status": "failed",
+  "classification": "HARNESS_EMPTY_REMOVAL_PREVIEW_EXPECTATION",
+  "requiredChecks": {
+    "passed": 40,
+    "total": 48,
+    "missing": 8,
+    "missingNames": [
+      "canceled Membership removal proposal renders an empty target",
+      "canceled removal proposal targets only the exact saved Membership step and draft CAS",
+      "Cancel removal preserves exact EXCLUDE Membership, full workspace, and CAS after reload",
+      "applied Membership removal proposal renders an empty target",
+      "applied removal proposal targets only the exact saved Membership step and draft CAS",
+      "applying Membership removal and reloading restores the exact rooted empty target",
+      "removing Membership preserves both exact immutable GROUP source populations after reload",
+      "CDA Membership lifecycle makes no Publish request or pinned table revision reference"
+    ]
+  },
+  "assertions": {
+    "passed": 145,
+    "failed": 1,
+    "total": 146,
+    "failedName": "canceled Membership removal proposal renders an empty target"
+  },
+  "dimensions": {
+    "usability": "passed",
+    "correctness": "failed",
+    "persistence": "passed",
+    "performance": "passed"
+  },
+  "nativeActions": {
+    "passed": 51,
+    "failed": 0,
+    "maxElapsedMs": 1442
+  },
+  "rawOracle": {
+    "maxRows": 2000,
+    "scannedRows": 2000,
+    "selectedCount": 3,
+    "leftCount": 2,
+    "rightCount": 2,
+    "includeCount": 1,
+    "excludeCount": 1,
+    "exactRawRereadCount": 3
+  },
+  "firstFailure": {
+    "check": "canceled Membership removal proposal renders an empty target",
+    "observation": "The native removal proposal returned HTTP 200 and READY with no candidate construction steps and the exact saved Membership step listed for removal. Preview exposed zero columns and 25 sampled root Observation rows; UI rendered “This table has no visible columns.”",
+    "harnessExpectation": "The workflow required an empty ready grid, including no rows. The renderer represents a READY zero-column preview as “This table has no visible columns.” with sampled root rows.",
+    "classification": "Harness assertion correction; no product bug established."
+  },
+  "lifecycle": {
+    "verifiedBeforeFailure": "bounded raw oracle; exact immutable selections; two native GROUP COUNT_ROWS sources with preview/apply/reload; Membership INCLUDE and EXCLUDE proposal/apply/edit/reload.",
+    "notVerified": "Membership removal Cancel and Apply/reload restoration; final no-Publish/pinned-revision check."
+  },
+  "network": {
+    "expectedCancellations": 2,
+    "unexpectedErrors": 0
+  },
+  "incidentalAssetFailures": [
+    {
+      "url": "/favicon.ico",
+      "status": 404
+    },
+    {
+      "url": "/favicon.ico",
+      "status": 404
+    }
+  ],
+  "timing": {
+    "playwrightTestDurationMs": 56883,
+    "runnerProcessDurationMs": 58350.836
+  },
+  "ownerCorrection": {
+    "status": "staged, not integrated",
+    "path": "/private/tmp/loom-native-parallel-wave68/removal-stage/removal-preview.patch",
+    "sha256": "0acb8e5bb8532157eae25ac6a6b8793bc4502a90ea2cab089649dcdd49b77458"
+  },
+  "rawReportPath": "/private/tmp/loom-native-parallel-wave68/cda-current-draft-membership/attempt1/artifacts/cda-current-draft-membersh-28043--Observation-ID-populations/cda-report.json",
+  "rawReportSha256": "1052d10479c4ceef005931cc1e4b25ad53a48949b53e890e6b64ad2b93993529",
+  "playwrightResultsPath": "/private/tmp/loom-native-parallel-wave68/cda-current-draft-membership/attempt1/results.json",
+  "playwrightResultsSha256": "47ee71f4c084a5b14d911f4611af5a05d2d1a954fbc03253bd14d18962e7b7ef",
+  "runnerLogPath": "/private/tmp/loom-native-parallel-wave68/cda-current-draft-membership/attempt1/runner.log",
+  "runnerLogSha256": "b5fb6af3652b16c3973fd359528a9a5efa37555e77f022485bc3f1387909074b",
+  "ownedTarget": {
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "cda-membership-143e6a22-1320-4409-8513-276809447684",
+    "composeProject": "loom-dev-6d7df93d6a37"
+  },
+  "sourceFingerprint": {
+    "sha256": "d8a8ef05f31a2dec8349d4b15071e9d0ad9b15c9e5112e8a16ddd5e897b1e77c",
+    "files": 1508
+  },
+  "docsFingerprint": {
+    "sha256": "d1da7acb4aa4b692405d5a9ac89cf3afa5477ca6fe0bb248f920b81827ea847f",
+    "files": 165
+  },
+  "apiBuildIdentity": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave68/run-plan.json",
+    "precheck": "/private/tmp/loom-native-parallel-wave68/api-build-precheck.json",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave68/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave68/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave68/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave68/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave68/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave68/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave68/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave68/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave68/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave68/health-after.json"
+  }
+}

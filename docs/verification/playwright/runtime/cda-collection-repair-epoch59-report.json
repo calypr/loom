@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-collection-repair",
+  "case": "partial-long-route-repair-and-reload",
+  "status": "partial",
+  "classification": "CASE_SPECIFIC_FUNCTIONAL_PASS_WITH_UNVERIFIED_REPORT_DIMENSIONS",
+  "scope": "Native real-CDA partial long-route collection repair in loom_dev_cda_fhir / cda-fhir-v1. The exact selected workflow passed; generic required-check, persistence, and performance dimensions remain unverified because this scenario currently registers no required checks.",
+  "runner": {
+    "status": "passed",
+    "expected": 1,
+    "unexpected": 0,
+    "testDurationMs": 27232,
+    "processDurationMs": 29123
+  },
+  "workflowResult": {
+    "domainReportStatus": "passed",
+    "domainAssertionsPassed": 16,
+    "domainAssertionsFailed": 0,
+    "nativeActionsPassed": 16,
+    "nativeActionsFailed": 0,
+    "maxActionMs": 245,
+    "measuredWorkflowCheckpoints": 13,
+    "maxWorkflowCheckpointMs": 2919,
+    "unmappedRemovalMs": 2919,
+    "reattachRouteWaitMs": 798,
+    "reloadToSettingsMaxMs": 1549,
+    "rawObservationRowsAfterRemoval": 2,
+    "rawObservationRowsAfterReattachment": 2,
+    "fullSelectedLifecycle": "removed the unmapped member, verified remaining raw Observation IDs after reload, cleared to authorized rows, reattached the repaired multi-member route, and verified exact rows after reload"
+  },
+  "verificationReport": {
+    "status": "unverified",
+    "requiredChecksRegistered": 0,
+    "missingRequiredChecks": [],
+    "dimensions": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "reason": "The cda-collection-repair scenario is not present in the current native registry, so its generic requiredChecks array is empty."
+  },
+  "diagnostics": {
+    "unexpectedNetworkErrors": 0,
+    "runtimeErrors": 0,
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ]
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "65f07aba24b1782034a17d310e0a7962548c7068dc1333cdef03547aee3dfc97",
+      "afterSha256": "65f07aba24b1782034a17d310e0a7962548c7068dc1333cdef03547aee3dfc97",
+      "files": 1498,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "65ea6fb9f0999696657aea23e9546c1e29a1ab0e9243e0155d7f5a6f070cfbcc",
+      "afterSha256": "65ea6fb9f0999696657aea23e9546c1e29a1ab0e9243e0155d7f5a6f070cfbcc",
+      "files": 147,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "terminalExitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave59/api-build-precheck.json"
+      },
+      "beforeCapture": {
+        "session": 79949,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 35887,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 23411,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 20623,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 74908,
+        "exitCode": 0
+      }
+    }
+  },
+  "artifacts": {
+    "fullReport": {
+      "path": "/private/tmp/loom-native-parallel-wave59/cda-collection-repair-partial-long-route/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "sha256": "8d5dfd9775b1164bb2f75abc10c1b1341586686e40f468a46401da9fef0463d8"
+    },
+    "domainReport": {
+      "path": "/private/tmp/loom-native-parallel-wave59/cda-collection-repair-partial-long-route/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+      "sha256": "c36bf2b0f248750fad36e2bc581ad87d97c696d4973be316d0b8867bd7eacc46"
+    },
+    "playwrightResults": {
+      "path": "/private/tmp/loom-native-parallel-wave59/cda-collection-repair-partial-long-route/results.json",
+      "sha256": "af07871f5580927411d35c89c566d3e352c4bbf567b526d40dde9af7a2116383"
+    },
+    "closure": {
+      "path": "docs/verification/playwright/runtime/cda-collection-repair-epoch59-closure.json"
+    },
+    "runPlan": "/private/tmp/loom-native-parallel-wave59/run-plan.json"
+  },
+  "nextCheck": "Register explicit required checks for this native case and capture the selected persistence/performance dimensions. Keep broader route shapes and restricted authorization as separate coverage."
+}

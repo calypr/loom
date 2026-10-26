@@ -1,0 +1,24 @@
+# Development-only API image. Source is mounted by compose.dev.yaml so saves
+# rebuild the binary in Air instead of rebuilding this image.
+FROM golang:1.26.5-bookworm
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && GOTOOLCHAIN=local go install github.com/air-verse/air@v1.63.0
+
+WORKDIR /workspace
+ENV CGO_ENABLED=0 \
+    GOTOOLCHAIN=local \
+    GOMODCACHE=/go/pkg/mod \
+    GOCACHE=/root/.cache/go-build
+
+COPY go.mod go.sum /workspace/
+RUN GOTOOLCHAIN=local go mod download
+COPY .air.dev.toml /workspace/.air.dev.toml
+COPY loom-dev-api-entrypoint.sh /workspace/loom-dev-api-entrypoint.sh
+COPY loom-dev-build-stamp.sh /workspace/loom-dev-build-stamp.sh
+COPY loom-dev-build.sh /workspace/loom-dev-build.sh
+RUN chmod 0755 /workspace/loom-dev-api-entrypoint.sh /workspace/loom-dev-build-stamp.sh /workspace/loom-dev-build.sh
+
+ENTRYPOINT ["/workspace/loom-dev-api-entrypoint.sh"]

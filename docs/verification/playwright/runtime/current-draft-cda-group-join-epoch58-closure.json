@@ -1,0 +1,60 @@
+{
+  "epoch": 58,
+  "status": "PASSED",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "sha256": "f357e53028ba3bb6f9cbfb94a77e60299dbc5714bab7a8c0cb39cd1f17bae5ba",
+      "files": 1498
+    },
+    "docs": {
+      "sha256": "75a4abfd5c7daa6c8c7a16b7ee2f8d103999a7897eb820bdb80e8adcafd1f6cd",
+      "files": 145
+    },
+    "changedPaths": [],
+    "apiBuildIdentity": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+    "ownedMounts": "PASS before and after, exact owned target unchanged",
+    "health": "PASS 3/3 before and after",
+    "handles": {
+      "precheck": {
+        "exitCode": 0
+      },
+      "beforeCapture": {
+        "session": 71970,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 16492,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 4014,
+        "exitCode": 0
+      },
+      "afterCapture": {
+        "session": 35316,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 52259,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "scenario": "cda-workspace-combine/group-join",
+    "status": "passed",
+    "requiredChecks": 16,
+    "missingRequiredChecks": [],
+    "nativeActions": 107,
+    "assertions": 195,
+    "maxActionMs": 1472,
+    "durationMs": 63163,
+    "unexpectedErrors": [],
+    "expectedCancellation": "Exact retired previous attached-selection GET; replacement selection and UI identity verified. Both pending Group frame-options requests completed HTTP 200 within timed Apply.",
+    "report": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch58-report.json",
+    "reportSha256": "8f9767f7bf36d8784a108f7f22ec7629b07e29d15ba75a9b31c94610bf556783"
+  },
+  "rawEvidenceRoot": "/private/tmp/loom-native-parallel-wave58",
+  "retryPerformed": false
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
@@ -62,7 +63,218 @@ func (h *explorerHTTPHandlers) getAuthoringCapabilityDirect(ctx context.Context,
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
 	}
-	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.Builder, loomapi.Suggestions, loomapi.Preview, loomapi.Publish, loomapi.Commands, loomapi.Reconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
+	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.AuthoringCapabilityOperationsBuilder, loomapi.AuthoringCapabilityOperationsSuggestions, loomapi.AuthoringCapabilityOperationsRowChange, loomapi.AuthoringCapabilityOperationsPreview, loomapi.AuthoringCapabilityOperationsInterpretationPreview, loomapi.AuthoringCapabilityOperationsConfiguredColumnContext, loomapi.AuthoringCapabilityOperationsInterpretationCreate, loomapi.AuthoringCapabilityOperationsPublish, loomapi.AuthoringCapabilityOperationsCommands, loomapi.AuthoringCapabilityOperationsReconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
+}
+
+func (h *explorerHTTPHandlers) listInterpretationLibrariesDirect(ctx context.Context, project string) (loomapi.InterpretationLibraryListResponse, error) {
+	var result loomapi.InterpretationLibraryListResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	value, err := h.application.ListInterpretationLibraries(ctx, project)
+	if err != nil {
+		return result, err
+	}
+	result.Project = value.Project
+	result.Libraries = make([]loomapi.InterpretationLibraryView, 0, len(value.Libraries))
+	for _, view := range value.Libraries {
+		library, convertErr := directAuthoringJSON[loomapi.InterpretationLibrary](view.Library)
+		if convertErr != nil {
+			return result, convertErr
+		}
+		wire := loomapi.InterpretationLibraryView{Library: library}
+		if view.Head != nil {
+			head, convertErr := directAuthoringJSON[loomapi.InterpretationRevision](*view.Head)
+			if convertErr != nil {
+				return result, convertErr
+			}
+			wire.Head = &head
+		}
+		result.Libraries = append(result.Libraries, wire)
+	}
+	return result, nil
+}
+
+func (h *explorerHTTPHandlers) getInterpretationRevisionDirect(ctx context.Context, project, revisionID string) (loomapi.InterpretationRevision, error) {
+	var result loomapi.InterpretationRevision
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	value, err := h.application.GetInterpretationRevision(ctx, lifecycle.GetInterpretationRevisionRequest{Project: project, RevisionID: revisionID})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.InterpretationRevision](value)
+}
+
+func (h *explorerHTTPHandlers) createInterpretationRevisionDirect(ctx context.Context, project, authResourcePath string, body *loomapi.CreateInterpretationRevisionJSONRequestBody) (loomapi.InterpretationRevision, error) {
+	var result loomapi.InterpretationRevision
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretations", errors.New("request body is required"))
+	}
+	applicability, err := directAuthoringJSON[explorer.InterpretationApplicability](body.Applicability)
+	if err != nil {
+		return result, malformedRouteError("interpretations", err)
+	}
+	rules, err := directAuthoringJSON[[]explorer.InterpretationRule](body.Rules)
+	if err != nil {
+		return result, malformedRouteError("interpretations", err)
+	}
+	parentRevisionID := ""
+	if body.ParentRevisionId != nil {
+		parentRevisionID = *body.ParentRevisionId
+	}
+	value, err := h.application.CreateInterpretationRevision(ctx, lifecycle.CreateInterpretationRevisionRequest{
+		Project: project, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
+		Applicability: applicability, Rules: rules, Explanation: body.Explanation,
+		Author: subjectFromContext(ctx),
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.InterpretationRevision](value)
+}
+
+func (h *explorerHTTPHandlers) resolveConfiguredColumnContextDirect(ctx context.Context, project, explorerID string, body *loomapi.ResolveConfiguredColumnContextJSONRequestBody) (loomapi.ConfiguredColumnContextResponse, error) {
+	var result loomapi.ConfiguredColumnContextResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretation-context", errors.New("request body is required"))
+	}
+	value, err := h.application.ConfiguredColumnContext(ctx, lifecycle.ConfiguredColumnContextRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
+	})
+	if err != nil {
+		return result, err
+	}
+	return configuredColumnContextResponse(value)
+}
+
+func configuredColumnContextResponse(value lifecycle.ConfiguredColumnContextResult) (loomapi.ConfiguredColumnContextResponse, error) {
+	result := loomapi.ConfiguredColumnContextResponse{
+		SnapshotToken: value.SnapshotToken, DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest,
+		Libraries:       make([]loomapi.InterpretationLibrarySummary, 0, len(value.Libraries)),
+		PinnedRevisions: make([]loomapi.InterpretationRevisionSummary, 0, len(value.PinnedRevisions)),
+		Columns:         make([]loomapi.ConfiguredColumnContext, 0, len(value.Columns)),
+	}
+	for _, library := range value.Libraries {
+		wire := loomapi.InterpretationLibrarySummary{Id: library.ID, UpdatedAt: library.UpdatedAt}
+		if library.HeadRevisionID != "" {
+			headID := library.HeadRevisionID
+			wire.HeadRevisionId = &headID
+		}
+		if library.HeadDigest != "" {
+			headDigest := library.HeadDigest
+			wire.HeadDigest = &headDigest
+		}
+		if library.Head != nil {
+			head := interpretationRevisionSummaryResponse(*library.Head)
+			wire.Head = &head
+		}
+		result.Libraries = append(result.Libraries, wire)
+	}
+	for _, revision := range value.PinnedRevisions {
+		result.PinnedRevisions = append(result.PinnedRevisions, interpretationRevisionSummaryResponse(revision))
+	}
+	for _, column := range value.Columns {
+		wire := loomapi.ConfiguredColumnContext{OutputId: column.OutputID, Column: column.Column, OccurrenceId: column.OccurrenceID}
+		if ready, ok := column.Resolution.Ready(); ok {
+			if err := wire.Resolution.FromConfiguredColumnReadyResolution(loomapi.ConfiguredColumnReadyResolution{
+				State:                  loomapi.ConfiguredColumnReadyResolutionStateREADY,
+				CapabilityCandidateIds: append(make([]string, 0, len(ready.CapabilityCandidateIDs)), ready.CapabilityCandidateIDs...),
+				ApplicableRevisionIds:  append(make([]string, 0, len(ready.ApplicableRevisionIDs)), ready.ApplicableRevisionIDs...),
+			}); err != nil {
+				return loomapi.ConfiguredColumnContextResponse{}, err
+			}
+		} else {
+			state := loomapi.ConfiguredColumnUnavailableResolutionState(column.Resolution.State())
+			if !state.Valid() || column.Resolution.Reason() == "" {
+				return loomapi.ConfiguredColumnContextResponse{}, fmt.Errorf("invalid configured-column resolution %q", column.Resolution.State())
+			}
+			if err := wire.Resolution.FromConfiguredColumnUnavailableResolution(loomapi.ConfiguredColumnUnavailableResolution{State: state, Reason: column.Resolution.Reason()}); err != nil {
+				return loomapi.ConfiguredColumnContextResponse{}, err
+			}
+		}
+		result.Columns = append(result.Columns, wire)
+	}
+	return result, nil
+}
+
+func interpretationRevisionSummaryResponse(value lifecycle.InterpretationRevisionSummary) loomapi.InterpretationRevisionSummary {
+	return loomapi.InterpretationRevisionSummary{
+		Id: value.ID, LibraryId: value.LibraryID, ContentDigest: value.ContentDigest,
+		Author: value.Author, Explanation: value.Explanation, CreatedAt: value.CreatedAt,
+	}
+}
+
+func (h *explorerHTTPHandlers) createInterpretationRevisionFromColumnDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.CreateInterpretationRevisionFromColumnJSONRequestBody) (loomapi.InterpretationRevision, error) {
+	var result loomapi.InterpretationRevision
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretation-create", errors.New("request body is required"))
+	}
+	parentRevisionID := ""
+	if body.ParentRevisionId != nil {
+		parentRevisionID = *body.ParentRevisionId
+	}
+	value, err := h.application.CreateInterpretationRevisionFromColumn(ctx, lifecycle.CreateInterpretationRevisionFromColumnRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
+		OutputID: body.OutputId, Column: body.Column, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
+		Explanation: body.Explanation, Author: subjectFromContext(ctx),
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.InterpretationRevision](value)
+}
+
+func (h *explorerHTTPHandlers) previewInterpretationCandidateDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewInterpretationCandidateJSONRequestBody) (loomapi.InterpretationPreviewResponse, error) {
+	var result loomapi.InterpretationPreviewResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretation-preview", errors.New("request body is required"))
+	}
+	limit := dataframeexecution.DefaultPreviewLimit
+	if body.Limit != nil {
+		limit = *body.Limit
+	}
+	previewCtx, cancel := context.WithTimeout(ctx, explorerPreviewTimeout)
+	defer cancel()
+	value, err := h.application.PreviewInterpretationCandidate(previewCtx, lifecycle.PreviewInterpretationCandidateRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
+		OutputID: body.OutputId, Column: body.Column, RevisionID: body.RevisionId, Limit: limit,
+	})
+	if err != nil {
+		var lifecycleErr *lifecycle.Error
+		if errors.As(err, &lifecycleErr) {
+			return result, err
+		}
+		return result, previewRouteError(err)
+	}
+	result, err = directAuthoringJSON[loomapi.InterpretationPreviewResponse](value)
+	if err != nil {
+		return result, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return result, err
+	}
+	if len(encoded) > maxExplorerPreviewResponseBytes {
+		return result, previewRouteError(&previewResponseTooLargeError{Limit: maxExplorerPreviewResponseBytes})
+	}
+	return result, nil
 }
 
 func (h *explorerHTTPHandlers) searchAuthoringSuggestionsDirect(ctx context.Context, project, explorerID string, body *loomapi.SearchExplorerCandidatesJSONRequestBody) (loomapi.CandidateSearchResponse, error) {
@@ -92,6 +304,36 @@ func (h *explorerHTTPHandlers) searchAuthoringSuggestionsDirect(ctx context.Cont
 	return loomapi.CandidateSearchResponse{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerBuilderCandidateSuggestions, SnapshotToken: value.SnapshotToken, NodeId: value.NodeID, Candidates: candidates, Diagnostics: []loomapi.Diagnostic{}}, nil
 }
 
+func (h *explorerHTTPHandlers) searchAuthoringSchemaFieldsDirect(ctx context.Context, project, explorerID string, body *loomapi.SchemaFieldSearchRequest) (loomapi.SchemaFieldSearchResponse, error) {
+	var result loomapi.SchemaFieldSearchResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("schema-fields", errors.New("request body is required"))
+	}
+	request := lifecycle.SearchSchemaFieldsRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, NodeID: body.NodeId,
+	}
+	if body.Query != nil {
+		request.Query = *body.Query
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	value, err := h.application.SearchSchemaFields(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	wire, err := directAuthoringJSON[loomapi.SchemaFieldSearchResponse](value)
+	wire.ApiVersion = loomapi.LoomCalyprOrgexplorerAuthoringv2
+	wire.Kind = loomapi.ExplorerBuilderGeneratedSchemaFields
+	return wire, err
+}
+
 func (h *explorerHTTPHandlers) getAuthoringBuilderDirect(ctx context.Context, project, explorerID string) (loomapi.BuilderState, error) {
 	var result loomapi.BuilderState
 	if err := h.authoringReadDirect(ctx, project); err != nil {
@@ -116,11 +358,120 @@ func (h *explorerHTTPHandlers) applyAuthoringCommandsDirect(ctx context.Context,
 	if err != nil {
 		return result, malformedRouteError("commands", err)
 	}
+	if len(request.Commands) == 1 && request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal {
+		var encoder *previewResponseEncoder
+		sinkFactory := func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			var err error
+			encoder, err = newPreviewResponseEncoder(receipt, request.Commands[0].OutputID, columns, maxExplorerPreviewResponseBytes)
+			if err != nil {
+				return nil, err
+			}
+			return encoder.Visit, nil
+		}
+		applied, err := h.application.ApplyCommandsWithConstructionPreview(ctx, project, explorerID, request, subjectFromContext(ctx), sinkFactory)
+		if err != nil {
+			return result, err
+		}
+		if applied == nil || applied.Commands == nil {
+			return result, explorerUnavailable("commands", "AUTHORING_UNAVAILABLE", "construction Apply returned no command response")
+		}
+		result, err = directAuthoringJSON[loomapi.ApplyCommandsResponse](applied.Commands)
+		if err != nil {
+			return result, err
+		}
+		if applied.Accepted == nil || encoder == nil || applied.Accepted.Preview.Receipt == nil {
+			return result, nil
+		}
+		preview, err := previewResponseFromEncoder(encoder, applied.Accepted.Preview.Summary)
+		if err != nil {
+			return result, nil
+		}
+		receipt := v2ReceiptResponse(applied.Accepted.Preview.Receipt, applied.Commands.Workspace)
+		result.AcceptedConstruction = &loomapi.AcceptedConstruction{
+			Receipt:      acceptedConstructionReceiptResponse(receipt),
+			Preview:      preview,
+			PreviewLimit: applied.Accepted.PreviewLimit,
+		}
+		return result, nil
+	}
 	value, err := h.application.ApplyCommands(ctx, project, explorerID, request, subjectFromContext(ctx))
 	if err != nil {
 		return result, err
 	}
 	return directAuthoringJSON[loomapi.ApplyCommandsResponse](value)
+}
+
+func acceptedConstructionReceiptResponse(receipt loomapi.CompileResponse) loomapi.AcceptedConstructionReceipt {
+	return loomapi.AcceptedConstructionReceipt{
+		ApiVersion:               receipt.ApiVersion,
+		AuthorizationScopeDigest: receipt.AuthorizationScopeDigest,
+		CapabilitySchemaDigest:   receipt.CapabilitySchemaDigest,
+		CompilerVersion:          receipt.CompilerVersion,
+		Diagnostics:              receipt.Diagnostics,
+		Generation:               receipt.Generation,
+		IntentDigest:             receipt.IntentDigest,
+		Kind:                     receipt.Kind,
+		OutputContractDigest:     receipt.OutputContractDigest,
+		Outputs:                  receipt.Outputs,
+		ReceiptId:                receipt.ReceiptId,
+		RecipeDigest:             receipt.RecipeDigest,
+		ResolvedRecipeDigest:     receipt.ResolvedRecipeDigest,
+		ResolvedSchemaDigest:     receipt.ResolvedSchemaDigest,
+		ShapeDigest:              receipt.ShapeDigest,
+		SnapshotToken:            receipt.SnapshotToken,
+	}
+}
+
+func (h *explorerHTTPHandlers) assessAuthoringRowChangeDirect(ctx context.Context, project, explorerID string, body *loomapi.AssessExplorerRowChangeJSONRequestBody) (loomapi.RowChangeAssessmentResponse, error) {
+	var result loomapi.RowChangeAssessmentResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("row-change", errors.New("request body is required"))
+	}
+	rootOccurrenceID := ""
+	if body.RootOccurrenceId != nil {
+		rootOccurrenceID = *body.RootOccurrenceId
+	}
+	routeRebase := []authoringv2.RouteRebaseChoice{}
+	if body.RouteRebase != nil {
+		converted, err := directAuthoringJSON[[]authoringv2.RouteRebaseChoice](*body.RouteRebase)
+		if err != nil {
+			return result, malformedRouteError("row-change", err)
+		}
+		routeRebase = converted
+	}
+	value, err := h.application.AssessRowChange(ctx, lifecycle.AssessRowChangeRequest{
+		Project: project, ExplorerID: explorerID, Mode: optionalEnumString(body.Mode), SnapshotToken: body.SnapshotToken,
+		DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: body.OutputId,
+		RootNodeID: body.RootNodeId, RootOccurrenceID: rootOccurrenceID, RouteRebase: routeRebase,
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.RowChangeAssessmentResponse](struct {
+		authoringv2.RowChangeAssessment
+		SnapshotToken      string           `json:"snapshotToken"`
+		DraftVersion       int64            `json:"draftVersion"`
+		DraftDigest        string           `json:"draftDigest"`
+		CandidateReceiptID string           `json:"candidateReceiptId,omitempty"`
+		Diagnostics        []map[string]any `json:"diagnostics"`
+	}{
+		RowChangeAssessment: value.Assessment,
+		SnapshotToken:       value.SnapshotToken,
+		DraftVersion:        value.DraftVersion,
+		DraftDigest:         value.DraftDigest,
+		CandidateReceiptID:  value.CandidateReceiptID,
+		Diagnostics:         []map[string]any{},
+	})
+}
+
+func optionalEnumString[T ~string](value *T) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
 }
 
 func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.ReconcileExplorerBuilderJSONRequestBody) (loomapi.CompileResponse, error) {
@@ -131,14 +482,18 @@ func (h *explorerHTTPHandlers) reconcileAuthoringDirect(ctx context.Context, pro
 	if body == nil {
 		return result, malformedRouteError("reconcile", errors.New("request body is required"))
 	}
-	receipt, err := h.application.Reconcile(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest})
+	reconciled, err := h.application.ReconcileWithWorkspace(ctx, lifecycle.ReconcileRequest{Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, DraftVersion: body.DraftVersion, DraftDigest: body.DraftDigest, OutputID: optionalString(body.OutputId)})
 	if err != nil {
 		return result, err
 	}
-	return v2ReceiptResponse(receipt, authoringv2.Workspace{}), nil
+	return v2ReceiptResponse(reconciled.Receipt, reconciled.Workspace), nil
 }
 
 func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody) (loomapi.PreviewResponse, error) {
+	return h.previewAuthoringDirectWithTimeout(ctx, project, explorerID, body, explorerPreviewTimeout)
+}
+
+func (h *explorerHTTPHandlers) previewAuthoringDirectWithTimeout(ctx context.Context, project, explorerID string, body *loomapi.PreviewExplorerJSONRequestBody, timeout time.Duration) (loomapi.PreviewResponse, error) {
 	var result loomapi.PreviewResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
@@ -153,27 +508,210 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 			limit = -1
 		}
 	}
-	var finish func() ([]byte, error)
-	_, err := h.application.Preview(ctx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
-		encoder, encoderErr := newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
+	previewCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var encoder *previewResponseEncoder
+	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+		var encoderErr error
+		encoder, encoderErr = newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
 			return nil, encoderErr
 		}
-		finish = encoder.Finish
 		return encoder.Visit, nil
 	}})
 	if err != nil {
 		return result, previewRouteError(err)
 	}
-	if finish == nil {
+	if encoder == nil {
 		return result, previewRouteError(errors.New("native preview response sink was not configured"))
 	}
-	encoded, err := finish()
+	return previewResponseFromEncoder(encoder, preview.Summary)
+}
+
+func previewResponseFromEncoder(encoder *previewResponseEncoder, summary dataframeexecution.PreviewSummary) (loomapi.PreviewResponse, error) {
+	var result loomapi.PreviewResponse
+	if encoder == nil {
+		return result, errors.New("native preview response sink was not configured")
+	}
+	encoded, err := encoder.Finish()
 	if err != nil {
 		return result, previewRouteError(err)
 	}
 	if err := json.Unmarshal(encoded, &result); err != nil {
 		return result, err
+	}
+	result.Sampled = !summary.Complete || summary.Truncated
+	partialValidation := summary.PartialValidation
+	result.PartialValidation = &partialValidation
+	capability := summary.RowLineageCapability
+	result.RowLineageCapability.Status = loomapi.RowLineageCapabilityStatusAVAILABLE
+	if !capability.Available {
+		result.RowLineageCapability.Status = loomapi.RowLineageCapabilityStatusUNAVAILABLE
+		reasonCode := capability.ReasonCode
+		if reasonCode == "" {
+			reasonCode = "ROW_LINEAGE_UNAVAILABLE"
+		}
+		result.RowLineageCapability.ReasonCode = &reasonCode
+		if capability.Operation != "" {
+			operation := capability.Operation
+			result.RowLineageCapability.Operation = &operation
+		}
+	}
+	return result, nil
+}
+
+func (h *explorerHTTPHandlers) traceExplorerCellDirect(ctx context.Context, project, explorerID string, body *loomapi.TraceExplorerCellJSONRequestBody) (loomapi.CellTraceResponse, error) {
+	var result loomapi.CellTraceResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("trace", errors.New("receiptId, outputId, rowId, and column are required"))
+	}
+	request := lifecycle.CellTraceRequest{
+		Project: project, ExplorerID: explorerID,
+		ReceiptID: body.ReceiptId, OutputID: body.OutputId,
+		RowID: body.RowId, Column: body.Column,
+	}
+	if body.Offset != nil {
+		request.Offset = *body.Offset
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	value, err := h.application.CellTrace(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.Binding = loomapi.CellTraceBinding{
+		ReceiptId: value.Binding.ReceiptID, OutputId: value.Binding.OutputID,
+		Project: value.Binding.Project, ExplorerId: value.Binding.ExplorerID,
+		Generation: value.Binding.Generation, ScopeDigest: value.Binding.ScopeDigest,
+	}
+	result.Feature = loomapi.CellTraceFeature{
+		OutputId: value.Feature.OutputID, Column: value.Feature.Column,
+		AuthoredColumn: value.Feature.AuthoredColumn, OccurrenceId: value.Feature.OccurrenceID,
+		Label: value.Feature.Label, LogicalType: value.Feature.LogicalType,
+		ProjectionMode: value.Feature.ProjectionMode, Lossless: value.Feature.Lossless,
+		LossReasons: append([]string{}, value.Feature.LossReasons...),
+	}
+	if value.Feature.SourceResourceType != "" {
+		result.Feature.SourceResourceType = &value.Feature.SourceResourceType
+	}
+	if value.Feature.SourcePath != "" {
+		result.Feature.SourcePath = &value.Feature.SourcePath
+	}
+	trace := loomapi.CellTraceTrace{
+		RowId: value.Trace.RowID, Column: value.Trace.Column, Value: value.Trace.Value,
+		Status: loomapi.CellTraceTraceStatus(value.Trace.Status), HasMore: value.Trace.HasMore,
+		NextOffset: value.Trace.NextOffset, Complete: value.Trace.Complete,
+	}
+	if value.Trace.OmissionCode != "" {
+		trace.OmissionCode = &value.Trace.OmissionCode
+	}
+	trace.Contributions = make([]loomapi.CellTraceContribution, 0, len(value.Trace.Contributions))
+	for _, contribution := range value.Trace.Contributions {
+		resourceType, resourceID := contribution.ResourceType, contribution.ResourceID
+		wire := loomapi.CellTraceContribution{Value: contribution.Value}
+		if resourceType != "" {
+			wire.ResourceType = &resourceType
+		}
+		if resourceID != "" {
+			wire.ResourceId = &resourceID
+		}
+		trace.Contributions = append(trace.Contributions, wire)
+	}
+	result.Trace = trace
+	return result, nil
+}
+
+func (h *explorerHTTPHandlers) traceExplorerRowLineageDirect(ctx context.Context, project, explorerID string, body *loomapi.TraceExplorerRowLineageJSONRequestBody) (loomapi.RowLineageResponse, error) {
+	var result loomapi.RowLineageResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("rowLineage", errors.New("receiptId, outputId, and rowId are required"))
+	}
+	request := lifecycle.RowLineageRequest{
+		Project: project, ExplorerID: explorerID,
+		ReceiptID: body.ReceiptId, OutputID: body.OutputId, RowID: body.RowId,
+	}
+	if body.Offset != nil {
+		request.Offset = *body.Offset
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	value, err := h.application.RowLineage(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.ReceiptId = value.ReceiptID
+	result.OutputId = value.OutputID
+	result.RowId = value.RowID
+	result.Status = loomapi.RowLineageResponseStatus(value.Status)
+	result.HasMore = &value.HasMore
+	if value.NextOffset != nil {
+		result.NextOffset = value.NextOffset
+	}
+	contributors := make([]loomapi.RowLineageContributor, 0, len(value.Contributors))
+	for _, contributor := range value.Contributors {
+		contributors = append(contributors, loomapi.RowLineageContributor{
+			ResourceType: contributor.ResourceType, ResourceId: contributor.ResourceID,
+			OccurrenceKey: contributor.OccurrenceKey,
+		})
+	}
+	result.Contributors = &contributors
+	if value.ReasonCode != "" {
+		result.ReasonCode = &value.ReasonCode
+	}
+	if value.Operation != "" {
+		result.Operation = &value.Operation
+	}
+	return result, nil
+}
+
+func (h *explorerHTTPHandlers) populationMappingDirect(ctx context.Context, project, explorerID string, body *loomapi.CheckExplorerPopulationMappingJSONRequestBody) (loomapi.PopulationMappingResponse, error) {
+	var result loomapi.PopulationMappingResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("populationMapping", errors.New("receiptId and outputId are required"))
+	}
+	request := lifecycle.PopulationMappingRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	value, err := h.application.PopulationMapping(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.Binding = loomapi.PopulationMappingBinding{
+		ReceiptId: value.Report.Binding.ReceiptID, OutputId: value.Report.Binding.OutputID,
+		Project: value.Report.Binding.Project, ExplorerId: value.Report.Binding.ExplorerID,
+		Generation: value.Report.Binding.Generation, ScopeDigest: value.Report.Binding.ScopeDigest,
+		SelectionRevisionId: value.Report.Binding.SelectionRevisionID, MembershipDigest: value.Report.Binding.MembershipDigest,
+		ResourceType: value.Report.Binding.ResourceType,
+	}
+	result.Status = loomapi.PopulationMappingResponseStatus(value.Report.Status)
+	result.Unmapped = make([]loomapi.SelectionResourceRef, 0, len(value.Report.Unmapped))
+	for _, ref := range value.Report.Unmapped {
+		result.Unmapped = append(result.Unmapped, loomapi.SelectionResourceRef{Project: ref.Project, Generation: ref.Generation, ResourceType: ref.ResourceType, Id: ref.ID})
+	}
+	if value.Report.NextCursor != "" {
+		result.NextCursor = &value.Report.NextCursor
+	}
+	if value.Report.Counts != nil {
+		result.Counts = &loomapi.PopulationMappingCounts{Selected: value.Report.Counts.Selected, Mapped: value.Report.Counts.Mapped, Unmapped: value.Report.Counts.Unmapped, EmittedRows: value.Report.Counts.EmittedRows}
+	}
+	result.Diagnostics = make([]loomapi.Diagnostic, 0, len(value.Report.Diagnostics))
+	for _, diagnostic := range value.Report.Diagnostics {
+		result.Diagnostics = append(result.Diagnostics, loomapi.Diagnostic{Severity: "INFO", Stage: "populationMapping", Code: diagnostic.Code, Message: diagnostic.Message})
 	}
 	return result, nil
 }
@@ -200,22 +738,31 @@ func (h *explorerHTTPHandlers) publishAuthoringDirect(ctx context.Context, proje
 func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) (int, loomapi.ErrorResponse) {
 	requestID := requestIDFromContext(ctx)
 	status := http.StatusInternalServerError
-	code, message, stage, path := "INTERNAL_ERROR", "internal server error", "internal", ""
+	code, message, stage, path := "INTERNAL_ERROR", "", "internal", ""
 	var details map[string]any
 	var cause error = err
+	typed := false
 	var lifecycleErr *lifecycle.Error
 	var authoringErr *explorer.AuthoringError
 	if errors.As(err, &lifecycleErr) {
+		typed = true
 		status = lifecycleErrorStatus(lifecycleErr.Class)
 		code, message, stage, path, details, cause = lifecycleErr.Code, lifecycleErr.Message, lifecycleErr.Stage, lifecycleErr.Path, lifecycleErr.Details, lifecycleErr.Cause
 	} else if errors.As(err, &authoringErr) {
+		typed = true
 		status = authoringErr.Status
 		code, message, stage, path, details = authoringErr.Diagnostic.Code, authoringErr.Diagnostic.Message, authoringErr.Diagnostic.Stage, authoringErr.Diagnostic.JSONPath, authoringErr.Diagnostic.Details
 		if authoringErr.Cause != nil {
 			cause = authoringErr.Cause
 		}
 	} else if errors.Is(err, explorer.ErrNotFound) {
+		typed = true
 		status, code, message = http.StatusNotFound, "NOT_FOUND", "Explorer resource not found"
+	}
+	if !typed {
+		stage = operation
+		message = fmt.Sprintf("an unexpected internal error occurred during %s", operation)
+		details = map[string]any{"operation": operation, "causeType": fmt.Sprintf("%T", err)}
 	}
 	if stage == "" {
 		stage = operation
@@ -224,7 +771,10 @@ func authoringErrorForOpenAPI(ctx context.Context, operation string, err error) 
 		code = "INTERNAL_ERROR"
 	}
 	if message == "" {
-		message = "internal server error"
+		message = fmt.Sprintf("an unexpected internal error occurred during %s", operation)
+		if details == nil {
+			details = map[string]any{"operation": operation, "causeType": fmt.Sprintf("%T", err)}
+		}
 	}
 	if cause != nil && status >= 500 {
 		slog.Error("Explorer authoring request failed", "request_id", requestID, "operation", operation, "status", status, "stage", stage, "code", code, "json_path", path, "cause", cause, "cause_type", fmt.Sprintf("%T", cause))

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "scenario": "cda-workspace-combine",
+  "case": "group-join",
+  "status": "untested",
+  "classification": "fixture-precondition-failure-before-native-lifecycle",
+  "scope": "Real CDA project loom_dev_cda_fhir, generation cda-fhir-v1. This is not a product lifecycle result.",
+  "fixturePrecondition": {
+    "rawScanLimit": 2000,
+    "observedRepeatedStatusRecords": 3,
+    "distinctStatusCountInBoundedObservationWitness": 1,
+    "required": "a shared string status plus a separate left-only status; shared COUNT_ROWS 2 must permit a visible COUNT_DISTINCT 1 edit",
+    "failure": "The bounded CDA witness had no second status for a left-only Group key."
+  },
+  "browserLifecycle": {
+    "explorerCreated": false,
+    "browserUrl": "about:blank",
+    "uiActions": 0,
+    "nativeRequests": 0,
+    "productFailureEstablished": false
+  },
+  "rawRun": {
+    "result": "FAILED_RAW_WITNESS_PRECONDITION",
+    "durationMs": 14517,
+    "setupMs": 1796,
+    "reportStatus": "failed",
+    "requiredChecks": {
+      "passed": 1,
+      "total": 16,
+      "missing": 15
+    },
+    "assertions": 1,
+    "actions": 0,
+    "timings": 0,
+    "errors": [],
+    "onlyPassedAssertion": "CDA watched source and API build stayed unchanged"
+  },
+  "freshness": {
+    "source": {
+      "beforeSha256": "4127fb334612f642656db515f9cba4b2ab6d2e62b9d9b23f1f131350c2eff7bd",
+      "afterSha256": "4127fb334612f642656db515f9cba4b2ab6d2e62b9d9b23f1f131350c2eff7bd",
+      "files": 1497,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "44d871f7939975ac0c557cf3bf61d865ecb53814950610fe7adc9b1d63ec12a2",
+      "afterSha256": "44d871f7939975ac0c557cf3bf61d865ecb53814950610fe7adc9b1d63ec12a2",
+      "files": 123,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "after": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "composeProject": "loom-dev-6d7df93d6a37",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1"
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    }
+  },
+  "originalReport": {
+    "path": "/private/tmp/loom-native-parallel-wave46/cda-workspace-combine/artifacts/cda-current-draft-group-jo-424dc-the-current-draft-lifecycle/cda-report.json",
+    "sha256": "6c3cc7e931439a5a2bbe52ce055b4ceb774368c5099cc2aaf2bae1cfc0e51a9d"
+  },
+  "authoritativeClosure": {
+    "path": "docs/verification/playwright/runtime/current-draft-cda-group-join-epoch46-closure.json",
+    "sha256": "7f2eaf8872eda39b40febdc327a042b2f314f10c92c4e64d466d362a00e3ca5a"
+  },
+  "basicFixturePassesAreSeparate": [
+    "current-draft-join-epoch41",
+    "current-draft-group-pivot-epoch44",
+    "current-draft-append-epoch45"
+  ],
+  "nextCheck": "Find a bounded, project/generation-scoped Observation witness with shared and left-only string statuses before launching the same native case; otherwise leave real-CDA Group→Group untested.",
+  "startedAt": "2026-10-06T00:59:38.470Z",
+  "finishedAt": "2026-10-06T00:59:52.075Z"
+}

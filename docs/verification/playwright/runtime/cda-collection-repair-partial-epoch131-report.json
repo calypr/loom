@@ -1,0 +1,650 @@
+{
+  "schemaVersion": 1,
+  "epoch": 131,
+  "scenario": "cda-collection-repair-partial",
+  "case": "partial-long-route-repair-and-reload",
+  "title": "remove an unmapped selected resource, verify the saved route, and reload",
+  "status": "failed_product",
+  "runnerStatus": "failed",
+  "coverageStatus": "failed",
+  "durableClosurePath": "docs/verification/playwright/runtime/cda-collection-repair-partial-epoch131-closure.json",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL",
+  "rootAcceptanceStatus": "ACCEPTED_PRODUCT_FAILURE",
+  "classification": "PRODUCT_POPULATION_MAPPING_HTTP_500_AFTER_FILTER",
+  "target": {
+    "kind": "owned-cda",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "explorer": "collection-repair-1791336826200",
+    "apiUrl": "http://127.0.0.1:8188",
+    "uiUrl": "http://127.0.0.1:30008",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "sourceRoot": "$TMP/<path>",
+    "sourceFingerprint": {
+      "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+      "files": 1555
+    },
+    "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+  },
+  "ownedStackValidationTarget": {
+    "project": "loom_dev_cda_fhir",
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+    "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+    "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+    "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+    "apiPort": "8188",
+    "uiPort": "30008",
+    "sourceRoot": "/private/tmp/loom-construction-implementation",
+    "generation": "cda-fhir-v1"
+  },
+  "apiBuildIdentity": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+  "requiredChecks": {
+    "total": 11,
+    "passed": 4,
+    "failed": 0,
+    "unrun": 7,
+    "passedNames": [
+      "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+      "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+      "saved population preserves the exact two-hop Observation → Specimen → parent route",
+      "CDA watched source and API build stayed unchanged"
+    ],
+    "failedNames": [],
+    "unrunNames": [
+      "native preview and coverage match exact mapped/unmapped raw membership",
+      "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+      "repaired route, immutable selection, and preview survive Builder reload",
+      "clearing the collection displays rows from the scoped current-generation Observation source",
+      "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+      "all measured native actions and workflow checkpoints complete within five seconds",
+      "no unexpected HTTP or workflow errors occur"
+    ],
+    "outcomes": [
+      {
+        "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+        "status": "passed"
+      },
+      {
+        "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+        "status": "passed"
+      },
+      {
+        "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+        "status": "passed"
+      },
+      {
+        "name": "native preview and coverage match exact mapped/unmapped raw membership",
+        "status": "unrun"
+      },
+      {
+        "name": "removing the unmapped Specimen preserves mapped membership, route, columns, and construction",
+        "status": "unrun"
+      },
+      {
+        "name": "repaired route, immutable selection, and preview survive Builder reload",
+        "status": "unrun"
+      },
+      {
+        "name": "clearing the collection displays rows from the scoped current-generation Observation source",
+        "status": "unrun"
+      },
+      {
+        "name": "native reattachment preserves the repaired membership, route, columns, preview, and reload state",
+        "status": "unrun"
+      },
+      {
+        "name": "all measured native actions and workflow checkpoints complete within five seconds",
+        "status": "unrun"
+      },
+      {
+        "name": "no unexpected HTTP or workflow errors occur",
+        "status": "unrun"
+      },
+      {
+        "name": "CDA watched source and API build stayed unchanged",
+        "status": "passed"
+      }
+    ]
+  },
+  "assertions": [
+    {
+      "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+      "status": "passed"
+    },
+    {
+      "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+      "status": "passed"
+    },
+    {
+      "name": "Click [data-testid=\"construction-table-out_7564eb11d806fd6cb98ca2f6\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "Click Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "Click Back to table completed",
+      "status": "passed"
+    },
+    {
+      "name": "Click [data-testid=\"construction-action-keep-rows\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "Select EXISTS in [data-testid=\"construction-filter-editor\"] select[aria-label=\"Condition\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "Click [data-testid=\"construction-apply-proposal\"] completed",
+      "status": "passed"
+    },
+    {
+      "name": "Click Configure rows completed",
+      "status": "passed"
+    },
+    {
+      "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+      "status": "passed"
+    },
+    {
+      "name": "Click Check selected-resource coverage completed",
+      "status": "passed"
+    },
+    {
+      "name": "CDA watched source and API build stayed unchanged",
+      "status": "passed"
+    },
+    {
+      "name": "incidental asset failures are explicitly recorded",
+      "status": "passed"
+    },
+    {
+      "name": "no unexpected network, module, or browser errors",
+      "status": "failed"
+    }
+  ],
+  "assertionSummary": {
+    "passed": 13,
+    "failed": 1,
+    "total": 14
+  },
+  "dimensions": {
+    "usability": {
+      "status": "passed",
+      "evidence": [
+        {
+          "name": "Click [data-testid=\"construction-table-out_7564eb11d806fd6cb98ca2f6\"] completed",
+          "status": "passed",
+          "elapsedMs": 144,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 70
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 48
+            }
+          }
+        },
+        {
+          "name": "Click Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 85,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 6
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 41
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 38
+            }
+          }
+        },
+        {
+          "name": "Click Back to table completed",
+          "status": "passed",
+          "elapsedMs": 110,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 8
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 48
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 54
+            }
+          }
+        },
+        {
+          "name": "Click [data-testid=\"construction-action-keep-rows\"] completed",
+          "status": "passed",
+          "elapsedMs": 87,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 3
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 38
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 47
+            }
+          }
+        },
+        {
+          "name": "Select EXISTS in [data-testid=\"construction-filter-editor\"] select[aria-label=\"Condition\"] completed",
+          "status": "passed",
+          "elapsedMs": 44,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 19
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 23
+            }
+          }
+        },
+        {
+          "name": "Click [data-testid=\"construction-apply-proposal\"] completed",
+          "status": "passed",
+          "elapsedMs": 105,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 2
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 26
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 77
+            }
+          }
+        },
+        {
+          "name": "Click Configure rows completed",
+          "status": "passed",
+          "elapsedMs": 74,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 6
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 30
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 39
+            }
+          }
+        },
+        {
+          "name": "Click Check selected-resource coverage completed",
+          "status": "passed",
+          "elapsedMs": 76,
+          "afterMs": null,
+          "failurePhase": null,
+          "phases": {
+            "count": {
+              "completed": true,
+              "durationMs": 7
+            },
+            "trial": {
+              "completed": true,
+              "durationMs": 34
+            },
+            "perform": {
+              "completed": true,
+              "durationMs": 36
+            }
+          }
+        }
+      ]
+    },
+    "correctness": {
+      "status": "failed",
+      "evidence": [
+        {
+          "name": "bounded raw CDA oracle contains two mapped and one unmapped project/generation-scoped Specimens with exact Observation IDs",
+          "status": "passed",
+          "project": "loom_dev_cda_fhir",
+          "generation": "cda-fhir-v1",
+          "mappedSpecimenIDs": [
+            "00001c68-2c20-5003-a144-b2442469d8de",
+            "0000ae4e-5498-51e8-a091-32b0552093ac"
+          ],
+          "observationIDs": [
+            "5a45e52f-8360-5a41-a507-aaf206380adc",
+            "8a7da417-3a07-5982-817d-91a1dcf5ff9e"
+          ],
+          "unmappedSpecimenID": "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+          "seedLimit": 4000
+        },
+        {
+          "name": "initial immutable selection preserves exact Specimen IDs, project, generation, and authorization scope",
+          "status": "passed",
+          "selectionId": "selection_73477314303508b6f3d952bba89e18516122dc09ef2a28b78daed446319e5fc1",
+          "project": "loom_dev_cda_fhir",
+          "generation": "cda-fhir-v1",
+          "scopeDigest": "ec9d970710fa72b2edaa12c9080c3861e1c191935535582b23f0a29b50f042d6",
+          "memberCount": 3,
+          "memberIDs": [
+            "0000f0c1-b945-5f22-900d-1c25c88cdc30",
+            "0000ae4e-5498-51e8-a091-32b0552093ac",
+            "00001c68-2c20-5003-a144-b2442469d8de"
+          ]
+        },
+        {
+          "name": "saved population preserves the exact two-hop Observation → Specimen → parent route",
+          "status": "passed",
+          "route": [
+            {
+              "resourceType": "Specimen",
+              "relationship": "specimen_Specimen",
+              "catalogEdgeId": "e_4f79cbfdf06f50d30f273de4",
+              "storageDirection": "OUTBOUND"
+            },
+            {
+              "resourceType": "Specimen",
+              "relationship": "parent",
+              "catalogEdgeId": "e_637cc22e0d33b9c1c9177cc8",
+              "storageDirection": "INBOUND"
+            }
+          ],
+          "columns": [
+            {
+              "columnId": "source_42bcf3c257b402ff6a223c3b",
+              "column": "col_79762397e3e0bd8eef1432db",
+              "label": "Observation ID",
+              "logicalType": "string",
+              "occurrenceId": "base",
+              "source": {
+                "kind": "field",
+                "field": {
+                  "path": "id",
+                  "projectionMode": "VALUE"
+                }
+              },
+              "table": {
+                "visible": true,
+                "order": 0
+              }
+            }
+          ],
+          "construction": {
+            "version": 1,
+            "steps": [
+              {
+                "id": "filter_8b5bef68-2ed0-48af-a454-5cc48d24b371",
+                "inputs": [
+                  {
+                    "kind": "SOURCE_PROJECTION"
+                  }
+                ],
+                "operation": {
+                  "kind": "FILTER",
+                  "filter": {
+                    "columnId": "source_42bcf3c257b402ff6a223c3b",
+                    "operator": "EXISTS"
+                  }
+                },
+                "outputs": [
+                  {
+                    "id": "source_42bcf3c257b402ff6a223c3b",
+                    "name": "col_79762397e3e0bd8eef1432db",
+                    "label": "Observation ID",
+                    "type": "string"
+                  }
+                ]
+              }
+            ]
+          },
+          "nonemptyConstructionStepIds": [
+            "filter_8b5bef68-2ed0-48af-a454-5cc48d24b371"
+          ]
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed",
+          "sourceFingerprint": {
+            "before": {
+              "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+              "files": 1555
+            },
+            "after": {
+              "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+              "files": 1555
+            }
+          },
+          "apiBuildIdentity": {
+            "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+            "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135"
+          },
+          "sourceFreeze": {
+            "unchanged": true,
+            "watchedFileCount": 1118,
+            "changedPaths": [],
+            "invalidatesRun": false,
+            "productFailure": false
+          }
+        },
+        {
+          "name": "incidental asset failures are explicitly recorded",
+          "status": "passed",
+          "failures": [
+            {
+              "kind": "asset-failure",
+              "url": "http://127.0.0.1:30008/favicon.ico",
+              "status": 404
+            }
+          ]
+        },
+        {
+          "name": "no unexpected network, module, or browser errors",
+          "status": "failed",
+          "count": 2
+        }
+      ]
+    },
+    "persistence": {
+      "status": "untested",
+      "evidence": []
+    },
+    "performance": {
+      "status": "untested",
+      "evidence": []
+    }
+  },
+  "lifecycle": null,
+  "performanceEvidence": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+        "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+        "sizeBytes": 6244865
+      },
+      "timedCompleteCheckpoints": 0,
+      "maximumDurationMs": null,
+      "thresholdMs": 5000,
+      "withinThreshold": null,
+      "checkpoints": []
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 8,
+      "maximumActionElapsedMs": 144,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "nativeActions": {
+    "total": 8,
+    "maximumNativeControlElapsedMs": 144
+  },
+  "integrity": {
+    "closureStatus": "PASS",
+    "sourceBeforeAfter": {
+      "before": {
+        "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+        "files": 1555
+      },
+      "after": {
+        "sha256": "a4c80e0167cf23cebc99ad86ef5de21c37cc4fbf7d977b77f8e44caa57a00a99",
+        "files": 1555
+      },
+      "unchanged": true,
+      "manifestsEqual": true,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true
+    },
+    "apiBuildIdentityUnchanged": true,
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      }
+    }
+  },
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave131/root-acceptance.json",
+    "sha256": "9f7846f8eeebb5a5217689cecf16fef5b405aac01cb8880437b3f446c2de878c",
+    "status": "ACCEPTED_PRODUCT_FAILURE",
+    "lifecycleAccepted": false,
+    "classification": "PRODUCT_POPULATION_MAPPING_HTTP_500_AFTER_FILTER",
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "10429173466710432e1836515a6feaaacbb86c66ffa10cf6c1833aa5f9ed4259"
+  },
+  "rawArtifacts": {
+    "coordinatorClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave131/closure.json",
+      "sha256": "10429173466710432e1836515a6feaaacbb86c66ffa10cf6c1833aa5f9ed4259"
+    },
+    "rootAcceptance": {
+      "path": "/private/tmp/loom-native-parallel-wave131/root-acceptance.json",
+      "sha256": "9f7846f8eeebb5a5217689cecf16fef5b405aac01cb8880437b3f446c2de878c",
+      "status": "ACCEPTED_PRODUCT_FAILURE",
+      "lifecycleAccepted": false,
+      "classification": "PRODUCT_POPULATION_MAPPING_HTTP_500_AFTER_FILTER",
+      "sourceFreezeReleased": true,
+      "coordinatorClosureSha256": "10429173466710432e1836515a6feaaacbb86c66ffa10cf6c1833aa5f9ed4259"
+    },
+    "integrityClosure": {
+      "path": "/private/tmp/loom-native-parallel-wave131/integrity-closure.json",
+      "sha256": "7a0b7e55c515ec5666e1e418c34dc2a2e2a26a2aa272148b331e25741932c199",
+      "sizeBytes": 4500
+    },
+    "lifecycleReport": {
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+      "sizeBytes": 6244865,
+      "status": "failed"
+    },
+    "lifecycleReportCreated": true,
+    "timingAttachment": {
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+      "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+      "sizeBytes": 6244865
+    },
+    "jsonAttachments": [
+      {
+        "name": ".last-run.json",
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/.last-run.json",
+        "sha256": "e32eb7a2a508d03ea2f2e967285211736895692ed47b0744f4439705afe6eacf",
+        "sizeBytes": 96
+      },
+      {
+        "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/cda-domain-report-json-722ff92e2608d3e2afbfa8e2ebd773e01dfbc642.json",
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/cda-domain-report-json-722ff92e2608d3e2afbfa8e2ebd773e01dfbc642.json",
+        "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+        "sizeBytes": 6244865
+      },
+      {
+        "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report-json-3dd395081dfe902186456795964af9d77ef20ddb.json",
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report-json-3dd395081dfe902186456795964af9d77ef20ddb.json",
+        "sha256": "604814303081571ec5a107fb26129b56565c8f5036f59d3430119dc0d1b31bce",
+        "sizeBytes": 6222622
+      },
+      {
+        "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/attachments/collection-repair-domain-report.json",
+        "sha256": "604814303081571ec5a107fb26129b56565c8f5036f59d3430119dc0d1b31bce",
+        "sizeBytes": 6222622
+      },
+      {
+        "name": "standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+        "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/artifacts/standalone-cda-other-CDA-c-9e9e2--the-saved-route-and-reload/cda-report.json",
+        "sha256": "f53eca31e7aa618dde0c70a257a5499d4600a9b627a6d178744d426cd19d935c",
+        "sizeBytes": 6244865
+      }
+    ],
+    "runnerResults": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/runner.log",
+      "sha256": "a08c73614cea9557efa145628532e33d54e9c730d0477e658bdf6968409377dd",
+      "sizeBytes": 3623
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave131/cda-collection-repair-partial-long-route/attempt1/terminal.json",
+      "sha256": "ca4b50a6aabd8c09a9998c501233e663a1a779dee115f77beed1cc4e481ab5c3",
+      "sizeBytes": 15
+    }
+  },
+  "scopeNote": "cda-collection-repair-partial/partial-long-route-repair-and-reload"
+}

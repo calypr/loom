@@ -44,6 +44,11 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		return "@" + key
 	}
 	switch name {
+	case "length":
+		if err := require(1); err != nil {
+			return "", err
+		}
+		return "LENGTH(FLATTEN(" + args[0] + "))", nil
 	case "coalesce_string":
 		if len(args) == 0 {
 			return "", fmt.Errorf("coalesce_string requires at least one argument")
@@ -76,6 +81,22 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		return "SORTED_UNIQUE(FLATTEN(" + args[0] + "))", nil
+	case "distinct_present_one":
+		if err := require(1); err != nil {
+			return "", err
+		}
+		typeName, err := aqlTableScalarType(call.TargetKind)
+		if err != nil {
+			return "", fmt.Errorf("distinct_present_one target kind: %w", err)
+		}
+		typeBind := r.newInternalBindKeyWithValue("related_source_row_value_type", typeName)
+		frame := r.newInternalVariable("related_source_row_value_frame")
+		item := r.newInternalVariable("related_source_row_value_item")
+		values := r.newInternalVariable("related_source_row_value_values")
+		return fmt.Sprintf(
+			`FIRST(FOR %s IN [true] LET %s = SORTED_UNIQUE((FOR %s IN FLATTEN(%s) FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, "CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH") RETURN %s)) FILTER ASSERT(LENGTH(%s) <= 1, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") RETURN (LENGTH(%s) == 0 ? null : FIRST(%s)))`,
+			frame, values, item, args[0], item, item, typeBind, item, values, values, values,
+		), nil
 	case "concat":
 		if len(args) == 0 {
 			return "", fmt.Errorf("concat requires at least one argument")
@@ -148,6 +169,11 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		return "(" + args[0] + " ? " + args[1] + " : " + args[2] + ")", nil
+	case "assert":
+		if err := require(2); err != nil {
+			return "", err
+		}
+		return "ASSERT(" + args[0] + ", " + args[1] + ")", nil
 	case "case":
 		if len(args) < 2 {
 			return "", fmt.Errorf("case requires at least one condition/result pair")
@@ -185,6 +211,12 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		operator := map[string]string{"eq": "==", "neq": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[name]
+		return "(" + args[0] + " " + operator + " " + args[1] + ")", nil
+	case "add", "subtract", "multiply", "divide":
+		if err := require(2); err != nil {
+			return "", err
+		}
+		operator := map[string]string{"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}[name]
 		return "(" + args[0] + " " + operator + " " + args[1] + ")", nil
 	case "contains":
 		if err := require(2); err != nil {

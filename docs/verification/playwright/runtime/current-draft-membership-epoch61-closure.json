@@ -1,0 +1,109 @@
+{
+  "epoch": 61,
+  "status": "CLOSED_WITH_CASE_FAILURE",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "beforeSha256": "6dbac8a56de5d36ccb31a73c9e1d536087a9a024791d2043eca7b8d5eaaa3344",
+      "afterSha256": "6dbac8a56de5d36ccb31a73c9e1d536087a9a024791d2043eca7b8d5eaaa3344",
+      "files": 1499,
+      "changedPaths": []
+    },
+    "docs": {
+      "beforeSha256": "c2f97f153e2b7ed45148cc92eec30869661c8c66b4e2e070e49395b3d514427c",
+      "afterSha256": "c2f97f153e2b7ed45148cc92eec30869661c8c66b4e2e070e49395b3d514427c",
+      "files": 151,
+      "changedPaths": []
+    },
+    "apiBuildIdentity": {
+      "before": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "after": "93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:93c80c92ecdc7e5f3d7540c713c9612af329ecc901f3055c1908c3b272b59423:6ba105393f746f46111643988a47ac6a3480bb7e4ac6177e489b449c6e48d5e0",
+      "unchanged": true
+    },
+    "ownedMounts": {
+      "beforeStatus": "PASS",
+      "afterStatus": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      }
+    },
+    "health": {
+      "beforeStatus": "PASS",
+      "beforeSamples": 3,
+      "afterStatus": "PASS",
+      "afterSamples": 3,
+      "allApiUiHealthy": true
+    },
+    "handles": {
+      "apiBuildPrecheck": {
+        "terminalExitCode": 0,
+        "artifact": "/private/tmp/loom-native-parallel-wave61/api-build-precheck.json"
+      },
+      "beforeCapture": {
+        "session": 33432,
+        "exitCode": 0
+      },
+      "beforeHealth": {
+        "session": 83363,
+        "exitCode": 0
+      },
+      "browser": {
+        "session": 98796,
+        "exitCode": 1
+      },
+      "afterCapture": {
+        "session": 1436,
+        "exitCode": 0
+      },
+      "afterHealth": {
+        "session": 99832,
+        "exitCode": 0
+      }
+    }
+  },
+  "case": {
+    "owner": "membership_native_lifecycle",
+    "scenario": "builder-combine-draft/membership",
+    "title": "current-draft MEMBERSHIP supports INCLUDE, EXCLUDE edit, removal, restoration, and reload",
+    "runnerStatus": "failed",
+    "runnerExpected": 0,
+    "runnerUnexpected": 1,
+    "playwrightTestDurationMs": 3085,
+    "reportStatus": "failed",
+    "attribution": "unclassified",
+    "firstFailure": "Error: Group field identity is ambiguous for Observation: [\"Observation ID\",\"Observation ID\"]\n\n   at ../workflows/builder-combine-draft.mjs:367\n\n  365 |   const key = resourceType === 'Patient' ? gender : status;\n  366 |   if ((needsKey && key.length !== 1) || (resourceType !== 'Patient' && ids.length !== 1)) {\n> 367 |     throw new Error('Group field identity is ambiguous for ' + resourceType + ': ' + JSON.stringify(candidates));\n      |           ^\n  368 |   }\n  369 |   return { key: key[0], id: ids[0] };\n  370 | };\n    at sourceColumnLabels (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:367:11)\n    at beginGroup (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:443:18)\n    at groupRows (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:452:36)\n    at createGroupSource (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:501:19)\n    at draftMembershipWorkflow (/private/tmp/loom-construction-implementation/scripts/verify-ui/workflows/builder-combine-draft.mjs:1298:18)\n    at /private/tmp/loom-construction-implementation/scripts/verify-ui/specs/draft-combine.spec.mjs:43:5",
+    "reachedMembershipLifecycle": false,
+    "resultsPath": "/private/tmp/loom-native-parallel-wave61/basic-membership/attempt3/results.json",
+    "resultsSha256": "2c20b5517b7cfd15e1f1b819dc7cb39b51c1489d2f63afa82c2bcd0a17ad4d64",
+    "reportPath": "/private/tmp/loom-native-parallel-wave61/basic-membership/attempt3/artifacts/draft-combine-Builder-Comb-74e97-oval-restoration-and-reload/attachments/loom-verification-report-json-dab937c0b129ee783c36d4d9d649c6740c656071.json",
+    "reportSha256": "a1df5448836464b2fb5e56c147718d9abe0960796cd05f710bfee44c1c46c629",
+    "runnerLog": "/private/tmp/loom-native-parallel-wave61/basic-membership/attempt3/runner.log",
+    "noRetry": true,
+    "causeClassification": "HARNESS_REDUNDANT_ID_SOURCE_SETUP"
+  },
+  "artifacts": {
+    "runPlan": "/private/tmp/loom-native-parallel-wave61/run-plan.json",
+    "browserEnvironment": "/private/tmp/loom-native-parallel-wave61/browser-environment.sh",
+    "captureEnvironment": "/private/tmp/loom-native-parallel-wave61/capture-environment.sh",
+    "sourceBefore": "/private/tmp/loom-native-parallel-wave61/source-before.json",
+    "sourceAfter": "/private/tmp/loom-native-parallel-wave61/source-after.json",
+    "docsBefore": "/private/tmp/loom-native-parallel-wave61/docs-before.json",
+    "docsAfter": "/private/tmp/loom-native-parallel-wave61/docs-after.json",
+    "apiBefore": "/private/tmp/loom-native-parallel-wave61/api-identity-before.json",
+    "apiAfter": "/private/tmp/loom-native-parallel-wave61/api-identity-after.json",
+    "mountsBefore": "/private/tmp/loom-native-parallel-wave61/owned-mounts-before.json",
+    "mountsAfter": "/private/tmp/loom-native-parallel-wave61/owned-mounts-after.json",
+    "healthBefore": "/private/tmp/loom-native-parallel-wave61/health-before.json",
+    "healthAfter": "/private/tmp/loom-native-parallel-wave61/health-after.json"
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "epoch": 95,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_FAIL_HARNESS_SELECTOR",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "fc803ff8f8db6fae8305ded70f5e464c833409d8ed71a89f1db986ba23f9e066",
+        "files": 1528
+      },
+      "after": {
+        "sha256": "fc803ff8f8db6fae8305ded70f5e464c833409d8ed71a89f1db986ba23f9e066",
+        "files": 1528
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/source-before.json",
+        "sha256": "af1036aacd3b91267c1852ec0134321af81e6362cda3eb1d7915a157ec369a36"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/source-after.json",
+        "sha256": "37710e4bd0ddbacfba56ba2f1f69abfe3fa80507336db743e28f7d7a39977001"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "f3c95230c0f6031fee3d7bcdd42564d86ce8d19732d1e6de98e5b40c3bc423cc",
+        "files": 226
+      },
+      "after": {
+        "sha256": "f3c95230c0f6031fee3d7bcdd42564d86ce8d19732d1e6de98e5b40c3bc423cc",
+        "files": 226
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/docs-before.json",
+        "sha256": "fc52e885309309a55a8c22c282c2bd65306c5a9e002a371db6fa01fb4f17b7a5"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/docs-after.json",
+        "sha256": "31ca444d09779dd5a765b0d5fcc640ddd4719ddc98ef7114b3ffa4e0ef5ddaa4"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/api-identity-before.json",
+        "sha256": "05d4808b639d56fc577c0837e5d1e0ba5d4c687a0b2fb5370f5cd478f2fc0884"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/api-identity-after.json",
+        "sha256": "6ea7afc24674860c104e590de3d2ea6ee8f8e2debae23e3751cdf96ee676e326"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/api-build-precheck-confirmed.json",
+        "sha256": "48999172e5c095afe08914c0ecd8b88472a799c6d65e12e59477f5869525367c"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/owned-mounts-before.json",
+        "sha256": "363e651596ba934372e96cefa7257d1f06e4d2f8824cf62f3f1c436954691999"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/owned-mounts-after.json",
+        "sha256": "586f20ccd497a23aa242d7abbd99af78816fcaec0b5125a82e252eb10ca338b8"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/health-before.json",
+        "sha256": "83b29cbfca67c972d1c4d6f6b55e8d963d784e3c04e73620ed29f7cb1b945c4f"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/health-after.json",
+        "sha256": "c5a312bd68a4f64a6399a95a6cd29f80bd4163e8ad5ca45692a4aa7da5fdc9b2"
+      }
+    }
+  },
+  "caseResult": {
+    "status": "FAILED_HARNESS_SELECTOR",
+    "failureAttribution": "HARNESS_STRICT_LOCATOR_SELECTOR_UNIQUENESS",
+    "browserSession": 91150,
+    "browserExitCode": 1,
+    "playwrightReportedTestDurationMs": 22520,
+    "reportObservedIntervalMs": 21245,
+    "testTitle": "Builder population member removal removes the mapped source member and restores the full population after undo",
+    "primaryFailure": {
+      "workflowLine": 332,
+      "helperLine": 689,
+      "action": "openRelatedFieldChooser while adding Specimen related-resource columns",
+      "selector": "[data-testid=\"feature-catalog-raw-fields\"] summary",
+      "expectedMatches": 1,
+      "actualMatches": 614,
+      "error": "Strict locator-count failure: expected exactly one control, received 614.",
+      "diagnosis": "The selector matches summary descendants throughout the raw-field catalog rather than one intended control. This is a harness selector failure; no product failure is established.",
+      "productFailureEstablished": false,
+      "lifecycleReached": false
+    },
+    "requiredChecks": {
+      "total": 10,
+      "passed": 1,
+      "notReached": 9,
+      "passedNames": [
+        "bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation"
+      ],
+      "notReachedNames": [
+        "saved source table contains the exact Observation population route followed by GROUP and RELATED_SOURCE COUNT",
+        "opening native Rows settings reveals the attached starting collection and mapped member within five seconds",
+        "mapped-member click automatically previews an exact base-minus-one candidate with the correct proposal, draft, output, snapshot, and scope bindings",
+        "Cancel leaves the exact saved workspace, draft version, digest, and base selection attached",
+        "reopening issues a fresh request for the current intent and returns its content-addressed candidate selection",
+        "Apply sends only the exact APPLY_POPULATION_MEMBER_PROPOSAL command and attaches that proposal candidate",
+        "candidate membership is the exact base membership minus the mapped member while the immutable base remains unchanged",
+        "reload preserves project, generation, route, GROUP, RELATED_SOURCE, output columns, and the exact empty candidate preview",
+        "native removal, Apply, and reload stay within five seconds; product API errors fail and incidental favicon 404s are recorded separately"
+      ]
+    },
+    "assertions": {
+      "passed": 12,
+      "failed": 1,
+      "total": 13
+    },
+    "actions": {
+      "passed": 9,
+      "failed": 1,
+      "total": 10,
+      "maxPassedElapsedMs": 1021,
+      "failedAction": {
+        "id": "cda-action-10",
+        "label": "click [data-testid=\"feature-catalog-raw-fields\"] summary",
+        "status": "failed",
+        "elapsedMs": 5007,
+        "failurePhase": "count",
+        "phases": {
+          "count": {
+            "completed": false,
+            "durationMs": 5007
+          },
+          "trial": {
+            "completed": false
+          },
+          "perform": {
+            "completed": false
+          }
+        },
+        "locator": "locator('[data-testid=\"feature-catalog-raw-fields\"] summary')"
+      }
+    },
+    "dimensionsAsReported": {
+      "usability": "failed",
+      "correctness": "passed",
+      "persistence": "untested",
+      "performance": "untested"
+    },
+    "nativeRequests": {
+      "recordedEntries": 0,
+      "unexpectedNetworkErrors": 0,
+      "errors": []
+    },
+    "assetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "artifacts": {
+      "report": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/attempt1/artifacts/population-member-removal--5760a--full-population-after-undo/attachments/cda-domain-report-json-2ea15a6a07c398933503954f92e6a6ce6bf68604.json",
+        "sha256": "50911dce1895e403bf0ec4a85e4bdc75caedcc198f12c7a6893a097d653703ff"
+      },
+      "results": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/attempt1/results.json",
+        "sha256": "6e453c6598608a4a900422a84a2ee28916da167d14d71b98a473821caabf59e7"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/attempt1/runner.log",
+        "sha256": "80b65dfe8472c8dd578ab03008dc0296f99c40d3af6d1e1c682214bc4dbedfb5"
+      },
+      "errorContext": {
+        "path": "/private/tmp/loom-native-population-member-removal-wave95/attempt1/artifacts/population-member-removal--5760a--full-population-after-undo/error-context.md",
+        "sha256": "13ec6ad64f443f06999f9a9f3e28b8fefb5442b0e884e2ea1e980cd23428e739"
+      }
+    }
+  },
+  "captureHandles": {
+    "precheck": {
+      "session": 12639,
+      "exitCode": 0
+    },
+    "beforeCapture": {
+      "session": 9334,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 30197,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 91150,
+      "exitCode": 1
+    },
+    "afterCapture": {
+      "session": 47628,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 89454,
+      "exitCode": 0
+    }
+  },
+  "rootAcceptance": {
+    "baselineAccepted": true,
+    "browserReleased": true,
+    "integrityClosureAccepted": true,
+    "casePass": false
+  }
+}

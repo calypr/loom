@@ -28,7 +28,7 @@ FILTER manifest != null AND manifest.recordType == "manifest" AND manifest.datas
 FILTER active != null AND active.recordType == "active_generation" AND active.project == @project
 FILTER owner != null AND owner.project == @project AND owner.explorerId == "default" AND owner.managementMode == "REPOSITORY"
 FILTER candidate != null AND candidate.project == @project AND candidate.explorerId == "default" AND candidate.sourceGeneration == @generation
-FILTER candidate.status == "READY" OR (candidate.status == "ACTIVE" AND owner.activeRevisionId == @revisionKey)
+FILTER candidate.status IN ["READY", "FAILED"] OR (candidate.status == "ACTIVE" AND owner.activeRevisionId == @revisionKey)
 FILTER execution != null AND execution.project == @project AND execution.datasetGeneration == @generation AND execution.state == "PUBLISHED"
 LET prior = owner.activeRevisionId == null ? null : DOCUMENT(@@revisions, owner.activeRevisionId)
 RETURN {manifest: manifest, active: active, owner: owner, candidate: candidate, prior: prior}`
@@ -177,7 +177,14 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 			}
 		}
 	}
-	if err := updateActivationDocument(ctx, tx, RevisionsCollection, candidateKey, map[string]any{"status": explorer.RevisionActive, "activatedAt": now}); err != nil {
+	publication := activatedPublication(state.candidate, candidateKey, now)
+	if err := updateActivationDocument(ctx, tx, RevisionsCollection, candidateKey, map[string]any{
+		"status":      explorer.RevisionActive,
+		"activatedAt": now,
+		"failedAt":    nil,
+		"diagnostics": []any{},
+		"publication": publication,
+	}); err != nil {
 		return err
 	}
 	ownerKey, err := activationDocumentKey(state.owner)
@@ -185,6 +192,24 @@ func activateRevisionAndOwner(ctx context.Context, tx store.RowQueryer, state ac
 		return err
 	}
 	return updateActiveExplorerDocument(ctx, tx, ownerKey, candidateKey)
+}
+
+func activatedPublication(candidate map[string]any, revisionID string, now time.Time) map[string]any {
+	publication := map[string]any{}
+	if value, ok := candidate["publication"].(map[string]any); ok {
+		for key, item := range value {
+			publication[key] = item
+		}
+	}
+	publication["state"] = string(explorer.RevisionActive)
+	publication["revisionId"] = revisionID
+	publication["updatedAt"] = now
+	if _, ok := publication["generation"]; !ok {
+		if generation, ok := candidate["sourceGeneration"].(string); ok && generation != "" {
+			publication["generation"] = generation
+		}
+	}
+	return publication
 }
 
 func updateActiveExplorerDocument(ctx context.Context, tx store.RowQueryer, ownerKey, revisionID string) error {

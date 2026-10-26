@@ -1,8 +1,8 @@
 # Loom documentation
 
 This directory contains current product contracts, architecture references,
-and operating guides. Completed plans, migration handoffs, and historical
-audits do not belong here.
+and operating guides. Superseded product plans and their evidence live under
+`product/history/`, separate from active execution instructions.
 
 ## Start here
 
@@ -18,6 +18,13 @@ audits do not belong here.
   offline default conversion.
 - [Explorer compilation architecture](EXPLORER_COMPILATION_ARCHITECTURE.md) —
   the detailed intent-to-recipe-to-physical-plan-to-AQL path.
+- [Schema-driven dataframe construction](product/ML_DATAFRAMER_DELIVERY_PLAN.md)
+  defines the five active work packages, implementation ownership, and user outcomes.
+  [The product index](product/README.md) links the current verification protocol,
+  execution ledger, and archived history.
+- [Builder formal verification plan](verification/BUILDER_FORMAL_VERIFICATION_PLAN.md) covers Tier 1 lifecycle and Tier 2 route-conformance work.
+- [Builder reconcile transitions](verification/builder-reconcile-transitions.md) maps reconcile states, guards, effects, and model actions to the implementation.
+- [Route proof chain](verification/ROUTE_PROOF_CHAIN.md) defines the evidence a route needs before it is route-proven.
 - [GraphQL API](GRAPHQL_API.md) — graph, FHIR dataframe, and published-data
   GraphQL contracts.
 
@@ -37,6 +44,8 @@ audits do not belong here.
   guidance.
 - [Reliability contract](loom-reliability-contract.md) — immutable generations,
   publication, selectors, and error-state guarantees.
+- [UI interaction verification](UI_VERIFICATION.md) — current native Playwright
+  commands, owned-stack requirements, and evidence interpretation.
 
 ## Frontend contract
 

@@ -36,6 +36,7 @@ type ProjectionMode string
 
 const (
 	ProjectionScalar        ProjectionMode = "SCALAR"
+	ProjectionIndexed       ProjectionMode = "INDEXED"
 	ProjectionFirst         ProjectionMode = "FIRST"
 	ProjectionArray         ProjectionMode = "ARRAY"
 	ProjectionDistinctArray ProjectionMode = "DISTINCT_ARRAY"
@@ -67,14 +68,19 @@ type SnapshotIdentity struct {
 	Project                  string `json:"project"`
 	Generation               string `json:"generation"`
 	AuthorizationScopeDigest string `json:"authorizationScopeDigest"`
-	SchemaDigest             string `json:"schemaDigest"`
-	ResourceInventoryDigest  string `json:"resourceInventoryDigest"`
-	RelationshipDigest       string `json:"relationshipDigest"`
-	FieldDigest              string `json:"fieldDigest"`
-	ProtocolVersion          string `json:"protocolVersion"`
-	CompilerVersion          string `json:"compilerVersion"`
-	TraversalPolicyVersion   string `json:"traversalPolicyVersion"`
-	ProjectionPolicyVersion  string `json:"projectionPolicyVersion"`
+	// CacheVersion invalidates current-identity lookups when the retained
+	// snapshot payload gains additive metadata. Exact retained tokens remain
+	// resolvable under their original identity.
+	CacheVersion            string `json:"cacheVersion,omitempty"`
+	SchemaDigest            string `json:"schemaDigest"`
+	ResourceInventoryDigest string `json:"resourceInventoryDigest"`
+	RelationshipDigest      string `json:"relationshipDigest"`
+	FieldDigest             string `json:"fieldDigest"`
+	ShapeDigest             string `json:"shapeDigest,omitempty"`
+	ProtocolVersion         string `json:"protocolVersion"`
+	CompilerVersion         string `json:"compilerVersion"`
+	TraversalPolicyVersion  string `json:"traversalPolicyVersion"`
+	ProjectionPolicyVersion string `json:"projectionPolicyVersion"`
 }
 
 type RoutePolicy struct {
@@ -110,6 +116,51 @@ type Policy struct {
 	Projection ProjectionPolicy `json:"projection"`
 }
 
+type AvailabilitySourceReadiness struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type AvailabilityReadiness struct {
+	Status            string                      `json:"status"`
+	Reason            string                      `json:"reason,omitempty"`
+	ResourceInventory AvailabilitySourceReadiness `json:"resourceInventory"`
+	Relationships     AvailabilitySourceReadiness `json:"relationships"`
+	FieldProfiles     AvailabilitySourceReadiness `json:"fieldProfiles"`
+}
+
+type ObservedResource struct {
+	ResourceType  string `json:"resourceType"`
+	DocumentCount int64  `json:"documentCount"`
+	Populated     bool   `json:"populated"`
+}
+
+type ObservedField struct {
+	ResourceType         string             `json:"resourceType"`
+	Path                 string             `json:"path"`
+	ShapeKind            string             `json:"shapeKind"`
+	PathObservedCount    int64              `json:"pathObservedCount"`
+	Examples             []string           `json:"examples"`
+	ExamplesTruncated    bool               `json:"examplesTruncated"`
+	SemanticObservations []ConceptCandidate `json:"semanticObservations"`
+}
+
+type ObservedRelationship struct {
+	SourceResourceType string `json:"sourceResourceType"`
+	TargetResourceType string `json:"targetResourceType"`
+	Label              string `json:"label"`
+	StorageDirection   string `json:"storageDirection"`
+	BuilderDirection   string `json:"builderDirection"`
+	ObservedEdgeCount  int64  `json:"observedEdgeCount"`
+}
+
+type Availability struct {
+	Readiness     AvailabilityReadiness  `json:"readiness"`
+	Resources     []ObservedResource     `json:"resources"`
+	Fields        []ObservedField        `json:"fields"`
+	Relationships []ObservedRelationship `json:"relationships"`
+}
+
 type Node struct {
 	ID                  string      `json:"nodeId"`
 	ResourceType        string      `json:"resourceType"`
@@ -136,24 +187,78 @@ type Edge struct {
 }
 
 type Candidate struct {
-	ID                    string             `json:"candidateId"`
-	NodeID                string             `json:"nodeId"`
-	ResourceType          string             `json:"resourceType"`
-	FieldPath             string             `json:"fieldPath"`
-	Label                 string             `json:"label"`
-	LogicalType           string             `json:"logicalType"`
-	Cardinality           string             `json:"cardinality,omitempty"`
-	ProjectionModes       []ProjectionMode   `json:"projectionModes"`
-	FilterOperators       []FilterOperator   `json:"filterOperators"`
-	ChartAggregations     []ChartAggregation `json:"chartAggregations"`
-	SupportedOperations   []Operation        `json:"supportedOperations"`
-	Observed              bool               `json:"observed"`
-	ObservedDocumentCount int64              `json:"observedDocumentCount,omitempty"`
-	Populated             bool               `json:"populated"`
-	SuggestedValues       []string           `json:"suggestedValues,omitempty"`
-	SuggestionsComplete   bool               `json:"suggestionsComplete"`
-	SuggestionsTruncated  bool               `json:"suggestionsTruncated"`
-	BlockedReason         string             `json:"blockedReason,omitempty"`
+	ID                    string                         `json:"candidateId"`
+	NodeID                string                         `json:"nodeId"`
+	ResourceType          string                         `json:"resourceType"`
+	FieldPath             string                         `json:"fieldPath"`
+	Label                 string                         `json:"label"`
+	LogicalType           string                         `json:"logicalType"`
+	Cardinality           string                         `json:"cardinality,omitempty"`
+	RepeatedBoundaries    []RepeatedBoundary             `json:"repeatedBoundaries,omitempty"`
+	ProjectionModes       []ProjectionMode               `json:"projectionModes"`
+	FilterOperators       []FilterOperator               `json:"filterOperators"`
+	ChartAggregations     []ChartAggregation             `json:"chartAggregations"`
+	SupportedOperations   []Operation                    `json:"supportedOperations"`
+	AggregateOperations   []AggregateOperationCapability `json:"aggregateOperations,omitempty"`
+	Observed              bool                           `json:"observed"`
+	ObservedDocumentCount int64                          `json:"observedDocumentCount,omitempty"`
+	Populated             bool                           `json:"populated"`
+	SuggestedValues       []string                       `json:"suggestedValues,omitempty"`
+	SuggestionsComplete   bool                           `json:"suggestionsComplete"`
+	SuggestionsTruncated  bool                           `json:"suggestionsTruncated"`
+	ConceptCandidates     []ConceptCandidate             `json:"conceptCandidates,omitempty"`
+	BlockedReason         string                         `json:"blockedReason,omitempty"`
+}
+
+// IsRepeatedCardinality is the single wire-cardinality interpretation used by
+// Builder catalog adapters. Capability snapshots use dataframe cardinalities,
+// while older persisted snapshots may contain upper-case values.
+func IsRepeatedCardinality(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "many", "unknown_observed_many":
+		return true
+	default:
+		return false
+	}
+}
+
+// ConceptCandidate carries observed FHIR identity into Builder without
+// claiming terminology equivalence. It intentionally retains unresolved and
+// mixed-choice statuses so the authoring layer can present them explicitly.
+type ConceptCandidate struct {
+	SourceResourceType     string   `json:"sourceResourceType"`
+	SourcePath             string   `json:"sourcePath,omitempty"`
+	SourceCanonical        string   `json:"sourceCanonical,omitempty"`
+	SourceProfile          string   `json:"sourceProfile,omitempty"`
+	OwningScope            string   `json:"owningScope,omitempty"`
+	ExtensionURLPath       []string `json:"extensionUrlPath,omitempty"`
+	KeySelector            string   `json:"keySelector,omitempty"`
+	System                 string   `json:"system,omitempty"`
+	Code                   string   `json:"code,omitempty"`
+	Display                string   `json:"display,omitempty"`
+	ValueSelector          string   `json:"valueSelector,omitempty"`
+	ChoiceArm              string   `json:"choiceArm,omitempty"`
+	LogicalType            string   `json:"logicalType,omitempty"`
+	ObservedUnits          []string `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool     `json:"observedUnitsTruncated,omitempty"`
+	Completeness           string   `json:"completeness"`
+	Status                 string   `json:"status"`
+	Population             int64    `json:"population"`
+	Examples               []string `json:"examples,omitempty"`
+	ExamplesTruncated      bool     `json:"examplesTruncated,omitempty"`
+	RuleHint               string   `json:"ruleHint,omitempty"`
+	RuleVersion            string   `json:"ruleVersion,omitempty"`
+}
+
+type RepeatedBoundary struct {
+	Path     string `json:"path"`
+	MaxItems int    `json:"maxItems"`
+}
+
+type RepeatedCoordinate struct {
+	BoundaryPath string `json:"boundaryPath"`
+	Index        int    `json:"index"`
+	Width        int    `json:"width"`
 }
 
 type Diagnostic struct {
@@ -175,6 +280,7 @@ type Snapshot struct {
 	Status          Status           `json:"status"`
 	Complete        bool             `json:"complete"`
 	Truncated       bool             `json:"truncated"`
+	Availability    *Availability    `json:"availability,omitempty"`
 	Nodes           []Node           `json:"nodes"`
 	Edges           []Edge           `json:"edges"`
 	Candidates      []Candidate      `json:"candidates"`
@@ -239,6 +345,8 @@ func (s Snapshot) CanonicalPayload() []byte {
 }
 
 func canonicalSnapshot(s Snapshot) Snapshot {
+	s.Availability = cloneAvailability(s.Availability)
+	normalizeAvailability(s.Availability)
 	s.Nodes = append([]Node(nil), s.Nodes...)
 	s.Edges = append([]Edge(nil), s.Edges...)
 	s.Candidates = append([]Candidate(nil), s.Candidates...)
@@ -269,6 +377,28 @@ func canonicalSnapshot(s Snapshot) Snapshot {
 	return s
 }
 
+func normalizeAvailability(value *Availability) {
+	if value == nil {
+		return
+	}
+	sort.Slice(value.Resources, func(i, j int) bool {
+		return value.Resources[i].ResourceType < value.Resources[j].ResourceType
+	})
+	sort.Slice(value.Fields, func(i, j int) bool {
+		return value.Fields[i].ResourceType+"\x00"+value.Fields[i].Path < value.Fields[j].ResourceType+"\x00"+value.Fields[j].Path
+	})
+	for i := range value.Fields {
+		sort.Strings(value.Fields[i].Examples)
+		sort.SliceStable(value.Fields[i].SemanticObservations, func(a, b int) bool {
+			return conceptCandidateKey(value.Fields[i].SemanticObservations[a]) < conceptCandidateKey(value.Fields[i].SemanticObservations[b])
+		})
+	}
+	sort.Slice(value.Relationships, func(i, j int) bool {
+		a, b := value.Relationships[i], value.Relationships[j]
+		return a.SourceResourceType+"\x00"+a.Label+"\x00"+a.TargetResourceType+"\x00"+a.StorageDirection+"\x00"+a.BuilderDirection < b.SourceResourceType+"\x00"+b.Label+"\x00"+b.TargetResourceType+"\x00"+b.StorageDirection+"\x00"+b.BuilderDirection
+	})
+}
+
 func NewSnapshot(identity SnapshotIdentity, policy Policy, status Status, complete, truncated bool, nodes []Node, edges []Edge, candidates []Candidate, diagnostics []Diagnostic) Snapshot {
 	s := Snapshot{Identity: identity, Policy: policy, Status: status, Complete: complete, Truncated: truncated, Nodes: nodes, Edges: edges, Candidates: candidates, Diagnostics: diagnostics}
 	s = cloneSnapshot(s)
@@ -289,15 +419,30 @@ func normalizeCandidateSlices(cs []Candidate) {
 		sort.Slice(cs[i].FilterOperators, func(a, b int) bool { return cs[i].FilterOperators[a] < cs[i].FilterOperators[b] })
 		sort.Slice(cs[i].ChartAggregations, func(a, b int) bool { return cs[i].ChartAggregations[a] < cs[i].ChartAggregations[b] })
 		sort.Slice(cs[i].SupportedOperations, func(a, b int) bool { return cs[i].SupportedOperations[a] < cs[i].SupportedOperations[b] })
+		sort.Slice(cs[i].AggregateOperations, func(a, b int) bool {
+			left, right := cs[i].AggregateOperations[a], cs[i].AggregateOperations[b]
+			if left.RowContext != right.RowContext {
+				return left.RowContext < right.RowContext
+			}
+			return left.Operation < right.Operation
+		})
 	}
 }
 func normalizeCandidateValues(cs []Candidate) {
 	for i := range cs {
 		sort.Strings(cs[i].SuggestedValues)
+		sort.SliceStable(cs[i].ConceptCandidates, func(left, right int) bool {
+			return conceptCandidateKey(cs[i].ConceptCandidates[left]) < conceptCandidateKey(cs[i].ConceptCandidates[right])
+		})
 	}
 }
 
+func conceptCandidateKey(candidate ConceptCandidate) string {
+	return strings.Join([]string{candidate.SourceResourceType, candidate.SourceCanonical, candidate.SourceProfile, candidate.SourcePath, candidate.OwningScope, strings.Join(candidate.ExtensionURLPath, "\x1f"), candidate.KeySelector, candidate.System, candidate.Code, candidate.ChoiceArm, candidate.ValueSelector, candidate.Status}, "\x00")
+}
+
 func cloneSnapshot(s Snapshot) Snapshot {
+	s.Availability = cloneAvailability(s.Availability)
 	s.Nodes = cloneNodes(s.Nodes)
 	s.AuditNodes = cloneNodes(s.AuditNodes)
 	s.Edges = append([]Edge(nil), s.Edges...)
@@ -307,6 +452,21 @@ func cloneSnapshot(s Snapshot) Snapshot {
 	s.Diagnostics = cloneDiagnostics(s.Diagnostics)
 	s.Policy.Projection.Modes = append([]ProjectionMode(nil), s.Policy.Projection.Modes...)
 	return s
+}
+
+func cloneAvailability(in *Availability) *Availability {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Resources = append([]ObservedResource(nil), in.Resources...)
+	out.Relationships = append([]ObservedRelationship(nil), in.Relationships...)
+	out.Fields = append([]ObservedField(nil), in.Fields...)
+	for i := range out.Fields {
+		out.Fields[i].Examples = append([]string(nil), in.Fields[i].Examples...)
+		out.Fields[i].SemanticObservations = cloneConceptCandidates(in.Fields[i].SemanticObservations)
+	}
+	return &out
 }
 func cloneNodes(v []Node) []Node {
 	out := append([]Node(nil), v...)
@@ -322,7 +482,24 @@ func cloneCandidates(v []Candidate) []Candidate {
 		out[i].FilterOperators = append([]FilterOperator(nil), out[i].FilterOperators...)
 		out[i].ChartAggregations = append([]ChartAggregation(nil), out[i].ChartAggregations...)
 		out[i].SupportedOperations = append([]Operation(nil), out[i].SupportedOperations...)
+		out[i].AggregateOperations = cloneAggregateOperationCapabilities(v[i].AggregateOperations)
 		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
+		out[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), out[i].RepeatedBoundaries...)
+		out[i].ConceptCandidates = cloneConceptCandidateValues(out[i].ConceptCandidates)
+	}
+	return out
+}
+
+func cloneConceptCandidateValues(in []ConceptCandidate) []ConceptCandidate {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ConceptCandidate, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].ExtensionURLPath = append([]string(nil), in[i].ExtensionURLPath...)
+		out[i].ObservedUnits = append([]string(nil), in[i].ObservedUnits...)
+		out[i].Examples = append([]string(nil), in[i].Examples...)
 	}
 	return out
 }

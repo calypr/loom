@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "fixture": "testdata/cda-mini-fixture",
+  "runner": "scripts/run-builder-journey.mjs",
+  "specDirectory": "scripts/verify-ui/journey-specs",
+  "journeys": [
+    {
+      "id": "load-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/load-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Preview",
+        "PreviewComplete"
+      ],
+      "oracle": "The six-patient CDA mini table previews with only the id column.",
+      "contract": null,
+      "model": null,
+      "minBackendCalls": 8,
+      "evidence": {
+        "cdaMini": {
+          "backendCallCount": 8,
+          "result": "pass",
+          "rowCount": 6,
+          "columnCount": 1,
+          "trace": ".artifacts/builder-journey/cda-mini/load-preview-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/load-preview-report.json"
+        }
+      }
+    },
+    {
+      "id": "add-column-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/add-column-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "AddColumn",
+        "Preview",
+        "PreviewComplete"
+      ],
+      "oracle": "Adds the repeated CDA identifier value and previews all six patients.",
+      "contract": "verification/builder-interactions/builder-add-column-contract.json",
+      "model": "BuilderJourney",
+      "minBackendCalls": 10,
+      "evidence": {
+        "cdaMini": {
+          "backendCallCount": 13,
+          "result": "pass",
+          "rowCount": 6,
+          "columnCount": 2,
+          "trace": ".artifacts/builder-journey/cda-mini/add-column-preview-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/add-column-preview-report.json"
+        }
+      }
+    },
+    {
+      "id": "filter-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/filter-preview.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Filter",
+        "Preview",
+        "PreviewComplete",
+        "CancelFilter"
+      ],
+      "oracle": "Filters the six-patient CDA mini table by id, cancels the filter, and preserves the source table after reload.",
+      "contract": "verification/builder-interactions/builder-filter-contract.json",
+      "model": "BuilderJourney",
+      "minBackendCalls": 10,
+      "evidence": {
+        "cdaMini": {
+          "backendCallCount": 16,
+          "result": "pass",
+          "rowCount": 1,
+          "columnCount": 1,
+          "trace": ".artifacts/builder-journey/cda-mini/filter-preview-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/filter-preview-report.json"
+        }
+      }
+    },
+    {
+      "id": "group-twice-preview",
+      "priority": "P0",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "Group",
+        "GroupAgain",
+        "Preview",
+        "PreviewComplete"
+      ],
+      "oracle": "Groups the CDA mini table twice and previews one grouped row.",
+      "contract": "verification/builder-interactions/builder-journey-contract.json",
+      "model": "BuilderJourney",
+      "minBackendCalls": 10,
+      "evidence": {
+        "cdaMini": {
+          "backendCallCount": 18,
+          "result": "pass",
+          "rowCount": 1,
+          "trace": ".artifacts/builder-journey/cda-mini/group-twice-preview-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/group-twice-preview-report.json"
+        }
+      }
+    },
+    {
+      "id": "cda-mini-birthsex-filter",
+      "priority": "P1",
+      "status": "passing",
+      "spec": "scripts/verify-ui/journey-specs/cda-mini-birthsex-filter.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "AddColumn",
+        "Filter",
+        "Preview",
+        "PreviewComplete",
+        "CancelFilter"
+      ],
+      "oracle": "Adds the CDA birthsex extension column, filters to the three female patients, cancels the filter, and preserves the six-patient source table after reload.",
+      "contract": null,
+      "model": null,
+      "minBackendCalls": 15,
+      "evidence": {
+        "cdaMini": {
+          "backendCallCount": 22,
+          "result": "pass",
+          "rowCount": 3,
+          "columnCount": 2,
+          "trace": ".artifacts/builder-journey/cda-mini/cda-mini-birthsex-filter-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/cda-mini-birthsex-filter-report.json"
+        }
+      }
+    },
+    {
+      "id": "edit-remove-reload-cda-manual",
+      "priority": "P1",
+      "status": "not-run",
+      "manualOnly": true,
+      "automationCoverage": false,
+      "spec": "scripts/verify-ui/journey-specs/edit-remove-reload.spec.mjs",
+      "actions": [
+        "SelectRows",
+        "AddColumn",
+        "Group",
+        "EditGroup",
+        "RemoveGroup",
+        "Reload"
+      ],
+      "oracle": "Retained CDA extension-value-code Group branch. It checks the CDA source and added Extension Value Code column, groups by id and extension value code, and verifies the Grouped row/count shape. Removal and reload checks restore the source column count and row count and confirm the first two source IDs remain visible; they do not compare every raw source row. This manual case is unrun and is not CI automation coverage.",
+      "contract": "verification/builder-interactions/builder-edit-remove-contract.json",
+      "model": "BuilderJourney",
+      "minBackendCalls": 10,
+      "evidence": {
+        "cdaMini": {
+          "result": "not-run",
+          "automationCoverage": false,
+          "trace": ".artifacts/builder-journey/cda-mini/edit-remove-reload-cda-manual-trace.json",
+          "report": ".artifacts/builder-journey/cda-mini/edit-remove-reload-cda-manual-report.json"
+        }
+      }
+    }
+  ]
+}

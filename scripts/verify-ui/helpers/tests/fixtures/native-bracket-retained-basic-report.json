@@ -1,0 +1,254 @@
+{
+  "source": {
+    "path": "/private/tmp/loom-native-combine-group-pivot-append-wave138/attempt1/browser-artifacts/draft-combine-Builder-Comb-1bbfe-ply-edit-removal-and-reload/attachments/loom-verification-report-json-666ac008515d6b536e23a005b947b415657a6b76.json",
+    "sha256": "a63584160a1aad33328c18498b7eca1b99da386bdd359527c1ce6f0895574192"
+  },
+  "report": {
+    "schemaVersion": 2,
+    "scenario": "builder-combine-draft",
+    "case": "group-pivot-append",
+    "status": "failed",
+    "requiredChecks": [
+      "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
+      "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
+      "first native source table establishes a versioned current draft under the exact scope",
+      "Observation root Preview contains exact independent fixture IDs",
+      "DiagnosticReport root Preview contains exact independent fixture IDs",
+      "Observation ID source native GROUP count rows match the direct fixture oracle",
+      "Report grouped pivot source native GROUP count rows match the direct fixture oracle",
+      "Report grouped pivot source native Pivot preview matches raw Group→Pivot category counts",
+      "Report grouped pivot source Group→Pivot values survive reload",
+      "Group→Pivot APPEND native choice uses exact current-draft inputs and four output mappings",
+      "independent Group/Pivot inputs contain seven rows, three shared IDs, and exact source-specific nullability",
+      "Group→Pivot APPEND preview equals the exact independent union with source-specific null padding",
+      "Group→Pivot APPEND preserves exact shared-ID multiplicity",
+      "automatic Combine proposal is bound to this exact draft CAS and UI proxy scope",
+      "Cancel preserves both mixed source shapes, the full workspace, and draft CAS after reload",
+      "Group→Pivot APPEND apply preview retains exact union rows and null padding",
+      "Apply Group→Pivot APPEND advances the draft CAS and binds the exact unpublished sources with stable output fields",
+      "Group→Pivot APPEND rows survive reload exactly",
+      "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+      "preview cancellable Group→Pivot APPEND heading edit with exact union rows action-to-render within budget",
+      "Cancel saved Group→Pivot APPEND heading edit without saving action-to-render within budget",
+      "Canceling Group→Pivot APPEND edit preserves the original saved step, full workspace, and draft CAS after reload",
+      "Cancel preserves original Group→Pivot APPEND heading and values after reload",
+      "edit Group→Pivot APPEND heading and preview all exact union rows for Apply action-to-render within budget",
+      "edited Group→Pivot APPEND heading preserves all union values and null padding",
+      "Group→Pivot APPEND edit advances the draft CAS and preserves its step, output columnIDs, and current-draft inputs",
+      "edited Group→Pivot APPEND heading and values survive reload",
+      "Canceling Combine removal preserves its saved step, full workspace, and draft CAS after reload",
+      "removing Combine and reloading restores its rooted empty target",
+      "removing Group→Pivot APPEND advances the draft CAS, restores the rooted empty target, and preserves both source constructions",
+      "Group→Pivot APPEND lifecycle never publishes or pins source revisions"
+    ],
+    "assertions": [
+      {
+        "name": "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+        "status": "passed",
+        "evidence": {
+          "elapsedMs": 71
+        }
+      },
+      {
+        "name": "preview cancellable Group→Pivot APPEND heading edit with exact union rows action-to-render within budget",
+        "status": "passed",
+        "evidence": {
+          "elapsedMs": 566
+        }
+      },
+      {
+        "name": "Cancel saved Group→Pivot APPEND heading edit without saving action-to-render within budget",
+        "status": "passed",
+        "evidence": {
+          "elapsedMs": 112
+        }
+      },
+      {
+        "name": "open saved Combine editor after draft input schemas resolve action-to-render within budget",
+        "status": "passed",
+        "evidence": {
+          "elapsedMs": 53
+        }
+      },
+      {
+        "name": "edit Group→Pivot APPEND heading and preview all exact union rows for Apply action-to-render within budget",
+        "status": "passed",
+        "evidence": {
+          "elapsedMs": 562
+        }
+      }
+    ],
+    "actions": [
+      {
+        "name": "open Explorer creation",
+        "elapsedMs": 58,
+        "status": "passed"
+      },
+      {
+        "name": "create blank Explorer",
+        "elapsedMs": 114,
+        "status": "passed"
+      },
+      {
+        "name": "create current-draft Observation source table",
+        "elapsedMs": 323,
+        "status": "passed"
+      },
+      {
+        "name": "select raw Observation.status and make Apply columns ready",
+        "elapsedMs": 476,
+        "status": "passed"
+      },
+      {
+        "name": "apply native raw Observation.status field to a current draft",
+        "elapsedMs": 159,
+        "status": "passed"
+      },
+      {
+        "name": "Apply Observation ID source current-draft GROUP",
+        "elapsedMs": 250,
+        "status": "passed"
+      },
+      {
+        "name": "create current-draft DiagnosticReport source table",
+        "elapsedMs": 232,
+        "status": "passed"
+      },
+      {
+        "name": "select raw DiagnosticReport.status and make Apply columns ready",
+        "elapsedMs": 206,
+        "status": "passed"
+      },
+      {
+        "name": "apply native raw DiagnosticReport.status field to a current draft",
+        "elapsedMs": 242,
+        "status": "passed"
+      },
+      {
+        "name": "Apply Report grouped pivot source current-draft GROUP",
+        "elapsedMs": 253,
+        "status": "passed"
+      },
+      {
+        "name": "Apply Report grouped pivot source current-draft PIVOT",
+        "elapsedMs": 266,
+        "status": "passed"
+      },
+      {
+        "name": "reload applied Report grouped pivot source Group→Pivot and render its exact table",
+        "elapsedMs": 556,
+        "status": "passed"
+      },
+      {
+        "name": "open native Combine and create a separate empty target",
+        "elapsedMs": 101,
+        "status": "passed"
+      },
+      {
+        "name": "Group→Pivot current-draft APPEND auto-preview within five seconds",
+        "elapsedMs": 580,
+        "status": "passed"
+      },
+      {
+        "name": "Cancel Group→Pivot APPEND proposal without saving",
+        "elapsedMs": 62,
+        "status": "passed"
+      },
+      {
+        "name": "reload canceled Group→Pivot APPEND and select its unchanged empty target",
+        "elapsedMs": 449,
+        "status": "passed"
+      },
+      {
+        "name": "open native Combine and create a separate empty target",
+        "elapsedMs": 132,
+        "status": "passed"
+      },
+      {
+        "name": "Group→Pivot current-draft APPEND apply preview within five seconds",
+        "elapsedMs": 553,
+        "status": "passed"
+      },
+      {
+        "name": "Apply Group→Pivot current-draft APPEND",
+        "elapsedMs": 389,
+        "status": "passed"
+      },
+      {
+        "name": "reload applied Group→Pivot APPEND and render exact union rows",
+        "elapsedMs": 594,
+        "status": "passed"
+      },
+      {
+        "name": "open saved Combine editor after draft input schemas resolve",
+        "elapsedMs": 71,
+        "status": "passed"
+      },
+      {
+        "name": "preview cancellable Group→Pivot APPEND heading edit with exact union rows",
+        "elapsedMs": 566,
+        "status": "passed"
+      },
+      {
+        "name": "Cancel saved Group→Pivot APPEND heading edit without saving",
+        "elapsedMs": 112,
+        "status": "passed"
+      },
+      {
+        "name": "reload canceled Group→Pivot APPEND edit and render its original union",
+        "elapsedMs": 604,
+        "status": "passed"
+      },
+      {
+        "name": "open saved Combine editor after draft input schemas resolve",
+        "elapsedMs": 53,
+        "status": "passed"
+      },
+      {
+        "name": "edit Group→Pivot APPEND heading and preview all exact union rows for Apply",
+        "elapsedMs": 562,
+        "status": "passed"
+      },
+      {
+        "name": "Apply Group→Pivot APPEND heading edit",
+        "elapsedMs": 382,
+        "status": "passed"
+      },
+      {
+        "name": "reload edited Group→Pivot APPEND and render exact union rows",
+        "elapsedMs": 623,
+        "status": "passed"
+      },
+      {
+        "name": "propose removal of the saved Combine step and render its exact target",
+        "elapsedMs": 509,
+        "status": "passed"
+      },
+      {
+        "name": "Cancel proposed Combine removal without changing saved workspace",
+        "elapsedMs": 115,
+        "status": "passed"
+      },
+      {
+        "name": "reload saved Combine after canceling removal",
+        "elapsedMs": 604,
+        "status": "passed"
+      },
+      {
+        "name": "propose Combine removal and render the exact rooted empty output",
+        "elapsedMs": 506,
+        "status": "passed"
+      },
+      {
+        "name": "apply Combine removal to restore the empty target",
+        "elapsedMs": 157,
+        "status": "passed"
+      },
+      {
+        "name": "reload removed Combine and select its exact rooted empty output",
+        "elapsedMs": 462,
+        "status": "passed"
+      }
+    ]
+  }
+}

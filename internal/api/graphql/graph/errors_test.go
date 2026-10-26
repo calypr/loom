@@ -40,7 +40,7 @@ func TestPresentErrorUsesStableExtensions(t *testing.T) {
 
 func TestPresentErrorRedactsUnknownErrors(t *testing.T) {
 	graphqlErr := presentError(errors.New("AQL FOR p IN Patient bind=@token"), "request-456")
-	if graphqlErr.Message != "internal server error" {
+	if graphqlErr.Message != "an unexpected internal error occurred while processing the data request" {
 		t.Fatalf("unknown message = %q", graphqlErr.Message)
 	}
 	if graphqlErr.Extensions["code"] != string(dataframeerrors.CodeInternalError) {

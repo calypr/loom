@@ -2,9 +2,9 @@ package dataframe
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
+	"github.com/calypr/loom/internal/api/columncapabilities"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	materialization "github.com/calypr/loom/internal/dataframe/published"
@@ -56,7 +56,8 @@ func ColumnFromPhysical(column publication.PhysicalColumn) *model.DataframeColum
 }
 
 func ColumnModel(column materialization.Column) *model.DataframeColumn {
-	logical, nullable, repeated, filterable, sortable, aggregatable := columnCapabilities(column.ClickHouse)
+	capabilities := columncapabilities.FromClickHouse(column.ClickHouse)
+	logical, nullable, repeated := capabilities.Logical, capabilities.Nullable, capabilities.Repeated
 	if column.LogicalType != "" {
 		logical = column.LogicalType
 	}
@@ -66,7 +67,7 @@ func ColumnModel(column materialization.Column) *model.DataframeColumn {
 	if column.Repeated {
 		repeated = true
 	}
-	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: filterable, Sortable: sortable, Aggregatable: aggregatable}
+	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: capabilities.Filterable, Sortable: !repeated, Aggregatable: !repeated && logical != "json"}
 }
 
 func PersistedFailure(raw, code string, retryable bool) (message, failureCode *string, failureRetryable *bool) {
@@ -80,36 +81,6 @@ func PersistedFailure(raw, code string, retryable bool) (message, failureCode *s
 	publicCode := code
 	publicMessage := dataframeerrors.PublicMessage(dataframeerrors.NewError(dataframeerrors.ErrorCode(code), "", dataframeerrors.WithRetryable(retryable)))
 	return &publicMessage, &publicCode, &retryable
-}
-
-func columnCapabilities(clickHouseType string) (logical string, nullable, repeated, filterable, sortable, aggregatable bool) {
-	typ := clickHouseType
-	if strings.HasPrefix(typ, "Nullable(") && strings.HasSuffix(typ, ")") {
-		nullable = true
-		typ = strings.TrimSuffix(strings.TrimPrefix(typ, "Nullable("), ")")
-	}
-	if strings.HasPrefix(typ, "Array(") && strings.HasSuffix(typ, ")") {
-		repeated = true
-		typ = strings.TrimSuffix(strings.TrimPrefix(typ, "Array("), ")")
-	}
-	switch {
-	case strings.HasPrefix(typ, "Bool"):
-		logical = "boolean"
-	case strings.HasPrefix(typ, "Int") || strings.HasPrefix(typ, "UInt"):
-		logical = "integer"
-	case strings.HasPrefix(typ, "Float") || strings.HasPrefix(typ, "Decimal"):
-		logical = "number"
-	case strings.HasPrefix(typ, "Date"):
-		logical = "date"
-	case strings.HasPrefix(typ, "String") || strings.HasPrefix(typ, "FixedString") || strings.HasPrefix(typ, "UUID"):
-		logical = "string"
-	default:
-		logical = "json"
-	}
-	filterable = true
-	sortable = !repeated
-	aggregatable = !repeated && logical != "json"
-	return logical, nullable, repeated, filterable, sortable, aggregatable
 }
 
 func AggregateRowsResult(value []map[string]any) (json.RawMessage, error) {

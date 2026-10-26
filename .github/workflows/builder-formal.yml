@@ -1,0 +1,94 @@
+name: Builder Formal Verification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/builder-formal.yml'
+      - 'scripts/verify-builder-*.mjs'
+      - 'scripts/verify-ui/**'
+      - 'scripts/run-builder-journey.mjs'
+      - 'scripts/package.json'
+      - 'scripts/package-lock.json'
+      - 'scripts/run-builder-mutation-probe.mjs'
+      - 'scripts/generate-builder-route-ledger.mjs'
+      - 'scripts/self-test-builder-traces.mjs'
+      - 'verification/builder-interactions/**'
+      - 'docs/ui-contract-inventory/**'
+      - 'ui/packages/loom-ui/src/features/ExplorerBuilder/**'
+      - 'ui/packages/loom-ui/testSupport/formalTrace.ts'
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fast:
+    name: Fast formal gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: |
+            scripts/package-lock.json
+            ui/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install formal conformance test dependencies
+        working-directory: scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check retained browser evidence before formal models
+        run: >-
+          node scripts/generate-builder-browser-evidence.mjs
+          --from-evidence --check
+      - name: Run formal models, traces, and retained schedules
+        run: node scripts/verify-builder-formal.mjs --skip-go
+
+  full:
+    name: Full formal gate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: |
+            scripts/package-lock.json
+            ui/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install formal conformance test dependencies
+        working-directory: scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check retained browser evidence before formal models
+        run: >-
+          node scripts/generate-builder-browser-evidence.mjs
+          --from-evidence --check
+      - name: Run formal models, traces, schedules, and server contracts
+        run: node scripts/verify-builder-formal.mjs

@@ -1,0 +1,315 @@
+{
+  "schemaVersion": 1,
+  "epoch": 126,
+  "status": "CLOSED_PASS",
+  "rawCoordinatorStatus": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "rawCoordinatorClosurePath": "/private/tmp/loom-native-parallel-wave126/closure.json",
+  "rawCoordinatorClosureSha256": "9e97f674d671f48365f244cfcbf494031ec1460743356ad6f3bb88ecca9a4d8a",
+  "rootReviewStatus": "ACCEPTED_FULL_LIFECYCLE_PASS",
+  "rootAcceptanceReceipt": {
+    "path": "/private/tmp/loom-native-parallel-wave126/root-acceptance.json",
+    "sha256": "dacbd6a52000858ee3ab9cb3ca5c9c644a041084c65a114dff5ada3aad9fb801",
+    "status": "ACCEPTED_FULL_LIFECYCLE_PASS",
+    "lifecycleAccepted": true,
+    "classification": "EXACT_CDA_SPECIMEN_REFERENCE_ONE_ALL_LIFECYCLE",
+    "sourceFreezeReleased": true,
+    "coordinatorClosureSha256": "9e97f674d671f48365f244cfcbf494031ec1460743356ad6f3bb88ecca9a4d8a"
+  },
+  "case": {
+    "scenarioId": "cda-related-one-all-specimen-reference",
+    "caseName": "cda-specimen-reference-raw-oracle-one-all-lifecycle",
+    "title": "preserves cda specimen-reference behavior against raw related records",
+    "status": "passed",
+    "classification": "EXACT_CDA_SPECIMEN_REFERENCE_ONE_ALL_LIFECYCLE",
+    "requiredChecks": {
+      "passed": 2,
+      "total": 2,
+      "missingOrFailed": 0,
+      "missingOrUnrun": 0,
+      "passedNames": [
+        "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+        "CDA watched source and API build stayed unchanged"
+      ],
+      "failedNames": [],
+      "unrunNames": [],
+      "outcomes": [
+        {
+          "name": "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ],
+      "evidence": [
+        {
+          "name": "related ONE/ALL lifecycle preserves exact raw-source values and row identities",
+          "status": "passed"
+        },
+        {
+          "name": "CDA watched source and API build stayed unchanged",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+        "files": 1553
+      },
+      "after": {
+        "sha256": "c6d058e4f71d6c46c9d671a1cf06e0415d7034ee2eb73084cea20eb94f75c38e",
+        "files": 1553
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/source-before.json",
+        "sha256": "049839504abe4dc825799e0982749ba1ab02159a2c90dd326173cc7cc60676a4"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/source-after.json",
+        "sha256": "11f27770f0e4f2011040ee1a4cde6f7d7b3a4b9e5a4aeff8c9c855c10bbfdcb1"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "a1e4f25acf75430c24c85ff0560462bb44e31c823904579e65a242c3db234164",
+        "files": 272
+      },
+      "after": {
+        "sha256": "a1e4f25acf75430c24c85ff0560462bb44e31c823904579e65a242c3db234164",
+        "files": 272
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/docs-before.json",
+        "sha256": "8e721f710aa3ca5453b36a9fd39ec3b131235d012347bd173cca3fdba5e51aaa"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/docs-after.json",
+        "sha256": "be2dc03aa12978fc02ce76641f50f4e65d13816cfbf46782d9f3f44ae596096e"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "after": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "precheck": "98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:98ca33454e8901f705c575ba841a2a5bd76cd6f0b19a48bcd8b67c5c130a70f8:85c11c1b9b88b8ff8cbd1241e8be6dea82f222956cf717e47c11fcb5efc7e135",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/api-identity-before.json",
+        "sha256": "1fd1ac30e103e518bb547251360ccc21544a2d4d94056389959b0c5d9bdf3448"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/api-identity-after.json",
+        "sha256": "6477cbd39b58d9a20cf0743df4e858beb1cc3da4308ee47c727581c5b84ac9b9"
+      },
+      "precheckArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/api-build-precheck.json",
+        "sha256": "54c00c3128cdf5c90c2ec9c28c982db4869622054644dba38e814a4f9cd94af6"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/owned-mounts-before.json",
+        "sha256": "de9cbf2e1a44511c24dec5c26ddcbfb49fb50bc21f07cea6341d3f12de6ec786"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/owned-mounts-after.json",
+        "sha256": "3622d2240078627bbb06856699ade2660373c1c6400e14ca97a8a5266099a28d"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/health-before.json",
+        "sha256": "101377f95054f5f4201d227bfca45fbda054d1c91231e086f8eb68c72a39ca75"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave126/health-after.json",
+        "sha256": "ba3e6a4669ca15b7afc890776f7a9a85c10750f5386286595e1e8970678805e8"
+      }
+    }
+  },
+  "runner": {
+    "status": "passed",
+    "exitCode": 0,
+    "durationMs": 38801,
+    "suiteDurationMs": 40910.488000000005,
+    "results": null,
+    "runnerLog": {
+      "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/runner.log",
+      "sha256": "fe2d89dbd393df73c15fd0cab6839efa6f1382692ddf82719642cfe490ff3d12",
+      "sizeBytes": 721
+    },
+    "terminalRecord": {
+      "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/terminal.json",
+      "sha256": "3edd82d4e49f89c30270dee752ac018539f4dc6848d7a33b1553404e6f8b58af",
+      "sizeBytes": 15
+    }
+  },
+  "lifecycleReport": {
+    "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/artifacts/standalone-cda-rows-CDA-re-6f685-against-raw-related-records/cda-report.json",
+    "sha256": "09d87e7fe36659ded4340a62e67ee3f935c4de14a92be3bba84d141c6a9c697c",
+    "sizeBytes": 2414764,
+    "status": "passed"
+  },
+  "lifecycleReportCreated": true,
+  "strictIntegrityClosure": {
+    "path": "/private/tmp/loom-native-parallel-wave126/integrity-closure.json",
+    "sha256": "da95c0ace41ee2baa9102b3b7cad277b4ee45f775aaaec58717718ca4974a7d8",
+    "sizeBytes": 4500
+  },
+  "jsonAttachments": [],
+  "performance": {
+    "completeActionToRender": {
+      "source": {
+        "path": "/private/tmp/loom-native-parallel-wave126/cda-related-one-all-specimen-reference/attempt1/artifacts/standalone-cda-rows-CDA-re-6f685-against-raw-related-records/attachments/standalone-cda-related-one-all.json",
+        "sha256": "e54858a4338ff263b7c9d107ec92ab8e38a04306b73596aa89cc778522a68dde",
+        "sizeBytes": 1062446
+      },
+      "timedCompleteCheckpoints": 22,
+      "maximumDurationMs": 1538,
+      "thresholdMs": 5000,
+      "withinThreshold": true,
+      "checkpoints": [
+        {
+          "name": "reload-exact-available-cardinality-source-members",
+          "durationMs": 1538
+        },
+        {
+          "name": "expand-Specimen-Patient-preview",
+          "durationMs": 704
+        },
+        {
+          "name": "expand-Specimen-Patient-apply-to-render",
+          "durationMs": 544
+        },
+        {
+          "name": "expand-Patient-Observation-preview",
+          "durationMs": 732
+        },
+        {
+          "name": "expand-Patient-Observation-apply-to-render",
+          "durationMs": 554
+        },
+        {
+          "name": "group-available-patient-witnesses-preview-cancel-target",
+          "durationMs": 731
+        },
+        {
+          "name": "cancel-group-proposal-preserves-source-bindings",
+          "durationMs": 751
+        },
+        {
+          "name": "reload-expanded-source-after-group-cancel",
+          "durationMs": 1415
+        },
+        {
+          "name": "group-available-patient-witnesses-preview",
+          "durationMs": 743
+        },
+        {
+          "name": "group-available-patient-witnesses-apply-to-render",
+          "durationMs": 443
+        },
+        {
+          "name": "reload-independent-grouped-witnesses",
+          "durationMs": 1416
+        },
+        {
+          "name": "related-observation-one-disagreement",
+          "durationMs": 793
+        },
+        {
+          "name": "same-chooser-all-repair-preview",
+          "durationMs": 790
+        },
+        {
+          "name": "cancel-related-all-proposal-preserves-group",
+          "durationMs": 741
+        },
+        {
+          "name": "reopened-all-preview-before-apply",
+          "durationMs": 824
+        },
+        {
+          "name": "apply-related-all-to-native-table-render",
+          "durationMs": 468
+        },
+        {
+          "name": "reload-related-all-available-cardinality-values",
+          "durationMs": 1419
+        },
+        {
+          "name": "edit-related-field-output-label",
+          "durationMs": 896
+        },
+        {
+          "name": "reload-edited-related-field-output-label",
+          "durationMs": 1420
+        },
+        {
+          "name": "remove-related-source-step-preview",
+          "durationMs": 808
+        },
+        {
+          "name": "apply-remove-related-step-restores-native-group-table",
+          "durationMs": 893
+        },
+        {
+          "name": "reload-restored-available-witness-group-table",
+          "durationMs": 1413
+        }
+      ]
+    },
+    "nativeControlOnly": {
+      "actionsTotal": 58,
+      "maximumActionElapsedMs": 207,
+      "usedForPerformanceClaim": false
+    }
+  },
+  "checks": {
+    "required": 2,
+    "passed": 2,
+    "failed": 0,
+    "unrun": 0,
+    "assertions": 61,
+    "passedAssertions": 61,
+    "failedAssertions": 0,
+    "actions": 58,
+    "maxNativeControlMs": 207,
+    "timedCompleteCheckpoints": 22,
+    "maxCheckpointMs": 1538,
+    "budgetMs": 5000
+  },
+  "noRawPayloadsEmbedded": true,
+  "scope": "cda-related-one-all-specimen-reference/cda-specimen-reference-raw-oracle-one-all-lifecycle"
+}

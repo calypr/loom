@@ -10,7 +10,7 @@ import (
 
 func TestPersistedFailureRedactsLegacyText(t *testing.T) {
 	message, code, retryable := PersistedFailure("clickhouse table=secret", "", false)
-	if message == nil || *message != "internal server error" || code == nil || *code != string(dataframeerrors.CodeInternalError) || retryable == nil || *retryable {
+	if message == nil || *message != "an unexpected internal error occurred while processing the data request" || code == nil || *code != string(dataframeerrors.CodeInternalError) || retryable == nil || *retryable {
 		t.Fatalf("failure = %v/%v/%v", message, code, retryable)
 	}
 }
@@ -25,6 +25,16 @@ func TestProjectMetadataMapping(t *testing.T) {
 	}
 	if value.ProjectID != "P1" || value.DatasetGeneration != "generation" {
 		t.Fatalf("project metadata = %#v", value)
+	}
+}
+
+func TestColumnModelUsesSharedCapabilitiesAndPersistedOverrides(t *testing.T) {
+	column := ColumnModel(dfpublished.Column{Name: "values", ClickHouse: "Nullable(Array(Int64))", LogicalType: "integer", Repeated: true})
+	if column.LogicalType != "integer" || !column.Nullable || !column.Repeated || !column.Filterable {
+		t.Fatalf("column capabilities = %#v", column)
+	}
+	if column.Sortable || column.Aggregatable {
+		t.Fatalf("repeated column capabilities = %#v, want not sortable or aggregatable", column)
 	}
 }
 

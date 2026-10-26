@@ -1,0 +1,1 @@
+{"resourceType":"Condition","id":"route-condition","clinicalStatus":{"text":"active"},"code":{"text":"Medication route fixture condition"},"subject":{"reference":"Patient/route-patient"},"stage":[{"assessment":[{"reference":"Observation/route-observation"}]}]}

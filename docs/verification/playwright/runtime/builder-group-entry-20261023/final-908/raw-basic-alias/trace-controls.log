@@ -1,0 +1,17 @@
+PASS journey positive baseline: validator accepted the self-test-only capture-shaped preview trace
+PASS journey main-table positive baseline: validator accepted matching raw and selected preview evidence
+PASS journey-response-proposal-id-mismatch: validator rejected the forged response ID before TLC
+PASS journey-missing-observed-output-id: validator rejected the absent rendered output ID before TLC
+PASS journey-source-preview-without-proposal-id: validator rejected source preview data as proposal preview evidence
+PASS journey-source-preview-with-mismatched-proposal-id: validator rejected source preview data as proposal preview evidence
+PASS journey-main-table-matching-proposal-with-stale-receipt: validator rejected source preview data as proposal preview evidence
+PASS journey choice positive baseline: all four command IDs and later published preview matched
+PASS journey-choice-wrong-command-id: validator rejected the choice mutation before TLC
+PASS journey-choice-proof-out-of-order: TLC rejected the out-of-order choice proof at AddColumn
+PASS journey-choice-wrong-published-source-output: validator rejected the choice mutation before TLC
+PASS journey request-cancellation positive baseline: P1 abort stutter precedes P2 preview
+PASS journey request-cancel-observation-mutation: TLC did not complete the trace at PreviewRequestCancelled (2 states)
+PASS positive trace baseline: current validator accepted an unmutated BuilderJourney trace
+PASS edit-group-again-noncurrent-owner: validator rejected the mutation
+PASS group-entry-raw-basic-repeat-edit-required: validator rejected the mutation
+PASS BuilderJourney cross-evidence, choice-proof, and request-cancellation self-test

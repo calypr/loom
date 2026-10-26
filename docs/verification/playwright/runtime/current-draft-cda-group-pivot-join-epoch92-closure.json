@@ -1,0 +1,216 @@
+{
+  "epoch": 92,
+  "status": "CLOSED_INTEGRITY_PASS_BROWSER_PASS",
+  "integrityClosure": {
+    "status": "PASS",
+    "source": {
+      "before": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "after": {
+        "sha256": "0d8d17a85ed75295cfccffb0d131efbe0546fc12c1c3b60648c332cafdccfc2a",
+        "files": 1526
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/source-before.json",
+        "sha256": "f53d45532124a8c4450118d7ee6d3eda87c71c6598c39b4693eb4705aae2a417"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/source-after.json",
+        "sha256": "ae5eca6d2a37b5e3b282cf711432a0a24b406705c4299ec88d963a3daea28647"
+      }
+    },
+    "docs": {
+      "before": {
+        "sha256": "b9ecab399b99d2db046b55d20186e7f373fe96c71163eb0895fe55850a8903de",
+        "files": 214
+      },
+      "after": {
+        "sha256": "b9ecab399b99d2db046b55d20186e7f373fe96c71163eb0895fe55850a8903de",
+        "files": 214
+      },
+      "manifestsEqual": true,
+      "changedPaths": [],
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/docs-before.json",
+        "sha256": "8ef8317ef917e4054d35b87d95d91ff04d5ebba7f48a7907010c9d905b89f5d4"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/docs-after.json",
+        "sha256": "811cbbaf58f68449566da581444ac6a0d8702ac2b27532c9e1b2276e90bfdbe3"
+      }
+    },
+    "apiBuildIdentity": {
+      "before": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "after": "59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:59202d79abb5edb1c474b0cfa46cca9e6c2ba18170e9314af532ea21b58dc467:d0ff798529bdfbf5b796a4d549d73ffee8de0acbb412c5604913a091b36abd51",
+      "precheck": null,
+      "precheckStatus": "NOT_RUN_BY_PLAN",
+      "unchanged": true,
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/api-identity-before.json",
+        "sha256": "a5319374168ec4d67fd528a8852ff3de1499b873a407d86b60ac7b52d1c40253"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/api-identity-after.json",
+        "sha256": "dadca7873ad7194b9437edf15a8b990347b2e60fea8ef9aa840e1a48d399a701"
+      }
+    },
+    "ownedMounts": {
+      "before": "PASS",
+      "after": "PASS",
+      "targetUnchanged": true,
+      "target": {
+        "project": "loom_dev_cda_fhir",
+        "composeProject": "loom-dev-6d7df93d6a37",
+        "apiContainer": "loom-dev-6d7df93d6a37-loom-api-1",
+        "uiContainer": "loom-dev-6d7df93d6a37-loom-ui-1",
+        "arangoContainer": "loom-dev-6d7df93d6a37-arangodb-1",
+        "clickhouseContainer": "loom-dev-6d7df93d6a37-clickhouse-1",
+        "apiPort": "8188",
+        "uiPort": "30008",
+        "sourceRoot": "/private/tmp/loom-construction-implementation",
+        "generation": "cda-fhir-v1"
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/owned-mounts-before.json",
+        "sha256": "6dbffb5c7144b20c8fabaee2a171453ff09788fd920fcd265ff6f6da54917c14"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/owned-mounts-after.json",
+        "sha256": "e4878bdc6bc459b1b88d6d0ae2b65de99ad3860cfab4bade271bc8108258d2e3"
+      }
+    },
+    "health": {
+      "before": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "after": {
+        "status": "PASS",
+        "samples": 3
+      },
+      "beforeArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/health-before.json",
+        "sha256": "9b9704728b0f992a04fe27d43f6418e4a5e8ecdd1a45265fa84525b3629168d7"
+      },
+      "afterArtifact": {
+        "path": "/private/tmp/loom-native-parallel-wave92/health-after.json",
+        "sha256": "a635965cf6c08add21bc25325e19d21ebfa0e0142d9c3b0caa55b0658760ff97"
+      }
+    }
+  },
+  "caseResult": {
+    "status": "PASSED",
+    "failureAttribution": "NONE",
+    "browserSession": 48231,
+    "browserExitCode": 0,
+    "caseDurationMs": 72843,
+    "reportObservedIntervalMs": 72207,
+    "testTitle": "exact Observation Groups feed a native Pivot and editable current-draft Join",
+    "requiredChecks": {
+      "total": 30,
+      "reached": 30,
+      "notReached": 0,
+      "notReachedNames": []
+    },
+    "assertions": {
+      "passed": 204,
+      "failed": 0,
+      "total": 204
+    },
+    "actions": {
+      "passed": 113,
+      "failed": 0,
+      "total": 113,
+      "maxElapsedMs": 1412
+    },
+    "dimensionsAsReported": {
+      "usability": "passed",
+      "correctness": "passed",
+      "persistence": "passed",
+      "performance": "passed"
+    },
+    "rawOracle": {
+      "resource": "Observation",
+      "project": "loom_dev_cda_fhir",
+      "generation": "cda-fhir-v1",
+      "initialRowsReturned": 2000,
+      "initialQueryLimit": 2000,
+      "targetedRowsReturned": 406,
+      "targetedQueryLimit": 2000,
+      "leftSelectedFHIRIDCount": 4,
+      "rightSelectedFHIRIDCount": 3,
+      "sharedSubject": "Patient/0000da62-8ff3-5dc2-b9c5-c2c0b75442a2",
+      "leftOnlySubject": "Patient/033718b9-adff-54b7-81a3-b1c390990d28",
+      "scope": "exact project/generation; both reads bounded to 2,000 rows; selected immutable FHIR IDs reread exactly"
+    },
+    "expectedSelectionCancellation": {
+      "count": 1,
+      "method": "GET",
+      "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_cda_fhir/explorers/cda-group-pivot-join-a139718a-7583-452a-b4e1-61cb717626fe/selections/selection_066347cb61b3c712e20e9a4fd55ba49387afcef1547d0edc0dede600dbb9f050",
+      "triggerAction": "Select right Group Pivot exact source population",
+      "reason": "Selecting the right Group Pivot output retires the previous left attached-selection query.",
+      "expected": true
+    },
+    "nativeRequests": {
+      "recordedEntries": 168,
+      "statusCounts": {
+        "200": 163,
+        "None": 5
+      },
+      "unexpectedNetworkErrors": 0
+    },
+    "incidentalAssetFailures": [
+      {
+        "kind": "asset-failure",
+        "url": "http://127.0.0.1:30008/favicon.ico",
+        "status": 404
+      }
+    ],
+    "artifacts": {
+      "report": {
+        "path": "/private/tmp/loom-native-parallel-wave92/cda-current-draft-group-pivot-join/attempt1/artifacts/cda-current-draft-group-pi-508e8-editable-current-draft-Join/cda-report.json",
+        "sha256": "ef5eed4a628202732c3b502f58eab3da1d95a4b918a48937c4458c0e8615b8d9"
+      },
+      "results": {
+        "path": "/private/tmp/loom-native-parallel-wave92/cda-current-draft-group-pivot-join/attempt1/results.json",
+        "sha256": "2ddcb4660ef28b73c3e6064e1d6ec53fe7ec974847dc56ba5165dd3ed19a869c"
+      },
+      "runnerLog": {
+        "path": "/private/tmp/loom-native-parallel-wave92/cda-current-draft-group-pivot-join/attempt1/runner.log",
+        "sha256": "8978318388f982e9ea2acf58ff23674b2a644881a41cab1a7182c3aab5955326"
+      }
+    }
+  },
+  "captureHandles": {
+    "precheck": null,
+    "beforeCapture": {
+      "session": 1787,
+      "exitCode": 0
+    },
+    "beforeHealth": {
+      "session": 99863,
+      "exitCode": 0
+    },
+    "browser": {
+      "session": 48231,
+      "exitCode": 0
+    },
+    "afterCapture": {
+      "session": 10948,
+      "exitCode": 0
+    },
+    "afterHealth": {
+      "session": 13380,
+      "exitCode": 0
+    }
+  },
+  "rootAcceptance": {
+    "baselineAccepted": true,
+    "browserReleased": true,
+    "closureAccepted": false
+  }
+}

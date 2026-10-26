@@ -1,0 +1,82 @@
+{
+  "status": "closed",
+  "phase": "after-failed-run-before-edits",
+  "runner": {
+    "handle": 62884,
+    "exitCode": 1,
+    "expected": 0,
+    "unexpected": 1,
+    "skipped": 0,
+    "flaky": 0,
+    "durationMs": 18783,
+    "caseStatus": "failed",
+    "verificationStatus": "failed",
+    "firstFailure": "Loom domain report did not pass; official fixture assertion at scripts/playwright/fixtures.mjs:194 expected report.status=\"passed\" but received \"failed\"",
+    "failedAssertions": [
+      {
+        "dimension": "correctness",
+        "name": "no unexpected network, module, or browser errors",
+        "status": "failed",
+        "evidence": {
+          "count": 1
+        }
+      }
+    ],
+    "missingRequiredChecks": [],
+    "errors": [
+      {
+        "kind": "network",
+        "method": "POST",
+        "url": "http://127.0.0.1:30008/api/v1/projects/loom_dev_verify_muvwi73r-e999204/explorers/verify-3r-e999204-draft-combine-join/authoring/v2/preview",
+        "resourceType": "fetch",
+        "errorText": "net::ERR_ABORTED",
+        "playwrightRequestId": "request-300",
+        "requestDetails": {
+          "requestId": null,
+          "draftVersion": null,
+          "draftDigest": null,
+          "outputId": "out_41410e41280af149dff85f32",
+          "stageId": null
+        }
+      }
+    ],
+    "artifacts": "/private/tmp/loom-native-parallel-wave39/draft-combine-current-draft-join"
+  },
+  "source": {
+    "fingerprint": {
+      "sha256": "6f2d4a5fee9ffc76f0548914c5980214178e01c9ebd874d9c7b85099de31535e",
+      "files": 1495
+    },
+    "manifestUnchanged": true
+  },
+  "docs": {
+    "fingerprint": {
+      "sha256": "1920bc39ad2d9fc7c55614ef060b8dbd50b71160217e1bbec1e383463af1b4c5",
+      "files": 114
+    },
+    "manifestUnchanged": true
+  },
+  "api": {
+    "buildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8",
+    "unchanged": true,
+    "sourceFingerprintUnchanged": true
+  },
+  "ownedMounts": {
+    "status": "PASS",
+    "targetUnchanged": true
+  },
+  "health": {
+    "before": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    },
+    "after": {
+      "status": "PASS",
+      "samples": 3,
+      "apiBuildIdentity": "a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:a538e6f509005ba18b57d1ed4d4b1eaa80cbee4d2471a1d324de70921e32a83c:bfc1e103155528c63f986a1421f4628aa31ef47ae71b9eccf097a2e8a3a36df8"
+    }
+  },
+  "editAllowedAfterThisRecord": true,
+  "closureChecksPass": true
+}

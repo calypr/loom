@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -171,5 +172,64 @@ func TestCacheSeparatesDatasetGenerationNamespaces(t *testing.T) {
 	}
 	if referenceCalls != 3 {
 		t.Fatalf("reference calls = %d, want legacy + two exact generation namespaces", referenceCalls)
+	}
+}
+
+func TestCacheBoundsEntriesAcrossFieldsAndReferences(t *testing.T) {
+	cache := NewCacheWithOptions(CacheOptions{MaxEntries: 2, MaxBytes: 1 << 20})
+	fieldCalls, referenceCalls := 0, 0
+	discoverFields := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+		fieldCalls++
+		return []PopulatedField{{Path: "field"}}, nil
+	})
+	discoverReferences := cache.DiscoverReferences(func(context.Context, PopulatedReferenceOptions) ([]PopulatedReference, error) {
+		referenceCalls++
+		return []PopulatedReference{{FromType: "Patient", ToType: "Observation"}}, nil
+	})
+
+	if _, err := discoverFields(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discoverReferences(context.Background(), PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discoverFields(context.Background(), PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discoverFields(context.Background(), PopulatedFieldOptions{Project: "P2", ResourceType: "Patient"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discoverReferences(context.Background(), PopulatedReferenceOptions{Project: "P1", FromType: "Patient"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if fieldCalls != 2 || referenceCalls != 2 {
+		t.Fatalf("calls = fields %d, references %d, want one field eviction and one reference hit", fieldCalls, referenceCalls)
+	}
+	stats := cache.Stats()
+	if stats.Entries != 2 || stats.Bytes <= 0 || stats.Evictions != 2 {
+		t.Fatalf("cache stats = %#v, want two entries, positive bytes, and two evictions", stats)
+	}
+}
+
+func TestCacheRejectsValueOverConfiguredByteWeight(t *testing.T) {
+	cache := NewCacheWithOptions(CacheOptions{MaxEntries: 4, MaxBytes: 32})
+	calls := 0
+	discover := cache.DiscoverFields(func(context.Context, PopulatedFieldOptions) ([]PopulatedField, error) {
+		calls++
+		return []PopulatedField{{Path: strings.Repeat("long", 16)}}, nil
+	})
+	opts := PopulatedFieldOptions{Project: "P1", ResourceType: "Patient"}
+	if _, err := discover(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := discover(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want uncached oversized values to call the source twice", calls)
+	}
+	if stats := cache.Stats(); stats.Entries != 0 || stats.Bytes != 0 {
+		t.Fatalf("oversized value cache stats = %#v, want empty cache", stats)
 	}
 }

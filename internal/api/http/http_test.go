@@ -3,16 +3,27 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/gofiber/fiber/v3"
 )
+
+type logRecordChannel chan string
+
+func (records logRecordChannel) Write(data []byte) (int, error) {
+	records <- string(data)
+	return len(data), nil
+}
 
 func TestLivenessDoesNotCheckDependencies(t *testing.T) {
 	checks := 0
@@ -136,5 +147,167 @@ func TestLoggingMiddlewareEmitsStructuredResponseDiagnostics(t *testing.T) {
 		if !strings.Contains(logText, want) {
 			t.Fatalf("logs missing %q:\n%s", want, logText)
 		}
+	}
+}
+
+func TestLoggingMiddlewareRecordsRequestEntryBeforeHandlerCompletes(t *testing.T) {
+	logs := make(logRecordChannel, 4)
+	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	server, err := NewHTTPServer(HTTPConfig{
+		Authenticator: authscope.StaticAuthenticator{},
+		Authorizer:    authscope.AllowAllAuthorizer{},
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseHandler) }) }
+	t.Cleanup(release)
+	server.App().Get("/blocked", func(c fiber.Ctx) error {
+		close(handlerStarted)
+		<-releaseHandler
+		return c.SendStatus(http.StatusOK)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/blocked", strings.NewReader("request-body-secret"))
+	request.Header.Set("X-Request-ID", "request-arrival-diagnostic")
+	request.Header.Set("Authorization", "Bearer auth-header-secret")
+	responseDone := make(chan struct {
+		response *http.Response
+		err      error
+	}, 1)
+	go func() {
+		response, err := server.App().Test(request)
+		responseDone <- struct {
+			response *http.Response
+			err      error
+		}{response: response, err: err}
+	}()
+
+	var entry string
+	select {
+	case entry = <-logs:
+	case <-time.After(time.Second):
+		t.Fatal("request-entry log was not emitted while the handler was blocked")
+	}
+	if !strings.Contains(entry, `msg="http request started"`) ||
+		!strings.Contains(entry, "request_id=request-arrival-diagnostic") ||
+		!strings.Contains(entry, "phase=started") ||
+		!strings.Contains(entry, "method=GET") ||
+		!strings.Contains(entry, "path=/blocked") {
+		t.Fatalf("request-entry record = %q", entry)
+	}
+	for _, secret := range []string{"request-body-secret", "Bearer auth-header-secret"} {
+		if strings.Contains(entry, secret) {
+			t.Fatalf("request-entry record unexpectedly contains %q: %s", secret, entry)
+		}
+	}
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("request handler did not start")
+	}
+	select {
+	case premature := <-logs:
+		t.Fatalf("request completion was logged while handler was still blocked: %q", premature)
+	default:
+	}
+
+	release()
+	select {
+	case result := <-responseDone:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		defer result.response.Body.Close()
+		if result.response.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want %d", result.response.StatusCode, http.StatusOK)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish after releasing handler")
+	}
+
+	select {
+	case completion := <-logs:
+		if !strings.Contains(completion, `msg="http request"`) ||
+			!strings.Contains(completion, "request_id=request-arrival-diagnostic") ||
+			!strings.Contains(completion, "phase=completed") ||
+			!strings.Contains(completion, "method=GET") ||
+			!strings.Contains(completion, "path=/blocked") {
+			t.Fatalf("completion record = %q", completion)
+		}
+		for _, secret := range []string{"request-body-secret", "Bearer auth-header-secret"} {
+			if strings.Contains(completion, secret) {
+				t.Fatalf("completion record unexpectedly contains %q: %s", secret, completion)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request completion log was not emitted after handler returned")
+	}
+}
+
+func TestRecoveryMiddlewareLogsStackAndPreservesInternalErrorResponse(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	server, err := NewHTTPServer(HTTPConfig{
+		Authenticator: authscope.StaticAuthenticator{},
+		Authorizer:    authscope.AllowAllAuthorizer{},
+		Logger:        logger,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.App().Post("/panic", func(fiber.Ctx) error {
+		panic("fixture panic")
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/panic", strings.NewReader("request-body-secret"))
+	request.Header.Set("X-Request-ID", "panic-diagnostic")
+	response, err := server.App().Test(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", response.StatusCode)
+	}
+	if response.Header.Get("X-Request-ID") != "panic-diagnostic" {
+		t.Fatalf("X-Request-ID = %q, want panic-diagnostic", response.Header.Get("X-Request-ID"))
+	}
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			RequestID string `json:"requestId"`
+		} `json:"error"`
+	}
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(responseBody, &body); err != nil {
+		t.Fatalf("decode response body %q: %v", responseBody, err)
+	}
+	if body.Error.Code != "INTERNAL_ERROR" || body.Error.RequestID != "panic-diagnostic" {
+		t.Fatalf("error response = %#v, want INTERNAL_ERROR for panic-diagnostic", body.Error)
+	}
+
+	logText := logs.String()
+	for _, want := range []string{
+		"panic recovered",
+		"request_id=panic-diagnostic",
+		`panic="fixture panic"`,
+		"stack=",
+		"TestRecoveryMiddlewareLogsStackAndPreservesInternalErrorResponse",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("logs missing %q:\n%s", want, logText)
+		}
+	}
+	if strings.Contains(logText, "request-body-secret") {
+		t.Fatalf("logs unexpectedly contain request body:\n%s", logText)
 	}
 }

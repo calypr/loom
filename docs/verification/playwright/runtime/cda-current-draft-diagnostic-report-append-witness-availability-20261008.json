@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "feature": "CDA current-draft DiagnosticReport APPEND",
+  "registeredCase": {
+    "scenario": "cda-current-draft-diagnostic-report-append",
+    "case": "diagnostic-report-append"
+  },
+  "coverageStatus": "unverified",
+  "dimensions": {
+    "usability": "untested",
+    "correctness": "untested",
+    "persistence": "untested",
+    "performance": "untested"
+  },
+  "disposition": "witness_unavailable_empty_generation_collection",
+  "scope": {
+    "composeProject": "loom-dev-6d7df93d6a37",
+    "container": "loom-dev-6d7df93d6a37-arangodb-1",
+    "database": "loom_dev",
+    "project": "loom_dev_cda_fhir",
+    "generation": "cda-fhir-v1",
+    "collection": "DiagnosticReport",
+    "authorization": "unrestricted",
+    "payloadResourceTypePredicate": false
+  },
+  "fullScopedRawDocumentCount": 0,
+  "fieldShapeGroups": [],
+  "eligibleStatusCountsByValue": [],
+  "qualifyingStatus": null,
+  "qualifyingStatusCount": 0,
+  "exactWitnessRows": [],
+  "interpretation": "The project/generation-scoped DiagnosticReport collection is empty in this loaded generation. No resource field shapes or eligible status values exist to test. This is fixture availability, not a product failure; no Builder lifecycle action ran.",
+  "nextCheck": "Keep all dimensions untested. Recheck only after this exact generation is repopulated. Run the registered lifecycle only when its bounded first 2,000 exact-scope scan contains at least four distinct valid nonblank FHIR IDs in payload.resourceType DiagnosticReport records sharing one nonblank scalar payload.status; require all 37 checks.",
+  "queryEvidence": {
+    "queryPath": "/private/tmp/loom-diagnostic-report-witness-20261008/diagnostic-report-full-generation-shape.aql",
+    "querySha256": "32ece0443819d5f0abfe702378470c26cc99258669a39b6d86434cc8ea5b2f70",
+    "bindVarsPath": "/private/tmp/loom-diagnostic-report-witness-20261008/bind-vars.json",
+    "bindVarsSha256": "35b57c598f05b4b6c63fc4136849401746f153d691632cc65d1fde802c3139e6",
+    "explainReportPath": "/private/tmp/loom-diagnostic-report-witness-20261008/shape-explain-v2.report.json",
+    "explainReportSha256": "f193e6cde541c19587d538e02afa5a25d5b3156f409a4684e3935de3b5253147",
+    "executionReportPath": "/private/tmp/loom-diagnostic-report-witness-20261008/shape-execution.report.json",
+    "executionReportSha256": "f827b16bf0138a5fe4892376ada9f1f21c90fb4a08c5b5f23f875cd5e91769a3",
+    "readOnlyPlan": true,
+    "expectedIndexSelected": true,
+    "index": {
+      "plan": 0,
+      "nodeId": 74,
+      "nodeType": "IndexNode",
+      "collection": "DiagnosticReport",
+      "id": "1468490",
+      "name": "idx_1876869217500790785",
+      "type": "persistent",
+      "fields": [
+        "project",
+        "dataset_generation",
+        "auth_resource_path",
+        "_key"
+      ]
+    },
+    "fullCollectionScans": [],
+    "maxRuntimeSeconds": 8,
+    "memoryLimitBytes": 268435456,
+    "executionServerMs": 5,
+    "executionHostMs": 363,
+    "scannedIndex": 0,
+    "scannedFull": 0,
+    "peakMemoryUsageBytes": 360448
+  },
+  "previousBrowserAttempt": {
+    "reportPath": "docs/verification/playwright/runtime/cda-current-draft-diagnostic-report-append-20261007-report.json",
+    "reportSha256": "67f32de3b2e8f613e1b77932243f33d27b5fb95cf197c4bd2a204e97d8c98a48",
+    "boundedPrefixEligibleRows": 0,
+    "checksPassed": 1,
+    "checksUnrun": 36,
+    "builderActions": 0,
+    "interpretation": "Integrity only; no product behavior tested."
+  }
+}

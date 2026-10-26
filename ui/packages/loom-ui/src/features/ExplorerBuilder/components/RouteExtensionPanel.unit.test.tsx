@@ -75,6 +75,7 @@ const table: DraftTable = {
         },
       ],
     },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 };
