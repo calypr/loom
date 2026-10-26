@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
@@ -40,6 +41,38 @@ function fileHash(root, relativePath, { missing = false } = {}) {
     fail(`missing required source ${relativePath}`);
   }
   return sha256(readFileSync(absolute));
+}
+
+function freshDetailedObligations(root, compactText) {
+  const outputDirectory = mkdtempSync(path.join(os.tmpdir(), 'loom-test-obligations-'));
+  const outputPath = path.join(outputDirectory, 'details.json');
+  try {
+    const result = spawnSync(process.execPath, ['scripts/build-test-obligations.mjs', '--details', '--json', outputPath], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 120_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) {
+      fail(`fresh test-obligation generation failed: ${result.stderr?.trim() || result.error?.message || result.status}`);
+    }
+    if (!existsSync(outputPath)) fail('fresh test-obligation generation did not write its external JSON view');
+    let detailed;
+    try {
+      detailed = JSON.parse(readFileSync(outputPath, 'utf8'));
+    } catch (error) {
+      fail(`fresh test-obligation generation returned invalid JSON: ${error.message}`);
+    }
+    const { scripts, semanticClaims, ...projection } = detailed;
+    if (detailed.schemaVersion !== 3 || Object.hasOwn(detailed, 'projectionKind')
+      || !Array.isArray(scripts) || !Array.isArray(semanticClaims)) fail('fresh test-obligation details have an unsupported shape');
+    if (jsonText({ ...projection, projectionKind: 'compact-coverage' }) !== compactText) {
+      fail(`${OBLIGATIONS_PATH} is stale; run node scripts/build-test-obligations.mjs`);
+    }
+    return { scripts, semanticClaims };
+  } finally {
+    rmSync(outputDirectory, { recursive: true, force: true });
+  }
 }
 
 function checkedPath(value, label) {
@@ -393,7 +426,9 @@ async function loadInputs(root) {
   const obligationsText = readText(root, OBLIGATIONS_PATH);
   const familyRules = JSON.parse(familyText);
   const catalog = JSON.parse(catalogText);
-  const obligations = JSON.parse(obligationsText);
+  const compactObligations = JSON.parse(obligationsText);
+  const detailedObligations = freshDetailedObligations(root, obligationsText);
+  const obligations = { ...compactObligations, ...detailedObligations };
   const registryPath = path.join(root, REGISTRY_PATH);
   const registryModule = await import(`${pathToFileURL(registryPath).href}?migration=${Date.now()}`);
   const { active, retiredCount, obligationRows } = assertCatalogState(root, catalog, obligations);

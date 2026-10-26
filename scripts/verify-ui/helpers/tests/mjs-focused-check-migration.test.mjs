@@ -12,6 +12,68 @@ const selfTestPath = 'scripts/verify-ui/helpers/tests/mjs-focused-check-migratio
 const toolSource = readFileSync(path.join(realRoot, 'scripts/migrate-mjs-focused-checks.mjs'), 'utf8');
 const plannerSource = readFileSync(path.join(realRoot, 'scripts/verify-ui/helpers/focused-check-groups.mjs'), 'utf8');
 const selfTestSource = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+const fixtureGeneratorSource = `
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const root = process.cwd();
+const outputIndex = process.argv.indexOf('--json');
+if (!process.argv.includes('--details') || outputIndex < 0 || !process.argv[outputIndex + 1]) process.exit(2);
+const compact = JSON.parse(readFileSync(path.join(root, 'verification/builder-interactions/test-obligations.json'), 'utf8'));
+const catalog = JSON.parse(readFileSync(path.join(root, 'verification/builder-interactions/mjs-source-semantics.json'), 'utf8'));
+const registryModule = await import(pathToFileURL(path.join(root, 'scripts/verify-ui/registry.mjs')).href);
+const active = catalog.files.filter((file) => file.lifecycle === 'active');
+const byPath = new Map(active.map((file) => [file.path, file]));
+const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const rows = new Map(active.map((file) => [file.path, {
+  path: file.path,
+  present: existsSync(path.join(root, file.path)),
+  currentSha256: sha256(readFileSync(path.join(root, file.path))),
+  semanticClaimIds: [...new Set((file.assertions ?? []).map((assertion) => assertion.semanticClaimId))].sort(),
+  connections: [],
+  journeyMappings: [],
+}]));
+for (const source of active) {
+  const text = readFileSync(path.join(root, source.path), 'utf8');
+  const imports = /\\bfrom\\s+(['"])([^'"]+)\\1/g;
+  for (const match of text.matchAll(imports)) {
+    if (!match[2].startsWith('.')) continue;
+    const resolvedPath = path.posix.normalize(path.posix.join(path.posix.dirname(source.path), match[2]));
+    const suffix = match[2].split('/').filter((part) => part !== '.' && part !== '..').join('/');
+    const candidates = [...byPath.keys()].filter((candidate) => candidate.endsWith(suffix));
+    const targetPath = byPath.has(resolvedPath) ? resolvedPath : candidates.length === 1 ? candidates[0] : null;
+    if (!targetPath) continue;
+    const line = text.slice(0, match.index).split('\\n').length;
+    rows.get(targetPath).connections.push({ kind: 'literal-import-candidate', sourcePath: source.path, targetPath, specifier: match[2], line, column: 1 });
+  }
+}
+for (const scenario of registryModule.registry) {
+  for (const caseName of registryModule.caseNamesFor(scenario)) {
+    const contract = registryModule.scenarioCaseFor(scenario, caseName);
+    for (const group of contract.focusedChecks ?? []) {
+      const command = group.command ?? [];
+      const paths = (command[0] === 'node-test' ? command.slice(1) : command.slice(4)).filter((value) => typeof value === 'string' && value.endsWith('.mjs'));
+      for (const testPath of paths) rows.get(testPath)?.connections.push({ kind: 'configured-command', caseId: scenario.id + ':' + caseName, checkId: group.id });
+      for (const sourcePath of group.sourceFiles ?? []) {
+        if (!paths.includes(sourcePath)) rows.get(sourcePath)?.connections.push({ kind: 'source-file-pinned-only', caseId: scenario.id + ':' + caseName, checkId: group.id });
+      }
+    }
+  }
+}
+for (const claim of catalog.claims) {
+  for (const source of catalog.files) {
+    for (const assertion of source.assertions ?? []) {
+      if (assertion.semanticClaimId !== claim.id) continue;
+      rows.get(source.path)?.journeyMappings.push(...(claim.journeys ?? []).map((journey) => ({ claimId: claim.id, ...journey })));
+    }
+  }
+}
+const { projectionKind: _projectionKind, ...compactReport } = compact;
+const detailed = { ...compactReport, scripts: [...rows.values()], semanticClaims: catalog.claims.map(({ id, journeys = [] }) => ({ id, journeys })) };
+writeFileSync(process.argv[outputIndex + 1], JSON.stringify(detailed, null, 2) + '\\n');
+`;
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const write = (root, file, value) => {
   const target = path.join(root, file);
@@ -48,11 +110,6 @@ function fixture({ ignoreLoader = false } = {}) {
   const attachmentLoader = ignoreLoader ? '' : `for (const attachment of attachmentData.attachments) { const scenario = registry.find((entry) => entry.id === attachment.scenarioId); scenario.cases[attachment.caseId].focusedChecks = attachment.focusedChecks; }\n`;
   files.set(registryPath, `import attachmentData from './mjs-focused-check-attachments.json' with { type: 'json' };\nexport const registry = [{ id: 'scenario-a', script: 'unrelated.mjs', cases: { 'case-a': { playwrightTest: '${specPath}', requiredChecks: ['exact registered check'] } } }];\n${attachmentLoader}export const caseNamesFor = scenario => Object.keys(scenario.cases);\nexport const scenarioCaseFor = (scenario, name) => ({ ...scenario.cases[name], caseName: name, requiredChecks: scenario.cases[name].requiredChecks });\n`);
   rows.push([registryPath, 'tool-or-module', 'runtime-module']);
-  const edge = (source, target, specifier) => ({ kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: source, targetPath: target, specifier, line: 1, column: 1 });
-  const connections = new Map([
-    [oraclePath, [edge(workflowPath, oraclePath, '../helpers/oracle.mjs'), edge(sourcePath, oraclePath, '../helpers/oracle.mjs')]],
-    [workflowPath, [edge(specPath, workflowPath, '../workflows/workflow.mjs')]],
-  ]);
   const specs = rows.map(([file, role, testLayer]) => ({ file, role, testLayer }));
   const catalog = {
     schemaVersion: 1,
@@ -80,17 +137,16 @@ function fixture({ ignoreLoader = false } = {}) {
     }]),
   };
   const obligations = {
+    schemaVersion: 3,
     sources: { semanticCatalog: 'verification/builder-interactions/mjs-source-semantics.json', registry: registryPath },
     mjsCatalogSummary: { baselineFiles: rows.length + 1, baselineRetired: 1, currentFiles: rows.length, currentAdded: 0 },
-    scripts: specs.map(({ file }) => ({
-      path: file,
-      present: true,
-      currentSha256: hash(files.get(file)),
-      semanticClaimIds: file === sourcePath ? ['claim-a'] : [],
-      connections: connections.get(file) ?? [],
-      journeyMappings: [],
-    })),
-    semanticClaims: [{ id: 'claim-a', journeys: [] }],
+    summary: {},
+    obligations: [],
+    tests: [],
+    duplicates: { multipleTests: [], testNames: [], checks: [], sharedProofs: [] },
+    gaps: [],
+    partial: [],
+    projectionKind: 'compact-coverage',
   };
   const mappingEvidence = [
     { path: workflowPath, line: 1, kind: 'reviewed oracle call' },
@@ -104,6 +160,7 @@ function fixture({ ignoreLoader = false } = {}) {
     }],
   };
   write(root, 'scripts/migrate-mjs-focused-checks.mjs', toolSource);
+  write(root, 'scripts/build-test-obligations.mjs', fixtureGeneratorSource);
   write(root, selfTestPath, selfTestSource);
   write(root, 'scripts/verify-ui/helpers/focused-check-groups.mjs', plannerSource);
   for (const [file, contents] of files) write(root, file, contents);
@@ -135,6 +192,14 @@ function cleanup(root) {
 test('plan previews exact nonempty attachment and case-bound claim edits with hash preconditions', () => {
   const state = fixture();
   try {
+    const trackedProjection = JSON.parse(readFileSync(path.join(realRoot, 'verification/builder-interactions/test-obligations.json'), 'utf8'));
+    assert.equal(trackedProjection.projectionKind, 'compact-coverage');
+    assert.equal(Object.hasOwn(trackedProjection, 'scripts'), false);
+    assert.equal(Object.hasOwn(trackedProjection, 'semanticClaims'), false);
+    const compact = JSON.parse(readFileSync(path.join(state.root, 'verification/builder-interactions/test-obligations.json'), 'utf8'));
+    assert.equal(compact.projectionKind, 'compact-coverage');
+    assert.equal(Object.hasOwn(compact, 'scripts'), false);
+    assert.equal(Object.hasOwn(compact, 'semanticClaims'), false);
     const proposed = plan(state.root);
     assert.equal(proposed.summary.activeSources, 5);
     assert.equal(proposed.summary.baselineActiveMjsSources, 5);
@@ -204,16 +269,6 @@ test('a configured test importing the shared helper but missing a family anchor 
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     obligations.mjsCatalogSummary.currentFiles += 1;
     obligations.mjsCatalogSummary.currentAdded += 1;
-    obligations.scripts.find((row) => row.path === state.registryPath).currentSha256 = hash(registryText);
-    obligations.scripts.find((row) => row.path === state.oraclePath).connections.push({
-      kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: configuredPath,
-      targetPath: state.oraclePath, specifier: '../helpers/oracle.mjs', line: 1, column: 9,
-    });
-    obligations.scripts.push({
-      path: configuredPath, present: true, currentSha256: hash(configuredSource), semanticClaimIds: [],
-      connections: [{ kind: 'configured-command', testFile: true, caseId: 'existing-scenario:existing-case', checkId: 'existing-helper-check' }],
-      journeyMappings: [],
-    });
     write(state.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
 
     const proposed = plan(state.root);
@@ -322,10 +377,6 @@ test('--check rejects a generated attachment that the registry loader ignores', 
     const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
     catalog.files.find((row) => row.path === state.registryPath).sha256 = hash(registryText);
     write(state.root, 'verification/builder-interactions/mjs-source-semantics.json', `${JSON.stringify(catalog, null, 2)}\n`);
-    const obligationsPath = path.join(state.root, 'verification/builder-interactions/test-obligations.json');
-    const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
-    obligations.scripts.find((row) => row.path === state.registryPath).currentSha256 = hash(registryText);
-    write(state.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     const result = invoke(state.root, '--check');
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /registry does not consume exact focused attachment/);
@@ -357,12 +408,6 @@ test('new matching test is discovered from obligation import edges without chang
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     obligations.mjsCatalogSummary.currentFiles += 1;
     obligations.mjsCatalogSummary.currentAdded += 1;
-    obligations.scripts.push({ path: newPath, present: true, currentSha256: hash(contents), semanticClaimIds: ['claim-b'], connections: [], journeyMappings: [] });
-    obligations.scripts.find((row) => row.path === state.oraclePath).connections.push({
-      kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: newPath,
-      targetPath: state.oraclePath, specifier: '../helpers/oracle.mjs', line: 1, column: 9,
-    });
-    obligations.semanticClaims.push({ id: 'claim-b', journeys: [] });
     write(state.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     const proposed = plan(state.root);
     assert.deepEqual(proposed.attachments[0].focusedChecks[0].command, ['node-test', newPath, state.sourcePath]);
@@ -401,17 +446,13 @@ test('ambiguous family destination and ambiguous test-family matches fail closed
     write(duplicateMatch.root, 'verification/builder-interactions/mjs-source-semantics.json', `${JSON.stringify(catalog, null, 2)}\n`);
     const obligationsPath = path.join(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json');
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
-    for (const file of [workflowB, specB]) obligations.scripts.push({ path: file, present: true, currentSha256: hash(readFileSync(path.join(duplicateMatch.root, file))), semanticClaimIds: [], connections: [], journeyMappings: [] });
     obligations.mjsCatalogSummary.currentFiles += 2;
     obligations.mjsCatalogSummary.currentAdded += 2;
-    obligations.scripts.find((row) => row.path === duplicateMatch.oraclePath).connections.push({ kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: workflowB, targetPath: duplicateMatch.oraclePath, specifier: '../helpers/oracle.mjs', line: 1, column: 1 });
-    obligations.scripts.find((row) => row.path === workflowB).connections = [{ kind: 'literal-import-candidate', evidence: 'static-only-candidate', sourcePath: specB, targetPath: workflowB, specifier: '../workflows/workflow-b.mjs', line: 1, column: 1 }];
     write(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     let registryText = readFileSync(registryPath, 'utf8');
     registryText = registryText.replace("export const registry = [{ id: 'scenario-a'", "export const registry = [{ id: 'scenario-b', script: 'irrelevant.mjs', cases: { 'case-b': { playwrightTest: 'scripts/verify-ui/specs/scenario-b.spec.mjs', requiredChecks: ['exact'] } } }, { id: 'scenario-a'");
     write(duplicateMatch.root, duplicateMatch.registryPath, registryText);
     catalog.files.find((row) => row.path === duplicateMatch.registryPath).sha256 = hash(registryText);
-    obligations.scripts.find((row) => row.path === duplicateMatch.registryPath).currentSha256 = hash(registryText);
     write(duplicateMatch.root, 'verification/builder-interactions/mjs-source-semantics.json', `${JSON.stringify(catalog, null, 2)}\n`);
     write(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     const rulesPath = path.join(duplicateMatch.root, 'verification/builder-interactions/mjs-focused-check-families.json');
