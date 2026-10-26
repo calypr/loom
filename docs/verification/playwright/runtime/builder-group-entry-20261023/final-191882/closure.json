@@ -56,9 +56,11 @@
       },
       "retainedArtifacts": {
         "nativeReport": {
-          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/native-report.json",
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/native-report.json",
           "sha256": "255924a7f9739610bb23b8ff6e2b76429ef23d44d1c2bc70c09295ad10106a28",
-          "bytes": 1355373
+          "bytes": 1355373,
+          "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/native-report.json > /private/tmp/authored-three-native-report.json"
         },
         "bracketSummary": {
           "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/authored-three/bracket-summary.json",
@@ -141,9 +143,11 @@
       },
       "retainedArtifacts": {
         "nativeReport": {
-          "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/native-report.json",
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/native-report.json",
           "sha256": "b4d4cf90695a63175686a6150478de9f3ed97227221f6b21460cc89f85053446",
-          "bytes": 1283126
+          "bytes": 1283126,
+          "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/native-report.json > /private/tmp/raw-five-native-report.json"
         },
         "bracketSummary": {
           "path": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-191882/raw-five/bracket-summary.json",
