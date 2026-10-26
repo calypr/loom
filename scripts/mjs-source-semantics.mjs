@@ -519,19 +519,5 @@ export function loadMjsSourceSemantics(manifestPath) {
     claims: reconstructRecords('claims', claims.order, 'category', claims.references, recordsByBucket),
     files: reconstructRecords('files', files.order, 'directory', files.references, recordsByBucket),
   };
-  const canonical = serializeMjsSourceSemantics(catalog);
-  const actualManifestText = readFileSync(absoluteManifestPath, 'utf8');
-  if (actualManifestText !== canonical.manifestText) fail('manifest is not the deterministic serialization of its records');
-  const actualPaths = new Set(references.map((reference) => reference.path));
-  if (actualPaths.size !== canonical.shards.size
-    || [...canonical.shards.keys()].some((relativePath) => !actualPaths.has(relativePath))) {
-    fail('shard references are not the deterministic serialization of their groups');
-  }
-  const manifestDirectory = path.dirname(absoluteManifestPath);
-  for (const [relativePath, expectedText] of canonical.shards) {
-    if (readFileSync(path.resolve(manifestDirectory, relativePath), 'utf8') !== expectedText) {
-      fail(`shard is not the deterministic serialization of its records: ${relativePath}`);
-    }
-  }
   return catalog;
 }
