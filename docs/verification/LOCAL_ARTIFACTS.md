@@ -32,3 +32,5 @@ The UI inventory stores compact source and fragment pins. `python3 scripts/norma
 Required historical browser reports remain in the retained-evidence archive with raw and compressed hashes. The verifier reads and validates those exact bytes. Disposable reports without active consumers are removed from the checkout; their closure records describe recovery from Git history.
 
 GitNexus stores its machine-local index in the ignored `.gitnexus/` directory. Rebuild it with `gitnexus analyze . --index-only` when needed. It is navigation data and does not establish test coverage or runtime correctness.
+
+Filesystem metadata and generated cache directories are also excluded from source fingerprints. Real verifier source and fixture inputs remain covered, so changing either still invalidates source identity.
