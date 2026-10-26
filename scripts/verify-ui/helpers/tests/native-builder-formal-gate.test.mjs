@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
@@ -1519,4 +1520,301 @@ test('native report retention copies exact bytes only from its bracket run into 
     repositoryRoot,
     artifactRoot: externalArtifactRoot,
   }), /resolve inside the repository root/);
+});
+
+const mutationProbeFixtureSpecs = Object.freeze({
+  'column-visibility-toggle-guard': Object.freeze({
+    redGroup: 'group-09',
+    redCounts: { passed: 0, failed: 1, skipped: 26 },
+    redError: 'TestingLibraryElementError: Unable to find an accessible element with the role "checkbox" and name "Display Research Subject Identifier in table"',
+    locatorLine: 1688,
+    historicFailureLine: '1690|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({',
+    assertionLine: 1690,
+  }),
+  'column-filter-toggle-guard': Object.freeze({
+    redGroup: 'group-09',
+    redCounts: { passed: 0, failed: 1, skipped: 26 },
+    redError: 'TestingLibraryElementError: Unable to find an accessible element with the role "checkbox" and name "Display Research Subject Identifier in table"',
+    locatorLine: 1688,
+    historicFailureLine: '1702|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({',
+    assertionLine: 1702,
+  }),
+  'column-remove-control-guard': Object.freeze({
+    redGroup: 'group-11',
+    redCounts: { passed: 0, failed: 1, skipped: 26 },
+    redError: 'TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Remove Research Subject Identifier"',
+    locatorLine: 280,
+    historicFailureLine: "281|     expect(onRemove).toHaveBeenCalledWith('research_subject_identifier…",
+    assertionLine: 281,
+  }),
+});
+
+const mutationProbeFromRepository = probeID => {
+  const probes = JSON.parse(readFileSync(join(REPOSITORY_ROOT,
+    'verification/builder-interactions/mutation-probes.json'), 'utf8')).probes;
+  const probe = probes.find(candidate => candidate.id === probeID);
+  assert(probe, `Missing registered mutation probe ${probeID}`);
+  return probe;
+};
+
+const createMutationRunnerFixture = (root, probeID, mode) => {
+  const probe = mutationProbeFromRepository(probeID);
+  const probeSpec = mutationProbeFixtureSpecs[probeID];
+  const sourceFile = join(root, probe.file);
+  const packageRoot = join(root, 'ui/packages/loom-ui');
+  const testFile = join(packageRoot, probe.test);
+  mkdirSync(dirname(sourceFile), { recursive: true });
+  mkdirSync(dirname(testFile), { recursive: true });
+  mkdirSync(join(root, 'scripts'), { recursive: true });
+  mkdirSync(join(root, 'ui/node_modules/vitest'), { recursive: true });
+  mkdirSync(join(root, 'verification/builder-interactions'), { recursive: true });
+  copyFileSync(resolve(REPOSITORY_ROOT, probe.file), sourceFile);
+  copyFileSync(resolve(REPOSITORY_ROOT, 'ui/packages/loom-ui', probe.test), testFile);
+  copyFileSync(join(REPOSITORY_ROOT, 'ui/packages/loom-ui/vitest.config.ts'),
+    join(packageRoot, 'vitest.config.ts'));
+  copyFileSync(join(REPOSITORY_ROOT, 'ui/packages/loom-ui/vitest.setup.ts'),
+    join(packageRoot, 'vitest.setup.ts'));
+  writeFileSync(join(root, 'verification/builder-interactions/mutation-probes.json'),
+    JSON.stringify({ schemaVersion: 1, probes: [probe] }, null, 2) + '\n');
+  writeFileSync(join(root, 'verification/builder-interactions/mutation-evidence.json'), JSON.stringify({
+    schemaVersion: 2,
+    sourceCommit: 'historic-source-commit',
+    probes: [
+      { id: 'historic-inactive', status: 'inactive', note: 'preserve me' },
+      { id: 'historic-equivalent', status: 'equivalent', note: 'also preserve me' },
+    ],
+  }, null, 2) + '\n');
+  copyFileSync(join(REPOSITORY_ROOT, 'scripts/run-builder-mutation-probe.mjs'),
+    join(root, 'scripts/run-builder-mutation-probe.mjs'));
+
+  const title = probe.testNamePattern;
+  const failedMessage = mode === 'red-baseline' || mode === 'locator-mutant'
+    ? probeSpec.redError
+    : 'AssertionError: expected "vi.fn()" to be called with arguments: [ \'research_subject_identifier\' ]\n\nNumber of calls: 0';
+  const failedLine = mode === 'targeted-mutant' ? probeSpec.assertionLine : probeSpec.locatorLine;
+  const failureMessages = [failedMessage, probeSpec.historicFailureLine];
+  const reportRunner = [
+    "import { writeFileSync } from 'node:fs';",
+    "const reportPath = process.argv.slice(2).find(value => value.startsWith('--outputFile='))?.slice('--outputFile='.length);",
+    "if (!reportPath) throw new Error('missing JSON reporter output path');",
+    'const mode = process.env.MUTATION_FIXTURE_MODE;',
+    'const isMutant = Boolean(process.env.LOOM_MUTATION_SOURCE);',
+    "const redBaseline = mode === 'red-baseline';",
+    "const targetedFailure = isMutant && mode === 'targeted-mutant';",
+    "const failed = redBaseline || isMutant;",
+    `const fullName = 'configured V2 columns ${title}';`,
+    `const failureMessages = ${JSON.stringify(failureMessages)};`,
+    `const locationLine = ${failedLine};`,
+    `const counts = redBaseline ? ${JSON.stringify(probeSpec.redCounts)} : { passed: failed ? 0 : 1, failed: failed ? 1 : 0, skipped: 0 };`,
+    'const report = {',
+    '  success: !failed, numTotalTests: counts.passed + counts.failed + counts.skipped,',
+    '  numPassedTests: counts.passed, numFailedTests: counts.failed, numSkippedTests: counts.skipped,',
+    '  testResults: [{ assertionResults: failed ? [{ fullName, status: "failed",',
+    '    location: { line: targetedFailure ? locationLine : ' + probeSpec.locatorLine + ', column: 1 }, failureMessages }]',
+    '    : [{ fullName, status: "passed" }] }],',
+    '};',
+    'writeFileSync(reportPath, JSON.stringify(report));',
+    'if (failed) { process.stdout.write(failureMessages.join("\\n") + "\\n"); process.exitCode = 1; }',
+    '',
+  ].join('\n');
+  writeFileSync(join(root, 'ui/node_modules/vitest/vitest.mjs'), reportRunner);
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  execFileSync('git', ['-c', 'user.name=Mutation Test', '-c', 'user.email=mutation@example.invalid',
+    'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root });
+  return { probe, probeSpec, sourceFile, testFile, packageRoot, mode };
+};
+
+const runMutationRunnerFixture = (tempRoot, probeID, mode, { force = true, execute = true } = {}) => {
+  const root = join(tempRoot, 'repo-' + probeID + '-' + mode);
+  const logDirectory = join(tempRoot, 'logs-' + probeID + '-' + mode);
+  mkdirSync(root, { recursive: true });
+  const fixture = createMutationRunnerFixture(root, probeID, mode);
+  const args = [join(root, 'scripts/run-builder-mutation-probe.mjs'), probeID];
+  if (force) args.push('--force');
+  const result = execute ? spawnSync(process.execPath, args, {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, LOOM_MUTATION_LOG_DIRECTORY: logDirectory, MUTATION_FIXTURE_MODE: mode },
+  }) : null;
+  return { root, logDirectory, fixture, result };
+};
+
+const mutationFixtureHashes = ({ fixture }) => {
+  const { probe, sourceFile, testFile, packageRoot } = fixture;
+  const fileHash = path => sha256(readFileSync(path));
+  return {
+    sourceHash: fileHash(sourceFile),
+    testHash: sha256([
+      fileHash(testFile),
+      fileHash(join(packageRoot, 'vitest.config.ts')),
+      fileHash(join(packageRoot, 'vitest.setup.ts')),
+      probe.testNamePattern,
+    ].join('\n')),
+    probeHash: sha256(JSON.stringify({
+      runner: probe.runner ?? 'vitest',
+      file: probe.file,
+      test: probe.test,
+      testNamePattern: probe.testNamePattern ?? null,
+      find: probe.find,
+      replace: probe.replace,
+      expectedFailure: probe.expectedFailure,
+      equivalent: probe.equivalent ?? null,
+    })),
+  };
+};
+
+test('mutation probe runner rejects the retained group-09/group-11 red baselines and source-excerpt false kills', (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'loom-mutation-red-baselines-'));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  for (const probeID of Object.keys(mutationProbeFixtureSpecs)) {
+    const { root, logDirectory, fixture, result } = runMutationRunnerFixture(tempRoot, probeID, 'red-baseline');
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /unmodified baseline must pass at least one test/u);
+    const baseline = JSON.parse(readFileSync(join(logDirectory, probeID + '.baseline.report.json'), 'utf8'));
+    assert.equal(baseline.numPassedTests, 0);
+    assert.equal(baseline.numFailedTests, 1);
+    assert.equal(baseline.numSkippedTests, 26);
+    assert.equal(baseline.testResults[0].assertionResults[0].failureMessages[0], fixture.probeSpec.redError);
+    assert.equal(baseline.testResults[0].assertionResults[0].failureMessages[1], fixture.probeSpec.historicFailureLine);
+    const evidence = JSON.parse(readFileSync(join(root, 'verification/builder-interactions/mutation-evidence.json'), 'utf8'));
+    assert.equal(evidence.probes.some(entry => entry.id === probeID), false,
+      `${fixture.probeSpec.redGroup} red baseline must not create KILLED evidence`);
+    assert.equal(evidence.probes.find(entry => entry.id === 'historic-inactive').note, 'preserve me');
+    assert.equal(evidence.probes.find(entry => entry.id === 'historic-equivalent').note, 'also preserve me');
+    assert.equal(existsSync(join(logDirectory, probeID + '.mutant.stdout.log')), false,
+      'a failed unmodified baseline must stop before mutant execution');
+  }
+
+  const falseKill = runMutationRunnerFixture(tempRoot, 'column-remove-control-guard', 'locator-mutant');
+  assert.equal(falseKill.result.status, 1, falseKill.result.stdout + falseKill.result.stderr);
+  assert.match(falseKill.result.stderr, /failed without the expected assertion/u);
+  const baseline = JSON.parse(readFileSync(join(falseKill.logDirectory,
+    'column-remove-control-guard.baseline.report.json'), 'utf8'));
+  const mutant = JSON.parse(readFileSync(join(falseKill.logDirectory,
+    'column-remove-control-guard.mutant.report.json'), 'utf8'));
+  assert.equal(baseline.numPassedTests, 1);
+  assert.equal(baseline.numFailedTests, 0);
+  assert.match(mutant.testResults[0].assertionResults[0].failureMessages[0],
+    /Unable to find an accessible element with the role "button" and name "Remove Research Subject Identifier"/u);
+  assert.match(mutant.testResults[0].assertionResults[0].failureMessages[1], /281\|.*toHaveBeenCalledWith/u);
+  const falseKillEvidence = JSON.parse(readFileSync(join(falseKill.root,
+    'verification/builder-interactions/mutation-evidence.json'), 'utf8'));
+  assert.equal(falseKillEvidence.probes.some(entry => entry.id === 'column-remove-control-guard'), false);
+});
+
+test('mutation probe runner records KILLED after a passing hash-bound baseline and targeted assertion failure', (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'loom-mutation-targeted-kill-'));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  const { root, logDirectory, fixture, result } = runMutationRunnerFixture(tempRoot,
+    'column-remove-control-guard', 'targeted-mutant');
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /KILLED column-remove-control-guard/u);
+
+  const evidence = JSON.parse(readFileSync(join(root, 'verification/builder-interactions/mutation-evidence.json'), 'utf8'));
+  const entry = evidence.probes.find(candidate => candidate.id === fixture.probe.id);
+  assert.equal(entry.status, 'killed');
+  assert.equal(entry.baseline.status, 'passed');
+  assert.equal(entry.baseline.passedTestCount, 1);
+  assert.equal(entry.baseline.failedTestCount, 0);
+  assert.equal(entry.baseline.hashJoinValid, true);
+  const hashes = mutationFixtureHashes({ fixture });
+  const runnerHash = sha256(readFileSync(join(root, 'scripts/run-builder-mutation-probe.mjs')));
+  assert.deepEqual({ sourceHash: entry.baseline.sourceHash, testHash: entry.baseline.testHash,
+    probeHash: entry.baseline.probeHash }, hashes);
+  assert.deepEqual({ sourceHash: entry.sourceHash, testHash: entry.testHash, probeHash: entry.probeHash }, hashes);
+  assert.equal(entry.runnerHash, runnerHash);
+  assert.equal(entry.baseline.runnerHash, runnerHash);
+  assert.equal(entry.classifierVersion, 'selected-assertion-v3');
+  assert.equal(entry.baseline.classifierVersion, 'selected-assertion-v3');
+  assert.equal(entry.commandIdentity, sha256(entry.command));
+  assert.equal(entry.baseline.commandIdentity, sha256(entry.baseline.command));
+  assert.match(entry.failure, /AssertionError: expected "vi\.fn\(\)" to be called with arguments/u);
+  assert.match(entry.command, /--outputFile=<json-report>/u);
+  assert.match(entry.baseline.command, /--outputFile=<json-report>/u);
+  assert.doesNotMatch(entry.command + entry.baseline.command, /vitest-report\.json|\/var\/folders\//u);
+  assert.equal(evidence.probes.find(candidate => candidate.id === 'historic-inactive').status, 'inactive');
+  assert.equal(evidence.probes.find(candidate => candidate.id === 'historic-equivalent').status, 'equivalent');
+  for (const phase of ['baseline', 'mutant']) {
+    assert.ok(readFileSync(join(logDirectory, fixture.probe.id + '.' + phase + '.stdout.log')));
+    assert.ok(readFileSync(join(logDirectory, fixture.probe.id + '.' + phase + '.report.json')));
+  }
+});
+
+test('mutation probe runner reruns same-hash KILLED evidence that lacks a successful baseline receipt', (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'loom-mutation-old-cache-'));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  const { root, logDirectory, fixture } = runMutationRunnerFixture(tempRoot,
+    'column-remove-control-guard', 'targeted-mutant', { force: false, execute: false });
+  const hashes = mutationFixtureHashes({ fixture });
+  const evidencePath = join(root, 'verification/builder-interactions/mutation-evidence.json');
+  const evidence = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  evidence.probes.push({ id: fixture.probe.id, status: 'killed', ...hashes });
+  writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');
+
+  const result = spawnSync(process.execPath, [join(root, 'scripts/run-builder-mutation-probe.mjs'), fixture.probe.id], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, LOOM_MUTATION_LOG_DIRECTORY: logDirectory, MUTATION_FIXTURE_MODE: 'targeted-mutant' },
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /KILLED column-remove-control-guard/u);
+  const refreshed = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  const entry = refreshed.probes.find(candidate => candidate.id === fixture.probe.id);
+  assert.equal(entry.status, 'killed');
+  assert.equal(entry.baseline.status, 'passed');
+  assert.equal(entry.baseline.passedTestCount, 1);
+  assert.equal(entry.baseline.hashJoinValid, true);
+  assert.deepEqual({ sourceHash: entry.sourceHash, testHash: entry.testHash, probeHash: entry.probeHash }, hashes);
+  assert.ok(existsSync(join(logDirectory, fixture.probe.id + '.baseline.report.json')),
+    'same-hash legacy evidence must not skip the baseline run');
+});
+
+test('failed baseline invalidates a same-hash KILLED row but preserves its probe identity and old diagnostics', (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'loom-mutation-stale-kill-baseline-failure-'));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  const { root, logDirectory, fixture } = runMutationRunnerFixture(tempRoot,
+    'column-visibility-toggle-guard', 'red-baseline', { force: false, execute: false });
+  const hashes = mutationFixtureHashes({ fixture });
+  const evidencePath = join(root, 'verification/builder-interactions/mutation-evidence.json');
+  const evidence = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  evidence.probes.push({
+    id: fixture.probe.id,
+    status: 'killed',
+    ...hashes,
+    sourceCommit: 'historical-source',
+    failure: fixture.probeSpec.historicFailureLine,
+    command: 'historical normalized command',
+  });
+  writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');
+
+  const result = spawnSync(process.execPath, [join(root, 'scripts/run-builder-mutation-probe.mjs'), fixture.probe.id], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, LOOM_MUTATION_LOG_DIRECTORY: logDirectory, MUTATION_FIXTURE_MODE: 'red-baseline' },
+  });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /unmodified baseline must pass at least one test/u);
+
+  const refreshed = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  const entries = refreshed.probes.filter(candidate => candidate.id === fixture.probe.id);
+  assert.equal(entries.length, 1, 'the failed revalidation must retain one record for this probe ID');
+  assert.equal(entries[0].status, 'baseline-failed');
+  assert.equal(entries[0].previousStatus, 'killed');
+  assert.equal(entries[0].revalidationErrorKind, 'baseline-failed');
+  assert.match(entries[0].revalidationFailure, /passedTestCount":0/u);
+  assert.equal(entries[0].sourceCommit, 'historical-source');
+  assert.equal(entries[0].failure, fixture.probeSpec.historicFailureLine);
+  assert.equal(entries[0].command, 'historical normalized command');
+  assert.equal(entries.some(candidate => candidate.status === 'killed'), false,
+    'the stale KILLED status must not survive failed baseline validation');
+  assert.equal(refreshed.probes.find(candidate => candidate.id === 'historic-inactive').status, 'inactive');
+  assert.equal(refreshed.probes.find(candidate => candidate.id === 'historic-equivalent').status, 'equivalent');
+
+  const report = JSON.parse(readFileSync(join(logDirectory,
+    fixture.probe.id + '.baseline.report.json'), 'utf8'));
+  assert.equal(report.numPassedTests, 0);
+  assert.equal(report.numFailedTests, 1);
+  assert.equal(report.numSkippedTests, 26);
+  assert.equal(existsSync(join(logDirectory, fixture.probe.id + '.mutant.stdout.log')), false,
+    'the mutant must not run after its unmodified baseline fails');
 });
