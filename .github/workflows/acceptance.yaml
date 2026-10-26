@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   acceptance:
     runs-on: ubuntu-latest
@@ -98,6 +102,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - name: Install browser acceptance dependencies
+        working-directory: scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Probe runner Chrome through Playwright
+        id: chrome_probe
+        working-directory: scripts
+        shell: bash
+        continue-on-error: true
+        run: |
+          node --input-type=module <<'NODE'
+          import { chromium } from '@playwright/test';
+          const browser = await chromium.launch({
+            channel: 'chrome',
+            headless: true,
+          });
+          await browser.close();
+          console.log('PASS Playwright launched and closed runner Chrome');
+          NODE
+      - name: Install Playwright Chrome fallback
+        if: steps.chrome_probe.outcome != 'success'
+        working-directory: scripts
+        run: npx playwright install --with-deps chrome
       - name: Run isolated browser acceptance
         env:
           LOOM_DEV_COMPOSE_PROJECT: loom-dev-ci-${{ github.run_id }}
