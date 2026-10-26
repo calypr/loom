@@ -48,11 +48,22 @@ test('Builder browser evidence self-test does not load Playwright', () => {
   assert.match(result.stdout, /PASS retained Builder journey evidence/);
 });
 
-test('Builder evidence check uses hash-verified retained reports without loading Playwright', () => {
-  const result = runEvidenceCliWithoutPlaywright(['--from-evidence', '--check']);
+test('Builder evidence generation and check use retained reports without loading Playwright', () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'loom-browser-evidence-check-'));
+  const temporaryOutput = join(temporaryDirectory, 'browser-evidence.json');
+  try {
+    writeFileSync(temporaryOutput,
+      readFileSync(resolve(repositoryRoot, 'verification/builder-interactions/browser-evidence.json')));
+    const generated = runEvidenceCliWithoutPlaywright(['--from-evidence', '--output', temporaryOutput]);
+    assert.equal(generated.status, 0, [generated.stdout, generated.stderr].filter(Boolean).join('\n'));
+    assert.match(generated.stdout, /wrote .*browser-evidence\.json with 3 browser case\(s\) and 4 retained journey run\(s\)/);
 
-  assert.equal(result.status, 0, [result.stdout, result.stderr].filter(Boolean).join('\n'));
-  assert.match(result.stdout, /PASS verification\/builder-interactions\/browser-evidence\.json is current:/);
+    const checked = runEvidenceCliWithoutPlaywright(['--from-evidence', '--output', temporaryOutput, '--check']);
+    assert.equal(checked.status, 0, [checked.stdout, checked.stderr].filter(Boolean).join('\n'));
+    assert.match(checked.stdout, /PASS .*browser-evidence\.json is current:/);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test('retained evidence archive rejects missing and corrupted payloads', () => {
@@ -79,6 +90,16 @@ test('retained evidence archive rejects missing and corrupted payloads', () => {
 
 test('retained evidence path aliases stay inside the archive and reject unmatched external paths', () => {
   const retained = loadRetainedBrowserEvidenceArchive(repositoryRoot);
+  const nativeReport = [...retained.values()].find((entry) => entry.archivePath.endsWith('/native-report.json.gz'));
+  const tlaReceipt = [...retained.values()].find((entry) => entry.archivePath.endsWith('/formal-tla-receipt.json.gz'));
+  const report = JSON.parse(nativeReport.bytes.toString('utf8'));
+  const replayReportPath = report.target?.builderJourneyTrace?.replayReportPath;
+  assert.equal(typeof replayReportPath, 'string');
+  assert.equal(
+    resolveEvidenceReference(replayReportPath, repositoryRoot, retained, 'formal replay output'),
+    resolve(repositoryRoot, tlaReceipt.path),
+  );
+
   const logicalPath = retained.keys().next().value;
   const absoluteSourcePath = '/private/tmp/source-checkout/' + logicalPath;
   assert.equal(

@@ -550,7 +550,7 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   requireValue(selfTest.status === 'pass' && evidence.selfTestStatus === 'pass' &&
     selfTest.traceName === binding.name && selfTest.nativeCaseKey === expectedNativeCaseKey &&
     selfTestTracePath === traceArtifact.absolute && selfTestOutputPath === selfTestArtifact.absolute &&
-    tlaArtifact.absolute === resolveNativeBuilderJourneyArtifactPath(evidence.replayReportPath, root),
+    tlaArtifact.absolute === resolveEvidenceReference(evidence.replayReportPath, root, retainedArchive, 'formal replay output'),
   'formal journey mutation receipt does not match the registered trace, native case, or self-test output');
   requireValue(sameJson(evidence.requestCoverage, replayReceipt.requestCoverage) &&
     sameJson(evidence.requiredActionCountsByTrace, replayReceipt.requiredActionCountsByTrace) &&
