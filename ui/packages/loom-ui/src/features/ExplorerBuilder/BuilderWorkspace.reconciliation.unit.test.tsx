@@ -778,6 +778,7 @@ const openPivotPresentationProposal = async () => {
   const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
   fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
   const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+  fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
   fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
   fireEvent.click(await screen.findByRole('button', { name: 'Emit Pivot presentation proposal' }));
   const proposalPreview = await screen.findByTestId('construction-proposal-preview');
@@ -1448,6 +1449,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         resourceType: 'Specimen',
         sourcePath: 'type.coding[]',
       }] : [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     }));
     mockLoomClient.proposeConstruction.mockClear().mockImplementation(async (
@@ -1641,6 +1643,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalled());
     fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
     const categoryEntry = within(rowSettings).getByTestId('construction-action-pivot-rows');
     expect(categoryEntry).toBeDisabled();
     expect(within(rowSettings).queryByTestId('construction-action-table-pivot-rows')).toBeNull();
@@ -1886,6 +1889,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
     fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
     const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(within(rowSettings).getByTestId('construction-row-intent-reshape'));
     fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
 
     const editor = await screen.findByTestId('construction-reshape-editor');
