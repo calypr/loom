@@ -13,6 +13,10 @@ on:
       - '.github/workflows/mjs-test-catalogue.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   catalogue:
     name: MJS catalogue gate
