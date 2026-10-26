@@ -3611,17 +3611,17 @@
           },
           {
             "path": "Makefile",
-            "line": 146,
+            "line": 147,
             "kind": "Make dev invokes loom-dev CLI"
           },
           {
             "path": "Makefile",
-            "line": 180,
+            "line": 181,
             "kind": "native verify-j01 target"
           },
           {
             "path": "Makefile",
-            "line": 195,
+            "line": 196,
             "kind": "native verify-j05 target"
           }
         ],
@@ -8508,7 +8508,7 @@
         "evidence": [
           {
             "path": "Makefile",
-            "line": 81,
+            "line": 82,
             "kind": "node --test command"
           },
           {
@@ -16383,7 +16383,7 @@
           },
           {
             "path": "Makefile",
-            "line": 173,
+            "line": 174,
             "kind": "execution/import caller reviewed"
           },
           {
@@ -16459,12 +16459,12 @@
         "evidence": [
           {
             "path": "Makefile",
-            "line": 173,
+            "line": 174,
             "kind": "checked-in import, command, CI, Make target, or configuration reference"
           },
           {
             "path": "Makefile",
-            "line": 178,
+            "line": 179,
             "kind": "checked-in import, command, CI, Make target, or configuration reference"
           },
           {
@@ -22418,7 +22418,7 @@
           },
           {
             "path": "Makefile",
-            "line": 146,
+            "line": 147,
             "kind": "Make dev invokes loom-dev CLI"
           }
         ],
@@ -60309,7 +60309,7 @@
           },
           {
             "path": "Makefile",
-            "line": 146,
+            "line": 147,
             "kind": "Make dev invokes loom-dev CLI"
           }
         ],
