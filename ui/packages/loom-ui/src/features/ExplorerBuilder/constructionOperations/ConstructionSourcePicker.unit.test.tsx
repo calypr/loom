@@ -61,6 +61,7 @@ const candidate = (
   logicalType: 'string',
   cardinality: 'optional_one',
   repeated: false,
+  populated: true,
   filterable: true,
   chartable: false,
   projectionModes: ['VALUE'],
@@ -209,18 +210,21 @@ describe('Add columns source selection', () => {
     expect(source).toHaveProperty('value', 'node:observation-node');
     fireEvent.change(source, { target: { value: 'node:report-node' } });
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select DiagnosticReport.id' }));
+    const reportIdentifier = await screen.findByRole('button', { name: 'Select DiagnosticReport.id' });
+    expect(reportIdentifier).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(reportIdentifier);
+    expect(reportIdentifier).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
-    const confirm = within(dialog).getByRole('button', { name: 'Add 1 column' });
+    const routeOptions = await screen.findByRole('region', { name: 'Advanced route and form choices' });
+    const confirm = within(routeOptions).getByRole('button', { name: 'Add 1 selected feature' });
     expect(confirm).toBeDisabled();
-    fireEvent.click(within(dialog).getByRole('radio', {
+    fireEvent.click(within(routeOptions).getByRole('radio', {
       name: 'Report identifier: Patient <-[encounter]- DiagnosticReport',
     }));
-    const technicalPath = within(dialog).getAllByText('Technical path details')[1]!;
+    const technicalPath = within(routeOptions).getAllByText('Technical path details')[1]!;
     fireEvent.click(technicalPath);
-    expect(within(dialog).getAllByText('This path permits rows with no matching related record.').length).toBeGreaterThan(0);
+    expect(within(routeOptions).getAllByText('This path permits rows with no matching related record.').length).toBeGreaterThan(0);
     fireEvent.click(confirm);
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
