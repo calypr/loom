@@ -192,7 +192,7 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 				return nil, err
 			}
 			for _, emitted := range receipt.EmittedColumns {
-				if emitted.CandidateID == "c_patient_id" && emitted.SourcePath == "id" {
+				if emitted.OutputID == document.Output.ID && emitted.ConstructionID != "" && emitted.Label == "Patient ID" && emitted.PublicColumn != "" {
 					candidatePublicColumn = emitted.PublicColumn
 					break
 				}
