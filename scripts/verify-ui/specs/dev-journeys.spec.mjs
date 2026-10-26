@@ -24,6 +24,8 @@ const test = base.extend({
       pageErrors: [],
       networkFailures: [],
       httpFailures: [],
+      constructionCapabilities: [],
+      authoringCommands: [],
       assetFailures: [],
       actions: [],
       droppedDiagnostics: 0,
@@ -32,6 +34,7 @@ const test = base.extend({
     };
     const ownedOrigins = new Set();
     const pendingBodyCaptures = new Set();
+    const requestStartedAt = new WeakMap();
     const push = (collection, item) => {
       if (collection.length < MAX_DIAGNOSTICS) collection.push(item);
       else diagnostics.droppedDiagnostics += 1;
@@ -98,13 +101,58 @@ const test = base.extend({
         ...(diagnostics.activeAction ? { triggerAction: diagnostics.activeAction.label } : {}),
       });
     };
+    const onRequest = (request) => {
+      if (!isOwned(request.url())) return;
+      requestStartedAt.set(request, Date.now());
+    };
     const onResponse = (response) => {
-      if (!isOwned(response.url()) || response.status() < 400) return;
+      if (!isOwned(response.url())) return;
+      const request = response.request();
+      const responseURL = new URL(response.url());
+      const requestHeaders = request.headers();
+      const requestID = requestHeaders['x-request-id'];
+      const startedAt = requestStartedAt.get(request);
+      let requestBody = {};
+      try { requestBody = JSON.parse(request.postData() ?? '{}'); } catch {}
+      const capabilityRoute = responseURL.pathname.endsWith('/authoring/v2/construction-capabilities');
+      const commandRoute = responseURL.pathname.endsWith('/authoring/v2/commands');
+      if (capabilityRoute) {
+        push(diagnostics.constructionCapabilities, {
+          url: safeURL(response.url()),
+          method: request.method(),
+          status: response.status(),
+          observedAt: Date.now(),
+          ...(startedAt !== undefined ? { startedAt } : {}),
+          ...(requestID ? { requestId: requestID } : {}),
+          ...(typeof requestBody.outputId === 'string' ? { outputId: requestBody.outputId } : {}),
+          ...(Number.isInteger(requestBody.expectedDraftVersion) ? { expectedDraftVersion: requestBody.expectedDraftVersion } : {}),
+          ...(typeof requestBody.expectedDraftDigest === 'string' ? { expectedDraftDigest: requestBody.expectedDraftDigest } : {}),
+          ...(typeof requestBody.stageId === 'string' ? { stageId: requestBody.stageId } : {}),
+        });
+      }
+      if (commandRoute) {
+        const outputIds = Array.isArray(requestBody.commands)
+          ? [...new Set(requestBody.commands.map((command) => command?.outputId).filter((outputId) => typeof outputId === 'string'))]
+          : [];
+        push(diagnostics.authoringCommands, {
+          url: safeURL(response.url()),
+          method: request.method(),
+          status: response.status(),
+          observedAt: Date.now(),
+          ...(startedAt !== undefined ? { startedAt } : {}),
+          ...(requestID ? { requestId: requestID } : {}),
+          outputIds,
+        });
+      }
+      if (response.status() < 400) return;
       const entry = {
         url: safeURL(response.url()),
         status: response.status(),
-        method: response.request().method(),
+        method: request.method(),
         observedAt: Date.now(),
+        ...(startedAt !== undefined ? { startedAt } : {}),
+        ...(requestID ? { requestId: requestID } : {}),
+        ...(diagnostics.activeAction ? { triggerAction: diagnostics.activeAction.label } : {}),
       };
       if (new URL(response.url()).pathname.endsWith('/favicon.ico') && response.status() === 404) {
         push(diagnostics.assetFailures, entry);
@@ -131,6 +179,7 @@ const test = base.extend({
 
     page.on('console', onConsole);
     page.on('pageerror', onPageError);
+    page.on('request', onRequest);
     page.on('requestfailed', onRequestFailed);
     page.on('response', onResponse);
     try {
@@ -139,6 +188,7 @@ const test = base.extend({
       await flushPending();
       page.removeListener('console', onConsole);
       page.removeListener('pageerror', onPageError);
+      page.removeListener('request', onRequest);
       page.removeListener('requestfailed', onRequestFailed);
       page.removeListener('response', onResponse);
     }

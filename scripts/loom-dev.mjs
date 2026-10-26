@@ -5286,6 +5286,42 @@ export const verifyFullHTTPFailureMatches = (entry, { url, code }) => {
 export const verifyFullUnexpectedNetworkFailures = (entries) => entries.filter((entry) =>
   !(entry?.failure === 'net::ERR_ABORTED' && !isMutationRequest(entry.method, entry.url)));
 
+export const isRecoveredStaleCapabilitiesConflict = ({
+  failure,
+  failedRequest,
+  mutationResponse,
+  recoveryRequest,
+  expectedCapabilitiesURL,
+  expectedCommandsURL,
+  outputId,
+  currentDraftVersion,
+  currentDraftDigest,
+}) => {
+  let body;
+  try { body = JSON.parse(failure?.body ?? ''); } catch { return false; }
+  const requestId = body?.requestId ?? body?.error?.requestId ?? body?.diagnostics?.[0]?.requestId;
+  const errorCode = body?.error?.code ?? body?.diagnostics?.[0]?.code;
+  return Boolean(
+    failure?.status === 409 && failure.method === 'POST' && failure.url === expectedCapabilitiesURL &&
+    errorCode === 'DRAFT_CONFLICT' && typeof requestId === 'string' &&
+    requestId === failure.requestId && requestId === failedRequest?.requestId &&
+    failedRequest.status === 409 && failedRequest.method === 'POST' && failedRequest.url === expectedCapabilitiesURL &&
+    failedRequest.outputId === outputId && Number.isInteger(failedRequest.expectedDraftVersion) &&
+    failedRequest.expectedDraftVersion < currentDraftVersion &&
+    typeof failedRequest.expectedDraftDigest === 'string' && failedRequest.expectedDraftDigest !== currentDraftDigest &&
+    mutationResponse?.status === 200 && mutationResponse.method === 'POST' &&
+    mutationResponse.url === expectedCommandsURL && mutationResponse.outputIds?.includes(outputId) &&
+    Number.isFinite(mutationResponse.startedAt) && Number.isFinite(failedRequest.startedAt) &&
+    mutationResponse.startedAt < failedRequest.startedAt &&
+    failedRequest.startedAt <= mutationResponse.observedAt && mutationResponse.observedAt <= failure.observedAt &&
+    recoveryRequest?.status === 200 && recoveryRequest.method === 'POST' &&
+    recoveryRequest.url === expectedCapabilitiesURL && recoveryRequest.outputId === outputId &&
+    recoveryRequest.expectedDraftVersion === currentDraftVersion &&
+    recoveryRequest.expectedDraftDigest === currentDraftDigest &&
+    recoveryRequest.startedAt > failure.observedAt && recoveryRequest.observedAt > failure.observedAt
+  );
+};
+
 const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000) => {
   let receiptId = state.receipt?.receiptId ?? state.receiptId;
   if (!receiptId) {
@@ -5794,6 +5830,53 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       matchingConsole[0].expectedByAssertion = assertion;
       matchingConsole[0].expectedAction = action;
       matchingConsole[0].expectedCode = code;
+    }
+  };
+  const classifyRecoveredCapabilitiesDraftConflicts = async (builder, outputId) => {
+    await diagnostics.flushPending?.();
+    const encodedProject = encodeURIComponent(encodeURIComponent(canonicalProjectID(target.fixtureProject)));
+    const authoringBase = `${target.uiUrl}/api/v1/projects/${encodedProject}/explorers/${encodeURIComponent(explorerId)}/authoring/v2`;
+    const capabilitiesURL = `${authoringBase}/construction-capabilities`;
+    const commandsURL = `${authoringBase}/commands`;
+    const failures = diagnostics.httpFailures.filter((entry) =>
+      entry.status === 409 && entry.method === 'POST' && entry.url === capabilitiesURL);
+    for (const [index, failure] of failures.entries()) {
+      let body;
+      try { body = JSON.parse(failure.body ?? ''); } catch { body = undefined; }
+      const requestId = body?.requestId ?? body?.error?.requestId ?? body?.diagnostics?.[0]?.requestId;
+      const failedRequest = diagnostics.constructionCapabilities?.find((entry) => entry.requestId === requestId);
+      const mutationResponse = diagnostics.authoringCommands?.find((entry) =>
+        entry.status === 200 && entry.method === 'POST' && entry.url === commandsURL &&
+        entry.outputIds?.includes(outputId) && failedRequest &&
+        entry.startedAt < failedRequest.startedAt &&
+        failedRequest.startedAt <= entry.observedAt && entry.observedAt <= failure.observedAt);
+      const recoveryRequest = diagnostics.constructionCapabilities?.find((entry) =>
+        entry.status === 200 && entry.method === 'POST' && entry.url === capabilitiesURL &&
+        entry.outputId === outputId && entry.expectedDraftVersion === builder.draftVersion &&
+        entry.expectedDraftDigest === builder.draftDigest && entry.startedAt > failure.observedAt &&
+        entry.observedAt > failure.observedAt);
+      const assertion = `stale-capabilities-conflict-recovers-to-current-draft-${index + 1}`;
+      recordAssertion(report, assertion, true, isRecoveredStaleCapabilitiesConflict({
+        failure,
+        failedRequest,
+        mutationResponse,
+        recoveryRequest,
+        expectedCapabilitiesURL: capabilitiesURL,
+        expectedCommandsURL: commandsURL,
+        outputId,
+        currentDraftVersion: builder.draftVersion,
+        currentDraftDigest: builder.draftDigest,
+      }));
+      failure.expectedByAssertion = assertion;
+      failure.expectedAction = 'superseded capability read recovered after the current draft was saved';
+      failure.expectedCode = 'DRAFT_CONFLICT';
+      const matchingConsole = diagnostics.console.filter((entry) =>
+        entry.type === 'error' && entry.location === failure.url &&
+        entry.text.includes('409 (Conflict)') && Math.abs(entry.observedAt - failure.observedAt) <= 1000);
+      recordAssertion(report, `${assertion}-has-one-correlated-console-error`, 1, matchingConsole.length);
+      matchingConsole[0].expectedByAssertion = assertion;
+      matchingConsole[0].expectedAction = failure.expectedAction;
+      matchingConsole[0].expectedCode = failure.expectedCode;
     }
   };
   const scrollPreviewToRow = async (rowIndex, label) => {
@@ -6347,7 +6430,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
-    await waitForDOMCondition(`document.body.innerText.includes('Has Observation')`, 30000);
+    await page.getByRole('columnheader', { name: 'Has Observation', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     const reloadedEqualityBuilder = await fetchBuilderState(target, explorerId);
     const reloadedObservationNode = reloadedEqualityBuilder.catalog.nodes.find((node) => node.resourceType === 'Observation');
     const reloadedStatusCandidate = reloadedEqualityBuilder.catalog.candidates.find((candidate) =>
@@ -6381,6 +6464,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       operator: await reloadedContributorCondition.inputValue(),
       value: await reloadedContributorValue.inputValue(),
     });
+    await classifyRecoveredCapabilitiesDraftConflicts(reloadedEqualityBuilder, patientOutputId);
     await captureDOM(join(evidenceDir, 'builder-visible-equality-after-reload.html'));
     const valueCandidateDeadline = Date.now() + 30000;
     let valueCandidateVisible = false;
