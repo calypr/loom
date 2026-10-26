@@ -745,7 +745,9 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.queryByRole('region', { name: 'Reshape table options' })).toBeNull();
   });
 
-  it.each([
+  const startingCollectionSettingsCases: ReadonlyArray<
+    readonly [string, Parameters<typeof renderSettings>[0]]
+  > = [
     ['an active selection', { selection: sourceSelection }],
     ['an attached population', {
       tableValue: {
@@ -756,7 +758,9 @@ describe('RowDefinitionSettingsPanel', () => {
         },
       },
     }],
-  ] as const)('keeps starting collection controls for %s', async (_state, state) => {
+  ];
+
+  it.each(startingCollectionSettingsCases)('keeps starting collection controls for %s', async (_state, state) => {
     renderSettings({
       ...state,
       startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,

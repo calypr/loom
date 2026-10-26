@@ -330,7 +330,6 @@ describe('core proposal lifecycle action IDs', () => {
         values: { localAction: 'cancel_construction_proposal' },
       },
       requestStep: null,
-      values: { localAction: 'cancel_construction_proposal' },
     });
 
     expect(cancelled).toHaveBeenCalledOnce();
@@ -365,7 +364,6 @@ describe('core proposal lifecycle action IDs', () => {
           values: { localAction: 'accept_construction_proposal' },
         },
         requestStep: null,
-        values: { localAction: 'accept_construction_proposal' },
       });
     } catch (error) {
       caught = error;
