@@ -5286,6 +5286,42 @@ export const verifyFullHTTPFailureMatches = (entry, { url, code }) => {
 export const verifyFullUnexpectedNetworkFailures = (entries) => entries.filter((entry) =>
   !(entry?.failure === 'net::ERR_ABORTED' && !isMutationRequest(entry.method, entry.url)));
 
+export const isRecoveredStaleCapabilitiesConflict = ({
+  failure,
+  failedRequest,
+  mutationResponse,
+  recoveryRequest,
+  expectedCapabilitiesURL,
+  expectedCommandsURL,
+  outputId,
+  currentDraftVersion,
+  currentDraftDigest,
+}) => {
+  let body;
+  try { body = JSON.parse(failure?.body ?? ''); } catch { return false; }
+  const requestId = body?.requestId ?? body?.error?.requestId ?? body?.diagnostics?.[0]?.requestId;
+  const errorCode = body?.error?.code ?? body?.diagnostics?.[0]?.code;
+  return Boolean(
+    failure?.status === 409 && failure.method === 'POST' && failure.url === expectedCapabilitiesURL &&
+    errorCode === 'DRAFT_CONFLICT' && typeof requestId === 'string' &&
+    requestId === failure.requestId && requestId === failedRequest?.requestId &&
+    failedRequest.status === 409 && failedRequest.method === 'POST' && failedRequest.url === expectedCapabilitiesURL &&
+    failedRequest.outputId === outputId && Number.isInteger(failedRequest.expectedDraftVersion) &&
+    failedRequest.expectedDraftVersion < currentDraftVersion &&
+    typeof failedRequest.expectedDraftDigest === 'string' && failedRequest.expectedDraftDigest !== currentDraftDigest &&
+    mutationResponse?.status === 200 && mutationResponse.method === 'POST' &&
+    mutationResponse.url === expectedCommandsURL && mutationResponse.outputIds?.includes(outputId) &&
+    Number.isFinite(mutationResponse.startedAt) && Number.isFinite(failedRequest.startedAt) &&
+    mutationResponse.startedAt < failedRequest.startedAt &&
+    failedRequest.startedAt <= mutationResponse.observedAt && mutationResponse.observedAt <= failure.observedAt &&
+    recoveryRequest?.status === 200 && recoveryRequest.method === 'POST' &&
+    recoveryRequest.url === expectedCapabilitiesURL && recoveryRequest.outputId === outputId &&
+    recoveryRequest.expectedDraftVersion === currentDraftVersion &&
+    recoveryRequest.expectedDraftDigest === currentDraftDigest &&
+    recoveryRequest.startedAt > failure.observedAt && recoveryRequest.observedAt > failure.observedAt
+  );
+};
+
 const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000) => {
   let receiptId = state.receipt?.receiptId ?? state.receiptId;
   if (!receiptId) {
@@ -5796,6 +5832,53 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       matchingConsole[0].expectedCode = code;
     }
   };
+  const classifyRecoveredCapabilitiesDraftConflicts = async (builder, outputId) => {
+    await diagnostics.flushPending?.();
+    const encodedProject = encodeURIComponent(encodeURIComponent(canonicalProjectID(target.fixtureProject)));
+    const authoringBase = `${target.uiUrl}/api/v1/projects/${encodedProject}/explorers/${encodeURIComponent(explorerId)}/authoring/v2`;
+    const capabilitiesURL = `${authoringBase}/construction-capabilities`;
+    const commandsURL = `${authoringBase}/commands`;
+    const failures = diagnostics.httpFailures.filter((entry) =>
+      entry.status === 409 && entry.method === 'POST' && entry.url === capabilitiesURL);
+    for (const [index, failure] of failures.entries()) {
+      let body;
+      try { body = JSON.parse(failure.body ?? ''); } catch { body = undefined; }
+      const requestId = body?.requestId ?? body?.error?.requestId ?? body?.diagnostics?.[0]?.requestId;
+      const failedRequest = diagnostics.constructionCapabilities?.find((entry) => entry.requestId === requestId);
+      const mutationResponse = diagnostics.authoringCommands?.find((entry) =>
+        entry.status === 200 && entry.method === 'POST' && entry.url === commandsURL &&
+        entry.outputIds?.includes(outputId) && failedRequest &&
+        entry.startedAt < failedRequest.startedAt &&
+        failedRequest.startedAt <= entry.observedAt && entry.observedAt <= failure.observedAt);
+      const recoveryRequest = diagnostics.constructionCapabilities?.find((entry) =>
+        entry.status === 200 && entry.method === 'POST' && entry.url === capabilitiesURL &&
+        entry.outputId === outputId && entry.expectedDraftVersion === builder.draftVersion &&
+        entry.expectedDraftDigest === builder.draftDigest && entry.startedAt > failure.observedAt &&
+        entry.observedAt > failure.observedAt);
+      const assertion = `stale-capabilities-conflict-recovers-to-current-draft-${index + 1}`;
+      recordAssertion(report, assertion, true, isRecoveredStaleCapabilitiesConflict({
+        failure,
+        failedRequest,
+        mutationResponse,
+        recoveryRequest,
+        expectedCapabilitiesURL: capabilitiesURL,
+        expectedCommandsURL: commandsURL,
+        outputId,
+        currentDraftVersion: builder.draftVersion,
+        currentDraftDigest: builder.draftDigest,
+      }));
+      failure.expectedByAssertion = assertion;
+      failure.expectedAction = 'superseded capability read recovered after the current draft was saved';
+      failure.expectedCode = 'DRAFT_CONFLICT';
+      const matchingConsole = diagnostics.console.filter((entry) =>
+        entry.type === 'error' && entry.location === failure.url &&
+        entry.text.includes('409 (Conflict)') && Math.abs(entry.observedAt - failure.observedAt) <= 1000);
+      recordAssertion(report, `${assertion}-has-one-correlated-console-error`, 1, matchingConsole.length);
+      matchingConsole[0].expectedByAssertion = assertion;
+      matchingConsole[0].expectedAction = failure.expectedAction;
+      matchingConsole[0].expectedCode = failure.expectedCode;
+    }
+  };
   const scrollPreviewToRow = async (rowIndex, label) => {
     const scrollRegion = page.getByTestId('preview-table-scroll');
     const box = await scrollRegion.boundingBox();
@@ -5919,10 +6002,12 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       ownerRecordsAvailabilityEvents.some((event) => event.source === 'mutation' && event.acceptedCurrentPreview));
     recordAssertion(report, 'verified-id-first-table-final-action-has-current-preview', true,
       ownerRecordsAvailabilityEvents.some((event) => event.source === 'final' && event.acceptedCurrentPreview));
-    await clickButton('Configure rows');
+    await click('open Observation row settings', page.getByRole('button', { name: 'Change starting records for Observation', exact: true }));
     const ownerRowsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
     await ownerRowsDialog.waitFor({ state: 'visible', timeout: 30000 });
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled))`);
+    const ownerStartingCollection = ownerRowsDialog.getByTestId('construction-starting-collection-footer');
+    await click('open starting collection settings', ownerStartingCollection.locator(':scope > summary'));
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled && button.getClientRects().length > 0))`);
     await clickButton('Use selected resources', ownerRowsDialog);
     await waitForDOMCondition(`document.querySelector('section[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id') === ${JSON.stringify(ownerRecordsSelectionID)}`);
     const ownerRecordsPopulationBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
@@ -5939,22 +6024,39 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     recordAssertion(report, 'owner-records-first-table-uses-verified-root-id-field', true, Boolean(ownerRecordsInitialIDColumn));
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await clickButton('Other fields');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
+    await click('select Coded values tab', page.getByRole('tab', { name: 'Coded values', exact: true }));
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search coded values by code or label"]')) && Boolean(document.querySelector('[aria-label="Coded values"]'))`);
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
-    await fill('Search features by field name, concept, or code', 'shared');
+    await fill('Search coded values by code or label', 'shared');
     await clickButton('Search');
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
-    const sharedArticle = page.locator('article').filter({ hasText: 'urn:study:A · shared' }).filter({ hasText: 'valueQuantity.value' });
-    await click('select Study A shared feature', sharedArticle.getByRole('checkbox'));
+    const ownerRecordsSharedSemanticButtonName = /^Select shared.*system urn:study:A.*code shared$/;
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('article[data-semantic-identity]')].some((article) => [...article.querySelectorAll('button[aria-label^="Select shared"]')].some((button) => button.getAttribute('aria-label').includes('system urn:study:A') && button.getAttribute('aria-label').includes('code shared') && !button.disabled && button.getClientRects().length > 0)))`);
+    const ownerRecordsSharedSemanticArticles = page.locator('article[data-semantic-identity]').filter({
+      has: page.getByRole('button', { name: ownerRecordsSharedSemanticButtonName }),
+    });
+    const ownerRecordsSharedSemanticArticleCount = await ownerRecordsSharedSemanticArticles.count();
+    let sharedArticle;
+    for (let index = 0; index < ownerRecordsSharedSemanticArticleCount; index += 1) {
+      const candidate = ownerRecordsSharedSemanticArticles.nth(index);
+      await click('inspect Study A shared coded value', candidate.getByRole('button', { name: 'Details for shared', exact: true }));
+      const candidateDetails = candidate.getByRole('tooltip');
+      await candidateDetails.waitFor({ state: 'visible', timeout: 5000 });
+      if ((await candidateDetails.innerText()).includes('Value field Observation.component[].valueQuantity.value')) {
+        sharedArticle = candidate;
+        break;
+      }
+    }
+    if (!sharedArticle) {
+      throw new Error(`Coded values search did not expose the exact Observation.component[].valueQuantity.value choice for urn:study:A/shared across ${ownerRecordsSharedSemanticArticleCount} matching semantic results`);
+    }
+    await click('select Study A shared semantic feature', sharedArticle.getByRole('button', { name: ownerRecordsSharedSemanticButtonName }));
     await clickButton('Advanced options');
-    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"] [aria-label="shared: Keep each matching record"]'))`);
+    const ownerRecordsSharedFormName = 'shared · Observation Component · system urn:study:A · version unversioned · code shared: Keep each matching record';
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="region"][aria-label="Advanced route and form choices"] input[type="radio"]')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(ownerRecordsSharedFormName)} && !input.disabled && input.getClientRects().length > 0))`);
     const ownerAdvancedOptions = page.getByRole('region', { name: 'Advanced route and form choices', exact: true });
-    await click('select shared owner-record form', ownerAdvancedOptions.getByLabel('shared: Keep each matching record', { exact: true }));
-    await clickButton('Add 1 selected feature', ownerAdvancedOptions);
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    await click('select shared owner-record form', ownerAdvancedOptions.getByRole('radio', { name: ownerRecordsSharedFormName, exact: true }));
     const ownerPreviewBaseline = await captureBuilderPreviewBaseline(target, page, ownerRecordsExplorerId);
-    await clickButton('Apply columns');
+    await clickButton('Add 1 selected feature', ownerAdvancedOptions);
     const ownerRecordsStateIsApplied = (builder) => {
       const table = builder?.workspace?.documents?.find((document) => document.output?.id === ownerPreviewBaseline.outputId);
       const column = table?.columns?.find((candidate) => candidate.label === 'shared');
@@ -6002,7 +6104,6 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       ownerPath: ownerRecordsColumn?.source?.ownerRecords?.binding?.ownerPath,
       valuePath: ownerRecordsColumn?.source?.ownerRecords?.binding?.valuePath,
     });
-    await click('close Add columns editor', page.getByTestId('construction-close-operation-editor'));
     await waitForDOMCondition(`!document.querySelector('[aria-label="Add columns editor"]')`);
     const configuredOwnerLabel = `Display name for configured ${ownerRecordsColumn.label}`;
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('input')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(configuredOwnerLabel)} && !input.disabled))`);
@@ -6080,23 +6181,20 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     const patientInitialIDColumn = patientInitialIDColumns[0];
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await clickButton('Other fields');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
-    await fill('Search features by field name, concept, or code', 'id');
+    await click('select Other fields tab', page.getByRole('tab', { name: 'Other fields', exact: true }));
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search dataset fields by name or type"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
+    await fill('Search dataset fields by name or type', 'id');
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await clickButton('Search');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
-    await click('select Patient.id root field', page.getByRole('checkbox', { name: 'Select Patient.id', exact: true }));
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Select Patient.id' && !button.disabled && button.getClientRects().length > 0))`);
+    await click('select Patient.id root field', page.getByRole('button', { name: 'Select Patient.id', exact: true }));
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
     await clickButton('Add 1 selected feature');
-    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"]')) || Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"]')) || !document.querySelector('[aria-label="Add columns editor"]')`);
     const patientNeedsFormChoice = await page.getByRole('region', { name: 'Advanced route and form choices', exact: true }).count() > 0;
     if (patientNeedsFormChoice) {
       await clickButton('Add 1 selected feature', page.getByRole('region', { name: 'Advanced route and form choices', exact: true }));
     }
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
-    await clickButton('Apply columns');
-    await click('close Add columns editor', page.getByTestId('construction-close-operation-editor'));
     await waitForDOMCondition(`!document.querySelector('[aria-label="Add columns editor"]')`);
     const sourceSetupDetails = page.getByTestId('construction-source-setup');
     if (!await sourceSetupDetails.evaluate((details) => details.open)) await click('expand advanced source setup', sourceSetupDetails.locator(':scope > summary'));
@@ -6332,7 +6430,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForDOMCondition(`document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${explorerId}`)} && (${builderDOMReadyCondition})`, 60000);
-    await waitForDOMCondition(`document.body.innerText.includes('Has Observation')`, 30000);
+    await page.getByRole('columnheader', { name: 'Has Observation', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
     const reloadedEqualityBuilder = await fetchBuilderState(target, explorerId);
     const reloadedObservationNode = reloadedEqualityBuilder.catalog.nodes.find((node) => node.resourceType === 'Observation');
     const reloadedStatusCandidate = reloadedEqualityBuilder.catalog.candidates.find((candidate) =>
@@ -6366,6 +6464,7 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       operator: await reloadedContributorCondition.inputValue(),
       value: await reloadedContributorValue.inputValue(),
     });
+    await classifyRecoveredCapabilitiesDraftConflicts(reloadedEqualityBuilder, patientOutputId);
     await captureDOM(join(evidenceDir, 'builder-visible-equality-after-reload.html'));
     const valueCandidateDeadline = Date.now() + 30000;
     let valueCandidateVisible = false;

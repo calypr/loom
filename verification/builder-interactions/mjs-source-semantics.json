@@ -399668,34 +399668,49 @@
     },
     {
       "path": "scripts/run-builder-mutation-probe.mjs",
-      "sha256": "d3fc5254f6020c4dd0c00893d3ffe5a8809e0465b88d0c1d2ed287e2f6088941",
+      "sha256": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
       "role": "tool-or-module",
       "lifecycle": "active",
-      "purpose": "Runs selected Builder mutation probes, reuses only source-matching cached evidence, and writes the resulting mutation evidence ledger.",
+      "purpose": "Runs selected Builder mutation probes, requires a passing source/test/probe-bound baseline before a kill, reuses only runner/classifier/command-matching receipts, and writes the mutation evidence ledger.",
       "testLayer": "command-line",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
+        "reviewedCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
         "evidence": [
           {
             "path": "scripts/run-builder-mutation-probe.mjs",
-            "line": 12,
+            "line": 14,
             "kind": "probe selection and execution options"
           },
           {
             "path": "scripts/run-builder-mutation-probe.mjs",
-            "line": 24,
+            "line": 27,
             "kind": "probe inventory selection"
           },
           {
             "path": "scripts/run-builder-mutation-probe.mjs",
-            "line": 58,
-            "kind": "probe fingerprint construction"
+            "line": 130,
+            "kind": "cached kill receipt validation"
           },
           {
             "path": "scripts/run-builder-mutation-probe.mjs",
-            "line": 210,
-            "kind": "bounded parallel execution"
+            "line": 139,
+            "kind": "baseline and identity receipt requirements"
+          },
+          {
+            "path": "scripts/run-builder-mutation-probe.mjs",
+            "line": 384,
+            "kind": "passing unmodified baseline gate"
+          },
+          {
+            "path": "scripts/run-builder-mutation-probe.mjs",
+            "line": 406,
+            "kind": "selected test assertion classification"
+          },
+          {
+            "path": "scripts/run-builder-mutation-probe.mjs",
+            "line": 472,
+            "kind": "failed revalidation invalidates stale kill status"
           }
         ],
         "confidence": "high"
@@ -399713,13 +399728,19 @@
       },
       "assertions": [
         {
-          "sourceAssertionId": "source:scripts/run-builder-mutation-probe.mjs:L205:runtime-guard-tool-mutation-runner-caches-only-matching-probe-evidence",
+          "sourceAssertionId": "source:scripts/run-builder-mutation-probe.mjs:L130:runtime-guard-tool-mutation-runner-caches-only-matching-probe-evidence",
           "semanticClaimId": "tool.mutation-runner-caches-only-matching-probe-evidence",
           "sourceLines": [
-            58,
-            205,
-            206,
-            207
+            130,
+            139,
+            141,
+            145,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152
           ],
           "independence": "independent",
           "evidenceKind": "runtime-guard"
@@ -399741,7 +399762,7 @@
       },
       "disposition": {
         "kind": "keep",
-        "reason": "Retained because it runs selected Builder mutation probes, reuses only source-matching cached evidence, and writes the resulting mutation evidence ledger."
+        "reason": "Retained because it runs selected Builder mutation probes, requires successful hash-bound baselines and classifier receipts for cached kills, and writes the mutation evidence ledger."
       },
       "replacementProof": {
         "paths": [],
@@ -458841,22 +458862,32 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "12ad16bf10ecc5adbb0a579e9e69b8663dfae2d679fef6412cb115d1278e0d7f",
+      "sha256": "bebadc0931109320b11af63f9f78ac09cfc06303ba440604291a797d5539b85e",
       "lifecycle": "active",
       "role": "test",
-      "purpose": "Tests native bracket-summary acceptance, raw trace digest binding, mutation-control inventory, and observer request classification.",
+      "purpose": "Tests native bracket-summary acceptance, raw trace digest binding, mutation-control inventory, observer request classification, and mutation-runner baseline/cache/failure classification.",
       "testLayer": "node-test",
       "sourceReview": {
         "status": "reviewed",
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-            "line": 1028,
-            "kind": "current source entrypoint and contract reviewed"
+            "line": 1005,
+            "kind": "native receipt and source gate assertions reviewed"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
+            "line": 1666,
+            "kind": "retained false-kill baseline and source-excerpt regressions"
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
+            "line": 1772,
+            "kind": "failed revalidation invalidates stale kill regression"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "99081bd7a54fe37dacff891ddf9cfb2c3463b67c"
+        "reviewedCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -458877,7 +458908,7 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-            "line": 1028,
+            "line": 1005,
             "kind": "source contract reviewed"
           }
         ],

@@ -675,13 +675,31 @@
       "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "testHash": "dab5b8d6d72cc82d893148286f48333fa4b031b05d71bcaa0827b21d93f73556",
       "probeHash": "4e7921b230e07c285c657532dd5c8e2d74a032e8da9af0189357e9c045732721",
-      "sourceCommit": "f0d463a0f9111aab6ef5e80550010d88473ed94b",
+      "sourceCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
       "modelAction": "ColumnPresentation.ToggleVisibility",
       "mutation": "Replace `                visible: event.currentTarget.checked,\\n                order: column.table?.order ?? order,` with `                visible: true,\\n                order: column.table?.order ?? order,`.",
-      "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx -t toggles configured visibility and filter from their row controls",
+      "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx --reporter=json --outputFile=<json-report> -t toggles configured visibility and filter from their row controls",
       "expectedFailure": "toHaveBeenLastCalledWith",
       "exitCode": 1,
-      "failure": "1690|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({"
+      "failure": "AssertionError: expected last \"vi.fn()\" call to have been called with [ ObjectContaining{…} ]",
+      "baseline": {
+        "status": "passed",
+        "passedTestCount": 1,
+        "failedTestCount": 0,
+        "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
+        "testHash": "dab5b8d6d72cc82d893148286f48333fa4b031b05d71bcaa0827b21d93f73556",
+        "probeHash": "4e7921b230e07c285c657532dd5c8e2d74a032e8da9af0189357e9c045732721",
+        "hashJoinValid": true,
+        "runnerHash": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
+        "classifierVersion": "selected-assertion-v3",
+        "commandIdentity": "8e624d8e222481644668d4f36602b003dab04f8319dbca3a10f82233e6c8e871",
+        "commandIdentityValid": true,
+        "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx --reporter=json --outputFile=<json-report> -t toggles configured visibility and filter from their row controls",
+        "runnerHashValid": true
+      },
+      "runnerHash": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
+      "classifierVersion": "selected-assertion-v3",
+      "commandIdentity": "8e624d8e222481644668d4f36602b003dab04f8319dbca3a10f82233e6c8e871"
     },
     {
       "id": "column-filter-toggle-guard",
@@ -691,13 +709,31 @@
       "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "testHash": "dab5b8d6d72cc82d893148286f48333fa4b031b05d71bcaa0827b21d93f73556",
       "probeHash": "8bf33cbaf5943ee4a7d5f2c589b383df241ace9a6b0930eb83ab806b283b4bac",
-      "sourceCommit": "f0d463a0f9111aab6ef5e80550010d88473ed94b",
+      "sourceCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
       "modelAction": "ColumnPresentation.SetFilterOffered",
       "mutation": "Replace `              filter: event.currentTarget.checked\\n                ? { label: column.label }\\n                : undefined,` with `              filter: { label: column.label },`.",
-      "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx -t toggles configured visibility and filter from their row controls",
+      "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx --reporter=json --outputFile=<json-report> -t toggles configured visibility and filter from their row controls",
       "expectedFailure": "toHaveBeenLastCalledWith",
       "exitCode": 1,
-      "failure": "1702|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({"
+      "failure": "AssertionError: expected last \"vi.fn()\" call to have been called with [ ObjectContaining{…} ]",
+      "baseline": {
+        "status": "passed",
+        "passedTestCount": 1,
+        "failedTestCount": 0,
+        "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
+        "testHash": "dab5b8d6d72cc82d893148286f48333fa4b031b05d71bcaa0827b21d93f73556",
+        "probeHash": "8bf33cbaf5943ee4a7d5f2c589b383df241ace9a6b0930eb83ab806b283b4bac",
+        "hashJoinValid": true,
+        "runnerHash": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
+        "classifierVersion": "selected-assertion-v3",
+        "commandIdentity": "8e624d8e222481644668d4f36602b003dab04f8319dbca3a10f82233e6c8e871",
+        "commandIdentityValid": true,
+        "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx --reporter=json --outputFile=<json-report> -t toggles configured visibility and filter from their row controls",
+        "runnerHashValid": true
+      },
+      "runnerHash": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
+      "classifierVersion": "selected-assertion-v3",
+      "commandIdentity": "8e624d8e222481644668d4f36602b003dab04f8319dbca3a10f82233e6c8e871"
     },
     {
       "id": "column-search-query-guard",
@@ -723,13 +759,31 @@
       "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "testHash": "87f9f94fb418138c41ffd41c0cc6dd8a5f1778a97b3201c44caf4d7d6807731a",
       "probeHash": "d15e24cf5e54ac243626b2cb731f0d717df4466a6391bf9a3c4183818c2e26f7",
-      "sourceCommit": "f0d463a0f9111aab6ef5e80550010d88473ed94b",
+      "sourceCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
       "modelAction": "ColumnPresentation.RemoveConfiguredColumn",
       "mutation": "Replace `        onClick={onRemove}` with `        onClick={() => undefined}`.",
-      "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx -t removes a configured column from its row control",
+      "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx --reporter=json --outputFile=<json-report> -t removes a configured column from its row control",
       "expectedFailure": "toHaveBeenCalledWith",
       "exitCode": 1,
-      "failure": "281|     expect(onRemove).toHaveBeenCalledWith('research_subject_identifier…"
+      "failure": "AssertionError: expected \"vi.fn()\" to be called with arguments: [ 'research_subject_identifier' ]\n\nNumber of calls: 0",
+      "baseline": {
+        "status": "passed",
+        "passedTestCount": 1,
+        "failedTestCount": 0,
+        "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
+        "testHash": "87f9f94fb418138c41ffd41c0cc6dd8a5f1778a97b3201c44caf4d7d6807731a",
+        "probeHash": "d15e24cf5e54ac243626b2cb731f0d717df4466a6391bf9a3c4183818c2e26f7",
+        "hashJoinValid": true,
+        "runnerHash": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
+        "classifierVersion": "selected-assertion-v3",
+        "commandIdentity": "59cb463f78eb451b44d8014924e2da763cfd616a6ed8a1cc96e2a984324302e8",
+        "commandIdentityValid": true,
+        "command": "vitest run src/features/ExplorerBuilder/components/ColumnSelector.unit.test.tsx --reporter=json --outputFile=<json-report> -t removes a configured column from its row control",
+        "runnerHashValid": true
+      },
+      "runnerHash": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1",
+      "classifierVersion": "selected-assertion-v3",
+      "commandIdentity": "59cb463f78eb451b44d8014924e2da763cfd616a6ed8a1cc96e2a984324302e8"
     },
     {
       "id": "column-inspect-control-guard",
@@ -829,5 +883,5 @@
       "failure": ""
     }
   ],
-  "sourceCommit": "f0d463a0f9111aab6ef5e80550010d88473ed94b"
+  "sourceCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed"
 }
