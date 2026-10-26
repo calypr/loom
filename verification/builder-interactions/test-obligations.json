@@ -1566,10 +1566,10 @@
       "path": "scripts/generate-builder-browser-evidence.mjs",
       "roleHint": "tool-or-module",
       "present": true,
-      "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
+      "sha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
+      "currentSha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4",
       "purpose": "Reads retained browser reports and generates or checks the normalized Builder browser-evidence ledger.",
       "role": "tool-or-module",
       "testLayer": "command-line",
@@ -1583,81 +1583,81 @@
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 532,
+            "line": 639,
             "kind": "passed report status guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 536,
+            "line": 643,
             "kind": "source fingerprint validation guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 538,
+            "line": 645,
             "kind": "API build identity validation guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 546,
+            "line": 653,
             "kind": "failed assertion rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 1085,
+            "line": 1207,
             "kind": "missing output rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 1086,
+            "line": 1208,
             "kind": "stale output rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 532,
+            "line": 639,
             "kind": "passed browser report guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 536,
+            "line": 643,
             "kind": "source fingerprint shape guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 546,
+            "line": 653,
             "kind": "failed assertion rejection"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 547,
+            "line": 654,
             "kind": "classifies source status from the current watched-tree fingerprint"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 152,
+            "line": 253,
             "kind": "imports and executes the sanitizer blob from the tested source commit"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 556,
+            "line": 663,
             "kind": "resolves current read-only-custom cases with their custom registry checks"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 755,
+            "line": 862,
             "kind": "requires audited trace identity to match the tested registry"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 1066,
+            "line": 1174,
             "kind": "requires a present generatedFrom evidence input"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "bccd5399d4ec24f9b0b53eeff0aabf8d9fb4d65c"
+        "reviewedCommit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e"
       },
       "sourceRevision": {
-        "commit": "bccd5399d4ec24f9b0b53eeff0aabf8d9fb4d65c",
-        "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1"
+        "commit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e",
+        "sha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -1831,6 +1831,15 @@
       ],
       "journeyMappings": [],
       "connections": [
+        {
+          "kind": "literal-import-candidate",
+          "evidence": "static-only-candidate",
+          "sourcePath": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+          "targetPath": "scripts/generate-builder-browser-evidence.mjs",
+          "specifier": "../../../generate-builder-browser-evidence.mjs",
+          "line": 11,
+          "column": 9
+        },
         {
           "kind": "literal-import-candidate",
           "evidence": "static-only-candidate",
@@ -16159,7 +16168,7 @@
       "testLayer": "command-line",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
+        "reviewedCommit": "eec7fb7ee7b409279e7a01fa1a7f87dbf44d96f0",
         "evidence": [
           {
             "path": "scripts/run-builder-mutation-probe.mjs",
@@ -16200,7 +16209,7 @@
         "confidence": "high"
       },
       "sourceRevision": {
-        "commit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
+        "commit": "eec7fb7ee7b409279e7a01fa1a7f87dbf44d96f0",
         "sha256": "bd60afe4f2a8c46b715829f517308e889a3c0f0f7ff893b6ca59ed4dec0016e1"
       },
       "executionDiscovery": {
@@ -30021,7 +30030,7 @@
           "sourcePath": "scripts/generate-builder-browser-evidence.mjs",
           "targetPath": "scripts/verify-ui/helpers/builder-formal-adapters.mjs",
           "specifier": "./verify-ui/helpers/builder-formal-adapters.mjs",
-          "line": 13,
+          "line": 14,
           "column": 49
         },
         {
@@ -30290,7 +30299,7 @@
           "sourcePath": "scripts/generate-builder-browser-evidence.mjs",
           "targetPath": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
           "specifier": "./verify-ui/helpers/builder-journey-trace.mjs",
-          "line": 12,
+          "line": 13,
           "column": 9
         },
         {
@@ -54996,10 +55005,10 @@
       "path": "scripts/verify-ui/helpers/playwright-actions.mjs",
       "roleHint": "helper-or-oracle",
       "present": true,
-      "sha256": "f21a8bcdf4e9ca90b6c4aaa41dec67c6f85e59dabcf8f8d9feaa2ed75ec9aef1",
+      "sha256": "de4dcf0d2397f3f49a6bc071b4ba6cf7021c9d9451a8963f7ec75ea052e31f47",
       "lifecycle": "active",
       "origin": "baseline",
-      "currentSha256": "f21a8bcdf4e9ca90b6c4aaa41dec67c6f85e59dabcf8f8d9feaa2ed75ec9aef1",
+      "currentSha256": "de4dcf0d2397f3f49a6bc071b4ba6cf7021c9d9451a8963f7ec75ea052e31f47",
       "purpose": "Requires unique native controls, prepares editability, performs Playwright actions, and records action timing.",
       "role": "helper-or-oracle",
       "testLayer": "test-support",
@@ -55008,7 +55017,7 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/playwright-actions.mjs",
-            "line": 5,
+            "line": 10,
             "kind": "exported helper/tool body reviewed"
           },
           {
@@ -55018,11 +55027,11 @@
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59"
+        "reviewedCommit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e"
       },
       "sourceRevision": {
-        "commit": "8dbdc9e8e9547128bafdd31ad610eca78a8edc59",
-        "sha256": "f21a8bcdf4e9ca90b6c4aaa41dec67c6f85e59dabcf8f8d9feaa2ed75ec9aef1"
+        "commit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e",
+        "sha256": "de4dcf0d2397f3f49a6bc071b4ba6cf7021c9d9451a8963f7ec75ea052e31f47"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -71381,7 +71390,7 @@
           "sourcePath": "scripts/generate-builder-browser-evidence.mjs",
           "targetPath": "scripts/verify-ui/helpers/source-fingerprint.mjs",
           "specifier": "./verify-ui/helpers/source-fingerprint.mjs",
-          "line": 7,
+          "line": 8,
           "column": 36
         },
         {
@@ -110310,6 +110319,90 @@
       }
     },
     {
+      "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+      "roleHint": "test",
+      "present": true,
+      "sha256": "df1ccde8e8fe0205366f093fad9099c8645d4ced28e3928a66a726db8deb2ec9",
+      "lifecycle": "active",
+      "origin": "added",
+      "currentSha256": "df1ccde8e8fe0205366f093fad9099c8645d4ced28e3928a66a726db8deb2ec9",
+      "purpose": "Exercises Playwright-free retained Builder evidence generation and archive/path rejection controls.",
+      "role": "test",
+      "testLayer": "node-test",
+      "sourceReview": {
+        "status": "reviewed",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 44,
+            "kind": "Lead-reviewed bootstrap test; the assigned-check Node suite passed 4/4 on this source blob."
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 51,
+            "kind": "Lead-reviewed retained-report generation and check test."
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 69,
+            "kind": "Lead-reviewed missing and corrupted archive rejection test."
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 91,
+            "kind": "Lead-reviewed retained-path confinement test."
+          }
+        ],
+        "confidence": "low",
+        "reviewedCommit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e"
+      },
+      "sourceRevision": {
+        "commit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e",
+        "sha256": "df1ccde8e8fe0205366f093fad9099c8645d4ced28e3928a66a726db8deb2ec9"
+      },
+      "executionDiscovery": {
+        "status": "uncertain-dynamic-or-manual",
+        "evidence": [],
+        "unresolvedFacts": [
+          "No static CI or script invocation is recorded for this standalone Node test."
+        ]
+      },
+      "assertions": [],
+      "semanticClaimIds": [],
+      "journeyMappings": [],
+      "connections": [],
+      "action": "review-unconnected-file",
+      "exception": "No configured focused command or literal import edge was found.",
+      "oracle": null,
+      "formalApplicability": {
+        "kind": "uncertain",
+        "rationale": "This test is cataloged as evidence-tool bootstrap tooling without a Builder model association.",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 44,
+            "kind": "Focused evidence-tool regression with no formal transition mapping."
+          }
+        ],
+        "bindings": [],
+        "limitation": "No Builder product action, formal transition, invariant, or lifecycle coverage is claimed."
+      },
+      "disposition": {
+        "kind": "keep",
+        "reason": "Retain the focused Node bootstrap regression without attributing semantic or formal coverage."
+      },
+      "replacementProof": {
+        "paths": [],
+        "evidence": [],
+        "gap": "No replacement is proposed."
+      },
+      "duplicateCandidates": [],
+      "runtimeEvidence": {
+        "status": "unverified",
+        "reason": "No matching passed focused command evidence was joined."
+      }
+    },
+    {
       "path": "scripts/verify-ui/helpers/tests/group-add-fields-preview-rows.test.mjs",
       "roleHint": "test",
       "present": true,
@@ -115531,10 +115624,10 @@
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed"
+        "reviewedCommit": "eec7fb7ee7b409279e7a01fa1a7f87dbf44d96f0"
       },
       "sourceRevision": {
-        "commit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
+        "commit": "eec7fb7ee7b409279e7a01fa1a7f87dbf44d96f0",
         "sha256": "bebadc0931109320b11af63f9f78ac09cfc06303ba440604291a797d5539b85e"
       },
       "executionDiscovery": {
@@ -495967,12 +496060,12 @@
   ],
   "mjsCatalogSummary": {
     "baselineFiles": 678,
-    "currentFiles": 709,
+    "currentFiles": 710,
     "baselineRetired": 2,
-    "currentAdded": 33,
-    "sourceReviewed": 711,
-    "runtimeUnverified": 711,
-    "invocationUncertain": 40,
+    "currentAdded": 34,
+    "sourceReviewed": 712,
+    "runtimeUnverified": 712,
+    "invocationUncertain": 41,
     "semanticClaims": 13186,
     "sourceAssertionOccurrences": 18996,
     "sourceAssertions": 9255,
@@ -495992,7 +496085,7 @@
       "browser-workflow": 146,
       "config": 5,
       "helper-or-oracle": 157,
-      "test": 238,
+      "test": 239,
       "tool-or-module": 69
     },
     "formalApplicabilityCounts": {
@@ -496000,11 +496093,11 @@
       "direct-trace": 8,
       "not-applicable": 405,
       "trace-support": 21,
-      "uncertain": 17
+      "uncertain": 18
     },
     "dispositionCounts": {
       "integrate": 2,
-      "keep": 708,
+      "keep": 709,
       "merge-candidate": 1
     }
   },
