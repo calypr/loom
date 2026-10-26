@@ -160,6 +160,7 @@ const recoveredPatientCandidate: ExplorerBuilderCandidate = {
   logicalType: 'string',
   cardinality: 'optional_one',
   repeated: false,
+  populated: true,
   filterable: true,
   chartable: false,
   projectionModes: ['VALUE'],
@@ -253,7 +254,7 @@ describe('BuilderWorkspace suggestion transport recovery', () => {
     expect(retry.closest('[hidden], [aria-hidden="true"]')).toBeNull();
     expect(failure.textContent).toContain('Available columns could not be loaded: temporarily unavailable (SERVICE_UNAVAILABLE)');
     expect((retry as HTMLButtonElement).disabled).toBe(false);
-    expect(container.querySelector('input[aria-label="Select Patient.name[0].text"]')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Select Patient.name[0].text' })).toBeNull();
     fireEvent.click(retry);
 
     await waitFor(() => expect(hooks.getSuggestions).toHaveBeenCalledTimes(2));
@@ -262,12 +263,13 @@ describe('BuilderWorkspace suggestion transport recovery', () => {
 
     fireEvent.click(screen.getByText('Advanced source setup'));
     await waitFor(() => expect(advancedSourceSetup?.open).toBe(true));
-    const recoveredOption = await screen.findByRole('checkbox', {
+    const recoveredOption = await screen.findByRole('button', {
       name: 'Select Patient.name[0].text',
     });
-    expect((recoveredOption as HTMLInputElement).disabled).toBe(false);
+    expect(recoveredOption).toBeEnabled();
+    expect(recoveredOption).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(recoveredOption);
-    expect((recoveredOption as HTMLInputElement).checked).toBe(true);
+    expect(recoveredOption).toHaveAttribute('aria-pressed', 'true');
     expect(advancedSourceSetup?.open).toBe(true);
 
     expect(hooks.getSuggestions.mock.calls.map(([input]) => input)).toEqual([
