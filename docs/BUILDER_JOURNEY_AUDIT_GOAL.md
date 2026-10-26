@@ -359,8 +359,8 @@ in a manual-only entry.
   `9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995` across
   2,092 files, and the API build identity stayed unchanged. Both Cancel actions
   and both reloads remain native-only checks and are explicitly unmodeled.
-  - Native report: `docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/native-report.json`
-    (SHA-256 `49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e`).
+  - Native report archive: `verification/builder-interactions/retained-browser-evidence/group-entry-raw-basic-alias-908-native-report.json.gz`
+    (raw SHA-256 `49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e`; `manifest.json` records the original path and byte counts).
   - Bracket summary: `docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/bracket-summary.json`
     (SHA-256 `7a72bb91ed225994c6531ebd04d71c5de9821e48dff8d7c3c37e776b24996443`).
   - Journey report, trace, TLA report, trace controls, and source/API/mount/health
