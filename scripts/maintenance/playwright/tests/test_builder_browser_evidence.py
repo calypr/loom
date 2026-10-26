@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -20,6 +21,8 @@ GENERATOR = Path(os.environ.get(
 )).resolve()
 AUDIT_PATH = Path("verification/builder-interactions/builder-journey-audit.json")
 EVIDENCE_PATH = Path("verification/builder-interactions/browser-evidence.json")
+RETAINED_EVIDENCE_ROOT = Path("verification/builder-interactions/retained-browser-evidence")
+RETAINED_EVIDENCE_MANIFEST = RETAINED_EVIDENCE_ROOT / "manifest.json"
 RUNTIME_ROOT = Path("docs/verification/playwright/runtime/builder-group-entry-20261023")
 SOURCE_AFTER = RUNTIME_ROOT / "final-908/verification-freeze/source-after.json"
 RAW_NATIVE_REPORT = Path(
@@ -74,6 +77,28 @@ def read_json(path: Path) -> dict:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def retained_archive_entry(root: Path, source_path: str) -> dict:
+    manifest = read_json(root / RETAINED_EVIDENCE_MANIFEST)
+    return next(
+        entry for entry in manifest["artifacts"]
+        if entry.get("sourcePath") == source_path
+    )
+
+
+def retained_archive_bytes(root: Path, entry: dict) -> bytes:
+    compressed = (root / entry["archivePath"]).read_bytes()
+    if len(compressed) != entry["archiveBytes"]:
+        raise AssertionError(f"retained archive byte count mismatch: {entry['archivePath']}")
+    if hashlib.sha256(compressed).hexdigest() != entry["archiveSha256"]:
+        raise AssertionError(f"retained archive hash mismatch: {entry['archivePath']}")
+    raw = gzip.decompress(compressed)
+    if len(raw) != entry["bytes"]:
+        raise AssertionError(f"retained report byte count mismatch: {entry['sourcePath']}")
+    if hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+        raise AssertionError(f"retained report hash mismatch: {entry['sourcePath']}")
+    return raw
 
 
 def journey_audit(root: Path) -> tuple[dict, dict]:
@@ -134,7 +159,22 @@ def refresh_artifact_hash(root: Path, run_id: str, artifact_name: str) -> None:
     audit, journey = journey_audit(root)
     run = journey["evidence"][run_id]
     descriptor = run.get("artifacts", {}).get(artifact_name, run.get(artifact_name))
-    descriptor["sha256"] = sha256(root / descriptor["path"])
+    artifact_path = root / descriptor["path"]
+    raw = artifact_path.read_bytes()
+    descriptor["sha256"] = hashlib.sha256(raw).hexdigest()
+    archive_manifest = read_json(root / RETAINED_EVIDENCE_MANIFEST)
+    archived = next(
+        (entry for entry in archive_manifest["artifacts"] if entry.get("sourcePath") == descriptor["path"]),
+        None,
+    )
+    if archived:
+        compressed = gzip.compress(raw, compresslevel=9, mtime=0)
+        archived["sha256"] = descriptor["sha256"]
+        archived["bytes"] = len(raw)
+        archived["archiveSha256"] = hashlib.sha256(compressed).hexdigest()
+        archived["archiveBytes"] = len(compressed)
+        write_bytes_atomically(root / archived["archivePath"], compressed)
+        write_json(root / RETAINED_EVIDENCE_MANIFEST, archive_manifest)
     write_json(root / AUDIT_PATH, audit)
 
 
@@ -182,6 +222,17 @@ def replace_string_values(value: object, original: str, replacement: str) -> Non
 
 def copy_fixture_inputs(destination: Path) -> None:
     destination.mkdir(parents=True)
+    shutil.copytree(
+        REPOSITORY_ROOT / RETAINED_EVIDENCE_ROOT,
+        destination / RETAINED_EVIDENCE_ROOT,
+        copy_function=link_or_copy,
+    )
+    retained_manifest = read_json(destination / RETAINED_EVIDENCE_MANIFEST)
+    archived_sources = {
+        entry["sourcePath"]: entry
+        for entry in retained_manifest["artifacts"]
+        if entry.get("sourcePath")
+    }
     source_manifest = read_json(REPOSITORY_ROOT / SOURCE_AFTER)["manifest"]
     source_audit = read_json(REPOSITORY_ROOT / AUDIT_PATH)
     journey = next(item for item in source_audit["journeys"] if item["id"] == "edit-remove-reload")
@@ -189,6 +240,19 @@ def copy_fixture_inputs(destination: Path) -> None:
     raw_alias_commit = runs[RAW_ALIAS_RUN]["sourceIdentity"]["commit"]
 
     for relative_path, expected_hash in source_manifest.items():
+        archived = archived_sources.get(relative_path)
+        if archived:
+            source_bytes = retained_archive_bytes(destination, archived)
+            actual_hash = hashlib.sha256(source_bytes).hexdigest()
+            if actual_hash != expected_hash:
+                raise AssertionError(
+                    f"archived 908 report hash mismatch for {relative_path}: "
+                    f"expected {expected_hash}, found {actual_hash}"
+                )
+            target = destination / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            write_bytes_atomically(target, source_bytes)
+            continue
         source = REPOSITORY_ROOT / relative_path
         target = destination / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +275,10 @@ def copy_fixture_inputs(destination: Path) -> None:
         destination / RUNTIME_ROOT,
         copy_function=link_or_copy,
     )
+    for relative_path, entry in archived_sources.items():
+        target = destination / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_bytes_atomically(target, retained_archive_bytes(destination, entry))
 
     contract_path = "verification/builder-interactions/builder-preview-contract.json"
     pinned_contract = subprocess.check_output(
@@ -369,24 +437,32 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
             self.assertIn(run["id"], diagnostic)
         self.assertIn("builder-controls:recompile", diagnostic)
 
-    def test_from_evidence_missing_report_fails_without_changing_output(self) -> None:
-        root = self.fixture("from-evidence-missing-report")
+    def test_from_evidence_reads_a_missing_source_alias_from_the_verified_archive(self) -> None:
+        root = self.fixture("from-evidence-archived-source-alias")
         report_path = root / RAW_NATIVE_REPORT
         generated = self.run_generator(root, "--report", RAW_NATIVE_REPORT.as_posix())
         self.assertEqual(generated.returncode, 0, generated.stdout + generated.stderr)
         output = root / "generated-browser-evidence.json"
-        original_output = output.read_bytes()
         self.assertTrue(report_path.exists())
 
+        mutate_json(report_path, lambda report: report.update(status="failed"))
         report_path.unlink()
         result = self.run_generator(root, "--from-evidence")
-        diagnostic = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, diagnostic)
-        self.assertIn(
-            "--from-evidence report path is missing: " + RAW_NATIVE_REPORT.as_posix(),
-            diagnostic,
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        archived_output = output.read_bytes()
+        evidence = read_json(output)
+        self.assertIn(RAW_NATIVE_REPORT.as_posix(), evidence["generatedFrom"])
+        raw_alias = next(
+            run for run in evidence["retainedJourneys"]
+            if run["runId"] == "raw-basic-alias-908"
         )
-        self.assertEqual(output.read_bytes(), original_output)
+        self.assertEqual(raw_alias["status"], "historical")
+        self.assertIn(raw_alias["sourceStatus"], {"current", "stale"})
+        self.assertFalse(report_path.exists())
+
+        repeated = self.run_generator(root, "--from-evidence")
+        self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+        self.assertEqual(output.read_bytes(), archived_output)
 
     def test_direct_report_input_rejects_a_missing_registered_assertion_by_name(self) -> None:
         root = self.fixture("direct-report-missing-assertion")
