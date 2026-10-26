@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "5b1aad9130a9a2aca1a2a662174a6f46b3fba22c68c50603ab5e42cf400d422c",
+      "sha256": "d25b09b3dfaf6b096f2e1a4e3b044ccfc770e118a8425d73382d9c1637fa4095",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -404,12 +404,12 @@
     },
     {
       "path": "scripts/verify-ui/helpers/builder-journey-trace.mjs",
-      "sha256": "73552734346f0be15a88c772ecf3b8502cfffca80ff85837a5af22b66c9ae2a1",
+      "sha256": "c91c25af2cc041d05b8a466f2af43ae571b11ed1efafff055c82836d9596be5a",
       "contract": "Shared native Builder trace capture, request ledger, provenance, and receipt checks."
     },
     {
       "path": "scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs",
-      "sha256": "8e36748f3ee1d1a7a896a2af4a3351fdd16da97e36e1dab7e3d1825f933f4e93",
+      "sha256": "44011f6ff9f72098248e52e25fab8af283a494097a298af57356b03a97ee6cce",
       "contract": "Focused tests for native Builder trace capture and request-owner evidence."
     },
     {
@@ -604,7 +604,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs",
-      "sha256": "4f9dc7debe3d134afb566721a679ddd03793fbd67e78323b004bd291abd76dc8",
+      "sha256": "e7ca22502f202238e47a552c066b2e70fe2d81d7ffd0f680d48c65a6d6e95011",
       "contract": "Independent literal DATE and DATE_TIME fixture row oracles."
     },
     {
@@ -634,7 +634,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs",
-      "sha256": "ebc1fbf36b0d7487404f43da78d0252631e16ab66a1311f975fb793b99cd67ea",
+      "sha256": "6cc0d662ee4b4821889ecaed530f953a3ad7777aa667a8beec06558bf5defe42",
       "contract": "Tests the independent Basic DATE and DATE_TIME literal row oracles."
     },
     {
@@ -674,7 +674,7 @@
     },
     {
       "path": "scripts/verify-ui/workflows/basic-temporal-filter.mjs",
-      "sha256": "a667fe87b246b771ca8267d200ea099499b8add0ed61e7a06b098c28040cd3a8",
+      "sha256": "aebced26dbb48fc7ca83fcb2995b3b4addeb2970959d7a4b432ba9111f76cc87",
       "contract": "Native browser workflow for the Basic DATE and DATE_TIME filter cases."
     },
     {
