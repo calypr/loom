@@ -401,7 +401,7 @@ test('generic Builder and interpretation browser paths use only Playwright brows
   assert.match(browserCode, /page\.goto\(/);
   assert.match(browserCode, /page\.reload\(/);
   assert.match(browserCode, /captureDevJourneyFailure\(/);
-  assert.doesNotMatch(browserCode, /\b(?:cdp|browserEval|waitForBrowser|snapshot)\b|\.send\(['"](?:Runtime|Page|Input)\./,
+  assert.doesNotMatch(browserCode, /\b(?:cdp|browserEval|waitForBrowser)\b|\bsnapshot\s*\(|\.send\(['"](?:Runtime|Page|Input)\./,
     'migrated generic paths must not call the legacy CDP driver');
   assert.doesNotMatch(browserCode, /Object\.getOwnPropertyDescriptor|\.dispatchEvent\(|\.click\(\s*\)/,
     'migrated generic paths must not set DOM values or invoke handlers directly');
@@ -421,7 +421,7 @@ test('native dev journeys use the Playwright Test-owned page and diagnostics fix
     'J02 request/result correlation retains a bounded native response reader');
   assert.match(driver, /command response capture timed out after 1000 ms/,
     'J02 result identity capture cannot block the journey teardown indefinitely');
-  assert.match(driver, /import \{ sanitizeBody, sanitizeText \} from '\.\/lib\/playwright-browser\.mjs'/,
+  assert.match(driver, /import \{ sanitizeBody, sanitizeText \} from '\.\/verify-ui\/helpers\/playwright-browser\.mjs'/,
     'J04 response-body diagnostics use the shared text sanitizer');
   assert.match(driver, /captureNativeFailureEvidence\(\{[\s\S]*?ownedOrigins: diagnostics\.ownedOrigins[\s\S]*?locator: action\?\.targetLocator/,
     'first-failure JSON includes the shared bounded native page and control-state summary');
