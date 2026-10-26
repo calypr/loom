@@ -419,7 +419,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/source-fingerprint.mjs",
-      "sha256": "c08c3785f5d558ed23a57fbf77ddf56672f27badb2d86a495a34692f56bad402",
+      "sha256": "56f3b0ab359ed7ab0e3101f0cf4063fcb1e8b7c64ad51fd186f829b6c6963efa",
       "contract": "Watched source fingerprint used to freeze native browser verification."
     },
     {
