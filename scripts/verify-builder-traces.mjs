@@ -2657,13 +2657,25 @@ function verifyJar(path) {
   return absolute;
 }
 
-async function acquireTlcJar() {
-  if (process.env.TLA2TOOLS_JAR) {
-    return verifyJar(process.env.TLA2TOOLS_JAR);
+function resolveTlaToolsJar({
+  env = process.env,
+  cacheDirectory = join(tmpdir(), 'loom-builder-interactions-tools'),
+} = {}) {
+  const override = env?.TLA2TOOLS_JAR;
+  if (override !== undefined && override !== null && override !== '') {
+    if (typeof override !== 'string') fail('TLA2TOOLS_JAR must be a path string when set');
+    return verifyJar(override);
   }
+  return verifyJar(join(cacheDirectory, 'tla2tools-' + TLC_VERSION + '.jar'));
+}
+
+async function acquireTlcJar() {
   const cacheDirectory = join(tmpdir(), 'loom-builder-interactions-tools');
   const cachePath = join(cacheDirectory, 'tla2tools-' + TLC_VERSION + '.jar');
-  if (existsSync(cachePath)) return verifyJar(cachePath);
+  if (process.env.TLA2TOOLS_JAR !== undefined && process.env.TLA2TOOLS_JAR !== '') {
+    return resolveTlaToolsJar({ env: process.env, cacheDirectory });
+  }
+  if (existsSync(cachePath)) return resolveTlaToolsJar({ env: process.env, cacheDirectory });
   console.log('Downloading TLC ' + TLC_VERSION + ' from the official TLA+ release URL.');
   const response = await fetch(TLC_URL, { signal: AbortSignal.timeout(30000) });
   if (!response.ok) fail('TLC download failed with HTTP ' + response.status);
@@ -2674,7 +2686,7 @@ async function acquireTlcJar() {
   const temporaryPath = cachePath + '.partial-' + process.pid + '-' + randomUUID();
   writeFileSync(temporaryPath, payload, { flag: 'wx' });
   renameSync(temporaryPath, cachePath);
-  return verifyJar(cachePath);
+  return resolveTlaToolsJar({ env: process.env, cacheDirectory });
 }
 
 function parseArgs() {
@@ -5326,6 +5338,21 @@ function generateCdaTraceModule(trace, moduleName, journeyCase) {
   ].join('\n');
 }
 
+function generateTraceModule(trace, moduleName, hasGroupLifecycle, journeyCase = null) {
+  if (journeyCase) {
+    return {
+      moduleText: generateCdaTraceModule(trace, moduleName, journeyCase),
+      // Cda TraceActions is exactly the JS actions sequence, indexed from zero.
+      traceIndexOffset: 0,
+    };
+  }
+  return {
+    moduleText: generateModule(trace, moduleName, hasGroupLifecycle),
+    // The generic TraceActions sequence prepends its "Init" sentinel.
+    traceIndexOffset: 1,
+  };
+}
+
 function generateConfig(trace, hasGroupLifecycle, journeyCase = null, tokens = null) {
   if (journeyCase) {
     const captureIds = [...tokens.captureTokens.values()];
@@ -5390,6 +5417,23 @@ function outputTail(text, lines = 30) {
   return split.slice(-lines).join('\n');
 }
 
+function traceProgressFailureForOutput(text, result, trace, traceIndexOffset = 1) {
+  const parsed = parseTlc(text);
+  if (result?.error || result?.signal || !Number.isInteger(result?.status) || result.status === 0 ||
+      parsed.failureStage !== 'TLC' || parsed.failureInvariant !== 'TraceProgress' ||
+      !(parsed.stateCount > 0) || !(parsed.distinctStateCount > 0) || !Array.isArray(trace?.actions)) {
+    return null;
+  }
+  const traceIndexes = [...text.matchAll(/traceIndex = ([0-9]+)/g)].map((match) => Number(match[1]));
+  if (traceIndexes.length === 0) return null;
+  const tlcTraceIndex = traceIndexes[traceIndexes.length - 1];
+  const nextActionIndex = tlcTraceIndex - traceIndexOffset;
+  if (!Number.isInteger(nextActionIndex) || nextActionIndex < 0 || nextActionIndex >= trace.actions.length) return null;
+  const actionLabel = trace.actions[nextActionIndex]?.label;
+  if (typeof actionLabel !== 'string' || actionLabel.length === 0) return null;
+  return { actionIndex: nextActionIndex, actionLabel };
+}
+
 function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = null, compiledAdapter = null,
   spawnProcess = spawnSync) {
   const runDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-traces-'));
@@ -5398,6 +5442,10 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
   mkdirSync(modelDirectory);
   mkdirSync(metadataDirectory);
   const moduleName = compiledAdapter?.moduleName ?? ('TraceCheck' + uniqueIndex);
+  const generatedTraceModule = compiledAdapter
+    ? null
+    : generateTraceModule(trace, moduleName, hasGroupLifecycle, journeyCase);
+  const traceIndexOffset = generatedTraceModule?.traceIndexOffset ?? (journeyCase ? 0 : 1);
   if (compiledAdapter) {
     if (compiledAdapter.modelName !== trace.model || typeof compiledAdapter.baseModelText !== 'string' ||
         typeof compiledAdapter.modelText !== 'string' || typeof compiledAdapter.configText !== 'string') {
@@ -5410,8 +5458,7 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
   const moduleFile = moduleName + '.tla';
   const configFile = moduleName + '.cfg';
   const cdaTokens = journeyCase ? collectCdaTokens(trace, journeyCase) : null;
-  writeFileSync(join(modelDirectory, moduleFile), compiledAdapter?.modelText ??
-    generateModule(trace, moduleName, hasGroupLifecycle, journeyCase));
+  writeFileSync(join(modelDirectory, moduleFile), compiledAdapter?.modelText ?? generatedTraceModule.moduleText);
   writeFileSync(join(modelDirectory, configFile), compiledAdapter?.configText ??
     generateConfig(trace, hasGroupLifecycle, journeyCase, cdaTokens));
   const args = [
@@ -5475,9 +5522,14 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
   }
   const traceIndexes = [...text.matchAll(/traceIndex = ([0-9]+)/g)].map((match) => Number(match[1]));
   const lastTraceIndex = traceIndexes.length > 0 ? traceIndexes[traceIndexes.length - 1] : null;
-  const actionIndex = lastTraceIndex === null ? null : lastTraceIndex - 1;
+  const isTraceProgressViolation = !result.error && !result.signal && Number.isInteger(result.status) &&
+    result.status !== 0 && parsed.failureStage === 'TLC' && parsed.failureInvariant === 'TraceProgress';
+  const progressFailure = traceProgressFailureForOutput(text, result, trace, traceIndexOffset);
+  const actionIndex = progressFailure?.actionIndex ?? (isTraceProgressViolation
+    ? null
+    : lastTraceIndex === null ? null : lastTraceIndex - 1);
   const label = actionIndex !== null && actionIndex >= 0 && actionIndex < trace.actions.length
-    ? trace.actions[actionIndex].label
+    ? progressFailure?.actionLabel ?? trace.actions[actionIndex].label
     : null;
   return {
     ...parsed,
@@ -5493,6 +5545,10 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
     failure: {
       message: result.error
         ? result.error.message
+        : result.signal
+          ? 'TLC process did not exit successfully'
+        : progressFailure
+          ? 'TLC did not complete the trace'
         : parsed.failureInvariant
           ? (parsed.failureInvariant === 'Deadlock'
             ? 'TLC reached a deadlock'
@@ -5502,7 +5558,7 @@ function runTlc(jarPath, trace, uniqueIndex, hasGroupLifecycle, journeyCase = nu
         : parsed.passed && parsed.stateCount === 0
           ? 'TLC found no initial state'
           : 'TLC did not complete the trace',
-      ...(result.error ? { stage: 'runner' } :
+      ...(result.error || result.signal ? { stage: 'runner' } :
         parsed.failureStage ? { stage: parsed.failureStage } : {}),
       ...(parsed.failureInvariant ? { invariant: parsed.failureInvariant } : {}),
       processExitCode: result.status ?? null,
@@ -5978,8 +6034,11 @@ export {
   mountedRelatedSourceProblem,
   relatedSourceSnapshotProblem,
   relatedSourceProjectionFromSteps,
+  generateTraceModule,
+  resolveTlaToolsJar,
   runTlc,
   tlcExecutionReceipt,
+  traceProgressFailureForOutput,
 };
 
 const isDirectExecution = (() => {

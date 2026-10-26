@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journey.mjs';
 import {
   finalizeNativeBuilderJourneyReceipt,
+  nativeBuilderJourneyReceiptFromReport,
   writeAndReplayBuilderJourneyTrace,
 } from '../builder-journey-trace.mjs';
 import {
@@ -20,6 +21,7 @@ import {
   builderFormalAdapterForBinding,
   builderFormalAdapterForContract,
 } from '../builder-formal-adapters.mjs';
+import { main as runBuilderFormalVerification } from '../../../verify-builder-formal.mjs';
 
 const policyContract = JSON.parse(readFileSync(
   new URL('../../../../verification/builder-interactions/builder-policy-one-contract.json', import.meta.url),
@@ -42,6 +44,40 @@ test('registered Policy adapter binds the exact trace, model, case, and controls
   assert.equal(policyContract.nativeJourney.nativeCaseKey, 'builder-authoring/patient-one-disagreement');
   const contractAdapter = builderFormalAdapterForContract(policyContract);
   assert.equal(contractAdapter, adapter);
+});
+
+test('formal verifier stops before Java, TLC, and model work when registry conformance fails', async () => {
+  const calls = [];
+  let gateCommand;
+  const options = { strict: false, skipGo: true, model: 'builder-operations', listModels: false };
+  await assert.rejects(runBuilderFormalVerification({
+    options,
+    runCommandFn: (label, command, args, cwd) => {
+      calls.push('registry-conformance');
+      gateCommand = { label, command, args, cwd };
+      return { status: 1, error: null, output: 'deterministic registry conformance failure' };
+    },
+    verifyJavaFn: () => {
+      calls.push('verify-java');
+      return 'java';
+    },
+    acquireTlcJarFn: () => {
+      calls.push('acquire-tlc');
+      return '/unused/tla2tools.jar';
+    },
+    runTlcFn: () => {
+      calls.push('run-model');
+      return { passed: true };
+    },
+  }), /Registry-wide native Builder formal conformance failed before formal model checks:[\s\S]*deterministic registry conformance failure/);
+  assert.deepEqual(gateCommand, {
+    label: 'Registry-wide native Builder formal conformance',
+    command: process.execPath,
+    args: ['--test', 'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs'],
+    cwd: resolve(new URL('../../../../', import.meta.url).pathname),
+  });
+  assert.deepEqual(calls, ['registry-conformance'],
+    'a failed registry conformance gate must not reach Java, jar acquisition, or any TLC model run');
 });
 
 test('outer native inspector accepts the Policy fixture producer and rejects missing event inventory', () => {
@@ -246,6 +282,56 @@ test('native journey shape preserves exact action/event pairs while leaving chro
     /label\/event pair exactly/);
 });
 
+test('shared writer rejects missing, partial, duplicate, and pre-populated proof inputs before replay', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'policy-one-proof-preflight-'));
+  const registeredCase = scenarioCaseFor('builder-authoring', 'patient-one-disagreement');
+  const assertionName = registeredCase.journeyTrace.formalProofAssertion;
+  const journeyTrace = makeSyntheticPolicyOneJourneyTrace();
+  const baseReport = {
+    scenario: 'builder-authoring',
+    case: 'patient-one-disagreement',
+    evidenceDirectory: directory,
+    target: { builderJourneyTrace: null },
+    dimensions: { correctness: { status: 'untested', evidence: [] } },
+    assertions: [],
+    requiredChecks: [assertionName],
+  };
+  const rejectWithoutMutation = (label, report, expression) => {
+    const before = structuredClone(report);
+    assert.throws(() => writeAndReplayBuilderJourneyTrace({
+      scenarioID: report.scenario,
+      caseName: report.case,
+      journeyTrace,
+      report,
+      fixture: { unitOnly: true },
+      repositoryRoot: resolve(new URL('../../../../', import.meta.url).pathname),
+    }), expression, label);
+    assert.deepEqual(report, before, `${label} must be rejected without partially recording proof state`);
+  };
+
+  try {
+    rejectWithoutMutation('missing required proof check', {
+      ...structuredClone(baseReport), requiredChecks: [],
+    }, /exactly one required check/);
+    rejectWithoutMutation('partial registered proof assertion', {
+      ...structuredClone(baseReport),
+      assertions: [{ dimension: 'correctness', name: assertionName, status: 'passed', evidence: { status: 'pass' } }],
+    }, /already contains the registered formal proof assertion/);
+    rejectWithoutMutation('duplicate registered proof assertion', {
+      ...structuredClone(baseReport),
+      assertions: [1, 2].map(() => ({
+        dimension: 'correctness', name: assertionName, status: 'passed', evidence: { status: 'pass' },
+      })),
+    }, /already contains duplicate registered formal proof assertions/);
+    rejectWithoutMutation('partial target proof receipt', {
+      ...structuredClone(baseReport),
+      target: { builderJourneyTrace: { traceName: journeyTrace.name, status: 'pass' } },
+    }, /must not pre-populate a partial formal proof receipt/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('shared journey writer replays Policy pending support reads, the full lifecycle, and every registered control', { timeout: 120000 }, t => {
   const directory = mkdtempSync(join(tmpdir(), 'policy-one-shared-writer-unit-'));
   const tracePath = join(directory, 'synthetic-policy-one.trace.json');
@@ -259,6 +345,9 @@ test('shared journey writer replays Policy pending support reads, the full lifec
   });
   process.env.LOOM_JOURNEY_TRACE = tracePath;
   const journeyTrace = makeSyntheticPolicyOneJourneyTrace({ pendingSupportReads: true });
+  const registeredCase = scenarioCaseFor('builder-authoring', 'patient-one-disagreement');
+  const formalProofAssertion = registeredCase.journeyTrace.formalProofAssertion;
+  const repositoryRoot = resolve(new URL('../../../../', import.meta.url).pathname);
   const pendingSupportRows = journeyTrace.transportLedger.filter(row => row.settlement === 'pending');
   assert.equal(journeyTrace.actions.length, 20);
   assert.equal(pendingSupportRows.length, 2);
@@ -270,7 +359,10 @@ test('shared journey writer replays Policy pending support reads, the full lifec
     scenario: 'builder-authoring',
     case: 'patient-one-disagreement',
     evidenceDirectory: directory,
-    target: {},
+    target: { builderJourneyTrace: null },
+    dimensions: { correctness: { status: 'untested', evidence: [] } },
+    assertions: [],
+    requiredChecks: [formalProofAssertion],
   };
   const receipt = writeAndReplayBuilderJourneyTrace({
     scenarioID: report.scenario,
@@ -285,7 +377,7 @@ test('shared journey writer replays Policy pending support reads, the full lifec
       outputId: 'synthetic-output',
       patientIDs: ['dev-patient-001', 'dev-patient-002'],
     },
-    repositoryRoot: resolve(new URL('../../../../', import.meta.url).pathname),
+    repositoryRoot,
   });
   assert.equal(receipt.status, 'pass');
   assert.equal(receipt.replayStatus, 'pass');
@@ -307,6 +399,20 @@ test('shared journey writer replays Policy pending support reads, the full lifec
   assert.equal(receipt.requestCoverageBasis, policyContract.nativeJourney.coverageBasis);
   assert.equal(receipt.requestCoverage.supportedReadOnly,
     journeyTrace.transportLedger.filter(row => row.classification === 'read-only').length);
+  const proofAssertions = report.assertions.filter(assertion => assertion.name === formalProofAssertion);
+  assert.equal(proofAssertions.length, 1);
+  assert.equal(proofAssertions[0].dimension, 'correctness');
+  assert.equal(proofAssertions[0].status, 'passed');
+  assert.strictEqual(proofAssertions[0].evidence, receipt);
+  assert.strictEqual(report.target.builderJourneyTrace, receipt,
+    'The target receipt and registered formal proof assertion must share one completed receipt object.');
+  assert.deepEqual(nativeBuilderJourneyReceiptFromReport(report, {
+    binding: registeredCase.journeyTrace,
+    scenarioID: report.scenario,
+    caseName: report.case,
+    requiredChecks: report.requiredChecks,
+  }), receipt);
+  assert.equal(report.dimensions.correctness.evidence.filter(entry => entry.name === formalProofAssertion).length, 1);
 
   const replayReport = JSON.parse(readFileSync(receipt.replayReportPath, 'utf8'));
   const replayedTrace = replayReport.traces.find(entry => entry.name === journeyTrace.name);

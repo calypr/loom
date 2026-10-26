@@ -733,10 +733,25 @@ function parseArgs() {
   return options;
 }
 
-async function main() {
-  const options = parseArgs();
+export async function main({
+  options = parseArgs(),
+  runCommandFn = runCommand,
+  verifyJavaFn = verifyJava,
+  acquireTlcJarFn = acquireTlcJar,
+  runTlcFn = runTlc,
+} = {}) {
   if (realpathSync(process.cwd()) !== ROOT) {
     fail('run this command from the repository root: ' + ROOT);
+  }
+  const registryConformance = runCommandFn(
+    'Registry-wide native Builder formal conformance',
+    process.execPath,
+    ['--test', 'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs'],
+    ROOT,
+  );
+  if (registryConformance.error || registryConformance.status !== 0) {
+    fail('Registry-wide native Builder formal conformance failed before formal model checks:\n' +
+      (registryConformance.output || registryConformance.error?.message || 'no output'));
   }
   const manifest = requirePinnedSources();
   const sourceCommit = currentSourceCommit();
@@ -770,8 +785,8 @@ async function main() {
   ].join('\n');
   validateCoverageMap(inventory, map, modelText);
 
-  const javaVersion = verifyJava();
-  const jarPath = await acquireTlcJar();
+  const javaVersion = verifyJavaFn();
+  const jarPath = await acquireTlcJarFn();
   if (options.listModels) {
     for (const model of MODEL_RUNS) console.log(model.name + ' (' + model.module + ')');
     return;
@@ -779,26 +794,26 @@ async function main() {
   if (options.model) {
     const model = MODEL_RUNS.find((candidate) => candidate.name === options.model || candidate.module === options.model);
     if (!model) fail('unknown model ' + options.model + '; use --list-models');
-    const result = runTlc(jarPath, model.module, model.config);
+    const result = runTlcFn(jarPath, model.module, model.config);
     if (!result.passed) fail(model.config + ' did not complete without an error.');
     console.log('TLC ' + model.name + ': ' + result.stateCount + ' generated / ' + result.distinctStateCount + ' distinct, depth ' + result.depth);
     return;
   }
   process.env.GOCACHE = process.env.LOOM_GO_CACHE || join(tmpdir(), 'loom-go-build-cache');
 
-  const operations = runTlc(jarPath, 'BuilderOperations', 'BuilderOperations.cfg');
-  const safety = runTlc(jarPath, 'BuilderPreview', 'BuilderPreviewSafety.cfg');
-  const workspace = runTlc(jarPath, 'WorkspaceLifecycle', 'WorkspaceLifecycle.cfg');
-  const rowDefinition = runTlc(jarPath, 'RowDefinitionLifecycle', 'RowDefinitionLifecycle.cfg');
-  const draftRestore = runTlc(jarPath, 'DraftRestore', 'DraftRestore.cfg');
-  const rootChange = runTlc(jarPath, 'RootChange', 'RootChange.cfg');
-  const columnPresentation = runTlc(jarPath, 'ColumnPresentation', 'ColumnPresentation.cfg');
-  const population = runTlc(jarPath, 'Population', 'Population.cfg');
-  const interpretation = runTlc(jarPath, 'Interpretation', 'Interpretation.cfg');
-  const supportingSurfaces = runTlc(jarPath, 'SupportingSurfaces', 'SupportingSurfaces.cfg');
-  const lifecycleEntry = runTlc(jarPath, 'LifecycleEntry', 'LifecycleEntry.cfg');
-  const reconcileLifecycle = runTlc(jarPath, 'ReconcileLifecycle', 'ReconcileLifecycle.cfg');
-  const builderJourney = runTlc(jarPath, 'BuilderJourney', 'BuilderJourney.cfg');
+  const operations = runTlcFn(jarPath, 'BuilderOperations', 'BuilderOperations.cfg');
+  const safety = runTlcFn(jarPath, 'BuilderPreview', 'BuilderPreviewSafety.cfg');
+  const workspace = runTlcFn(jarPath, 'WorkspaceLifecycle', 'WorkspaceLifecycle.cfg');
+  const rowDefinition = runTlcFn(jarPath, 'RowDefinitionLifecycle', 'RowDefinitionLifecycle.cfg');
+  const draftRestore = runTlcFn(jarPath, 'DraftRestore', 'DraftRestore.cfg');
+  const rootChange = runTlcFn(jarPath, 'RootChange', 'RootChange.cfg');
+  const columnPresentation = runTlcFn(jarPath, 'ColumnPresentation', 'ColumnPresentation.cfg');
+  const population = runTlcFn(jarPath, 'Population', 'Population.cfg');
+  const interpretation = runTlcFn(jarPath, 'Interpretation', 'Interpretation.cfg');
+  const supportingSurfaces = runTlcFn(jarPath, 'SupportingSurfaces', 'SupportingSurfaces.cfg');
+  const lifecycleEntry = runTlcFn(jarPath, 'LifecycleEntry', 'LifecycleEntry.cfg');
+  const reconcileLifecycle = runTlcFn(jarPath, 'ReconcileLifecycle', 'ReconcileLifecycle.cfg');
+  const builderJourney = runTlcFn(jarPath, 'BuilderJourney', 'BuilderJourney.cfg');
 
   if (!operations.passed) fail('BuilderOperations.cfg did not complete without an error.');
   if (!safety.passed) fail('BuilderPreviewSafety.cfg did not complete without an error.');
@@ -891,7 +906,9 @@ async function main() {
   console.log('\nHARNESS PASS Builder formal verification; ' + findings.length + ' findings, ' + report.unmodeled.length + ' coverage gaps reported.');
 }
 
-main().catch((error) => {
-  console.error('\nFAIL Builder formal verification: ' + error.message);
-  process.exitCode = 1;
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error('\nFAIL Builder formal verification: ' + error.message);
+    process.exitCode = 1;
+  });
+}

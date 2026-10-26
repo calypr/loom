@@ -11,7 +11,6 @@ import {
   nativeBuilderJourneyReceiptFromReport,
   writeAndReplayBuilderJourneyTrace,
 } from '../builder-journey-trace.mjs';
-import { recordCheck } from '../report.mjs';
 import {
   builderFormalAdapterForBinding,
   builderFormalAdapterForCaptureKind,
@@ -198,8 +197,16 @@ test('shared writer replays both synthetic Temporal contracts and all registered
     assert.equal(receipt.requestCoverageBasis, spec.contract.nativeJourney.coverageBasis);
     assert.equal(receipt.requestCoverage.unmapped, 0);
     assert.equal(receipt.requestCoverage.duplicates, 0);
-    recordCheck(report, 'correctness', spec.contract.nativeJourney.formalProofAssertion,
-      receipt.status === 'pass' && receipt.replayStatus === 'pass' && receipt.selfTestStatus === 'pass', receipt);
+    const proofAssertions = report.assertions.filter(assertion =>
+      assertion.name === spec.contract.nativeJourney.formalProofAssertion);
+    assert.equal(proofAssertions.length, 1);
+    assert.equal(proofAssertions[0].dimension, 'correctness');
+    assert.equal(proofAssertions[0].status, 'passed');
+    assert.strictEqual(proofAssertions[0].evidence, receipt);
+    assert.strictEqual(report.target.builderJourneyTrace, receipt,
+      'The target receipt and registered formal proof assertion must share one completed receipt object.');
+    assert.equal(report.dimensions.correctness.evidence.filter(entry =>
+      entry.name === spec.contract.nativeJourney.formalProofAssertion).length, 1);
     assert.deepEqual(nativeBuilderJourneyReceiptFromReport(report, {
       binding: bindingFor(spec.caseName),
       scenarioID: report.scenario,

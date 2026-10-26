@@ -1,0 +1,527 @@
+{
+  "fixtureKind": "sanitized-native-receipt-unit-input",
+  "nativeBrowserProof": false,
+  "completeAccepted": {
+    "sourceArtifact": "formal-policy-native/bccd5399d4-rerun2/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json",
+    "sourceReportSha256": "dca5b068a3a9f5216a0a8f6feff3c445a6a3c47c5d9714fc3d05ee4b1ed5cfa6",
+    "sourceReportStatus": "passed",
+    "assertionName": "Captured Patient.id ONE/ALL browser journey replays through PolicyOneDisagreement TLC and passes all registered mutation controls",
+    "assertionStatus": "passed",
+    "targetReceipt": {
+      "traceName": "builder-authoring:patient-one-disagreement",
+      "nativeCaseKey": "builder-authoring/patient-one-disagreement",
+      "tracePath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/trace.json",
+      "traceSha256": "4788c9b480629086a967b611031c9402026fa7bd659d24a5f98ab0f17cc306b1",
+      "replayReportPath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/replay.json",
+      "selfTestReportPath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/self-test.json",
+      "actionLabels": [
+        "GroupPreviewSubmitted",
+        "GroupPreviewReady",
+        "GroupApplySubmitted",
+        "GroupApplied",
+        "OneSubmitted",
+        "OneRejected",
+        "SelectAll",
+        "AllSubmitted",
+        "AllReady",
+        "AllApplySubmitted",
+        "AllApplied",
+        "ReloadedAll",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalCancelled",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalApplySubmitted",
+        "RemovalApplied",
+        "ReloadedSource"
+      ],
+      "requiredMutationControlNames": [
+        "wrong-owner",
+        "stale-cas",
+        "out-of-order-repair",
+        "stale-restoration",
+        "request-body-ledger-drift",
+        "setup-command-response-owner",
+        "wrong-row-value-output",
+        "non-array-row-value-output"
+      ],
+      "status": "pass",
+      "replayStatus": "pass",
+      "selfTestStatus": "pass",
+      "requestCoverage": {
+        "observed": 57,
+        "modeled": 57,
+        "unmapped": 0,
+        "duplicates": 0,
+        "modeledActions": 8,
+        "reconcileReads": 4,
+        "supportedReadOnly": 43,
+        "setupMutations": 2
+      },
+      "requestCoverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. Completed POST frame-source-options reads must use the exact formal Explorer owner scope, output, initial snapshot, and root resource type; their captured HTTP 200 response must echo the output and snapshot while retaining the source-list completion, truncation, and count facts. These reads receive no mutation or action credit. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
+      "requiredActionCountsByTrace": {
+        "mismatches": {}
+      },
+      "requiredActionMinimumsByTrace": {
+        "mismatches": {}
+      },
+      "unmodeledEvents": {
+        "total": 0,
+        "unclassified": {
+          "total": 0
+        }
+      },
+      "mutationControls": [
+        {
+          "name": "wrong-owner",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedResponseOwnership"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedResponseOwnership"
+          }
+        },
+        {
+          "name": "stale-cas",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedPolicyCAS"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedPolicyCAS"
+          }
+        },
+        {
+          "name": "out-of-order-repair",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedChronology"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedChronology"
+          }
+        },
+        {
+          "name": "stale-restoration",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        },
+        {
+          "name": "request-body-ledger-drift",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          }
+        },
+        {
+          "name": "setup-command-response-owner",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          }
+        },
+        {
+          "name": "wrong-row-value-output",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        },
+        {
+          "name": "non-array-row-value-output",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        }
+      ]
+    },
+    "assertionReceipt": {
+      "traceName": "builder-authoring:patient-one-disagreement",
+      "nativeCaseKey": "builder-authoring/patient-one-disagreement",
+      "tracePath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/trace.json",
+      "traceSha256": "4788c9b480629086a967b611031c9402026fa7bd659d24a5f98ab0f17cc306b1",
+      "replayReportPath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/replay.json",
+      "selfTestReportPath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/self-test.json",
+      "actionLabels": [
+        "GroupPreviewSubmitted",
+        "GroupPreviewReady",
+        "GroupApplySubmitted",
+        "GroupApplied",
+        "OneSubmitted",
+        "OneRejected",
+        "SelectAll",
+        "AllSubmitted",
+        "AllReady",
+        "AllApplySubmitted",
+        "AllApplied",
+        "ReloadedAll",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalCancelled",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalApplySubmitted",
+        "RemovalApplied",
+        "ReloadedSource"
+      ],
+      "requiredMutationControlNames": [
+        "wrong-owner",
+        "stale-cas",
+        "out-of-order-repair",
+        "stale-restoration",
+        "request-body-ledger-drift",
+        "setup-command-response-owner",
+        "wrong-row-value-output",
+        "non-array-row-value-output"
+      ],
+      "status": "pass",
+      "replayStatus": "pass",
+      "selfTestStatus": "pass",
+      "requestCoverage": {
+        "observed": 57,
+        "modeled": 57,
+        "unmapped": 0,
+        "duplicates": 0,
+        "modeledActions": 8,
+        "reconcileReads": 4,
+        "supportedReadOnly": 43,
+        "setupMutations": 2
+      },
+      "requestCoverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. Completed POST frame-source-options reads must use the exact formal Explorer owner scope, output, initial snapshot, and root resource type; their captured HTTP 200 response must echo the output and snapshot while retaining the source-list completion, truncation, and count facts. These reads receive no mutation or action credit. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
+      "requiredActionCountsByTrace": {
+        "mismatches": {}
+      },
+      "requiredActionMinimumsByTrace": {
+        "mismatches": {}
+      },
+      "unmodeledEvents": {
+        "total": 0,
+        "unclassified": {
+          "total": 0
+        }
+      },
+      "mutationControls": [
+        {
+          "name": "wrong-owner",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedResponseOwnership"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedResponseOwnership"
+          }
+        },
+        {
+          "name": "stale-cas",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedPolicyCAS"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedPolicyCAS"
+          }
+        },
+        {
+          "name": "out-of-order-repair",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedChronology"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedChronology"
+          }
+        },
+        {
+          "name": "stale-restoration",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        },
+        {
+          "name": "request-body-ledger-drift",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          }
+        },
+        {
+          "name": "setup-command-response-owner",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          }
+        },
+        {
+          "name": "wrong-row-value-output",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        },
+        {
+          "name": "non-array-row-value-output",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        }
+      ]
+    }
+  },
+  "historicalB2ePartial": {
+    "sourceArtifact": "formal-policy-offline/bccd-postrun-gate/original-b2e/builder-authoring-patient-one-disagreement-policy-one-b2e24ac5-rerun1-report-native-report.json",
+    "sourceReportSha256": "c3a9f91d640e7178ce417025e7fd5ebb78146bc71545366bd12d9fe173073fec",
+    "sourceReportStatus": "passed",
+    "summaryArtifact": "formal-policy-offline/bccd-postrun-gate/original-b2e/summary.json",
+    "summarySha256": "6832b6e8f7886a7e71939e31fff2171c7d7581230eb035151993ec561ae5615e",
+    "summaryStatus": "passed",
+    "assertionName": "Captured Patient.id ONE/ALL browser journey replays through PolicyOneDisagreement TLC and passes all registered mutation controls",
+    "assertionStatus": "passed",
+    "targetReceipt": {
+      "traceName": "builder-authoring:patient-one-disagreement",
+      "nativeCaseKey": "builder-authoring/patient-one-disagreement",
+      "tracePath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/trace.json",
+      "traceSha256": "8f8ad3c56671bd18bedef92e267a23c325f3872ab3668c61f78500ccf55e4009",
+      "replayReportPath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/replay.json",
+      "selfTestReportPath": "$CHECKOUT/.artifacts/synthetic-policy-receipt/self-test.json",
+      "actionLabels": [
+        "GroupPreviewSubmitted",
+        "GroupPreviewReady",
+        "GroupApplySubmitted",
+        "GroupApplied",
+        "OneSubmitted",
+        "OneRejected",
+        "SelectAll",
+        "AllSubmitted",
+        "AllReady",
+        "AllApplySubmitted",
+        "AllApplied",
+        "ReloadedAll",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalCancelled",
+        "RemovalPreviewSubmitted",
+        "RemovalPreviewReady",
+        "RemovalApplySubmitted",
+        "RemovalApplied",
+        "ReloadedSource"
+      ],
+      "requiredMutationControlNames": [
+        "wrong-owner",
+        "stale-cas",
+        "out-of-order-repair",
+        "stale-restoration",
+        "request-body-ledger-drift",
+        "setup-command-response-owner",
+        "wrong-row-value-output",
+        "non-array-row-value-output"
+      ],
+      "status": "pass",
+      "replayStatus": "pass",
+      "selfTestStatus": "pass",
+      "requestCoverage": {
+        "observed": 57,
+        "modeled": 57,
+        "unmapped": 0,
+        "duplicates": 0,
+        "modeledActions": 8,
+        "reconcileReads": 4,
+        "supportedReadOnly": 43,
+        "setupMutations": 2
+      },
+      "requestCoverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. Completed POST frame-source-options reads must use the exact formal Explorer owner scope, output, initial snapshot, and root resource type; their captured HTTP 200 response must echo the output and snapshot while retaining the source-list completion, truncation, and count facts. These reads receive no mutation or action credit. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
+      "requiredActionCountsByTrace": {
+        "mismatches": {}
+      },
+      "requiredActionMinimumsByTrace": {
+        "mismatches": {}
+      },
+      "unmodeledEvents": {
+        "total": 0,
+        "unclassified": {
+          "total": 0
+        }
+      },
+      "mutationControls": [
+        {
+          "name": "wrong-owner",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedResponseOwnership"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedResponseOwnership"
+          }
+        },
+        {
+          "name": "stale-cas",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedPolicyCAS"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedPolicyCAS"
+          }
+        },
+        {
+          "name": "out-of-order-repair",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedChronology"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedChronology"
+          }
+        },
+        {
+          "name": "stale-restoration",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        },
+        {
+          "name": "request-body-ledger-drift",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          }
+        },
+        {
+          "name": "setup-command-response-owner",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "ObservedTransportLedgerInvariant"
+          }
+        },
+        {
+          "name": "wrong-row-value-output",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        },
+        {
+          "name": "non-array-row-value-output",
+          "status": "pass",
+          "expectedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          },
+          "observedFailure": {
+            "stage": "TLC",
+            "invariant": "TraceProgress"
+          }
+        }
+      ]
+    },
+    "assertionReceipt": {
+      "tracePath": "$CHECKOUT/.artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-b2e24ac5-rerun1-trace.json",
+      "actionCount": 20,
+      "replayStatus": "pass",
+      "selfTestStatus": "pass",
+      "mutationControlCount": 8
+    },
+    "assertionReceiptKeys": [
+      "tracePath",
+      "actionCount",
+      "replayStatus",
+      "selfTestStatus",
+      "mutationControlCount"
+    ]
+  }
+}

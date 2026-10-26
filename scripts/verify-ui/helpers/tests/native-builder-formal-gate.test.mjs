@@ -11,18 +11,46 @@ import {
 } from '../../../generate-builder-browser-evidence.mjs';
 import {
   bracketSummaryFromOutput,
+  inspectNativeLifecycleJourney,
   nativeEnvironmentTargetProblems,
   resolveNativeEvidenceParent,
+  resolveNativeTlaRuntimeContext,
+  runNativeCaseWithTlaPreflight,
   retainNativeDomainReportArtifact,
+  validateTrace,
   validateNativeBracketEnvelope,
   validateNativeJourneyTraceBinding,
   validateNativeTlaReceipt,
 } from '../../../run-builder-journey.mjs';
-import { nativeBuilderJourneyReceiptFromReport, resolveNativeBuilderJourneyArtifactPath } from '../builder-journey-trace.mjs';
+import {
+  builderJourneyTraceBindingFor,
+  finalizeNativeBuilderJourneyReceipt,
+  nativeBuilderJourneyReceiptFromReport,
+  resolveNativeBuilderJourneyArtifactPath,
+} from '../builder-journey-trace.mjs';
 import { registry, scenarioCaseFor } from '../../registry.mjs';
-import { cdaMutatingRequestCoverageProblem, cdaRequestCoverageReceipt } from '../../../verify-builder-traces.mjs';
+import {
+  cdaMutatingRequestCoverageProblem,
+  cdaRequestCoverageReceipt,
+  resolveTlaToolsJar,
+} from '../../../verify-builder-traces.mjs';
+import { planFocusedCheckGroups } from '../focused-check-groups.mjs';
+import {
+  builderFormalAdapterForBinding,
+  builderFormalAdapterForContract,
+  registeredBuilderFormalAdapterIds,
+} from '../builder-formal-adapters.mjs';
+import { adaptTemporalFilterJourney } from '../temporal-filter-trace-adapter.mjs';
+import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journey.mjs';
+import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
+import './fixture-context.test.mjs';
+import './transport-terminal.test.mjs';
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
+const policyReceiptHistoryFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/native-policy-receipt-history.fixture.json', import.meta.url), 'utf8'));
+const incompleteTemporalDateFixture = JSON.parse(readFileSync(new URL(
+  './fixtures/native-temporal-date-incomplete-capture.fixture.json', import.meta.url), 'utf8'));
 const makeRepositoryArtifactDirectory = (prefix) => {
   const artifacts = join(REPOSITORY_ROOT, '.artifacts');
   mkdirSync(artifacts, { recursive: true });
@@ -36,6 +64,19 @@ const canonicalJson = (value) => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const copy = (value) => structuredClone(value);
+const directApiBuilderPath = (project, explorerId) =>
+  `/api/v1/projects/${encodeURIComponent(project)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/builder`;
+const bindSyntheticTemporalBuilderReadOwnership = (capture) => {
+  const requestPath = directApiBuilderPath(capture.project, capture.explorerId);
+  capture.builderReads = capture.builderReads.map(read => ({
+    ...read,
+    requestMethod: 'GET',
+    requestPath,
+    requestProject: capture.project,
+    requestExplorerId: capture.explorerId,
+  }));
+  return capture;
+};
 
 test('native request coverage accounts for setup mutations without action credit or double counting', () => {
   const valid = {
@@ -218,6 +259,114 @@ test('failed focused-check envelope without a domain report preserves its prereq
     'a missing domain report must remain a failed requirement');
 });
 
+test('native entrypoint preflights TLC before focused checks and shares the frozen jar path with replay', (t) => {
+  const root = makeRepositoryArtifactDirectory('native-tlc-preflight-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const emptyCacheDirectory = join(root, 'empty-tlc-cache');
+  const validCacheDirectory = join(root, 'valid-tlc-cache');
+  mkdirSync(emptyCacheDirectory);
+  mkdirSync(validCacheDirectory);
+  const emptyEnvironment = { PATH: process.env.PATH ?? '' };
+  const resolvedJarPath = join(root, 'verified-tools', 'tla2tools-1.7.4.jar');
+  const alteredJarPath = join(root, 'altered-tla2tools.jar');
+  const explicitContext = resolveNativeTlaRuntimeContext({
+    env: { ...emptyEnvironment, TLA2TOOLS_JAR: '/caller/selected/tla2tools.jar' },
+    cacheDirectory: emptyCacheDirectory,
+    resolveJar: ({ env, cacheDirectory }) => {
+      assert.equal(env.TLA2TOOLS_JAR, '/caller/selected/tla2tools.jar');
+      assert.equal(cacheDirectory, emptyCacheDirectory);
+      return resolvedJarPath;
+    },
+  });
+  assert.equal(explicitContext.jarPath, resolvedJarPath, 'the explicit override must be passed to the verified resolver');
+  const selection = {
+    scenarioID: 'scenario',
+    caseName: 'native-case',
+    playwrightGrep: 'registered native case',
+    targetMode: 'environment',
+    traceKind: 'native-lifecycle',
+  };
+  const spawnCalls = [];
+  const cacheMissResolver = ({ env, cacheDirectory }) => {
+    assert.equal(Object.hasOwn(env, 'TLA2TOOLS_JAR'), false);
+    assert.equal(cacheDirectory, emptyCacheDirectory);
+    throw new Error('TLC jar does not exist at ' + join(cacheDirectory, 'tla2tools-1.7.4.jar'));
+  };
+  const spawnSyncImpl = (...args) => {
+    spawnCalls.push(args);
+    return { status: 0, stdout: '', stderr: '' };
+  };
+
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = () => {
+    fetchCalls += 1;
+    throw new Error('native preflight must not download TLC');
+  };
+  try {
+    assert.throws(() => runNativeCaseWithTlaPreflight(emptyEnvironment, selection, {
+      cacheDirectory: emptyCacheDirectory,
+      resolveJar: cacheMissResolver,
+      spawnSyncImpl,
+    }), /TLA2TOOLS_JAR/u, 'an absent cached jar must fail before starting the native bracket');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(fetchCalls, 0, 'a missing jar must fail locally without a download attempt');
+  assert.equal(spawnCalls.length, 0);
+
+  assert.throws(() => runNativeCaseWithTlaPreflight({
+    ...emptyEnvironment,
+    TLA2TOOLS_JAR: alteredJarPath,
+  }, selection, {
+    cacheDirectory: validCacheDirectory,
+    resolveJar: ({ env, cacheDirectory }) => {
+      assert.equal(env.TLA2TOOLS_JAR, alteredJarPath);
+      assert.equal(cacheDirectory, validCacheDirectory);
+      throw new Error('TLC 1.7.4 checksum mismatch at ' + alteredJarPath);
+    },
+    spawnSyncImpl,
+  }), /checksum mismatch/u, 'an altered explicit override must fail before starting the native bracket');
+  assert.equal(spawnCalls.length, 0);
+
+  const suppliedEnvironment = { ...emptyEnvironment };
+  let resolverCalls = 0;
+  const execution = runNativeCaseWithTlaPreflight(suppliedEnvironment, selection, {
+    cacheDirectory: validCacheDirectory,
+    resolveJar: ({ env, cacheDirectory }) => {
+      resolverCalls += 1;
+      assert.strictEqual(env, suppliedEnvironment);
+      assert.equal(Object.hasOwn(env, 'TLA2TOOLS_JAR'), false);
+      assert.equal(cacheDirectory, validCacheDirectory);
+      return resolvedJarPath;
+    },
+    spawnSyncImpl,
+  });
+  assert.equal(resolverCalls, 1, 'the native runner must resolve the jar only once before checks');
+  assert.equal(execution.runtimeContext.jarPath, resolvedJarPath,
+    'an unset override must resolve from the configured verified cache');
+  assert.equal(execution.nativeRun.exitStatus, 0);
+  assert(Object.isFrozen(execution.runtimeContext));
+  assert(Object.isFrozen(execution.environment));
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0][2].env.TLA2TOOLS_JAR, resolvedJarPath,
+    'the native bracket and its focused checks must inherit the resolved jar path');
+  assert.equal(Object.hasOwn(suppliedEnvironment, 'TLA2TOOLS_JAR'), false,
+    'preflight must not mutate the parent process environment');
+
+  const replayCalls = [];
+  const replayStatus = validateTrace('trace.json', 'replay.json', 'contract.json', false,
+    execution.environment, (...args) => {
+      replayCalls.push(args);
+      return { status: 0 };
+    });
+  assert.equal(replayStatus, 0);
+  assert.equal(replayCalls.length, 1);
+  assert.strictEqual(replayCalls[0][2].env, execution.environment,
+    'TLC replay must receive the same immutable native runtime environment as the bracket');
+  assert.equal(replayCalls[0][2].env.TLA2TOOLS_JAR, resolvedJarPath);
+});
+
 const makeBracketFixture = (root) => {
   const contract = JSON.parse(readFileSync(new URL('../../../../verification/builder-interactions/builder-cda-group-related-contract.json', import.meta.url), 'utf8'));
   const scenarioID = 'standalone-reshape-group-edit-before-related-column';
@@ -249,10 +398,15 @@ const makeBracketFixture = (root) => {
     'Preview', 'PreviewComplete', 'EditGroupAgain', 'Reload', 'RelatedSourcePreview', 'RelatedSourceCancel',
     'RelatedSourcePreview', 'RelatedSourceApply', 'Reload',
   ];
-  const actions = actionLabels.map((label, index) => ({
-    label,
-    ...(index < owners.length ? { groupLifecycle: { owner: owners[index] } } : {}),
-  }));
+  const actions = actionLabels.map((label, index) => {
+    const event = contract.actionBindings[label]?.event;
+    assert(event, `Synthetic CDA fixture action ${label} must resolve through the checked-in trace contract.`);
+    return {
+      label,
+      event,
+      ...(index < owners.length ? { groupLifecycle: { owner: owners[index] } } : {}),
+    };
+  });
   const nativeRequests = [
     ...owners.map((owner, index) => ({
       index,
@@ -294,8 +448,15 @@ const makeBracketFixture = (root) => {
     sourceCommit: 'b'.repeat(40),
     sourceFingerprint: fingerprint.sha256,
     contractSourceCommit: contract.sourceCommit,
-    fixture: {},
-    traces: [{ name: selection.traceName, model: selection.model, actions, nativeRequests }],
+    fixture: { kind: 'synthetic-unit-fixture', producer: 'makeBracketFixture' },
+    traces: [{
+      name: selection.traceName,
+      model: selection.model,
+      initialObservation: { kind: 'synthetic-unit-fixture', status: 'observed' },
+      actions,
+      unmodeledEvents: [],
+      nativeRequests,
+    }],
   };
   const nativeTraceBytes = Buffer.from(JSON.stringify(nativeTrace));
   const tracePath = join(root, 'native-trace.json');
@@ -438,9 +599,329 @@ const makeBracketFixture = (root) => {
   };
   return {
     selection, fingerprint, controls: mutationControls, domainReport, domainReportPath, summary, summaryPath,
-    tracePath, traceSha256, replayReportPath, selfTestReportPath, targetPath, actionLabels, outputEnvelope,
+    tracePath, traceSha256, replayReportPath, selfTestReportPath, targetPath, actionLabels, outputEnvelope, nativeTrace,
   };
 };
+
+const nativeFormalConformanceFixtureProducers = Object.freeze({
+  'builder-native-journey-v1': ({ t }) => {
+    const root = makeRepositoryArtifactDirectory('native-registry-conformance-cda-');
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const bracket = makeBracketFixture(root);
+    return {
+      synthetic: true,
+      producer: 'checked-in makeBracketFixture',
+      trace: bracket.nativeTrace.traces[0],
+      report: bracket.domainReport,
+      selection: bracket.selection,
+    };
+  },
+  'policy-one-disagreement-v1': () => ({
+    synthetic: true,
+    producer: 'checked-in makeSyntheticPolicyOneJourneyTrace',
+    trace: makeSyntheticPolicyOneJourneyTrace(),
+  }),
+  'temporal-filter-journey-v1': ({ adapter }) => {
+    const capture = bindSyntheticTemporalBuilderReadOwnership(
+      makeTemporalFilterJourneyCaptureFixture(adapter.caseName));
+    return {
+      synthetic: true,
+      producer: 'checked-in makeTemporalFilterJourneyCaptureFixture + adaptTemporalFilterJourney',
+      trace: adaptTemporalFilterJourney(capture),
+    };
+  },
+});
+
+const syntheticAdapterReceiptFor = ({ root, trace, binding, adapter, contract, scenarioID, caseName, traceProvenance = {} }) => {
+  assert.equal(typeof adapter.validateTrace, 'function',
+    `${binding.captureAdapter} must expose its production trace validator.`);
+  assert.equal(typeof adapter.compileTrace, 'function',
+    `${binding.captureAdapter} must expose its production trace compiler.`);
+  assert.equal(typeof adapter.requestCoverage, 'function',
+    `${binding.captureAdapter} must expose its production request-coverage consumer.`);
+  assert.equal(typeof adapter.buildMutationControls, 'function',
+    `${binding.captureAdapter} must expose its production mutation-control planner.`);
+
+  const validated = adapter.validateTrace(trace);
+  assert(validated && typeof validated === 'object', `${binding.captureAdapter} must return a validated trace projection.`);
+  if (adapter.family === 'temporal-filter-native-lifecycle') {
+    assert.equal(validated.caseName, caseName);
+  } else {
+    assert.strictEqual(validated, trace);
+  }
+  const moduleName = `RegistryConformance${caseName.replaceAll(/[^A-Za-z0-9]/gu, '')}`;
+  const compiled = adapter.compileTrace(trace, { moduleName });
+  assert.equal(compiled.modelName, binding.model);
+  assert.equal(compiled.moduleName, moduleName);
+  assert.match(compiled.modelText, /EXTENDS/u);
+
+  const requestCoverage = adapter.requestCoverage(trace);
+  assert.equal(nativeJourneyRequestCoverageProblem(requestCoverage, adapter.requestCoverageFields), null,
+    `${binding.captureAdapter} synthetic fixture must account for every request exactly once.`);
+  const controls = adapter.buildMutationControls(trace).map(control => ({ name: control.name, status: 'pass' }));
+  assert.deepEqual(controls.map(control => control.name), contract.nativeJourney.requiredMutationControlNames);
+  const actionLabels = trace.actions.map(action => action.label);
+  const tracePath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.trace.json`);
+  const replayReportPath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.tla.json`);
+  const traceDocument = {
+    schemaVersion: 1,
+    sourceProfile: 'journey',
+    sourceCommit: traceProvenance.sourceCommit ?? 'b'.repeat(40),
+    sourceFingerprint: traceProvenance.sourceFingerprint ?? 'c'.repeat(64),
+    contractSourceCommit: contract.sourceCommit,
+    fixture: { kind: 'synthetic-unit-fixture', nativeBrowserProof: false },
+    traces: [trace],
+  };
+  writeFileSync(tracePath, JSON.stringify(traceDocument));
+  const traceSha256 = sha256(readFileSync(tracePath));
+  const selfTestReportPath = join(root, `synthetic-${adapter.captureAdapter}-${caseName}.self-test.json`);
+  const unmodeledEvents = { total: (trace.unmodeledEvents ?? []).length, unclassified: { total: 0 } };
+  const actionMismatchReceipt = { mismatches: {} };
+  const verifierReceipt = {
+    traceName: binding.name,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    tracePath,
+    replayReportPath,
+    traceSha256,
+    actionLabels,
+    status: 'pending-self-test',
+    replayStatus: 'pass',
+    selfTestStatus: 'not-run',
+    selfTestReportPath: null,
+    requestCoverage,
+    requestCoverageBasis: contract.nativeJourney.coverageBasis,
+    requiredActionCountsByTrace: actionMismatchReceipt,
+    requiredActionMinimumsByTrace: actionMismatchReceipt,
+    unmodeledEvents,
+  };
+  const selfTestReceipt = {
+    traceName: binding.name,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    tracePath,
+    traceSha256,
+    selfTestReportPath,
+    status: 'pass',
+    mutationControls: controls,
+  };
+  return finalizeNativeBuilderJourneyReceipt(verifierReceipt, selfTestReceipt, {
+    traceName: binding.name,
+    nativeCaseKey: `${scenarioID}/${caseName}`,
+    actionLabels,
+    tracePath,
+    replayReportPath,
+    traceSha256,
+    selfTestReportPath,
+    contract,
+    traceDocument,
+    requestCoverageFields: adapter.requestCoverageFields,
+  });
+};
+
+const makeSyntheticTemporalOuterEvidenceFixture = ({ t, trace, binding, registeredCase, adapter }) => {
+  const root = makeRepositoryArtifactDirectory('native-temporal-outer-inspector-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const contract = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, binding.contract), 'utf8'));
+  const proofSourcePath = 'proof-source.txt';
+  const proofSourceBytes = Buffer.from('synthetic native DATE proof source');
+  writeFileSync(join(root, proofSourcePath), proofSourceBytes);
+  const proofSourceEntry = { path: proofSourcePath, sha256: sha256(proofSourceBytes) };
+  const proofSourceFingerprint = sha256(canonicalJson([proofSourceEntry]));
+  const manifestPath = join(root, 'verification/builder-interactions/builder-preview-contract.json');
+  mkdirSync(resolve(manifestPath, '..'), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify({ sources: [proofSourceEntry] }));
+  const contractPath = join(root, binding.contract);
+  mkdirSync(resolve(contractPath, '..'), { recursive: true });
+  writeFileSync(contractPath, JSON.stringify(contract));
+
+  const traceProvenance = {
+    sourceCommit: 'a'.repeat(40),
+    sourceFingerprint: proofSourceFingerprint,
+  };
+  const receipt = syntheticAdapterReceiptFor({
+    root, trace, binding, adapter, contract,
+    scenarioID: 'basic-temporal-filter', caseName: 'date', traceProvenance,
+  });
+  receipt.requiredMutationControlNames = contract.nativeJourney.requiredMutationControlNames;
+  const traceDocument = JSON.parse(readFileSync(receipt.tracePath, 'utf8'));
+  const replayReceipt = {
+    ...copy(receipt),
+    status: 'pending-self-test',
+    selfTestStatus: 'not-run',
+    selfTestReportPath: null,
+  };
+  delete replayReceipt.mutationControls;
+  const replay = {
+    sourceProfile: 'journey',
+    sourceCommit: traceProvenance.sourceCommit,
+    sourceFingerprint: proofSourceFingerprint,
+    contractSourceCommit: contract.sourceCommit,
+    traceSha256: receipt.traceSha256,
+    traceCount: 1,
+    uniqueTraceCount: 1,
+    validatedCount: 1,
+    invalidCount: 0,
+    coverage: {
+      requiredModels: { missing: [] },
+      requiredActions: { missing: [] },
+      requiredActionsByTrace: { missing: {} },
+      requiredEvents: { missing: [] },
+    },
+    unmodeledEvents: receipt.unmodeledEvents,
+    traces: [{
+      name: trace.name,
+      model: trace.model,
+      status: 'pass',
+      actionCount: trace.actions.length,
+      tlc: { stateCount: 1, distinctStateCount: 1, depth: 1 },
+    }],
+    builderJourneyTrace: replayReceipt,
+  };
+  writeFileSync(receipt.replayReportPath, JSON.stringify(replay));
+  const selfTest = {
+    traceName: binding.name,
+    nativeCaseKey: 'basic-temporal-filter/date',
+    tracePath: receipt.tracePath,
+    traceSha256: receipt.traceSha256,
+    selfTestReportPath: receipt.selfTestReportPath,
+    status: 'pass',
+    mutationControls: receipt.mutationControls,
+  };
+  writeFileSync(receipt.selfTestReportPath, JSON.stringify(selfTest));
+  const report = {
+    scenario: 'basic-temporal-filter',
+    case: 'date',
+    nativeBrowserProof: false,
+    target: { builderJourneyTrace: receipt },
+    assertions: [{ name: binding.formalProofAssertion, status: 'passed', evidence: receipt }],
+  };
+  const reportPath = join(root, 'synthetic-date-native-report.json');
+  writeFileSync(reportPath, JSON.stringify(report));
+  return {
+    root,
+    report,
+    reportPath,
+    registeredCase,
+    receipt,
+    replay,
+    selfTest,
+    traceDocument,
+    sourceStatus: { status: 'current' },
+  };
+};
+
+const rewriteSyntheticTemporalOuterTrace = (fixture, trace) => {
+  const traceDocument = copy(fixture.traceDocument);
+  traceDocument.traces[0] = trace;
+  const traceBytes = Buffer.from(JSON.stringify(traceDocument));
+  writeFileSync(fixture.receipt.tracePath, traceBytes);
+  const traceSha256 = sha256(traceBytes);
+  const receipt = { ...copy(fixture.receipt), traceSha256 };
+  const replay = copy(fixture.replay);
+  replay.traceSha256 = traceSha256;
+  replay.builderJourneyTrace.traceSha256 = traceSha256;
+  const selfTest = { ...copy(fixture.selfTest), traceSha256 };
+  const report = copy(fixture.report);
+  report.target.builderJourneyTrace = receipt;
+  report.assertions[0].evidence = receipt;
+  writeFileSync(receipt.replayReportPath, JSON.stringify(replay));
+  writeFileSync(receipt.selfTestReportPath, JSON.stringify(selfTest));
+  writeFileSync(fixture.reportPath, JSON.stringify(report));
+  return { ...fixture, report, receipt, replay, selfTest, traceDocument };
+};
+
+test('synthetic conformance covers every registered native lifecycle from focused plan through production trace consumers', (t) => {
+  const registrations = registry.flatMap(scenario => Object.entries(scenario.cases ?? {})
+    .map(([caseName, registeredCase]) => ({ scenario, caseName, registeredCase }))
+    .filter(({ registeredCase }) => registeredCase.journeyTrace?.kind === 'native-lifecycle'));
+  assert(registrations.length > 0, 'Registry must contain native lifecycle journeys to conform.');
+  const knownAdapterIDs = new Set(registeredBuilderFormalAdapterIds);
+  const exercisedAdapterIDs = new Set();
+  const root = makeRepositoryArtifactDirectory('native-registry-conformance-');
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  for (const { scenario, caseName, registeredCase } of registrations) {
+    const where = `${scenario.id}/${caseName}`;
+    const binding = builderJourneyTraceBindingFor(scenario.id, caseName);
+    const adapter = builderFormalAdapterForBinding(binding);
+    assert(knownAdapterIDs.has(binding.captureAdapter), `${where} resolves an unknown adapter ID.`);
+    assert.equal(adapter.captureAdapter, binding.captureAdapter, `${where} adapter identity differs from its registry binding.`);
+    assert.equal(adapter.traceName, binding.name, `${where} trace name differs from its static adapter.`);
+    assert.equal(adapter.model, binding.model, `${where} model differs from its static adapter.`);
+    exercisedAdapterIDs.add(adapter.captureAdapter);
+
+    const contractPath = resolve(REPOSITORY_ROOT, binding.contract);
+    const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+    if (contract.nativeJourney) {
+      assert.strictEqual(builderFormalAdapterForContract(contract), adapter,
+        `${where} contract and registry binding must resolve to the same static adapter.`);
+      assert.equal(contract.nativeJourney.captureAdapter, binding.captureAdapter);
+      assert.equal(contract.nativeJourney.traceName, binding.name);
+      assert.equal(contract.nativeJourney.model, binding.model);
+    } else {
+      assert.equal(builderFormalAdapterForContract(contract), null);
+      assert.equal(contract.journeyCase?.traceName, binding.name,
+        `${where} legacy CDA contract must bind the exact trace name.`);
+      assert.equal(contract.journeyCase?.model, binding.model,
+        `${where} legacy CDA contract must bind the exact model name.`);
+      assert.equal(adapter.captureAdapter, 'builder-native-journey-v1',
+        `${where} lacks a nativeJourney contract without being the supported CDA profile.`);
+    }
+
+    assert(Array.isArray(registeredCase.focusedChecks) && registeredCase.focusedChecks.length > 0,
+      `${where} needs registered focused inputs for conformance planning.`);
+    const focusedPlans = planFocusedCheckGroups(registeredCase.focusedChecks, REPOSITORY_ROOT);
+    assert(focusedPlans.length > 0, `${where} focused inputs did not produce a plan.`);
+    assert(focusedPlans.every(plan => plan.args.length > 1 && plan.cwd.startsWith(REPOSITORY_ROOT)),
+      `${where} focused plan must resolve executable, in-repository inputs.`);
+
+    const fixtureProducer = nativeFormalConformanceFixtureProducers[binding.captureAdapter];
+    assert.equal(typeof fixtureProducer, 'function',
+      `${where} supported registration has no checked-in synthetic conformance fixture producer for ${binding.captureAdapter}.`);
+    const produced = fixtureProducer({ t, scenario, caseName, registeredCase, binding, adapter, contract });
+    assert.equal(produced.synthetic, true, `${where} fixture results must remain explicitly synthetic.`);
+    assert.match(produced.producer, /^checked-in /u, `${where} must identify its checked-in fixture producer.`);
+    const trace = produced.trace;
+    assert.equal(trace.name, binding.name, `${where} fixture trace does not match the registered name.`);
+    assert.equal(trace.model, binding.model, `${where} fixture trace does not match the registered model.`);
+
+    if (adapter.validateTrace) {
+      const validated = adapter.validateTrace(trace);
+      assert(validated && typeof validated === 'object',
+        `${where} production adapter rejected its checked-in synthetic trace.`);
+      assert.equal(typeof adapter.compileTrace, 'function');
+    }
+    const inspected = inspectNativeLifecycleJourney(trace, binding);
+    assert.equal(inspected.result, 'captured');
+    assert.equal(inspected.name, binding.name);
+    assert.equal(inspected.model, binding.model);
+    assert.deepEqual(inspected.actions, trace.actions.map(action => action.label));
+
+    let report;
+    if (produced.report) {
+      report = produced.report;
+    } else {
+      const receipt = syntheticAdapterReceiptFor({
+        root, trace, binding, adapter, contract, scenarioID: scenario.id, caseName,
+      });
+      report = {
+        assertions: [{ name: binding.formalProofAssertion, status: 'passed', evidence: receipt }],
+      };
+    }
+    const extractedReceipt = nativeBuilderJourneyReceiptFromReport(report, {
+      binding,
+      scenarioID: scenario.id,
+      caseName,
+      requiredChecks: registeredCase.requiredChecks,
+    });
+    assert.equal(extractedReceipt.traceName, binding.name);
+    assert.equal(extractedReceipt.nativeCaseKey, `${scenario.id}/${caseName}`);
+  }
+
+  for (const adapterID of exercisedAdapterIDs) {
+    assert.equal(typeof nativeFormalConformanceFixtureProducers[adapterID], 'function',
+      `Registered adapter ${adapterID} has no synthetic fixture producer.`);
+  }
+});
 
 const makeTlaFixture = (root) => {
   const selection = {
@@ -756,6 +1237,172 @@ test('current browser evidence requires the retained replay receipt and passing 
   tamperedTrace.traces[0].actions[0].label = 'PreviewError';
   writeFileSync(fixture.evidence.tracePath, JSON.stringify(tamperedTrace));
   assert.throws(() => currentFormalJourneyEvidence(root, fixture.report, fixture.registeredCase, fixture.sourceStatus, fixture.reportPath), /do not bind the exact retained trace bytes/);
+});
+
+test('sanitized Policy receipts accept the complete retained shape and reject missing, partial, and duplicate proof assertions', () => {
+  assert.equal(policyReceiptHistoryFixture.nativeBrowserProof, false,
+    'Portable Policy receipt excerpts are unit inputs, not browser proof artifacts.');
+  assert.match(policyReceiptHistoryFixture.completeAccepted.sourceReportSha256, /^[0-9a-f]{64}$/u);
+  assert.match(policyReceiptHistoryFixture.historicalB2ePartial.sourceReportSha256, /^[0-9a-f]{64}$/u);
+  assert(policyReceiptHistoryFixture.historicalB2ePartial.assertionReceiptKeys.includes('actionCount'));
+  assert.equal(Object.hasOwn(policyReceiptHistoryFixture.historicalB2ePartial.assertionReceipt, 'traceName'), false,
+    'The historical b2e assertion receipt must retain its actual partial shape.');
+
+  const scenarioID = 'builder-authoring';
+  const caseName = 'patient-one-disagreement';
+  const registeredCase = scenarioCaseFor(scenarioID, caseName);
+  const binding = registeredCase.journeyTrace;
+  const toReport = evidence => ({
+    scenario: scenarioID,
+    case: caseName,
+    target: { builderJourneyTrace: copy(evidence.targetReceipt) },
+    assertions: [{
+      name: evidence.assertionName,
+      status: evidence.assertionStatus,
+      evidence: copy(evidence.assertionReceipt),
+    }],
+  });
+  const completeReport = toReport(policyReceiptHistoryFixture.completeAccepted);
+  const completeReceipt = nativeBuilderJourneyReceiptFromReport(completeReport, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  });
+  assert.deepEqual(completeReceipt, policyReceiptHistoryFixture.completeAccepted.assertionReceipt);
+  assert.equal(completeReceipt.status, 'pass');
+  assert.equal(completeReceipt.replayStatus, 'pass');
+  assert.equal(completeReceipt.selfTestStatus, 'pass');
+  assert.equal(completeReceipt.requestCoverage.unmapped, 0);
+  assert.equal(completeReceipt.requestCoverage.duplicates, 0);
+
+  const partialReport = toReport(policyReceiptHistoryFixture.historicalB2ePartial);
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(partialReport, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /traceName must match the registered trace/u,
+  'The old b2e outer report must fail because its assertion contains only summary fields.');
+  assert.throws(() => currentFormalJourneyEvidence(REPOSITORY_ROOT, partialReport, registeredCase,
+    { status: 'current' }, '.artifacts/never-read-policy-b2e-report.json'),
+  /traceName must match the registered trace/u,
+  'The outer evidence inspector must reject the same historical partial assertion before resolving archive paths.');
+
+  const missingAssertion = copy(completeReport);
+  missingAssertion.assertions = [];
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(missingAssertion, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /exactly one registered formal proof assertion/u);
+
+  const duplicateAssertion = copy(completeReport);
+  duplicateAssertion.assertions.push(copy(duplicateAssertion.assertions[0]));
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(duplicateAssertion, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /exactly one registered formal proof assertion/u);
+});
+
+test('DATE compiler and outer inspector bind each saved Builder read to its owned project and Explorer route', (t) => {
+  assert.equal(incompleteTemporalDateFixture.nativeBrowserProof, false,
+    'The retained a1eed DATE capture is incomplete and must never be treated as browser proof.');
+  assert.equal(incompleteTemporalDateFixture.report.status, 'failed');
+  assert.equal(incompleteTemporalDateFixture.report.targetBuilderJourneyTracePresent, false);
+  assert.equal(incompleteTemporalDateFixture.report.canonicalJourneyTracePresent, false);
+  assert.equal(incompleteTemporalDateFixture.report.formalProofAssertionCount, 0);
+  assert.deepEqual(incompleteTemporalDateFixture.rawCaptureShape.missingSavedBuilderReadOwnershipFields,
+    ['requestMethod', 'requestPath', 'requestProject', 'requestExplorerId']);
+
+  const scenarioID = 'basic-temporal-filter';
+  const caseName = 'date';
+  const registeredCase = scenarioCaseFor(scenarioID, caseName);
+  const binding = registeredCase.journeyTrace;
+  const incompleteReport = {
+    scenario: scenarioID,
+    case: caseName,
+    status: incompleteTemporalDateFixture.report.status,
+    nativeBrowserProof: false,
+    target: {},
+    assertions: [],
+  };
+  assert.throws(() => nativeBuilderJourneyReceiptFromReport(incompleteReport, {
+    binding, scenarioID, caseName, requiredChecks: registeredCase.requiredChecks,
+  }), /exactly one registered formal proof assertion/u);
+  assert.throws(() => currentFormalJourneyEvidence(REPOSITORY_ROOT, incompleteReport, registeredCase,
+    { status: 'current' }, '.artifacts/never-read-incomplete-date-report.json'),
+  /exactly one registered formal proof assertion/u,
+  'The outer inspector must not promote the retained DATE browser report without a canonical proof receipt.');
+
+  const adapter = builderFormalAdapterForBinding(binding);
+  const contract = JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, binding.contract), 'utf8'));
+  const capture = bindSyntheticTemporalBuilderReadOwnership(makeTemporalFilterJourneyCaptureFixture(caseName));
+  const trace = adaptTemporalFilterJourney(capture);
+  for (const read of trace.temporalFilterLifecycle.builderReads) {
+    assert.equal(read.requestMethod, 'GET');
+    assert.equal(read.requestPath, directApiBuilderPath(capture.project, capture.explorerId));
+    assert.equal(read.requestProject, capture.project);
+    assert.equal(read.requestExplorerId, capture.explorerId);
+  }
+  assert.equal(adapter.validateTrace(trace).caseName, caseName);
+  assert.match(adapter.compileTrace(trace, { moduleName: 'TemporalDateOwnedReadPositive' }).moduleText,
+    /TraceObservedBuilderReads/u);
+
+  const outer = makeSyntheticTemporalOuterEvidenceFixture({
+    t, trace, binding, registeredCase, adapter,
+  });
+  const accepted = currentFormalJourneyEvidence(outer.root, outer.report, registeredCase,
+    outer.sourceStatus, outer.reportPath);
+  assert.equal(accepted.status, 'current');
+  assert.equal(accepted.name, binding.name);
+
+  const wrongProjectPath = directApiBuilderPath(`other-${capture.project}`, capture.explorerId);
+  assert.notEqual(wrongProjectPath, directApiBuilderPath(capture.project, capture.explorerId));
+  assert(wrongProjectPath.endsWith(`/explorers/${encodeURIComponent(capture.explorerId)}/authoring/v2/builder`),
+    'The wrong-project mutation preserves the exact Explorer path and Builder endpoint.');
+  const wrongProjectTrace = copy(trace);
+  const wrongProjectRead = wrongProjectTrace.temporalFilterLifecycle.builderReads[0];
+  wrongProjectRead.requestPath = wrongProjectPath;
+  assert.equal(wrongProjectRead.requestProject, capture.project,
+    'The wrong-project path mutation leaves the exact project metadata unchanged.');
+  assert.equal(wrongProjectRead.requestExplorerId, capture.explorerId,
+    'The wrong-project path mutation leaves the exact Explorer metadata unchanged.');
+  assert.throws(() => adapter.compileTrace(wrongProjectTrace, { moduleName: 'TemporalDateOwnedReadWrongProject' }),
+    /exact encoded project and Explorer route/u,
+    'DATE TLA compilation must reject a wrong-project path even when endpoint and metadata are valid.');
+
+  const wrongProjectCapture = copy(capture);
+  wrongProjectCapture.builderReads[0].requestPath = wrongProjectPath;
+  assert.equal(wrongProjectCapture.builderReads[0].requestProject, capture.project);
+  assert.equal(wrongProjectCapture.builderReads[0].requestExplorerId, capture.explorerId);
+  assert.throws(() => adaptTemporalFilterJourney(wrongProjectCapture), /created Explorer route/u,
+    'The canonical producer must reject a wrong-project read path with matching project/Explorer metadata.');
+
+  const wrongProjectOuter = rewriteSyntheticTemporalOuterTrace(outer, wrongProjectTrace);
+  assert.throws(() => currentFormalJourneyEvidence(wrongProjectOuter.root, wrongProjectOuter.report,
+    registeredCase, wrongProjectOuter.sourceStatus, wrongProjectOuter.reportPath),
+  /exact encoded project and Explorer route/u,
+  'The outer inspector must reject a wrong-project path after all report/trace hashes are rebound.');
+
+  const wrongPath = directApiBuilderPath(capture.project, capture.explorerId)
+    .replace('/authoring/v2/builder', '/authoring/v2/capability');
+  const tamperedTrace = copy(trace);
+  const tamperedRead = tamperedTrace.temporalFilterLifecycle.builderReads[0];
+  tamperedRead.requestPath = wrongPath;
+  assert.equal(tamperedRead.requestProject, capture.project,
+    'The path mutation leaves the exact project identity unchanged.');
+  assert.equal(tamperedRead.requestExplorerId, capture.explorerId,
+    'The path mutation leaves the exact Explorer identity unchanged.');
+  assert.notEqual(tamperedRead.requestPath, directApiBuilderPath(tamperedRead.requestProject,
+    tamperedRead.requestExplorerId));
+  assert.throws(() => adapter.compileTrace(tamperedTrace, { moduleName: 'TemporalDateOwnedReadPathTamper' }),
+    /exact encoded project and Explorer route/u,
+    'DATE TLA compilation must reject a Builder GET path tamper even when project and Explorer fields still match.');
+
+  const tamperedCapture = copy(capture);
+  tamperedCapture.builderReads[0].requestPath = wrongPath;
+  assert.equal(tamperedCapture.builderReads[0].requestProject, capture.project);
+  assert.equal(tamperedCapture.builderReads[0].requestExplorerId, capture.explorerId);
+  assert.throws(() => adaptTemporalFilterJourney(tamperedCapture), /created Explorer route/u,
+    'The canonical producer must reject the same read-path-only mutation.');
+
+  const tamperedOuter = rewriteSyntheticTemporalOuterTrace(outer, tamperedTrace);
+  assert.throws(() => currentFormalJourneyEvidence(tamperedOuter.root, tamperedOuter.report,
+    registeredCase, tamperedOuter.sourceStatus, tamperedOuter.reportPath),
+  /exact encoded project and Explorer route/u,
+  'The outer inspector must reject a tampered read path even after all report/trace hashes are rebound.');
 });
 
 test('CDA request coverage binds false-flag proposal previews and true-flag commands, but rejects unknown false POSTs', () => {

@@ -2326,7 +2326,7 @@ FOR s IN (
     requests,
   }));
   journeyTrace.nativeRequests = nativeRequestLedgerFrom(nativeCapture.requests);
-  const traceResult = writeAndReplayBuilderJourneyTrace({
+  writeAndReplayBuilderJourneyTrace({
     scenarioID: cda.scenarioID,
     caseName: cda.caseName,
     journeyTrace,
@@ -2342,10 +2342,6 @@ FOR s IN (
     },
     repositoryRoot,
   });
-  recordLifecycleCheck('correctness',
-    'Captured Group and RELATED_SOURCE browser transitions replay through BuilderJourney TLC with the registered action contract',
-    traceResult.status === 'pass' && traceResult.replayStatus === 'pass' && traceResult.selfTestStatus === 'pass',
-    traceResult);
   report.rawOracleQueries = oracleQueries;
   report.status = 'passed';
 } catch (error) {
