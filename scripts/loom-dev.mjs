@@ -5941,15 +5941,32 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     recordAssertion(report, 'owner-records-first-table-uses-verified-root-id-field', true, Boolean(ownerRecordsInitialIDColumn));
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await click('select Other fields tab', page.getByRole('tab', { name: 'Other fields', exact: true }));
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search dataset fields by name or type"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
+    await click('select Coded values tab', page.getByRole('tab', { name: 'Coded values', exact: true }));
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search coded values by code or label"]')) && Boolean(document.querySelector('[aria-label="Coded values"]'))`);
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
-    await fill('Search dataset fields by name or type', 'shared');
+    await fill('Search coded values by code or label', 'shared');
     await clickButton('Search');
-    const ownerRecordsSharedFieldButtonName = 'Select Observation.component[].valueQuantity.value';
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && [...article.querySelectorAll('button')].some((button) => button.getAttribute('aria-label') === ${JSON.stringify(ownerRecordsSharedFieldButtonName)} && !button.disabled && button.getClientRects().length > 0)))`);
-    const sharedArticle = page.locator('article').filter({ hasText: 'urn:study:A · shared' }).filter({ hasText: 'valueQuantity.value' });
-    await click('select Study A shared feature', sharedArticle.getByRole('button', { name: ownerRecordsSharedFieldButtonName, exact: true }));
+    const ownerRecordsSharedSemanticButtonName = /^Select shared.*system urn:study:A.*code shared$/;
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('article[data-semantic-identity]')].some((article) => [...article.querySelectorAll('button[aria-label^="Select shared"]')].some((button) => button.getAttribute('aria-label').includes('system urn:study:A') && button.getAttribute('aria-label').includes('code shared') && !button.disabled && button.getClientRects().length > 0)))`);
+    const ownerRecordsSharedSemanticArticles = page.locator('article[data-semantic-identity]').filter({
+      has: page.getByRole('button', { name: ownerRecordsSharedSemanticButtonName }),
+    });
+    const ownerRecordsSharedSemanticArticleCount = await ownerRecordsSharedSemanticArticles.count();
+    let sharedArticle;
+    for (let index = 0; index < ownerRecordsSharedSemanticArticleCount; index += 1) {
+      const candidate = ownerRecordsSharedSemanticArticles.nth(index);
+      await click('inspect Study A shared coded value', candidate.getByRole('button', { name: 'Details for shared', exact: true }));
+      const candidateDetails = candidate.getByRole('tooltip');
+      await candidateDetails.waitFor({ state: 'visible', timeout: 5000 });
+      if ((await candidateDetails.innerText()).includes('Value field Observation.component[].valueQuantity.value')) {
+        sharedArticle = candidate;
+        break;
+      }
+    }
+    if (!sharedArticle) {
+      throw new Error(`Coded values search did not expose the exact Observation.component[].valueQuantity.value choice for urn:study:A/shared across ${ownerRecordsSharedSemanticArticleCount} matching semantic results`);
+    }
+    await click('select Study A shared semantic feature', sharedArticle.getByRole('button', { name: ownerRecordsSharedSemanticButtonName }));
     await clickButton('Advanced options');
     await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"] [aria-label="shared: Keep each matching record"]'))`);
     const ownerAdvancedOptions = page.getByRole('region', { name: 'Advanced route and form choices', exact: true });
