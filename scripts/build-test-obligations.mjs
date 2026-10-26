@@ -6,12 +6,13 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
 import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
+import { loadMjsSourceSemantics, MJS_SOURCE_SEMANTICS_RELATIVE_PATH } from './mjs-source-semantics.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MODEL_DIR = 'verification/builder-interactions';
 const LEDGER = MODEL_DIR + '/route-contract.json';
 const TRACE_CONTRACT = MODEL_DIR + '/builder-trace-contract.json';
-const SEMANTIC_CATALOG = MODEL_DIR + '/mjs-source-semantics.json';
+const SEMANTIC_CATALOG = MJS_SOURCE_SEMANTICS_RELATIVE_PATH;
 const BROWSER_EVIDENCE = MODEL_DIR + '/browser-evidence.json';
 const REGISTRY = 'scripts/verify-ui/registry.mjs';
 const FORMAL_RUNNER = 'scripts/verify-builder-formal.mjs';
@@ -1750,7 +1751,7 @@ if (args.includes('--self-test')) {
 const ledger = readJson(LEDGER);
 const traceContract = readJson(TRACE_CONTRACT);
 const journeyAudit = readJson(MODEL_DIR + '/builder-journey-audit.json');
-const semanticCatalog = readJson(SEMANTIC_CATALOG);
+const semanticCatalog = loadMjsSourceSemantics(resolve(ROOT, SEMANTIC_CATALOG));
 const browserEvidence = existsSync(resolve(ROOT, BROWSER_EVIDENCE)) ? readJson(BROWSER_EVIDENCE) : { cases: [] };
 const routeByKey = new Map();
 const actionToRoutes = new Map();
