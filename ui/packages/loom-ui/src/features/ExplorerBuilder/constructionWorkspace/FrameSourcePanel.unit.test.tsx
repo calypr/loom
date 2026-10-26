@@ -172,8 +172,11 @@ describe('FrameSourcePanel query ownership', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browse sources' }));
     fireEvent.click(await screen.findByTestId('frame-source-choice-new-frame-source'));
     expect(await screen.findByTestId('frame-categories-frame-new')).toBeInTheDocument();
-    expect(mockClient.browseSemanticInventory).toHaveBeenCalledWith(
-      expect.objectContaining({ frameId: 'frame-new', outputId: 'output-a' }), expect.any(AbortSignal));
+    await waitFor(() => {
+      expect(mockClient.browseSemanticInventory).toHaveBeenCalledWith(
+        expect.objectContaining({ frameId: 'frame-new', outputId: 'output-a' }), expect.any(AbortSignal));
+      expect(mockClient.browseSemanticInventory.mock.calls.at(-1)?.[0].selectionMode).toBeUndefined();
+    });
     expect(mockClient.browseSemanticInventory.mock.calls.at(-1)?.[0].selectionMode).toBeUndefined();
   });
 });

@@ -5,11 +5,11 @@ Status: generated from the TLA models and existing test metadata.
 ## Script quality inventory
 
 678 MJS files in the reviewed baseline are accounted for as active or retired records.
-709 are currently tracked; 2 baseline files have retained tombstones.
+711 are currently tracked; 2 baseline files have retained tombstones.
 13186 semantic claims are defined once; 9255 source occurrences are direct test assertions, out of 18996 total labeled occurrences.
 9741 other source-evidence occurrences are labeled by kind and do not count as direct test assertions.
-711 catalog records have source-review evidence; 711 MJS records remain runtime-unverified.
-69 files are classified as independent tool/module purposes; 324 MJS files and 5329 semantic claims have no canonical journey mapping.
+713 catalog records have source-review evidence; 713 MJS records remain runtime-unverified.
+69 files are classified as independent tool/module purposes; 326 MJS files and 5329 semantic claims have no canonical journey mapping.
 `role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.
 
 | Role | Files |
@@ -18,7 +18,7 @@ Status: generated from the TLA models and existing test metadata.
 | browser-workflow | 146 |
 | config | 5 |
 | helper-or-oracle | 157 |
-| test | 238 |
+| test | 240 |
 | tool-or-module | 69 |
 
 ### Journey assembly by canonical case
@@ -173,13 +173,14 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 | Tool/module files | 69 |
 | Tool/module files with a canonical case mapping | 7 |
 | Tool/module files without a canonical case mapping | 62 |
-| All MJS files without a canonical case mapping | 324 |
+| All MJS files without a canonical case mapping | 326 |
 | Semantic claims without a canonical case mapping | 5329 |
 
 ### Explicit formal links
 
 - `scripts/apply-builder-proposal-decisions.mjs`: candidate; gap: No runtime outcome or route-transition proof is claimed.
 - `scripts/generate-builder-route-ledger.mjs`: candidate; gap: No route is asserted proved by this generator; it labels the generated ledger provisional.
+- `scripts/loom-dev-cda-conflict.test.mjs`: uncertain; gap: No Builder product, formal transition, invariant, or lifecycle coverage is claimed.
 - `scripts/loom-dev.mjs`: candidate; gap: No trace correspondence is established for these browser assertions, and the formal model does not cover source-data values, rendered rows, publication, Viewer filters, or downloaded artifacts.
 - `scripts/propose-builder-route-actions.mjs`: candidate; gap: Generated actions are explicitly proposals requiring handler review; no action is treated as accepted or proved.
 - `scripts/run-builder-bug-discovery.mjs`: candidate; gap: Static source review only; no runtime, test, browser, or model pass is asserted.
@@ -257,8 +258,7 @@ Counts deduplicate semantic claim IDs, source paths, and exact required/focused 
 - `scripts/verify-ui/helpers/tests/construction-output-selection.test.mjs`: candidate; gap: Candidate correspondence is limited to proposal/preview state; raw data values, UI rendering, persistence, and the specific test trace are not model-checked.
 - `scripts/verify-ui/helpers/tests/fixture-context.test.mjs`: uncertain; gap: No native lifecycle, model transition, or proof coverage is asserted by this file row.
 - `scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs`: trace-support → PolicyOneDisagreement; gap: Fixture traces are explicitly synthetic and never represented as captured application evidence.
-- `scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs`: uncertain; gap: No native lifecycle, model transition, or proof coverage is asserted by this file row.
-- 226 additional formal applicability rows are in the JSON report.
+- 228 additional formal applicability rows are in the JSON report.
 
 These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.
 
@@ -267,7 +267,7 @@ These are source associations, not passing runs. Model actions, invariants, sche
 | Disposition | Files |
 | --- | ---: |
 | integrate | 2 |
-| keep | 708 |
+| keep | 710 |
 | merge-candidate | 1 |
 
 | MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |

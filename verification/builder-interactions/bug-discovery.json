@@ -6,7 +6,7 @@
     "allowlist": "verification/builder-interactions/mutation-strict-allowlist.json",
     "obligations": "verification/builder-interactions/test-obligations.json"
   },
-  "sourceCommit": "f0d463a0f9111aab6ef5e80550010d88473ed94b",
+  "sourceCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
   "summary": {
     "probes": 50,
     "evidence": 50,
@@ -787,7 +787,7 @@
       "expectedFailure": "toHaveBeenLastCalledWith",
       "status": "killed",
       "mutation": "Replace `                visible: event.currentTarget.checked,\\n                order: column.table?.order ?? order,` with `                visible: true,\\n                order: column.table?.order ?? order,`.",
-      "failure": "1690|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({",
+      "failure": "AssertionError: expected last \"vi.fn()\" call to have been called with [ ObjectContaining{…} ]",
       "equivalent": null,
       "allowlisted": false
     },
@@ -805,7 +805,7 @@
       "expectedFailure": "toHaveBeenLastCalledWith",
       "status": "killed",
       "mutation": "Replace `              filter: event.currentTarget.checked\\n                ? { label: column.label }\\n                : undefined,` with `              filter: { label: column.label },`.",
-      "failure": "1702|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({",
+      "failure": "AssertionError: expected last \"vi.fn()\" call to have been called with [ ObjectContaining{…} ]",
       "equivalent": null,
       "allowlisted": false
     },
@@ -841,7 +841,7 @@
       "expectedFailure": "toHaveBeenCalledWith",
       "status": "killed",
       "mutation": "Replace `        onClick={onRemove}` with `        onClick={() => undefined}`.",
-      "failure": "281|     expect(onRemove).toHaveBeenCalledWith('research_subject_identifier…",
+      "failure": "AssertionError: expected \"vi.fn()\" to be called with arguments: [ 'research_subject_identifier' ]\n\nNumber of calls: 0",
       "equivalent": null,
       "allowlisted": false
     },

@@ -19,7 +19,7 @@
     },
     {
       "path": "scripts/loom-dev.mjs",
-      "sha256": "ecbf2777ce115a25dc1597a925e3e43d1003d91daf1fb8f82d14d51e88cd08a9",
+      "sha256": "9ecf057933e84fd5640b9c113f36636dc87cee538b5c5d7f0c5c32e2574d6305",
       "contract": "Owned development session and fresh synthetic fixture producer used by the Journey runner."
     },
     {
@@ -134,7 +134,7 @@
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
-      "sha256": "770129ee1b538f31296ec444fc6b6b74156e9d151495649aa076dc8d8635416f",
+      "sha256": "0d2a50cf7c264860f4be45d4b7072f957d946395fedfc3191972399b95196e81",
       "contract": "Mounted BuilderWorkspace A/B reconcile race, captured request/settlement identities, and rendered receipt/output oracle."
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
+      "sha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {
@@ -414,8 +414,8 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "12ad16bf10ecc5adbb0a579e9e69b8663dfae2d679fef6412cb115d1278e0d7f",
-      "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
+      "sha256": "bebadc0931109320b11af63f9f78ac09cfc06303ba440604291a797d5539b85e",
+      "contract": "Focused tests for native bracket, replay digest, request coverage, mutation receipt gates, and mutation-probe baseline/cache classification."
     },
     {
       "path": "scripts/verify-ui/helpers/source-fingerprint.mjs",
