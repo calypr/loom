@@ -5968,9 +5968,10 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     }
     await click('select Study A shared semantic feature', sharedArticle.getByRole('button', { name: ownerRecordsSharedSemanticButtonName }));
     await clickButton('Advanced options');
-    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"] [aria-label="shared: Keep each matching record"]'))`);
+    const ownerRecordsSharedFormName = 'shared · Observation Component · system urn:study:A · version unversioned · code shared: Keep each matching record';
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="region"][aria-label="Advanced route and form choices"] input[type="radio"]')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(ownerRecordsSharedFormName)} && !input.disabled && input.getClientRects().length > 0))`);
     const ownerAdvancedOptions = page.getByRole('region', { name: 'Advanced route and form choices', exact: true });
-    await click('select shared owner-record form', ownerAdvancedOptions.getByLabel('shared: Keep each matching record', { exact: true }));
+    await click('select shared owner-record form', ownerAdvancedOptions.getByRole('radio', { name: ownerRecordsSharedFormName, exact: true }));
     const ownerPreviewBaseline = await captureBuilderPreviewBaseline(target, page, ownerRecordsExplorerId);
     await clickButton('Add 1 selected feature', ownerAdvancedOptions);
     const ownerRecordsStateIsApplied = (builder) => {
