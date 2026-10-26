@@ -372,7 +372,11 @@ async function runProbe(probe) {
     ? await runGo(probe, target)
     : await runVitest(probe, target);
   retainProbeLogs(probe, 'baseline', baselineResult);
-  if (baselineResult.error) return { probe, error: 'unmodified baseline process failed: ' + baselineResult.error.message };
+  if (baselineResult.error) return {
+    probe,
+    errorKind: 'baseline-process-failed',
+    error: 'unmodified baseline process failed: ' + baselineResult.error.message,
+  };
   const baselineHashesAfter = hashesFor(probe);
   const baseline = baselineSummary(probe, baselineResult, hashes, runnerHash);
   baseline.hashJoinValid = sameHashJoin(hashes, baselineHashesAfter) && sameHashJoin(hashes, baseline);
@@ -381,6 +385,8 @@ async function runProbe(probe) {
       !baseline.commandIdentityValid) {
     return {
       probe,
+      errorKind: 'baseline-failed',
+      baseline,
       error: 'unmodified baseline must pass at least one test with stable source/test/probe, runner, and command identities; ' +
         JSON.stringify({ baseline, status: baselineResult.status, report: baselineResult.report ?? null }),
     };
@@ -390,16 +396,20 @@ async function runProbe(probe) {
     ? await runGo(probe, target, mutated)
     : await runVitest(probe, target, mutated);
   retainProbeLogs(probe, 'mutant', result);
-  if (result.error) return { probe, error: result.error.message };
+  if (result.error) return { probe, errorKind: 'mutant-process-failed', error: result.error.message };
   const currentHashes = hashesFor(probe);
   const mutantCommandIdentity = commandIdentityFor(probe, 'mutant');
   if (!sameHashJoin(hashes, currentHashes) || !sameHashJoin(hashes, baseline) ||
       runnerHash !== fileHash(RUNNER_PATH) || result.command !== normalizedCommandFor(probe, 'mutant')) {
-    return { probe, error: 'source/test/probe/runner/command identity changed during baseline or mutant execution' };
+    return { probe, errorKind: 'identity-changed', error: 'source/test/probe/runner/command identity changed during baseline or mutant execution' };
   }
   const killed = result.status !== 0 && expectedFailureObserved(probe, result.report);
   if (result.status !== 0 && !killed) {
-    return { probe, error: 'test failed without the expected assertion `' + probe.expectedFailure + '`; output:\n' + result.output.split('\n').slice(0, 40).join('\n') };
+    return {
+      probe,
+      errorKind: 'mutant-failed',
+      error: 'test failed without the expected assertion `' + probe.expectedFailure + '`; output:\n' + result.output.split('\n').slice(0, 40).join('\n'),
+    };
   }
   const status = killed ? 'killed' : probe.equivalent ? 'equivalent' : 'survived';
   const failureDiagnostics = (result.report?.testResults ?? []).flatMap((suite) => suite.assertionResults ?? [])
@@ -459,6 +469,17 @@ let failures = 0;
 for (const result of results) {
   if (result.error) {
     failures += 1;
+    const previous = evidenceById.get(result.probe.id);
+    if (previous?.status === 'killed') {
+      evidenceById.set(result.probe.id, {
+        ...previous,
+        status: result.errorKind === 'baseline-failed' ? 'baseline-failed' : 'verification-failed',
+        previousStatus: previous.status,
+        revalidationErrorKind: result.errorKind ?? 'verification-failed',
+        revalidationFailure: result.error,
+        ...(result.baseline ? { failedBaseline: result.baseline } : {}),
+      });
+    }
     console.error('FAIL ' + result.probe.id + ': ' + result.error);
   } else {
     evidenceById.set(result.probe.id, result.entry);

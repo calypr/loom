@@ -1768,3 +1768,53 @@ test('mutation probe runner reruns same-hash KILLED evidence that lacks a succes
   assert.ok(existsSync(join(logDirectory, fixture.probe.id + '.baseline.report.json')),
     'same-hash legacy evidence must not skip the baseline run');
 });
+
+test('failed baseline invalidates a same-hash KILLED row but preserves its probe identity and old diagnostics', (t) => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'loom-mutation-stale-kill-baseline-failure-'));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  const { root, logDirectory, fixture } = runMutationRunnerFixture(tempRoot,
+    'column-visibility-toggle-guard', 'red-baseline', { force: false, execute: false });
+  const hashes = mutationFixtureHashes({ fixture });
+  const evidencePath = join(root, 'verification/builder-interactions/mutation-evidence.json');
+  const evidence = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  evidence.probes.push({
+    id: fixture.probe.id,
+    status: 'killed',
+    ...hashes,
+    sourceCommit: 'historical-source',
+    failure: fixture.probeSpec.historicFailureLine,
+    command: 'historical normalized command',
+  });
+  writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');
+
+  const result = spawnSync(process.execPath, [join(root, 'scripts/run-builder-mutation-probe.mjs'), fixture.probe.id], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, LOOM_MUTATION_LOG_DIRECTORY: logDirectory, MUTATION_FIXTURE_MODE: 'red-baseline' },
+  });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /unmodified baseline must pass at least one test/u);
+
+  const refreshed = JSON.parse(readFileSync(evidencePath, 'utf8'));
+  const entries = refreshed.probes.filter(candidate => candidate.id === fixture.probe.id);
+  assert.equal(entries.length, 1, 'the failed revalidation must retain one record for this probe ID');
+  assert.equal(entries[0].status, 'baseline-failed');
+  assert.equal(entries[0].previousStatus, 'killed');
+  assert.equal(entries[0].revalidationErrorKind, 'baseline-failed');
+  assert.match(entries[0].revalidationFailure, /passedTestCount":0/u);
+  assert.equal(entries[0].sourceCommit, 'historical-source');
+  assert.equal(entries[0].failure, fixture.probeSpec.historicFailureLine);
+  assert.equal(entries[0].command, 'historical normalized command');
+  assert.equal(entries.some(candidate => candidate.status === 'killed'), false,
+    'the stale KILLED status must not survive failed baseline validation');
+  assert.equal(refreshed.probes.find(candidate => candidate.id === 'historic-inactive').status, 'inactive');
+  assert.equal(refreshed.probes.find(candidate => candidate.id === 'historic-equivalent').status, 'equivalent');
+
+  const report = JSON.parse(readFileSync(join(logDirectory,
+    fixture.probe.id + '.baseline.report.json'), 'utf8'));
+  assert.equal(report.numPassedTests, 0);
+  assert.equal(report.numFailedTests, 1);
+  assert.equal(report.numSkippedTests, 26);
+  assert.equal(existsSync(join(logDirectory, fixture.probe.id + '.mutant.stdout.log')), false,
+    'the mutant must not run after its unmodified baseline fails');
+});
