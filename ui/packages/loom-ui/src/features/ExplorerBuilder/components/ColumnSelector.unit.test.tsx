@@ -277,7 +277,7 @@ describe('configured V2 columns', () => {
     const onRemove = vi.fn();
     render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base" disabled={false}
       onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()} onSourceChange={vi.fn()} onRemove={onRemove} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Research Subject Identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Research Subject ID' }));
     expect(onRemove).toHaveBeenCalledWith('research_subject_identifier');
   });
 
@@ -1685,18 +1685,18 @@ describe('configured V2 columns', () => {
     };
     render(<Harness />);
 
-    const visible = screen.getByRole('checkbox', { name: 'Display Research Subject Identifier in table' });
+    const visible = screen.getByRole('checkbox', { name: 'Display Research Subject ID in table' });
     fireEvent.click(visible);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
       column: 'research_subject_identifier',
       table: expect.objectContaining({ visible: false }),
     }));
 
-    const filter = screen.getByRole('checkbox', { name: 'Use Research Subject Identifier as filter' });
+    const filter = screen.getByRole('checkbox', { name: 'Use Research Subject ID as filter' });
     fireEvent.click(filter);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
       column: 'research_subject_identifier',
-      filter: { label: 'Research Subject Identifier' },
+      filter: { label: 'Research Subject ID' },
     }));
     fireEvent.click(filter);
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({

@@ -17,20 +17,20 @@ End to end ready: no.
 | routeActionEmpty | 27 |
 | routeActionCandidate | 8 |
 | traceTested | 1 |
-| modeledAndTracedWithoutBrowser | 0 |
-| browserCases | 2 |
-| browserCoveredRoutes | 16 |
-| ledgerRoutesWithBrowserCoverage | 16 |
-| obligations | 322 |
+| modeledAndTracedWithoutBrowser | 3 |
+| browserCases | 3 |
+| browserCoveredRoutes | 0 |
+| ledgerRoutesWithBrowserCoverage | 0 |
+| obligations | 358 |
 | covered | 10 |
-| partial | 108 |
-| missing | 204 |
+| partial | 143 |
+| missing | 205 |
 | missingRouteBound | 19 |
 | missingCandidate | 70 |
-| missingUnbound | 115 |
-| tests | 908 |
-| testsWithoutExactObligations | 896 |
-| models | 15 |
+| missingUnbound | 116 |
+| tests | 911 |
+| testsWithoutExactObligations | 900 |
+| models | 16 |
 | traceModels | 3 |
 | schedules | 5 |
 | affordances | 57 |
@@ -70,11 +70,11 @@ End to end ready: no.
 | mutationKilled | 47 |
 | mutationSurvived | 0 |
 | mutationEquivalent | 3 |
-| mutationUnprobedActions | 155 |
+| mutationUnprobedActions | 156 |
 | mutationStrictPass | yes |
-| mutationProbeCandidates | 155 |
+| mutationProbeCandidates | 156 |
 | mutationProbeCandidatesHigh | 44 |
-| mutationProbeCandidatesWithoutTests | 87 |
+| mutationProbeCandidatesWithoutTests | 88 |
 | mutationGuardCandidates | 21 |
 | mutationActionsWithGuardCandidates | 11 |
 | browserCaseProposals | 39 |
@@ -109,7 +109,7 @@ End to end ready: no.
 | --- | ---: |
 | route | 19 |
 | candidate | 70 |
-| unbound | 115 |
+| unbound | 116 |
 
 ## Next worklist
 

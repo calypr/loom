@@ -1,7 +1,8 @@
 {
   "schemaVersion": 3,
   "generatedFrom": [
-    ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json"
+    ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json",
+    ".artifacts/formal-temporal-datetime-50bed98d-run3/browser-run/playwright-results/basic-temporal-filter-Basi-08e66-ply-edit-removal-and-reload/attachments/loom-verification-report-json-ba40acc9cd0309536b48d1ff593d2f79a2b0c0bc.json"
   ],
   "retainedGeneratedFrom": [
     "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/bracket-summary.json",
@@ -37,13 +38,431 @@
   ],
   "cases": [
     {
+      "id": "basic-temporal-filter:date-time",
+      "scenario": "basic-temporal-filter",
+      "case": "date-time",
+      "name": "basic-temporal-filter date-time",
+      "status": "historical",
+      "sourceStatus": "stale",
+      "sourceStatusReason": "report watched-tree fingerprint afea5b3317597ee5c1e690aa9979b810042be53ab15711ac1a13d42e26ced3f8 (2130 files) differs from current watched-tree fingerprint ed1c79fc4d7bf0f3c22e090a8a88b70ccbc509f9a5697b643d961df0336159b1 (2132 files)",
+      "recordedAt": "2026-10-25T23:42:37.098Z",
+      "sourceFingerprint": "afea5b3317597ee5c1e690aa9979b810042be53ab15711ac1a13d42e26ced3f8",
+      "sourceFileCount": 2130,
+      "apiBuildIdentity": "db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:db279cf6a3b2f32e816e94fdd3e43c9871f829477584a4f15189f8a0460bc6be:0bf9e8e1cc663aeeb2f2704fe8d326ea8a88b24f824a82385e28b9ae25c91a41",
+      "coveredRoutes": [
+        "GET /api/v1/projects/{project}/explorers",
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
+        "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability",
+        "POST /api/v1/projects/{project}/explorers",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/reconcile",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory",
+        "POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions"
+      ],
+      "injectedRoutes": [],
+      "assertions": [
+        {
+          "name": "watched source fingerprint baseline captured before browser lifecycle",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "API build identity baseline captured before browser lifecycle",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "fresh Observation temporal fixture matches the exact literal row oracle",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "open a new disposable Explorer completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "open a new disposable Explorer action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "name the temporal-filter Explorer completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "name the temporal-filter Explorer action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "create the fresh temporal-filter Explorer completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "create the fresh temporal-filter Explorer action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "name the Observation table completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "name the Observation table action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "choose native Observation rows completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "choose native Observation rows action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "native Observation root Preview renders every exact source ID",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "open Add columns for the temporal source field completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "open Add columns for the temporal source field action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "open Other fields for the temporal source field completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "open Other fields for the temporal source field action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "search Observation.effectiveDateTime completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "search Observation.effectiveDateTime action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "show effectiveDateTime field choice completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "show effectiveDateTime field choice action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "select Observation.effectiveDateTime completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "select Observation.effectiveDateTime action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "add effectiveDateTime as a native output column completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "add effectiveDateTime as a native output column action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "native effectiveDateTime choice response is ready for the exact output",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "native effectiveDateTime column keeps exact source values and identities",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "open Filter rows for effectiveDateTime completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "open Filter rows for effectiveDateTime action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "choose effectiveDateTime for the row filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "choose effectiveDateTime for the row filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "set the DATE_TIME GT comparison completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "set the DATE_TIME GT comparison action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "native datetime-local filter exposes exact DATE_TIME comparison controls",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "Cancel the first temporal filter proposal completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "Cancel the first temporal filter proposal action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "Cancel leaves the exact unfiltered Observation source rows",
+          "status": "passed",
+          "dimension": "persistence"
+        },
+        {
+          "name": "reload after temporal-filter Cancel completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "reload after temporal-filter Cancel action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "reopen Filter rows for effectiveDateTime completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "reopen Filter rows for effectiveDateTime action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "choose effectiveDateTime for the row filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "choose effectiveDateTime for the row filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "set the DATE_TIME GT comparison completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "set the DATE_TIME GT comparison action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "Apply the exact DATE_TIME GT filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "Apply the exact DATE_TIME GT filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "Apply saves exact DATE_TIME values and matching Observation IDs",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "reload the applied temporal filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "reload the applied temporal filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "select the saved temporal filter step completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "select the saved temporal filter step action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "edit the saved temporal filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "edit the saved temporal filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "set the DATE_TIME GTE comparison completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "set the DATE_TIME GTE comparison action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "editing preserves the saved effectiveDateTime source and exposes typed datetime-local controls",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "Apply the edited DATE_TIME GTE condition completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "Apply the edited DATE_TIME GTE condition action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "reload the edited temporal filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "reload the edited temporal filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "edited DATE_TIME condition and exact rows survive reload",
+          "status": "passed",
+          "dimension": "persistence"
+        },
+        {
+          "name": "select the edited temporal filter for removal completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "select the edited temporal filter for removal action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "preview removal of the saved temporal filter completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "preview removal of the saved temporal filter action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "apply removal and restore the unfiltered source rows completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "apply removal and restore the unfiltered source rows action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "reload after temporal-filter removal completed",
+          "status": "passed",
+          "dimension": "usability"
+        },
+        {
+          "name": "reload after temporal-filter removal action-to-render within budget",
+          "status": "passed",
+          "dimension": "performance"
+        },
+        {
+          "name": "removing DATE_TIME filter restores exact source rows after reload",
+          "status": "passed",
+          "dimension": "persistence"
+        },
+        {
+          "name": "Captured DATE_TIME native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "incidental asset failures are explicitly recorded",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "fixture browser observer reported no unexpected network or runtime errors",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "watched source stayed unchanged during browser run",
+          "status": "passed",
+          "dimension": "correctness"
+        },
+        {
+          "name": "API build identity stayed unchanged during browser run",
+          "status": "passed",
+          "dimension": "correctness"
+        }
+      ],
+      "report": ".artifacts/formal-temporal-datetime-50bed98d-run3/browser-run/playwright-results/basic-temporal-filter-Basi-08e66-ply-edit-removal-and-reload/attachments/loom-verification-report-json-ba40acc9cd0309536b48d1ff593d2f79a2b0c0bc.json",
+      "reportSha256": "ca199643df381950b8ad8583d1d5ebf825735f262e2661bd5a5b0293ce898afe"
+    },
+    {
       "id": "builder-authoring:patient-one-disagreement",
       "scenario": "builder-authoring",
       "case": "patient-one-disagreement",
       "name": "builder-authoring patient-one-disagreement",
-      "status": "current",
-      "sourceStatus": "current",
-      "sourceStatusReason": "report watched-tree fingerprint matches the current watched source tree",
+      "status": "historical",
+      "sourceStatus": "stale",
+      "sourceStatusReason": "report watched-tree fingerprint a4ed05132e13f0b003339b94bfe605e8501613f4c22c706ed914f93bac33918e (2108 files) differs from current watched-tree fingerprint ed1c79fc4d7bf0f3c22e090a8a88b70ccbc509f9a5697b643d961df0336159b1 (2132 files)",
       "recordedAt": "2026-10-25T16:19:51.854Z",
       "sourceFingerprint": "a4ed05132e13f0b003339b94bfe605e8501613f4c22c706ed914f93bac33918e",
       "sourceFileCount": 2108,
@@ -364,71 +783,6 @@
           "dimension": "correctness"
         }
       ],
-      "formalJourney": {
-        "name": "builder-authoring:patient-one-disagreement",
-        "model": "PolicyOneDisagreement",
-        "status": "current",
-        "sourceStatus": "current",
-        "sourceCommit": "bccd5399d4ec24f9b0b53eeff0aabf8d9fb4d65c",
-        "proofSourceFingerprint": "52c9734fd91f03ab3233e9b213cb9ac803bf562675dc19d8bfe334c25b3ee261",
-        "contractSourceCommit": "b6fb8f8b2534663191b1259f5abacf2ae6556100",
-        "actionCount": 20,
-        "actionCounts": {
-          "GroupPreviewSubmitted": 1,
-          "GroupPreviewReady": 1,
-          "GroupApplySubmitted": 1,
-          "GroupApplied": 1,
-          "OneSubmitted": 1,
-          "OneRejected": 1,
-          "SelectAll": 1,
-          "AllSubmitted": 1,
-          "AllReady": 1,
-          "AllApplySubmitted": 1,
-          "AllApplied": 1,
-          "ReloadedAll": 1,
-          "RemovalPreviewSubmitted": 2,
-          "RemovalPreviewReady": 2,
-          "RemovalCancelled": 1,
-          "RemovalApplySubmitted": 1,
-          "RemovalApplied": 1,
-          "ReloadedSource": 1
-        },
-        "requestCoverage": {
-          "observed": 57,
-          "modeled": 57,
-          "unmapped": 0,
-          "duplicates": 0,
-          "modeledActions": 8,
-          "reconcileReads": 4,
-          "supportedReadOnly": 43,
-          "setupMutations": 2
-        },
-        "requestCoverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. Completed POST frame-source-options reads must use the exact formal Explorer owner scope, output, initial snapshot, and root resource type; their captured HTTP 200 response must echo the output and snapshot while retaining the source-list completion, truncation, and count facts. These reads receive no mutation or action credit. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
-        "mutationControlCount": 8,
-        "tlc": {
-          "generatedStates": 21,
-          "distinctStates": 21,
-          "depth": 21
-        },
-        "artifacts": {
-          "nativeReport": {
-            "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json",
-            "sha256": "dca5b068a3a9f5216a0a8f6feff3c445a6a3c47c5d9714fc3d05ee4b1ed5cfa6"
-          },
-          "trace": {
-            "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace.json",
-            "sha256": "4788c9b480629086a967b611031c9402026fa7bd659d24a5f98ab0f17cc306b1"
-          },
-          "tlaReport": {
-            "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace-tla.json",
-            "sha256": "01ac9f74a3331aab117955c7993efe1b8e31f005508510f02c8178ce4c3c0202"
-          },
-          "selfTest": {
-            "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace-self-test.json",
-            "sha256": "75806f3d830e3e8e90fc441017f6334e45cee37e924320f50da7101bd5026b29"
-          }
-        }
-      },
       "report": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json",
       "reportSha256": "dca5b068a3a9f5216a0a8f6feff3c445a6a3c47c5d9714fc3d05ee4b1ed5cfa6"
     },
@@ -439,7 +793,7 @@
       "name": "builder-controls recompile",
       "status": "unavailable",
       "sourceStatus": "unavailable",
-      "sourceStatusReason": "the accepted Git baseline preserves route metadata only; its browser report has no retained verification descriptor",
+      "sourceStatusReason": "the report path pinned by the accepted Git baseline is not retained: .artifacts/playwright/results/builder-controls-Builder-C-591e3-tomatic-compilation-failure/attachments/loom-verification-report-json-25489bccb605e2178752f5128971333f66005c75.json",
       "coveredRoutes": [
         "GET /api/v1/projects/{project}/explorers",
         "GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder",
@@ -467,74 +821,7 @@
       }
     }
   ],
-  "formalJourneys": [
-    {
-      "case": "builder-authoring:patient-one-disagreement",
-      "name": "builder-authoring:patient-one-disagreement",
-      "model": "PolicyOneDisagreement",
-      "status": "current",
-      "sourceStatus": "current",
-      "sourceCommit": "bccd5399d4ec24f9b0b53eeff0aabf8d9fb4d65c",
-      "proofSourceFingerprint": "52c9734fd91f03ab3233e9b213cb9ac803bf562675dc19d8bfe334c25b3ee261",
-      "contractSourceCommit": "b6fb8f8b2534663191b1259f5abacf2ae6556100",
-      "actionCount": 20,
-      "actionCounts": {
-        "GroupPreviewSubmitted": 1,
-        "GroupPreviewReady": 1,
-        "GroupApplySubmitted": 1,
-        "GroupApplied": 1,
-        "OneSubmitted": 1,
-        "OneRejected": 1,
-        "SelectAll": 1,
-        "AllSubmitted": 1,
-        "AllReady": 1,
-        "AllApplySubmitted": 1,
-        "AllApplied": 1,
-        "ReloadedAll": 1,
-        "RemovalPreviewSubmitted": 2,
-        "RemovalPreviewReady": 2,
-        "RemovalCancelled": 1,
-        "RemovalApplySubmitted": 1,
-        "RemovalApplied": 1,
-        "ReloadedSource": 1
-      },
-      "requestCoverage": {
-        "observed": 57,
-        "modeled": 57,
-        "unmapped": 0,
-        "duplicates": 0,
-        "modeledActions": 8,
-        "reconcileReads": 4,
-        "supportedReadOnly": 43,
-        "setupMutations": 2
-      },
-      "requestCoverageBasis": "Every retained physical transportLedger row is checked by TLC under ObservedTransportLedgerInvariant. Pre-entry SETUP requests, including successful setup command mutations, are retained as a settled prefix bound to the actual formal-entry saved snapshot; they are not credited as formal user actions. Formal modeled requests biject to the 20 journey actions, while reconcile owner/CAS requests and explicitly supported read-only routes remain separate row classes. Completed POST frame-source-options reads must use the exact formal Explorer owner scope, output, initial snapshot, and root resource type; their captured HTTP 200 response must echo the output and snapshot while retaining the source-list completion, truncation, and count facts. These reads receive no mutation or action credit. The actual formal-exit boundary retains any requests still pending after the existing 5000ms drain. Only no-header POST semantic-inventory and POST construction-capabilities requests under the exact formal Explorer owner scope may remain pending; those rows receive no response, receipt, producer, or consumer credit. Pending response-body reads, setup or modeled requests, commands, reconcile requests, and all other routes remain failures.",
-      "mutationControlCount": 8,
-      "tlc": {
-        "generatedStates": 21,
-        "distinctStates": 21,
-        "depth": 21
-      },
-      "artifacts": {
-        "nativeReport": {
-          "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-report-native-report.json",
-          "sha256": "dca5b068a3a9f5216a0a8f6feff3c445a6a3c47c5d9714fc3d05ee4b1ed5cfa6"
-        },
-        "trace": {
-          "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace.json",
-          "sha256": "4788c9b480629086a967b611031c9402026fa7bd659d24a5f98ab0f17cc306b1"
-        },
-        "tlaReport": {
-          "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace-tla.json",
-          "sha256": "01ac9f74a3331aab117955c7993efe1b8e31f005508510f02c8178ce4c3c0202"
-        },
-        "selfTest": {
-          "path": ".artifacts/builder-journey/builder-authoring-patient-one-disagreement-policy-one-bccd-rerun2-trace-self-test.json",
-          "sha256": "75806f3d830e3e8e90fc441017f6334e45cee37e924320f50da7101bd5026b29"
-        }
-      }
-    }
-  ],
+  "formalJourneys": [],
   "retainedJourneys": [
     {
       "id": "edit-remove-reload:authored-three:0b383cda0ac70f735180de4b669e4d9e2a551b35",
@@ -545,7 +832,7 @@
       "traceName": "builder-authoring:group-entry",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 118 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 151 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/temporal-filter-capture.mjs, scripts/verify-ui/helpers/temporal-filter-pending-read.mjs, scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs, scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs, scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixture-context.test.mjs, scripts/verify-ui/helpers/tests/fixtures/basic-temporal-filter-run4-pending-capability.json, scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json, scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-96a.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run5.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-mutation-controls.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-native-corpus.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-pending-read.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs, scripts/verify-ui/helpers/tests/transport-terminal.test.mjs, scripts/verify-ui/helpers/transport-terminal.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/basic-temporal-filter.spec.mjs, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/basic-temporal-filter.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, testdata/basic-temporal-filter/Observation.ndjson, testdata/basic-temporal-filter/Patient.ndjson, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/TemporalFilterJourney.tla, verification/builder-interactions/TemporalFilterJourneyDate.cfg, verification/builder-interactions/TemporalFilterJourneyDateTime.cfg, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json, verification/builder-interactions/builder-temporal-filter-date-contract.json, verification/builder-interactions/builder-temporal-filter-date-time-contract.json; removed: none)",
       "recordedAt": "2026-10-23T00:23:20.950Z",
       "sourceIdentity": {
         "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",
@@ -598,7 +885,7 @@
       "traceName": "journey/edit-remove-reload-basic-budget",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 118 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 151 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/temporal-filter-capture.mjs, scripts/verify-ui/helpers/temporal-filter-pending-read.mjs, scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs, scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs, scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixture-context.test.mjs, scripts/verify-ui/helpers/tests/fixtures/basic-temporal-filter-run4-pending-capability.json, scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json, scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-96a.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run5.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-mutation-controls.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-native-corpus.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-pending-read.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs, scripts/verify-ui/helpers/tests/transport-terminal.test.mjs, scripts/verify-ui/helpers/transport-terminal.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/basic-temporal-filter.spec.mjs, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/basic-temporal-filter.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, testdata/basic-temporal-filter/Observation.ndjson, testdata/basic-temporal-filter/Patient.ndjson, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/TemporalFilterJourney.tla, verification/builder-interactions/TemporalFilterJourneyDate.cfg, verification/builder-interactions/TemporalFilterJourneyDateTime.cfg, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json, verification/builder-interactions/builder-temporal-filter-date-contract.json, verification/builder-interactions/builder-temporal-filter-date-time-contract.json; removed: none)",
       "recordedAt": null,
       "sourceIdentity": {
         "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
@@ -642,7 +929,7 @@
       "traceName": "builder-authoring:group-entry-raw-basic",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 118 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 151 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/temporal-filter-capture.mjs, scripts/verify-ui/helpers/temporal-filter-pending-read.mjs, scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs, scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs, scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixture-context.test.mjs, scripts/verify-ui/helpers/tests/fixtures/basic-temporal-filter-run4-pending-capability.json, scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json, scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-96a.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run5.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-mutation-controls.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-native-corpus.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-pending-read.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs, scripts/verify-ui/helpers/tests/transport-terminal.test.mjs, scripts/verify-ui/helpers/transport-terminal.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/basic-temporal-filter.spec.mjs, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/basic-temporal-filter.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, testdata/basic-temporal-filter/Observation.ndjson, testdata/basic-temporal-filter/Patient.ndjson, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/TemporalFilterJourney.tla, verification/builder-interactions/TemporalFilterJourneyDate.cfg, verification/builder-interactions/TemporalFilterJourneyDateTime.cfg, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json, verification/builder-interactions/builder-temporal-filter-date-contract.json, verification/builder-interactions/builder-temporal-filter-date-time-contract.json; removed: none)",
       "recordedAt": "2026-10-23T00:52:04.753Z",
       "sourceIdentity": {
         "commit": "908b49fdff0fb34a6dba3c129f2344f8c37d12c4",
@@ -748,7 +1035,7 @@
       "traceName": "builder-authoring:group-entry-raw-basic",
       "status": "historical",
       "sourceStatus": "stale",
-      "sourceStatusReason": "Builder source scope changed from 76 historical files to 118 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json; removed: none)",
+      "sourceStatusReason": "Builder source scope changed from 76 historical files to 151 current files (added: scripts/generate-builder-browser-evidence.mjs, scripts/run-native-verification-bracket.mjs, scripts/verify-ui/helpers/basic-temporal-filter-oracle.mjs, scripts/verify-ui/helpers/builder-formal-adapters.mjs, scripts/verify-ui/helpers/builder-journey-trace.mjs, scripts/verify-ui/helpers/builder-rendered-grid.mjs, scripts/verify-ui/helpers/cda-fixtures.mjs, scripts/verify-ui/helpers/cda-playwright-requests.mjs, scripts/verify-ui/helpers/cda-playwright.mjs, scripts/verify-ui/helpers/cda-row-oracle.mjs, scripts/verify-ui/helpers/construction-operation-diff.mjs, scripts/verify-ui/helpers/created-explorer-scope.mjs, scripts/verify-ui/helpers/playwright-browser.mjs, scripts/verify-ui/helpers/playwright-network-observer.mjs, scripts/verify-ui/helpers/policy-one-tla-replay.mjs, scripts/verify-ui/helpers/policy-one-trace.mjs, scripts/verify-ui/helpers/policy-one-transport-observer.mjs, scripts/verify-ui/helpers/related-choice-stage-context.mjs, scripts/verify-ui/helpers/source-fingerprint.mjs, scripts/verify-ui/helpers/temporal-filter-capture.mjs, scripts/verify-ui/helpers/temporal-filter-pending-read.mjs, scripts/verify-ui/helpers/temporal-filter-tla-adapter.mjs, scripts/verify-ui/helpers/temporal-filter-trace-adapter.mjs, scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle.test.mjs, scripts/verify-ui/helpers/tests/builder-formal-adapters.test.mjs, scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs, scripts/verify-ui/helpers/tests/builder-patient-one-summary-locator.test.mjs, scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs, scripts/verify-ui/helpers/tests/fixture-context.test.mjs, scripts/verify-ui/helpers/tests/fixtures/basic-temporal-filter-run4-pending-capability.json, scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json, scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json, scripts/verify-ui/helpers/tests/fixtures/policy-one-journey.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-journey-schema-fixture.mjs, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-96a.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run5.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz, scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-report-run5-target.json, scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs, scripts/verify-ui/helpers/tests/policy-one-tla-replay.test.mjs, scripts/verify-ui/helpers/tests/policy-one-trace.test.mjs, scripts/verify-ui/helpers/tests/policy-self-test-structured-failure.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-adapter.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-capture-exit.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-formal-binding.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-mutation-controls.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-native-corpus.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-pending-read.test.mjs, scripts/verify-ui/helpers/tests/temporal-filter-tla-adapter.test.mjs, scripts/verify-ui/helpers/tests/transport-terminal.test.mjs, scripts/verify-ui/helpers/transport-terminal.mjs, scripts/verify-ui/mjs-focused-check-attachments.json, scripts/verify-ui/specs/basic-temporal-filter.spec.mjs, scripts/verify-ui/specs/standalone-reshape.spec.mjs, scripts/verify-ui/workflows/basic-temporal-filter.mjs, scripts/verify-ui/workflows/builder-authoring.mjs, scripts/verify-ui/workflows/builder-patient-one-disagreement.mjs, scripts/verify-ui/workflows/verify-cda-group-edit-before-related-column-browser.mjs, testdata/basic-temporal-filter/Observation.ndjson, testdata/basic-temporal-filter/Patient.ndjson, ui/apps/demo/src/main.tsx, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts, ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/routeDisplay.ts, verification/builder-interactions/BuilderJourneyGroupRelatedSource.cfg, verification/builder-interactions/BuilderJourneyGroupRelatedSourceWitness.cfg, verification/builder-interactions/BuilderJourneyGroupSafety.cfg, verification/builder-interactions/PolicyOneDisagreement.cfg, verification/builder-interactions/PolicyOneDisagreement.tla, verification/builder-interactions/TemporalFilterJourney.tla, verification/builder-interactions/TemporalFilterJourneyDate.cfg, verification/builder-interactions/TemporalFilterJourneyDateTime.cfg, verification/builder-interactions/builder-cda-group-related-contract.json, verification/builder-interactions/builder-policy-one-contract.json, verification/builder-interactions/builder-temporal-filter-date-contract.json, verification/builder-interactions/builder-temporal-filter-date-time-contract.json; removed: none)",
       "recordedAt": "2026-10-23T00:24:27.787Z",
       "sourceIdentity": {
         "commit": "0b383cda0ac70f735180de4b669e4d9e2a551b35",

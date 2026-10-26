@@ -6,12 +6,12 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 
 | Measure | Count |
 | --- | ---: |
-| actions | 155 |
+| actions | 156 |
 | high | 44 |
 | medium | 24 |
-| low | 87 |
+| low | 88 |
 | withCandidateTests | 68 |
-| withoutCandidateTests | 87 |
+| withoutCandidateTests | 88 |
 | guardCandidates | 21 |
 | withGuardCandidates | 11 |
 
@@ -79,7 +79,7 @@ Status: model-derived review queue. These are candidate actions and tests, not e
 | low | `BuilderJourney.CdaSnapshot5` | 0 | none | none |
 | low | `BuilderJourney.ChoicePreview` | 0 | none | none |
 | low | `BuilderJourney.ChoicePreviewComplete` | 0 | none | none |
-| ... | 95 more in the JSON report | | | |
+| ... | 96 more in the JSON report | | | |
 
 ## Guard candidates
 

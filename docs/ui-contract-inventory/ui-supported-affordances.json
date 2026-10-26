@@ -55,11 +55,11 @@
     "watchedFiles": [
       {
         "path": "ui/apps/demo/src/demo-route.mjs",
-        "sha256": "5a12eaea65f71cbb3aff7c4f4bc5beb47916edaeb62efeb7f0a19763ae6aef3a"
+        "sha256": "3119d91779bb6ee6cec5e08c2d81bc270e3f9875a8afff2065d6330cec5f9232"
       },
       {
         "path": "ui/apps/demo/src/main.tsx",
-        "sha256": "676c59a260d5248a770ba8eba403b2c305efd64ebaee64238f278abbcf459703"
+        "sha256": "cfa1f90d9ab0acc10356d2414b247037025c36e61b2a29b9f51c6f74fe1a1089"
       },
       {
         "path": "ui/packages/loom-ui/src/Builder.tsx",
@@ -71,7 +71,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "sha256": "bc17ed3e49f74cf70d94bf9708ac4f8baf506fb579dc2fd23f14bd9cb9c6a557"
+        "sha256": "28b3359be12bb0ac30772058d494d972b543eb90d8fa89a41589450e9f03fd77"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",
@@ -131,7 +131,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionOptions.tsx",
-        "sha256": "4ffdf3211ab57d4087da2810e56f332177b0f27182712fab342c4d290ca409d0"
+        "sha256": "1d277d1dac080dd30979de5ac9c9d7df2e41accbd20236ea9624ba86fd858004"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ChoiceSelect.tsx",
@@ -139,7 +139,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-        "sha256": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b"
+        "sha256": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSourceInspector.tsx",
@@ -147,7 +147,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-        "sha256": "07f847c1fe80f64393031df357b1ac8e78627231936e299a594595c1fb4d548b"
+        "sha256": "79307ec363304b3601f7d12058b10cac3136901893283aa6a3c34bc94258c8f5"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DataframeContractPanel.tsx",
@@ -335,7 +335,7 @@
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx",
-        "sha256": "94732bb01636d04ca1223093915a10511ce1cda62898bcf30b303d8bd4cba8eb"
+        "sha256": "f3f22dc79a9c41414f98fe5844b2f2787ed953b1b5ff15052c2c2039638921ec"
       },
       {
         "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPreview.tsx",

@@ -6,12 +6,12 @@
     "ledger": "verification/builder-interactions/route-contract.json"
   },
   "summary": {
-    "actions": 155,
+    "actions": 156,
     "high": 44,
     "medium": 24,
-    "low": 87,
+    "low": 88,
     "withCandidateTests": 68,
-    "withoutCandidateTests": 87,
+    "withoutCandidateTests": 88,
     "guardCandidates": 21,
     "withGuardCandidates": 11
   },
@@ -1528,10 +1528,10 @@
           "score": 2
         },
         {
-          "id": "playwright:cda-expanded-publication:component-row-expand-publish-clickhouse-viewer-reload",
+          "id": "playwright:builder-authoring:patient-one-disagreement",
           "kind": "playwright",
-          "name": "expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows$",
-          "file": "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
           "score": 1
         }
       ],
@@ -1564,6 +1564,13 @@
           "score": 2
         },
         {
+          "id": "playwright:basic-temporal-filter:date-time",
+          "kind": "playwright",
+          "name": "date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$",
+          "file": "scripts/verify-ui/specs/basic-temporal-filter.spec.mjs",
+          "score": 1
+        },
+        {
           "id": "playwright:builder-authoring:authoring",
           "kind": "playwright",
           "name": "Builder authoring previews, changes an existing table root, and reloads$",
@@ -1574,13 +1581,6 @@
           "id": "playwright:builder-authoring:cohort-expand",
           "kind": "playwright",
           "name": "cohort-expand",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-recode",
-          "kind": "playwright",
-          "name": "cohort-recode",
           "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
           "score": 1
         }
@@ -1614,6 +1614,13 @@
           "score": 2
         },
         {
+          "id": "playwright:basic-temporal-filter:date-time",
+          "kind": "playwright",
+          "name": "date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$",
+          "file": "scripts/verify-ui/specs/basic-temporal-filter.spec.mjs",
+          "score": 1
+        },
+        {
           "id": "playwright:builder-authoring:authoring",
           "kind": "playwright",
           "name": "Builder authoring previews, changes an existing table root, and reloads$",
@@ -1624,13 +1631,6 @@
           "id": "playwright:builder-authoring:cohort-expand",
           "kind": "playwright",
           "name": "cohort-expand",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-recode",
-          "kind": "playwright",
-          "name": "cohort-recode",
           "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
           "score": 1
         }
@@ -1950,6 +1950,13 @@
           "score": 2
         },
         {
+          "id": "playwright:basic-temporal-filter:date-time",
+          "kind": "playwright",
+          "name": "date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$",
+          "file": "scripts/verify-ui/specs/basic-temporal-filter.spec.mjs",
+          "score": 1
+        },
+        {
           "id": "playwright:builder-authoring:authoring",
           "kind": "playwright",
           "name": "Builder authoring previews, changes an existing table root, and reloads$",
@@ -1960,13 +1967,6 @@
           "id": "playwright:builder-authoring:cohort-expand",
           "kind": "playwright",
           "name": "cohort-expand",
-          "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
-          "score": 1
-        },
-        {
-          "id": "playwright:builder-authoring:cohort-recode",
-          "kind": "playwright",
-          "name": "cohort-recode",
           "file": "scripts/verify-ui/specs/builder-authoring.spec.mjs",
           "score": 1
         }
@@ -3522,6 +3522,20 @@
       "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
     },
     {
+      "modelAction": "TemporalFilterJourney.ConsumeTemporalEvent",
+      "model": "TemporalFilterJourney",
+      "action": "ConsumeTemporalEvent",
+      "status": "missing",
+      "routeBinding": "unbound",
+      "routeCount": 0,
+      "candidateTests": [],
+      "candidateSourceFiles": [],
+      "guardCandidates": [],
+      "priority": "low",
+      "proposedProbeId": "model-temporalfilterjourney-consumetemporalevent",
+      "reason": "No candidate test maps to this action. Add a focused test before adding a mutation probe."
+    },
+    {
       "modelAction": "WorkspaceLifecycle.AbortPreview",
       "model": "WorkspaceLifecycle",
       "action": "AbortPreview",
@@ -4410,6 +4424,13 @@
           "score": 1
         },
         {
+          "id": "playwright:builder-authoring:patient-one-disagreement",
+          "kind": "playwright",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
+          "score": 1
+        },
+        {
           "id": "playwright:builder-coded-source-column:coded-source-column",
           "kind": "playwright",
           "name": "native coded source column survives edit, reload, removal, and reload$",
@@ -4443,6 +4464,13 @@
           "kind": "playwright",
           "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
           "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
+          "score": 1
+        },
+        {
+          "id": "playwright:builder-authoring:patient-one-disagreement",
+          "kind": "playwright",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
           "score": 1
         },
         {
@@ -4482,6 +4510,13 @@
           "score": 1
         },
         {
+          "id": "playwright:builder-authoring:patient-one-disagreement",
+          "kind": "playwright",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
+          "score": 1
+        },
+        {
           "id": "playwright:builder-coded-source-column:coded-source-column",
           "kind": "playwright",
           "name": "native coded source column survives edit, reload, removal, and reload$",
@@ -4515,6 +4550,13 @@
           "kind": "playwright",
           "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
           "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
+          "score": 1
+        },
+        {
+          "id": "playwright:builder-authoring:patient-one-disagreement",
+          "kind": "playwright",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
           "score": 1
         },
         {
@@ -4554,6 +4596,13 @@
           "score": 1
         },
         {
+          "id": "playwright:builder-authoring:patient-one-disagreement",
+          "kind": "playwright",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
+          "score": 1
+        },
+        {
           "id": "playwright:builder-coded-source-column:coded-source-column",
           "kind": "playwright",
           "name": "native coded source column survives edit, reload, removal, and reload$",
@@ -4587,6 +4636,13 @@
           "kind": "playwright",
           "name": "selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$",
           "file": "scripts/verify-ui/specs/basic-coded-pivot.spec.mjs",
+          "score": 1
+        },
+        {
+          "id": "playwright:builder-authoring:patient-one-disagreement",
+          "kind": "playwright",
+          "name": "raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$",
+          "file": "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
           "score": 1
         },
         {

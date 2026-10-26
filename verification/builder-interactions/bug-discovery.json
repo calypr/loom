@@ -6,7 +6,7 @@
     "allowlist": "verification/builder-interactions/mutation-strict-allowlist.json",
     "obligations": "verification/builder-interactions/test-obligations.json"
   },
-  "sourceCommit": "4a2a165fbf92f56cce85a143364368734215c538",
+  "sourceCommit": "f0d463a0f9111aab6ef5e80550010d88473ed94b",
   "summary": {
     "probes": 50,
     "evidence": 50,
@@ -20,9 +20,9 @@
     "staleSources": 0,
     "triageErrors": 0,
     "strictPass": true,
-    "actionObligations": 214,
+    "actionObligations": 215,
     "probedActions": 59,
-    "unprobedActions": 155
+    "unprobedActions": 156
   },
   "allowlist": [],
   "probes": [
@@ -40,7 +40,7 @@
       "expectedFailure": "old Apply success after replacement",
       "status": "killed",
       "mutation": "Replace `      if (proposalOwnerRef.current === applyingOwner) cancel();` with `      cancel();`.",
-      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 9ms",
+      "failure": "× regression: old Apply success after replacement must not cancel the replacement owner 7ms",
       "equivalent": null,
       "allowlisted": false
     },
@@ -58,7 +58,7 @@
       "expectedFailure": "B preview=wrong receipt",
       "status": "killed",
       "mutation": "Replace `  preview.receiptId === proposalId &&\\n  preview.outputId === outputId &&` with `  preview.outputId === outputId &&`.",
-      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 8ms",
+      "failure": "× replays fallback preview schedule: start A; resolve A proposal to fallback preview; start B replaces A; resolve B proposal to fallback preview; old preview first; B preview=wrong receipt; check beginApply 7ms",
       "equivalent": null,
       "allowlisted": false
     },
@@ -76,7 +76,7 @@
       "expectedFailure": "expectedDraftDigest mismatch",
       "status": "killed",
       "mutation": "Replace `          response.draftDigest === args.expectedDraftDigest;\\n        if (!matchesBase)` with `          true;\\n        if (!matchesBase)`.",
-      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 10ms",
+      "failure": "× replays identity schedule: start A; resolve A with expectedDraftDigest mismatch; inspect state and beginApply 7ms",
       "equivalent": null,
       "allowlisted": false
     },
@@ -112,7 +112,7 @@
       "expectedFailure": "another receipt",
       "status": "killed",
       "mutation": "Replace `    response.preview.receiptId !== response.proposalId || response.preview.outputId !== args.outputId` with `    response.preview.outputId !== args.outputId`.",
-      "failure": "× fails closed when the automatic preview belongs to another receipt 1025ms",
+      "failure": "× fails closed when the automatic preview belongs to another receipt 1023ms",
       "equivalent": null,
       "allowlisted": false
     },
@@ -782,7 +782,7 @@
       ],
       "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "toHaveBeenLastCalledWith",
       "status": "killed",
@@ -800,12 +800,12 @@
       ],
       "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "toHaveBeenLastCalledWith",
       "status": "killed",
       "mutation": "Replace `              filter: event.currentTarget.checked\\n                ? { label: column.label }\\n                : undefined,` with `              filter: { label: column.label },`.",
-      "failure": "1690|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({",
+      "failure": "1702|     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({",
       "equivalent": null,
       "allowlisted": false
     },
@@ -818,7 +818,7 @@
       ],
       "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "No columns match this search",
       "status": "killed",
@@ -836,7 +836,7 @@
       ],
       "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "toHaveBeenCalledWith",
       "status": "killed",
@@ -855,7 +855,7 @@
       ],
       "modelActionRationale": "Clicking Column details and rendering the returned source covers both the request and successful inspection.",
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "Source for Height",
       "status": "killed",
@@ -891,12 +891,12 @@
       ],
       "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "toHaveBeenCalledWith",
       "status": "killed",
       "mutation": "Replace `    if (visibleConfigured.every((item) => item.table?.order !== undefined)) {` with `    if (true) {`.",
-      "failure": "1375|     expect(onColumnsChange).toHaveBeenCalledWith([",
+      "failure": "1401|     expect(onColumnsChange).toHaveBeenCalledWith([",
       "equivalent": null,
       "allowlisted": false
     },
@@ -927,7 +927,7 @@
       ],
       "modelActionRationale": null,
       "source": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
-      "sourceHash": "ee739fcbb7b50986e6c82877fc56edf208f8ae9f32f4bf1466edc2338b624c8b",
+      "sourceHash": "08a4362b0d18469a1730b64a03e5de094fe81a2d625aaffcf10173cfd1446ab1",
       "sourceMatches": true,
       "expectedFailure": "Unable to find role=\"alert\"",
       "status": "killed",
@@ -2408,6 +2408,13 @@
       "covered": true
     },
     {
+      "id": "TemporalFilterJourney.ConsumeTemporalEvent",
+      "model": "TemporalFilterJourney",
+      "routeBinding": "unbound",
+      "probes": [],
+      "covered": false
+    },
+    {
       "id": "WorkspaceLifecycle.AbortPreview",
       "model": "WorkspaceLifecycle",
       "routeBinding": "unbound",
@@ -2702,6 +2709,7 @@
     "SupportingSurfaces.BeginFrameReplace",
     "SupportingSurfaces.CancelFrameChange",
     "SupportingSurfaces.ConfirmFrameChange",
+    "TemporalFilterJourney.ConsumeTemporalEvent",
     "WorkspaceLifecycle.AbortPreview",
     "WorkspaceLifecycle.AddRoute",
     "WorkspaceLifecycle.CommandsApplied",

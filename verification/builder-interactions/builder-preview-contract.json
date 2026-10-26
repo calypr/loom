@@ -384,7 +384,7 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "d25b09b3dfaf6b096f2e1a4e3b044ccfc770e118a8425d73382d9c1637fa4095",
+      "sha256": "a0ecd9c8c09e1fd759255dde23d516d2007f84ccea7646e5b9093d6ffbe6506c",
       "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
     },
     {
@@ -414,7 +414,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs",
-      "sha256": "7e3c2b6136da806e648efde0888d1fa1bfa210eaab8c6ba06504f551472d0a1a",
+      "sha256": "12ad16bf10ecc5adbb0a579e9e69b8663dfae2d679fef6412cb115d1278e0d7f",
       "contract": "Focused tests for native bracket, replay digest, request coverage, and mutation receipt gates."
     },
     {

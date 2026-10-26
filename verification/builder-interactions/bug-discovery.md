@@ -18,9 +18,9 @@ Status: generated from the mutation probes, retained evidence, source hashes, an
 | staleSources | 0 |
 | triageErrors | 0 |
 | strictPass | yes |
-| actionObligations | 214 |
+| actionObligations | 215 |
 | probedActions | 59 |
-| unprobedActions | 155 |
+| unprobedActions | 156 |
 
 ## Probes
 
@@ -93,9 +93,9 @@ Every retained probe has a current source hash.
 
 | Measure | Count |
 | --- | ---: |
-| actionObligations | 214 |
+| actionObligations | 215 |
 | probedActions | 59 |
-| unprobedActions | 155 |
+| unprobedActions | 156 |
 
 Covered actions:
 
@@ -201,7 +201,7 @@ Actions without a mutation probe:
 - `BuilderJourney.vars`
 - `BuilderOperations.AuthorStep`
 - `BuilderOperations.ResetWorkspace`
-- 115 more in the JSON report.
+- 116 more in the JSON report.
 
 ## Bounds
 
