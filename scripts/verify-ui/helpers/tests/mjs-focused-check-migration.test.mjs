@@ -284,7 +284,15 @@ test('tracked obligations are the exact compact projection of an on-demand schem
     const compactText = readFileSync(compactPath, 'utf8');
     const compact = JSON.parse(compactText);
     const full = JSON.parse(readFileSync(outputPath, 'utf8'));
+    const catalog = sourceSemantics.loadMjsSourceSemantics(path.join(realRoot, CATALOG_PATH));
+    const { manifestText, shards } = sourceSemantics.serializeMjsSourceSemantics(catalog);
     assert.ok(Buffer.byteLength(compactText) <= 3 * 1024 * 1024);
+    assert.equal(readFileSync(path.join(realRoot, CATALOG_PATH), 'utf8'), manifestText);
+    assert.ok(shards.size > 0);
+    for (const [manifestRelativePath, shardText] of shards) {
+      const shardPath = path.join(path.dirname(path.join(realRoot, CATALOG_PATH)), manifestRelativePath);
+      assert.equal(readFileSync(shardPath, 'utf8'), shardText, `${manifestRelativePath} differs from deterministic serialization`);
+    }
     assert.equal(full.schemaVersion, 3);
     assert.equal(Object.hasOwn(full, 'projectionKind'), false);
     assert.ok(Array.isArray(full.scripts) && full.scripts.length > 0);
