@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readUiContractInventory } from './lib/ui-contract-inventory.mjs';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -31,7 +32,7 @@ const ledger = readJson(LEDGER);
 const obligations = readJson(OBLIGATIONS);
 const browser = readJson(BROWSER);
 const trace = readJson(TRACE);
-const inventory = readJson(INVENTORY);
+const inventory = readUiContractInventory(ROOT);
 const modelMap = readJson(MODEL_MAP);
 const routeActionProposals = existsSync(resolve(ROOT, ROUTE_ACTION_PROPOSALS)) ? readJson(ROUTE_ACTION_PROPOSALS) : null;
 const contractProofProposals = existsSync(resolve(ROOT, CONTRACT_PROOF_PROPOSALS)) ? readJson(CONTRACT_PROOF_PROPOSALS) : null;
