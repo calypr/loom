@@ -352,7 +352,7 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
         data-editing-operation={editingStep?.operation.kind ?? ''}
         data-initial-kind={initialKind ?? ''}
         data-hide-change-row-operation={hideChangeRowOperation ? 'true' : 'false'}
-        data-initial-entry-step-id={initialEntry?.form.stepId ?? ''}
+        data-initial-entry-step-id={initialEntry && 'stepId' in initialEntry.form ? initialEntry.form.stepId : ''}
         data-initial-candidate-step-id={initialEntry?.candidateIntent.changedStepId ?? ''}
         data-construction-step-count={construction.steps.length}
         data-discovery-status={pivotDiscovery?.status ?? 'none'}

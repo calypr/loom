@@ -16,6 +16,7 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
+import type { ProposeConstructionArgs } from '../../api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -1005,7 +1006,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     fireEvent.click(within(contributorChoices).getByTestId('construction-group-add-column-choice-group-component-value-choice'));
     await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledTimes(2));
-    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls.at(-1)?.[0];
+    const proposalArgs: ProposeConstructionArgs | undefined = mockLoomClient.proposeConstruction.mock.calls.at(-1)?.[0];
     const proposedGroup = proposalArgs?.candidateConstruction.steps.find((step) => step.id === 'group-rows');
     if (!proposedGroup || proposedGroup.operation.kind !== 'GROUP') {
       throw new Error('The Add columns choice did not propose an update to the active Group step.');
