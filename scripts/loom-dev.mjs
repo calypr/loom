@@ -5941,22 +5941,21 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     recordAssertion(report, 'owner-records-first-table-uses-verified-root-id-field', true, Boolean(ownerRecordsInitialIDColumn));
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await clickButton('Other fields');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
+    await click('select Other fields tab', page.getByRole('tab', { name: 'Other fields', exact: true }));
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search dataset fields by name or type"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
-    await fill('Search features by field name, concept, or code', 'shared');
+    await fill('Search dataset fields by name or type', 'shared');
     await clickButton('Search');
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
+    const ownerRecordsSharedFieldButtonName = 'Select Observation.component[].valueQuantity.value';
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && [...article.querySelectorAll('button')].some((button) => button.getAttribute('aria-label') === ${JSON.stringify(ownerRecordsSharedFieldButtonName)} && !button.disabled && button.getClientRects().length > 0)))`);
     const sharedArticle = page.locator('article').filter({ hasText: 'urn:study:A · shared' }).filter({ hasText: 'valueQuantity.value' });
-    await click('select Study A shared feature', sharedArticle.getByRole('checkbox'));
+    await click('select Study A shared feature', sharedArticle.getByRole('button', { name: ownerRecordsSharedFieldButtonName, exact: true }));
     await clickButton('Advanced options');
     await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"] [aria-label="shared: Keep each matching record"]'))`);
     const ownerAdvancedOptions = page.getByRole('region', { name: 'Advanced route and form choices', exact: true });
     await click('select shared owner-record form', ownerAdvancedOptions.getByLabel('shared: Keep each matching record', { exact: true }));
-    await clickButton('Add 1 selected feature', ownerAdvancedOptions);
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
     const ownerPreviewBaseline = await captureBuilderPreviewBaseline(target, page, ownerRecordsExplorerId);
-    await clickButton('Apply columns');
+    await clickButton('Add 1 selected feature', ownerAdvancedOptions);
     const ownerRecordsStateIsApplied = (builder) => {
       const table = builder?.workspace?.documents?.find((document) => document.output?.id === ownerPreviewBaseline.outputId);
       const column = table?.columns?.find((candidate) => candidate.label === 'shared');
@@ -6004,7 +6003,6 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       ownerPath: ownerRecordsColumn?.source?.ownerRecords?.binding?.ownerPath,
       valuePath: ownerRecordsColumn?.source?.ownerRecords?.binding?.valuePath,
     });
-    await click('close Add columns editor', page.getByTestId('construction-close-operation-editor'));
     await waitForDOMCondition(`!document.querySelector('[aria-label="Add columns editor"]')`);
     const configuredOwnerLabel = `Display name for configured ${ownerRecordsColumn.label}`;
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('input')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(configuredOwnerLabel)} && !input.disabled))`);
@@ -6082,23 +6080,20 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
     const patientInitialIDColumn = patientInitialIDColumns[0];
     await click('open Add columns editor', page.getByTestId('construction-action-add-columns'));
     await waitForDOMCondition(`Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
-    await clickButton('Other fields');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
-    await fill('Search features by field name, concept, or code', 'id');
+    await click('select Other fields tab', page.getByRole('tab', { name: 'Other fields', exact: true }));
+    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Search dataset fields by name or type"]')) && Boolean(document.querySelector('[data-testid="feature-catalog-raw-fields"]'))`);
+    await fill('Search dataset fields by name or type', 'id');
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await clickButton('Search');
-    await waitForDOMCondition(`Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
-    await click('select Patient.id root field', page.getByRole('checkbox', { name: 'Select Patient.id', exact: true }));
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Select Patient.id' && !button.disabled && button.getClientRects().length > 0))`);
+    await click('select Patient.id root field', page.getByRole('button', { name: 'Select Patient.id', exact: true }));
     await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
     await clickButton('Add 1 selected feature');
-    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"]')) || Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    await waitForDOMCondition(`Boolean(document.querySelector('[role="region"][aria-label="Advanced route and form choices"]')) || !document.querySelector('[aria-label="Add columns editor"]')`);
     const patientNeedsFormChoice = await page.getByRole('region', { name: 'Advanced route and form choices', exact: true }).count() > 0;
     if (patientNeedsFormChoice) {
       await clickButton('Add 1 selected feature', page.getByRole('region', { name: 'Advanced route and form choices', exact: true }));
     }
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
-    await clickButton('Apply columns');
-    await click('close Add columns editor', page.getByTestId('construction-close-operation-editor'));
     await waitForDOMCondition(`!document.querySelector('[aria-label="Add columns editor"]')`);
     const sourceSetupDetails = page.getByTestId('construction-source-setup');
     if (!await sourceSetupDetails.evaluate((details) => details.open)) await click('expand advanced source setup', sourceSetupDetails.locator(':scope > summary'));
