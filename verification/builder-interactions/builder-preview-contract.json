@@ -19,7 +19,7 @@
     },
     {
       "path": "scripts/loom-dev.mjs",
-      "sha256": "ecbf2777ce115a25dc1597a925e3e43d1003d91daf1fb8f82d14d51e88cd08a9",
+      "sha256": "9ecf057933e84fd5640b9c113f36636dc87cee538b5c5d7f0c5c32e2574d6305",
       "contract": "Owned development session and fresh synthetic fixture producer used by the Journey runner."
     },
     {
