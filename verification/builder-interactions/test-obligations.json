@@ -1117960,14 +1117960,15 @@
       "checks": []
     },
     {
-      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx::hides the generic selection when a reshape form owns inputs and restores the seeded selection in the chooser",
+      "id": "vitest:ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx::hides the generic selection when a reshape form owns inputs and seeds Pivot row grain from selected columns",
       "kind": "vitest",
       "level": "unit",
-      "name": "hides the generic selection when a reshape form owns inputs and restores the seeded selection in the chooser",
+      "name": "hides the generic selection when a reshape form owns inputs and seeds Pivot row grain from selected columns",
       "file": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
       "routes": [],
       "obligations": [],
       "suspectedModels": [
+        "ColumnPresentation",
         "LifecycleEntry",
         "Population",
         "ReconcileLifecycle",
