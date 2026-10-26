@@ -1,14 +1,20 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, unlinkSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
+import {
+  loadMjsSourceSemantics,
+  serializeMjsSourceSemantics,
+  MJS_SOURCE_SEMANTICS_RELATIVE_PATH,
+} from './mjs-source-semantics.mjs';
 
 const FAMILY_PATH = 'verification/builder-interactions/mjs-focused-check-families.json';
-const CATALOG_PATH = 'verification/builder-interactions/mjs-source-semantics.json';
-const OBLIGATIONS_PATH = 'verification/builder-interactions/test-obligations.json';
+const CATALOG_PATH = MJS_SOURCE_SEMANTICS_RELATIVE_PATH;
+const OBLIGATIONS_PATH = '.cache/builder-verification/test-obligations.json';
 const REGISTRY_PATH = 'scripts/verify-ui/registry.mjs';
 const ATTACHMENT_PATH = 'scripts/verify-ui/mjs-focused-check-attachments.json';
 const TOOL_PATH = 'scripts/migrate-mjs-focused-checks.mjs';
@@ -40,6 +46,50 @@ function fileHash(root, relativePath, { missing = false } = {}) {
     fail(`missing required source ${relativePath}`);
   }
   return sha256(readFileSync(absolute));
+}
+
+function freshDetailedObligations(root, compactText) {
+  const outputDirectory = mkdtempSync(path.join(os.tmpdir(), 'loom-test-obligations-'));
+  const outputPath = path.join(outputDirectory, 'details.json');
+  try {
+    const result = spawnSync(process.execPath, ['scripts/build-test-obligations.mjs', '--details', '--json', outputPath], {
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 120_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) {
+      fail(`fresh test-obligation generation failed: ${result.stderr?.trim() || result.error?.message || result.status}`);
+    }
+    if (!existsSync(outputPath)) fail('fresh test-obligation generation did not write its external JSON view');
+    let detailed;
+    try {
+      detailed = JSON.parse(readFileSync(outputPath, 'utf8'));
+    } catch (error) {
+      fail(`fresh test-obligation generation returned invalid JSON: ${error.message}`);
+    }
+    const { scripts, semanticClaims, ...projection } = detailed;
+    if (detailed.schemaVersion !== 3 || Object.hasOwn(detailed, 'projectionKind')
+      || !Array.isArray(scripts) || !Array.isArray(semanticClaims)) fail('fresh test-obligation details have an unsupported shape');
+    if (jsonText({ ...projection, projectionKind: 'compact-coverage' }) !== compactText) {
+      fail(`${OBLIGATIONS_PATH} is stale; run node scripts/build-test-obligations.mjs`);
+    }
+    return { scripts, semanticClaims };
+  } finally {
+    rmSync(outputDirectory, { recursive: true, force: true });
+  }
+}
+
+function catalogWireFiles(catalog) {
+  const { manifestText, shards } = serializeMjsSourceSemantics(catalog);
+  const files = new Map([[CATALOG_PATH, manifestText]]);
+  for (const [manifestRelativePath, text] of shards) {
+    const file = path.posix.join(path.posix.dirname(CATALOG_PATH), manifestRelativePath);
+    checkedPath(file, 'serialized semantic catalog path');
+    if (files.has(file)) fail(`serializer returned duplicate catalog file ${file}`);
+    files.set(file, text);
+  }
+  return files;
 }
 
 function checkedPath(value, label) {
@@ -389,11 +439,15 @@ function readGenerated(root) {
 
 async function loadInputs(root) {
   const familyText = readText(root, FAMILY_PATH);
-  const catalogText = readText(root, CATALOG_PATH);
   const obligationsText = readText(root, OBLIGATIONS_PATH);
   const familyRules = JSON.parse(familyText);
-  const catalog = JSON.parse(catalogText);
-  const obligations = JSON.parse(obligationsText);
+  const catalog = loadMjsSourceSemantics(path.resolve(root, CATALOG_PATH));
+  const catalogFiles = catalogWireFiles(catalog);
+  const catalogFileTexts = new Map([...catalogFiles.keys()].map((file) => [file, readText(root, file)]));
+  const catalogFileHashes = new Map([...catalogFileTexts].map(([file, text]) => [file, sha256(text)]));
+  const compactObligations = JSON.parse(obligationsText);
+  const detailedObligations = freshDetailedObligations(root, obligationsText);
+  const obligations = { ...compactObligations, ...detailedObligations };
   const registryPath = path.join(root, REGISTRY_PATH);
   const registryModule = await import(`${pathToFileURL(registryPath).href}?migration=${Date.now()}`);
   const { active, retiredCount, obligationRows } = assertCatalogState(root, catalog, obligations);
@@ -468,26 +522,25 @@ async function loadInputs(root) {
   const classifiedCounts = Object.fromEntries(['supported', 'already-wired', 'needs-review', 'not-applicable']
     .map((status) => [status, classifications.filter((row) => row.classification === status).length]));
   return {
-    root, familyText, catalogText, obligationsText, familyRules, catalog, obligations, registryModule,
+    root, familyText, catalogFiles, catalogFileTexts, catalogFileHashes, obligationsText, familyRules, catalog, obligations, registryModule,
     active, retiredCount, obligationRows, activeByPath, familyInfo, familyTests, classifications,
     classifiedCounts, checkIDs,
   };
 }
 
 function makePlan(inputs) {
-  const { root, familyInfo, familyTests, catalog, catalogText, obligations, familyText, obligationsText, checkIDs } = inputs;
-  const catalogBefore = sha256(catalogText);
+  const { root, familyInfo, familyTests, catalog, obligations, familyText, obligationsText, checkIDs } = inputs;
   const outputBefore = fileHash(root, ATTACHMENT_PATH, { missing: true });
   const claimEditSummaries = [];
   const attachmentRows = [];
   const discoveryEdits = [];
   const sourceHashes = new Map([
     [FAMILY_PATH, sha256(familyText)],
-    [CATALOG_PATH, catalogBefore],
     [OBLIGATIONS_PATH, sha256(obligationsText)],
     [REGISTRY_PATH, fileHash(root, REGISTRY_PATH)],
     [TOOL_PATH, fileHash(root, TOOL_PATH)],
   ]);
+  for (const [file, hash] of inputs.catalogFileHashes) sourceHashes.set(file, hash);
   for (const { family, chain } of familyInfo) {
     for (const sourcePath of [family.oraclePath, family.workflowPath, chain.specPath]) sourceHashes.set(sourcePath, fileHash(root, sourcePath));
     const existing = (checkIDs.get(family.id) ?? []).find((item) => item.fullId === chain.destination)?.group;
@@ -523,18 +576,19 @@ function makePlan(inputs) {
   }
   const existingGenerated = readGenerated(root);
   assertGeneratedGroupsRemainManaged(existingGenerated, attachmentRows);
-  const reusable = existingGenerated && !existingGenerated.invalid
-    && stable(existingGenerated.attachments) === stable(attachmentRows)
-    && claimEditSummaries.length === 0;
   const inputPreconditions = [...sourceHashes.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([file, sha256Value]) => ({ file, sha256: sha256Value }));
-  const outputPreconditions = [
-    { file: CATALOG_PATH, sha256: catalogBefore },
-    { file: ATTACHMENT_PATH, sha256: outputBefore },
-  ];
   const generatedText = jsonText({ schemaVersion: 1, attachments: attachmentRows });
   discoveryEdits.push(...updateExecutionDiscovery(catalog, attachmentRows, generatedText));
-  const catalogAfterText = jsonText(catalog);
-  const catalogFinalText = reusable && discoveryEdits.length === 0 ? catalogText : catalogAfterText;
+  const finalCatalogFiles = catalogWireFiles(catalog);
+  const allCatalogPaths = [...new Set([...inputs.catalogFiles.keys(), ...finalCatalogFiles.keys()])].sort();
+  const catalogFinalWrites = allCatalogPaths.map((file) => ({
+    file,
+    content: finalCatalogFiles.get(file) ?? null,
+  }));
+  const outputPreconditions = [
+    ...allCatalogPaths.map((file) => ({ file, sha256: fileHash(root, file, { missing: true }) })),
+    { file: ATTACHMENT_PATH, sha256: outputBefore },
+  ];
   const unlistedMigrationSources = MIGRATION_ADDED_PATHS.filter((file) =>
     existsSync(path.join(root, file)) && !inputs.activeByPath.has(file)).length;
   const planToken = sha256(stable({
@@ -548,8 +602,16 @@ function makePlan(inputs) {
   if (generatedText !== (existsSync(path.join(root, ATTACHMENT_PATH)) ? readText(root, ATTACHMENT_PATH) : null)) {
     edits.push({ file: ATTACHMENT_PATH, beforeSha256: outputBefore, afterSha256: sha256(generatedText) });
   }
-  if (catalogFinalText !== catalogText) {
-    edits.push({ file: CATALOG_PATH, beforeSha256: catalogBefore, afterSha256: sha256(catalogFinalText), claimEdits: claimEditSummaries, executionDiscoveryEdits: discoveryEdits });
+  for (const write of catalogFinalWrites) {
+    const currentText = inputs.catalogFileTexts.get(write.file);
+    if (write.content === null ? currentText !== undefined : currentText !== write.content) {
+      edits.push({
+        file: write.file,
+        beforeSha256: fileHash(root, write.file, { missing: true }),
+        afterSha256: write.content === null ? null : sha256(write.content),
+        ...(write.file === CATALOG_PATH ? { claimEdits: claimEditSummaries, executionDiscoveryEdits: discoveryEdits } : {}),
+      });
+    }
   }
   return {
     schemaVersion: 1,
@@ -571,7 +633,7 @@ function makePlan(inputs) {
     executionDiscoveryEdits: discoveryEdits,
     edits,
     generatedText,
-    catalogFinalText,
+    catalogFinalWrites,
     noOp: edits.length === 0,
   };
 }
@@ -581,22 +643,37 @@ function verifyNoOp(inputs, plan, requestedToken) {
 }
 
 function writeAtomically(root, plan) {
-  const catalogPath = path.join(root, CATALOG_PATH);
-  const generatedPath = path.join(root, ATTACHMENT_PATH);
-  const writes = [
-    { file: generatedPath, content: plan.generatedText },
-    { file: catalogPath, content: plan.catalogFinalText },
-  ].filter(({ file, content }) => !existsSync(file) || readFileSync(file, 'utf8') !== content);
+  const operations = [
+    ...plan.catalogFinalWrites,
+    { file: ATTACHMENT_PATH, content: plan.generatedText },
+  ].filter(({ file, content }) => {
+    const absolute = path.join(root, file);
+    if (content === null) return existsSync(absolute);
+    return !existsSync(absolute) || readFileSync(absolute, 'utf8') !== content;
+  });
   const staged = [];
   try {
-    for (const write of writes) {
-      const temporary = `${write.file}.migration-${process.pid}`;
-      writeFileSync(temporary, write.content, { flag: 'wx' });
-      staged.push({ ...write, temporary, previous: existsSync(write.file) ? readFileSync(write.file) : null, committed: false });
+    for (const operation of operations) {
+      const file = path.join(root, operation.file);
+      const temporary = `${file}.migration-${process.pid}`;
+      const previous = existsSync(file) ? readFileSync(file) : null;
+      if (operation.content === null && existsSync(temporary)) fail(`migration temporary path already exists: ${temporary}`);
+      const stage = { ...operation, file, temporary, previous, committed: false };
+      staged.push(stage);
+      if (operation.content === null) {
+        renameSync(file, temporary);
+        stage.committed = true;
+      } else {
+        writeFileSync(temporary, operation.content, { flag: 'wx' });
+      }
     }
     for (const write of staged) {
+      if (write.content === null) continue;
       renameSync(write.temporary, write.file);
       write.committed = true;
+    }
+    for (const write of staged) {
+      if (write.content === null && existsSync(write.temporary)) unlinkSync(write.temporary);
     }
   } catch (error) {
     for (const write of staged.reverse()) {
@@ -604,6 +681,7 @@ function writeAtomically(root, plan) {
         if (write.committed) {
           if (write.previous === null) unlinkSync(write.file);
           else writeFileSync(write.file, write.previous);
+          if (existsSync(write.temporary)) unlinkSync(write.temporary);
         } else if (existsSync(write.temporary)) unlinkSync(write.temporary);
       } catch {}
     }
@@ -648,7 +726,7 @@ export async function runMigration(args = process.argv.slice(2)) {
   const plan = makePlan(inputs);
   if (options.mode === 'plan') {
     if (plan.noOp) assertRegistryConsumes(inputs.registryModule, plan.attachments);
-    const { generatedText, catalogFinalText, ...review } = plan;
+    const { generatedText, catalogFinalWrites, ...review } = plan;
     process.stdout.write(`${jsonText({ ...review, classifications: inputs.classifications })}`);
     return;
   }

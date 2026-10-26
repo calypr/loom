@@ -1,31 +1,48 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
 import { planFocusedCheckGroups } from './verify-ui/helpers/focused-check-groups.mjs';
+import { loadMjsSourceSemantics, MJS_SOURCE_SEMANTICS_RELATIVE_PATH } from './mjs-source-semantics.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const MODEL_DIR = 'verification/builder-interactions';
 const LEDGER = MODEL_DIR + '/route-contract.json';
 const TRACE_CONTRACT = MODEL_DIR + '/builder-trace-contract.json';
-const SEMANTIC_CATALOG = MODEL_DIR + '/mjs-source-semantics.json';
+const SEMANTIC_CATALOG = MJS_SOURCE_SEMANTICS_RELATIVE_PATH;
 const BROWSER_EVIDENCE = MODEL_DIR + '/browser-evidence.json';
 const REGISTRY = 'scripts/verify-ui/registry.mjs';
 const FORMAL_RUNNER = 'scripts/verify-builder-formal.mjs';
 const UI_ROOT = 'ui/packages/loom-ui/src/features/ExplorerBuilder';
 const GO_ROOT = 'internal';
-const OUTPUT_JSON = MODEL_DIR + '/test-obligations.json';
-const OUTPUT_MD = MODEL_DIR + '/test-obligations.md';
+const BASELINE_INVENTORY = MODEL_DIR + '/test-obligations.json';
+const OUTPUT_JSON = '.cache/builder-verification/test-obligations.json';
+const OUTPUT_MD = '.cache/builder-verification/test-obligations.md';
 
 const args = process.argv.slice(2);
-const jsonPath = valueFor('--json') ?? OUTPUT_JSON;
+const suppliedJsonPath = valueFor('--json');
+const jsonPath = suppliedJsonPath ?? OUTPUT_JSON;
 const markdownPath = valueFor('--markdown') ?? OUTPUT_MD;
 const runtimeSummaryPaths = valuesFor('--runtime-summary');
 const runtimeOutputPath = valueFor('--runtime-output');
 const check = args.includes('--check');
+const details = args.includes('--details');
+
+if (args.includes('--json') && (!suppliedJsonPath || suppliedJsonPath.startsWith('--'))) fail('--json needs a path');
+if (details && !args.includes('--json')) fail('--details requires an explicit external --json path');
+if (details && (check || args.includes('--markdown') || runtimeSummaryPaths.length > 0 || runtimeOutputPath)) {
+  fail('--details writes only a fresh external JSON view and cannot be combined with --check, --markdown, or runtime output');
+}
+if (details) {
+  try {
+    externalRuntimeOutput(jsonPath);
+  } catch (error) {
+    fail('--details output rejected: ' + error.message);
+  }
+}
 
 if (runtimeSummaryPaths.length > 0 && !runtimeOutputPath) {
   fail('--runtime-summary requires an explicit external --runtime-output path');
@@ -1346,7 +1363,7 @@ function selfTestFocusedConnections() {
   console.log('PASS focused connection and runtime join self-test: exact plan, pinned-only source, and fail-closed negatives');
 }
 
-function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog, runtimeSummaryPaths = []) {
+function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit, catalog, runtimeSummaryPaths = [], includeDetails = false) {
   const listed = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' });
   if (listed.status !== 0) fail('cannot inventory tracked scripts: ' + (listed.stderr || listed.error?.message));
   const tracked = listed.stdout.split('\0').filter(Boolean).sort();
@@ -1354,7 +1371,8 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
   const currentHashes = new Map(paths.filter((path) => existsSync(resolve(ROOT, path)))
     .map((path) => [path, createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex')]));
   const baselinePaths = new Set(trackedMjsPaths(catalog.sourceCommit));
-  const baselineInventorySha256 = blobInfoAtCommit(catalog.sourceCommit, [OUTPUT_JSON]).get(OUTPUT_JSON)?.sha256;
+  const baselineInventoryInfo = blobInfoAtCommit(catalog.sourceCommit, [BASELINE_INVENTORY]).get(BASELINE_INVENTORY);
+  const baselineInventorySha256 = baselineInventoryInfo?.sha256;
   const currentPathSet = new Set(paths);
   const reviewedPathsByCommit = new Map();
   for (const file of catalog.files ?? []) {
@@ -1366,6 +1384,7 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
   for (const [commit, reviewedPaths] of reviewedPathsByCommit) {
     for (const [path, info] of blobInfoAtCommit(commit, uniqueSorted(reviewedPaths))) reviewedBlobInfos.set(path, info);
   }
+  if (baselineInventoryInfo) reviewedBlobInfos.set(BASELINE_INVENTORY, baselineInventoryInfo);
   const caseIndex = buildRegistryCaseIndex(registry);
   const errors = catalogErrors(catalog, {
     currentPaths: currentPathSet,
@@ -1382,27 +1401,21 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
 
   const catalogByPath = new Map(catalog.files.map((file) => [file.path, file]));
   const knownMjsPaths = new Set([...paths, ...catalogByPath.keys()]);
-  const configuredConnections = configuredConnectionIndex(registry, knownMjsPaths);
-  const importSources = tracked.filter((path) => path !== OUTPUT_JSON && path !== OUTPUT_MD
-    && path !== SEMANTIC_CATALOG
-    && !path.startsWith('generated/') && !path.includes('/runtime/')
-    && /\.(?:mjs|js|jsx|ts|tsx)$/.test(path));
-  addLiteralImportCandidates(configuredConnections, importSources, knownMjsPaths);
+  const configuredConnections = includeDetails ? configuredConnectionIndex(registry, knownMjsPaths) : new Map();
+  if (includeDetails) {
+    const importSources = tracked.filter((path) => path !== OUTPUT_JSON && path !== OUTPUT_MD
+      && path !== SEMANTIC_CATALOG
+      && !path.startsWith('generated/') && !path.includes('/runtime/')
+      && /\.(?:mjs|js|jsx|ts|tsx)$/.test(path));
+    addLiteralImportCandidates(configuredConnections, importSources, knownMjsPaths);
+  }
   let runtimeJoin;
   try {
     runtimeJoin = loadFocusedTestEvidence(runtimeSummaryPaths, caseIndex, knownMjsPaths);
   } catch (error) {
     fail('runtime summary rejected: ' + error.message);
   }
-  const rows = new Map(paths.map((path) => [path, {
-    path,
-    roleHint: scriptRoleHint(path),
-    present: true,
-    sha256: currentHashes.get(path),
-  }]));
-  const catalogRows = [];
-  const sourceFilesByClaim = new Map();
-  const claimsById = new Map(catalog.claims.map((claim) => [claim.id, claim]));
+  const claimsById = includeDetails ? new Map(catalog.claims.map((claim) => [claim.id, claim])) : null;
   const claimMappingsByCase = new Map();
   for (const claim of catalog.claims) {
     for (const mapping of claim.journeys ?? []) {
@@ -1410,80 +1423,95 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
       claimMappingsByCase.get(mapping.caseId).push({ claimId: claim.id, ...mapping });
     }
   }
-  const rowFor = (source, lifecycle, row = null) => {
-    const assertionRows = (source.assertions ?? []).map((assertion) => {
-      if (!sourceFilesByClaim.has(assertion.semanticClaimId)) sourceFilesByClaim.set(assertion.semanticClaimId, []);
-      sourceFilesByClaim.get(assertion.semanticClaimId).push({
+  let ordered = [];
+  let semanticClaims = [];
+  if (includeDetails) {
+    const rows = new Map(paths.map((path) => [path, {
+      path,
+      roleHint: scriptRoleHint(path),
+      present: true,
+      sha256: currentHashes.get(path),
+    }]));
+    const catalogRows = [];
+    const sourceFilesByClaim = new Map();
+    const rowFor = (source, lifecycle, row = null) => {
+      const assertionRows = (source.assertions ?? []).map((assertion) => {
+        if (!sourceFilesByClaim.has(assertion.semanticClaimId)) sourceFilesByClaim.set(assertion.semanticClaimId, []);
+        sourceFilesByClaim.get(assertion.semanticClaimId).push({
+          path: source.path,
+          lifecycle,
+          sourceAssertionId: assertion.sourceAssertionId,
+          evidenceKind: assertion.evidenceKind,
+          sourceLines: assertion.sourceLines,
+        });
+        return { ...assertion };
+      });
+      const semanticClaimIds = uniqueSorted(assertionRows.map((assertion) => assertion.semanticClaimId));
+      const journeyMappings = uniqueSorted(semanticClaimIds.flatMap((claimId) => (claimsById.get(claimId).journeys ?? []).map((mapping) => mapping.caseId)))
+        .map((caseId) => ({
+          caseId,
+          claims: semanticClaimIds.flatMap((claimId) => (claimsById.get(claimId).journeys ?? [])
+            .filter((mapping) => mapping.caseId === caseId)
+            .map((mapping) => ({ id: claimId, relation: mapping.relation, requiredChecks: mapping.requiredChecks ?? [], focusedCheckIds: mapping.focusedCheckIds ?? [] }))),
+        }));
+      const connections = sortConnections(configuredConnections.get(source.path) ?? []);
+      const runtimeEvidence = { status: 'unverified', reason: runtimeEvidenceReason(connections) };
+      const exception = connectionException(source.role, connections);
+      return {
+        ...(row ?? { path: source.path, roleHint: scriptRoleHint(source.path) }),
         path: source.path,
         lifecycle,
-        sourceAssertionId: assertion.sourceAssertionId,
-        evidenceKind: assertion.evidenceKind,
-        sourceLines: assertion.sourceLines,
-      });
-      return { ...assertion };
-    });
-    const semanticClaimIds = uniqueSorted(assertionRows.map((assertion) => assertion.semanticClaimId));
-    const journeyMappings = uniqueSorted(semanticClaimIds.flatMap((claimId) => (claimsById.get(claimId).journeys ?? []).map((mapping) => mapping.caseId)))
-      .map((caseId) => ({
-        caseId,
-        claims: semanticClaimIds.flatMap((claimId) => (claimsById.get(claimId).journeys ?? [])
-          .filter((mapping) => mapping.caseId === caseId)
-          .map((mapping) => ({ id: claimId, relation: mapping.relation, requiredChecks: mapping.requiredChecks ?? [], focusedCheckIds: mapping.focusedCheckIds ?? [] }))),
-      }));
-    const connections = sortConnections(configuredConnections.get(source.path) ?? []);
-    const runtimeEvidence = { status: 'unverified', reason: runtimeEvidenceReason(connections) };
-    const exception = connectionException(source.role, connections);
-    return {
-      ...(row ?? { path: source.path, roleHint: scriptRoleHint(source.path) }),
-      path: source.path,
-      lifecycle,
-      origin: baselinePaths.has(source.path) ? 'baseline' : 'added',
-      present: lifecycle === 'active',
-      sha256: source.sha256,
-      currentSha256: lifecycle === 'active' ? currentHashes.get(source.path) ?? null : null,
-      purpose: source.purpose,
-      role: source.role,
-      testLayer: source.testLayer,
-      sourceReview: {
-        ...source.sourceReview,
-        reviewedCommit: source.sourceReview.reviewedCommit ?? catalog.sourceCommit,
-      },
-      sourceRevision: {
-        commit: source.sourceReview.reviewedCommit ?? catalog.sourceCommit,
+        origin: baselinePaths.has(source.path) ? 'baseline' : 'added',
+        present: lifecycle === 'active',
         sha256: source.sha256,
-      },
-      executionDiscovery: source.executionDiscovery,
-      assertions: assertionRows,
-      semanticClaimIds,
-      journeyMappings,
-      connections,
-      action: connectionAction(source.role, lifecycle, connections),
-      exception,
-      oracle: source.oracle ?? null,
-      formalApplicability: source.formalApplicability,
-      disposition: source.disposition,
-      replacementProof: source.replacementProof ?? null,
-      duplicateCandidates: source.duplicateCandidates ?? [],
-      runtimeEvidence,
+        currentSha256: lifecycle === 'active' ? currentHashes.get(source.path) ?? null : null,
+        purpose: source.purpose,
+        role: source.role,
+        testLayer: source.testLayer,
+        sourceReview: {
+          ...source.sourceReview,
+          reviewedCommit: source.sourceReview.reviewedCommit ?? catalog.sourceCommit,
+        },
+        sourceRevision: {
+          commit: source.sourceReview.reviewedCommit ?? catalog.sourceCommit,
+          sha256: source.sha256,
+        },
+        executionDiscovery: source.executionDiscovery,
+        assertions: assertionRows,
+        semanticClaimIds,
+        journeyMappings,
+        connections,
+        action: connectionAction(source.role, lifecycle, connections),
+        exception,
+        oracle: source.oracle ?? null,
+        formalApplicability: source.formalApplicability,
+        disposition: source.disposition,
+        replacementProof: source.replacementProof ?? null,
+        duplicateCandidates: source.duplicateCandidates ?? [],
+        runtimeEvidence,
+      };
     };
-  };
-  for (const [path, row] of rows) {
-    const source = catalogByPath.get(path);
-    catalogRows.push(rowFor(source, 'active', row));
+    for (const [path, row] of rows) {
+      const source = catalogByPath.get(path);
+      catalogRows.push(rowFor(source, 'active', row));
+    }
+    for (const source of catalog.files.filter((file) => file.lifecycle === 'retired')) {
+      catalogRows.push(rowFor(source, 'retired'));
+    }
+    ordered = catalogRows.sort((left, right) => left.path.localeCompare(right.path));
+    semanticClaims = catalog.claims.map((claim) => ({
+      id: claim.id,
+      statement: claim.statement,
+      category: claim.category,
+      journeys: claim.journeys ?? [],
+      sourceAssertions: (sourceFilesByClaim.get(claim.id) ?? []).sort((left, right) => left.path.localeCompare(right.path) || left.sourceAssertionId.localeCompare(right.sourceAssertionId)),
+    }));
   }
-  for (const source of catalog.files.filter((file) => file.lifecycle === 'retired')) {
-    catalogRows.push(rowFor(source, 'retired'));
-  }
-  const ordered = catalogRows.sort((left, right) => left.path.localeCompare(right.path));
-  const retiredPaths = catalog.files.filter((file) => file.lifecycle === 'retired').map((file) => file.path);
-  const semanticClaims = catalog.claims.map((claim) => ({
-    id: claim.id,
-    statement: claim.statement,
-    category: claim.category,
-    journeys: claim.journeys ?? [],
-    sourceAssertions: (sourceFilesByClaim.get(claim.id) ?? []).sort((left, right) => left.path.localeCompare(right.path) || left.sourceAssertionId.localeCompare(right.sourceAssertionId)),
-  }));
   const sourceOccurrences = catalog.files.flatMap((file) => file.assertions ?? []);
+  const claimIDsWithAssertions = new Set(sourceOccurrences
+    .filter((occurrence) => occurrence.evidenceKind === 'test-assertion')
+    .map((occurrence) => occurrence.semanticClaimId));
+  const retiredPaths = catalog.files.filter((file) => file.lifecycle === 'retired').map((file) => file.path);
   const countBy = (items, keyOf) => Object.fromEntries([...items.reduce((counts, item) => {
     const key = keyOf(item);
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -1496,20 +1524,20 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
     baselineRetired: [...retiredPaths].filter((path) => baselinePaths.has(path)).length,
     currentAdded: [...currentPathSet].filter((path) => !baselinePaths.has(path)).length,
     sourceReviewed: catalog.files.filter((file) => file.sourceReview?.status === 'reviewed').length,
-    runtimeUnverified: ordered.length,
+    runtimeUnverified: paths.length + retiredPaths.length,
     invocationUncertain: catalog.files.filter((file) => file.executionDiscovery?.status === 'uncertain-dynamic-or-manual').length,
     semanticClaims: catalog.claims.length,
     sourceAssertionOccurrences: sourceOccurrences.length,
     sourceAssertions: sourceOccurrences.filter((occurrence) => occurrence.evidenceKind === 'test-assertion').length,
     nonAssertionOccurrences: sourceOccurrences.filter((occurrence) => occurrence.evidenceKind !== 'test-assertion').length,
-    claimsWithoutSourceAssertions: semanticClaims.filter((claim) => !claim.sourceAssertions.some((source) => source.evidenceKind === 'test-assertion')).length,
-    claimsWithoutJourneyMappings: semanticClaims.filter((claim) => claim.journeys.length === 0).length,
+    claimsWithoutSourceAssertions: catalog.claims.filter((claim) => !claimIDsWithAssertions.has(claim.id)).length,
+    claimsWithoutJourneyMappings: catalog.claims.filter((claim) => (claim.journeys ?? []).length === 0).length,
     assertionEvidenceKindCounts,
-    roleCounts: countBy(ordered, (file) => file.role),
-    formalApplicabilityCounts: countBy(ordered, (file) => file.formalApplicability.kind),
-    dispositionCounts: countBy(ordered, (file) => file.disposition.kind),
+    roleCounts: countBy(catalog.files, (file) => file.role),
+    formalApplicabilityCounts: countBy(catalog.files, (file) => file.formalApplicability.kind),
+    dispositionCounts: countBy(catalog.files, (file) => file.disposition.kind),
   };
-  return { rows: ordered, semanticClaims, claimMappingsByCase, sourceFilesByClaim, summary, runtimeJoin };
+  return { rows: includeDetails ? ordered : null, semanticClaims: includeDetails ? semanticClaims : null, claimMappingsByCase, summary, runtimeJoin };
 }
 
 function normalizeRoute(value) {
@@ -1726,7 +1754,7 @@ if (args.includes('--self-test')) {
 const ledger = readJson(LEDGER);
 const traceContract = readJson(TRACE_CONTRACT);
 const journeyAudit = readJson(MODEL_DIR + '/builder-journey-audit.json');
-const semanticCatalog = readJson(SEMANTIC_CATALOG);
+const semanticCatalog = loadMjsSourceSemantics(resolve(ROOT, SEMANTIC_CATALOG));
 const browserEvidence = existsSync(resolve(ROOT, BROWSER_EVIDENCE)) ? readJson(BROWSER_EVIDENCE) : { cases: [] };
 const routeByKey = new Map();
 const actionToRoutes = new Map();
@@ -1865,17 +1893,9 @@ function routeObligations(routes) {
 
 const browserCases = new Map((browserEvidence.cases ?? []).map((entry) => [entry.id, entry]));
 const { registry } = await import(pathToFileURL(resolve(ROOT, REGISTRY)).href);
-const scriptCatalog = scriptInventory(models, registry, traceContract, journeyAudit, semanticCatalog, runtimeSummaryPaths);
-const scripts = scriptCatalog.rows;
-const scriptRowsByPath = new Map(scripts.map((script) => [script.path, script]));
-const journeyAssemblyRows = buildJourneyAssemblyRows({
-  claimMappingsByCase: scriptCatalog.claimMappingsByCase,
-  sourceFilesByClaim: scriptCatalog.sourceFilesByClaim,
-  scriptRowsByPath,
-});
-const toolModuleFiles = scripts.filter((script) => script.role === 'tool-or-module');
-const unmappedJourneyFiles = scripts.filter((script) => script.journeyMappings.length === 0);
-const unmappedJourneyClaims = scriptCatalog.semanticClaims.filter((claim) => claim.journeys.length === 0);
+const includeScriptDetails = details || runtimeSummaryPaths.length > 0;
+const scriptCatalog = scriptInventory(models, registry, traceContract, journeyAudit, semanticCatalog, runtimeSummaryPaths, includeScriptDetails);
+const scripts = scriptCatalog.rows ?? [];
 const semanticClaimIdsForCase = (caseId) => uniqueSorted(
   (scriptCatalog.claimMappingsByCase.get(caseId) ?? []).map((mapping) => mapping.claimId),
 );
@@ -2239,9 +2259,9 @@ const report = {
     goRoot: GO_ROOT,
   },
   summary,
-  scripts,
+  ...(includeScriptDetails ? { scripts } : {}),
   mjsCatalogSummary: scriptCatalog.summary,
-  semanticClaims: scriptCatalog.semanticClaims,
+  ...(includeScriptDetails ? { semanticClaims: scriptCatalog.semanticClaims } : {}),
   scriptInventoryBounds: 'The source catalog is hash-bound to reviewed revisions; currentSha256 records each active file at generation time. Configured focused commands and sourceFiles are separate registry connections; sourceFiles and literal import candidates are not execution evidence. Only an explicit per-case summary with a passed focused group, exact planned command stage, unchanged complete inputs, and matching current input hashes records focused-command-passed for the command test file. This never upgrades a case, journey, or formal-model result. Semantic claims and formal bindings remain intended associations; retired rows preserve their source and replacement references.',
   obligations,
   tests: [...tests.values()].sort((left, right) => left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name)),
@@ -2255,7 +2275,9 @@ const report = {
   partial: partial.map((obligation) => obligation.id),
 };
 
-const serialized = JSON.stringify(report, null, 2) + '\n';
+const { scripts: _scripts, semanticClaims: _semanticClaims, ...projection } = report;
+const compactProjection = { ...projection, projectionKind: 'compact-coverage' };
+const serialized = JSON.stringify(details ? report : compactProjection, null, 2) + '\n';
 if (runtimeSummaryPaths.length > 0) {
   let outputPath;
   try {
@@ -2275,6 +2297,10 @@ if (runtimeSummaryPaths.length > 0) {
     writeFileSync(outputPath, runtimeSerialized);
     console.log('wrote explicit focused-command join to ' + runtimeOutputPath);
   }
+} else if (details) {
+  const outputPath = externalRuntimeOutput(jsonPath);
+  writeFileSync(outputPath, serialized);
+  console.log('wrote fresh detailed test obligation view to ' + outputPath);
 } else if (check) {
   if (!existsSync(resolve(ROOT, jsonPath))) fail(jsonPath + ' does not exist');
   if (readFileSync(resolve(ROOT, jsonPath), 'utf8') !== serialized) {
@@ -2282,6 +2308,7 @@ if (runtimeSummaryPaths.length > 0) {
   }
   console.log('PASS ' + jsonPath + ' is current');
 } else {
+  mkdirSync(resolve(ROOT, jsonPath, '..'), { recursive: true });
   writeFileSync(resolve(ROOT, jsonPath), serialized);
 }
 
@@ -2290,82 +2317,10 @@ lines.push('# Test obligations');
 lines.push('');
 lines.push('Status: generated from the TLA models and existing test metadata.');
 lines.push('');
-lines.push('## Script quality inventory');
+lines.push('## Source inventory');
 lines.push('');
 lines.push(scriptCatalog.summary.baselineFiles + ' MJS files in the reviewed baseline are accounted for as active or retired records.');
-lines.push(scripts.filter((script) => script.lifecycle === 'active').length + ' are currently tracked; ' + scriptCatalog.summary.baselineRetired + ' baseline files have retained tombstones.');
-lines.push(scriptCatalog.summary.semanticClaims + ' semantic claims are defined once; ' + scriptCatalog.summary.sourceAssertions + ' source occurrences are direct test assertions, out of ' + scriptCatalog.summary.sourceAssertionOccurrences + ' total labeled occurrences.');
-lines.push(scriptCatalog.summary.nonAssertionOccurrences + ' other source-evidence occurrences are labeled by kind and do not count as direct test assertions.');
-lines.push(scriptCatalog.summary.sourceReviewed + ' catalog records have source-review evidence; ' + scriptCatalog.summary.runtimeUnverified + ' MJS records remain runtime-unverified.');
-lines.push(toolModuleFiles.length + ' files are classified as independent tool/module purposes; ' + unmappedJourneyFiles.length + ' MJS files and ' + unmappedJourneyClaims.length + ' semantic claims have no canonical journey mapping.');
-lines.push('`role` and `testLayer` are source-reviewed classifications. Configured commands, pinned sourceFiles, and literal imports are separate per-file connections.');
-lines.push('');
-lines.push('| Role | Files |');
-lines.push('| --- | ---: |');
-for (const role of uniqueSorted(scripts.map((script) => script.role))) lines.push('| ' + role + ' | ' + scripts.filter((script) => script.role === role).length + ' |');
-lines.push('');
-lines.push('### Journey assembly by canonical case');
-lines.push('');
-lines.push('| Canonical case | Source files | Direct claims | Partial claims | Supporting claims | Registered check refs | Candidate formal models |');
-lines.push('| --- | ---: | ---: | ---: | ---: | ---: | --- |');
-for (const row of journeyAssemblyRows) {
-  lines.push('| `' + row.caseId + '` | ' + row.sourceFileCount + ' | ' + row.directClaims + ' | ' + row.partialClaims + ' | ' + row.supportingClaims + ' | ' + row.registeredCheckCount + ' | ' + (row.candidateFormalModels.join(', ') || '—') + ' |');
-}
-lines.push('');
-lines.push('Counts deduplicate semantic claim IDs, source paths, and exact required/focused check references per case. Candidate models come only from files explicitly labeled `formalApplicability.kind: candidate`; these source associations do not establish execution or model refinement.');
-lines.push('');
-lines.push('### Independently scoped tools and unmapped source');
-lines.push('');
-lines.push('| Scope | Count |');
-lines.push('| --- | ---: |');
-lines.push('| Tool/module files | ' + toolModuleFiles.length + ' |');
-lines.push('| Tool/module files with a canonical case mapping | ' + toolModuleFiles.filter((script) => script.journeyMappings.length > 0).length + ' |');
-lines.push('| Tool/module files without a canonical case mapping | ' + toolModuleFiles.filter((script) => script.journeyMappings.length === 0).length + ' |');
-lines.push('| All MJS files without a canonical case mapping | ' + unmappedJourneyFiles.length + ' |');
-lines.push('| Semantic claims without a canonical case mapping | ' + unmappedJourneyClaims.length + ' |');
-lines.push('');
-lines.push('### Explicit formal links');
-lines.push('');
-const formalLinks = scripts.filter((script) => script.formalApplicability.kind !== 'not-applicable');
-for (const script of formalLinks.slice(0, 80)) {
-  const bindings = (script.formalApplicability.bindings ?? []).map((binding) => binding.model + (binding.actions?.length ? ' [' + binding.actions.join(', ') + ']' : '')
-    + (binding.scheduleIds?.length ? ' schedule=' + binding.scheduleIds.join(',') : '')
-    + (binding.journeyIds?.length ? ' journey=' + binding.journeyIds.join(',') : '')).join('; ');
-  lines.push('- `' + script.path + '`: ' + script.formalApplicability.kind + (bindings ? ' → ' + bindings : '')
-    + (script.formalApplicability.limitation ? '; gap: ' + script.formalApplicability.limitation : ''));
-}
-if (formalLinks.length > 80) lines.push('- ' + (formalLinks.length - 80) + ' additional formal applicability rows are in the JSON report.');
-if (formalLinks.length === 0) lines.push('No file is currently marked as formally applicable or a candidate.');
-lines.push('');
-lines.push('These are source associations, not passing runs. Model actions, invariants, schedule IDs, and journey IDs are listed per link in JSON. The report does not promote an obligation to covered from a label; coverage still requires the existing scoped evidence.');
-lines.push('');
-lines.push('### Dispositions and replacement evidence');
-lines.push('');
-lines.push('| Disposition | Files |');
-lines.push('| --- | ---: |');
-for (const disposition of uniqueSorted(Object.keys(scriptCatalog.summary.dispositionCounts))) {
-  lines.push('| ' + disposition + ' | ' + scriptCatalog.summary.dispositionCounts[disposition] + ' |');
-}
-lines.push('');
-const dispositionReviewRows = scripts.filter((script) => script.disposition.kind !== 'keep');
-lines.push('| MJS file | Lifecycle / disposition | Purpose and decision reason | Replacement paths and evidence | Remaining proof gap |');
-lines.push('| --- | --- | --- | --- | --- |');
-const markdownCell = (value) => String(value ?? '').replaceAll('|', '\\|').replace(/\s+/g, ' ').trim();
-for (const script of dispositionReviewRows) {
-  const replacement = [
-    ...(script.replacementProof?.paths ?? []),
-    ...(script.replacementProof?.evidence ?? []).map((evidence) => evidence.path + ' [' + evidence.kind + ']'),
-  ];
-  lines.push('| `' + markdownCell(script.path) + '` | ' + markdownCell(script.lifecycle + ' / ' + script.disposition.kind)
-    + ' | ' + markdownCell(script.purpose + ' ' + script.disposition.reason)
-    + ' | ' + markdownCell(replacement.join('; ') || '—')
-    + ' | ' + markdownCell(script.replacementProof?.gap || 'No remaining proof gap recorded.') + ' |');
-}
-if (dispositionReviewRows.length === 0) lines.push('| — | — | All MJS files are marked keep. | — | — |');
-lines.push('');
-lines.push('Disposition labels and replacement evidence come from the source catalog. They do not turn a candidate into runtime proof; independent oracles and replacement gates remain explicit in purpose, evidence, and any nonempty gap.');
-lines.push('');
-lines.push(report.scriptInventoryBounds);
+lines.push(scriptCatalog.summary.currentFiles + ' are currently tracked; ' + scriptCatalog.summary.baselineRetired + ' baseline files have retained tombstones.');
 lines.push('');
 lines.push('## Summary');
 lines.push('');
@@ -2422,13 +2377,14 @@ lines.push('');
 lines.push('The test index is heuristic. Registry endpoints, Go route strings, and route proofs are strong links. Vitest test names are keyword links. The report marks the mapping on every test.');
 lines.push('');
 
-if (runtimeSummaryPaths.length > 0) {
+if (runtimeSummaryPaths.length > 0 || details) {
   // Runtime joins are kept in the explicitly selected external artifact.
 } else if (check) {
   if (!existsSync(resolve(ROOT, markdownPath)) || readFileSync(resolve(ROOT, markdownPath), 'utf8') !== lines.join('\n')) {
     fail(markdownPath + ' is stale; run node scripts/build-test-obligations.mjs');
   }
 } else {
+  mkdirSync(resolve(ROOT, markdownPath, '..'), { recursive: true });
   writeFileSync(resolve(ROOT, markdownPath), lines.join('\n'));
   console.log('wrote ' + jsonPath + ' and ' + markdownPath + ' with ' + obligations.length + ' obligations and ' + tests.size + ' tests');
 }

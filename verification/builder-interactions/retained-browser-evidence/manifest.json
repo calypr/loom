@@ -40,6 +40,33 @@
       "bytes": 9841778,
       "archiveSha256": "8a708ad5d32821830c00e5ba4519f50d6e02ded66b49d46dc3fa6f7a61c38b89",
       "archiveBytes": 814988
+    },
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-group-entry-authored-three-native-report.json",
+      "sourcePath": "docs/verification/playwright/runtime/builder-group-entry-20261023/authored-three/native-report.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/group-entry-authored-three-native-report.json.gz",
+      "sha256": "01a109b2133d990d4d35184a44b677039165551385e66f232e8172afe76a3638",
+      "bytes": 1238407,
+      "archiveSha256": "af0b04710928b92e2d2f7daf9fbec2df626bbad5d21a6c4a816eed69b39bb64b",
+      "archiveBytes": 289251
+    },
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-group-entry-raw-basic-native-report.json",
+      "sourcePath": "docs/verification/playwright/runtime/builder-group-entry-20261023/raw-basic/native-report.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/group-entry-raw-basic-native-report.json.gz",
+      "sha256": "0f6065a9e96929ced2126ccfdea1b393bb399e2d1bcf80d5a089cf7797eba7cf",
+      "bytes": 1164720,
+      "archiveSha256": "c73dd986d178f4595fca4967676eece4aa7456cf44237844c2cb3492276a43fc",
+      "archiveBytes": 279433
+    },
+    {
+      "path": ".artifacts/builder-journey/builder-authoring-group-entry-raw-basic-alias-908-native-report.json",
+      "sourcePath": "docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/native-report.json",
+      "archivePath": "verification/builder-interactions/retained-browser-evidence/group-entry-raw-basic-alias-908-native-report.json.gz",
+      "sha256": "49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e",
+      "bytes": 1164780,
+      "archiveSha256": "9a15cb623c1f59e7469698f8e239db431f33a1bb3fb4018dc7f312e27a307b15",
+      "archiveBytes": 279365
     }
   ]
 }

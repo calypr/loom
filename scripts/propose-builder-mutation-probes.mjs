@@ -3,11 +3,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ROOT, readJson, uniqueSorted, walkFiles } from './lib/builder-route-evidence.mjs';
 
-const OBLIGATIONS = 'verification/builder-interactions/test-obligations.json';
+const OBLIGATIONS = '.cache/builder-verification/test-obligations.json';
 const PROBES = 'verification/builder-interactions/mutation-probes.json';
 const LEDGER = 'verification/builder-interactions/route-contract.json';
-const OUTPUT_JSON = 'verification/builder-interactions/mutation-probe-proposals.json';
-const OUTPUT_MD = 'verification/builder-interactions/mutation-probe-proposals.md';
+const OUTPUT_JSON = '.cache/builder-verification/mutation-probe-proposals.json';
+const OUTPUT_MD = '.cache/builder-verification/mutation-probe-proposals.md';
 const args = process.argv.slice(2);
 const check = args.includes('--check');
 const selfTest = args.includes('--self-test');

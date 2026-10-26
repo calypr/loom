@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/verify-builder-formal.mjs",
-      "sha256": "9a9333ea993db88143929b7b95ef5aab39766f4683aace3c62626a92f5c95468",
+      "sha256": "297f1b68a02e27d2861bfc346770a18965e20a62896a78b3c12481fc534308c6",
       "contract": "Formal test-corpus producer and runner that stamps actual HEAD and the formal proof-source fingerprint."
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4",
+      "sha256": "d604e272265fb4f9b8062d8d78833967c4d59cc8e39510a770ab51f732e49466",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {
@@ -756,6 +756,26 @@
       "path": "scripts/verify-ui/helpers/tests/fixtures/temporal-filter-native-captures/date-run6.json.gz",
       "sha256": "acc3cddaa584cbe1bafbde65d8b7aa4b88005346e1edb50d8d87270f0ef26cea",
       "contract": "Retained DATE capture payload used as an offline corpus fixture; not current-source browser evidence."
+    },
+    {
+      "path": "scripts/lib/ui-contract-inventory.mjs",
+      "sha256": "37ce55ecf042fe9ff2bac704acb40d41f4e458d031753329924a934935c5594c",
+      "contract": "Pinned inventory expansion and source-drift validation used by the formal runner."
+    },
+    {
+      "path": "scripts/normalize_ui_contract_inventory.py",
+      "sha256": "0c4dc1e1452aa0e844903776dcd7e66fbf95674495e564826ca68382e8e60a4b",
+      "contract": "Pinned inventory expansion and source-drift validation used by the formal runner."
+    },
+    {
+      "path": "scripts/verify_ui_contract_inventory.py",
+      "sha256": "8276f3267c927762690dc6c6c442ba87ad6f8bd28138a73fdf3d1daaa1acff6f",
+      "contract": "Pinned inventory expansion and source-drift validation used by the formal runner."
+    },
+    {
+      "path": "scripts/prepare-builder-reports.sh",
+      "sha256": "e1e7de75b1e175a8d4d5cf8aadbdb16ae582f1fdbfcd073d53833654f928f7a9",
+      "contract": "Prepares ignored generated indexes before the unchanged verification checks."
     }
   ]
 }

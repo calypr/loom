@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generatedFrom": {
-    "routeActions": "verification/builder-interactions/route-action-proposals.json",
-    "contractProofs": "verification/builder-interactions/contract-proof-proposals.json"
+    "routeActions": ".cache/builder-verification/route-action-proposals.json",
+    "contractProofs": ".cache/builder-verification/contract-proof-proposals.json"
   },
   "routeActionDecisions": [],
   "contractProofDecisions": [

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readUiContractInventory } from './lib/ui-contract-inventory.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -122,7 +123,7 @@ const walk = (value, caller, inheritedEvidence = []) => {
   }
   for (const item of Object.values(value)) walk(item, caller, evidence);
 };
-const inventory = JSON.parse(readFileSync(resolve(ROOT, INVENTORY), 'utf8'));
+const inventory = readUiContractInventory(ROOT);
 for (const affordance of inventory.affordances ?? []) {
   walk(affordance, affordance.id, builderEvidenceFrom(affordance));
 }

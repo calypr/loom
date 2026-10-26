@@ -69,7 +69,8 @@ test('Builder evidence generation and check use retained reports without loading
 test('retained evidence archive rejects missing and corrupted payloads', () => {
   const retained = loadRetainedBrowserEvidenceArchive(repositoryRoot);
   const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, retainedEvidenceManifest), 'utf8'));
-  assert.equal(retained.size, 5);
+  assert.equal(manifest.artifacts.length, 8);
+  assert.equal(retained.size, 11);
 
   const entry = manifest.artifacts[0];
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'loom-retained-evidence-'));
@@ -90,6 +91,13 @@ test('retained evidence archive rejects missing and corrupted payloads', () => {
 
 test('retained evidence path aliases stay inside the archive and reject unmatched external paths', () => {
   const retained = loadRetainedBrowserEvidenceArchive(repositoryRoot);
+  const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, retainedEvidenceManifest), 'utf8'));
+  const archivedReports = manifest.artifacts.filter((entry) => entry.sourcePath);
+  assert.equal(archivedReports.length, 3);
+  for (const entry of archivedReports) {
+    assert.strictEqual(retained.get(entry.sourcePath), retained.get(entry.path));
+    assert.equal(retained.get(entry.sourcePath).bytes.length, entry.bytes);
+  }
   const nativeReport = [...retained.values()].find((entry) => entry.archivePath.endsWith('/native-report.json.gz'));
   const tlaReceipt = [...retained.values()].find((entry) => entry.archivePath.endsWith('/formal-tla-receipt.json.gz'));
   const report = JSON.parse(nativeReport.bytes.toString('utf8'));
@@ -112,4 +120,34 @@ test('retained evidence path aliases stay inside the archive and reject unmatche
     retained,
     'unrelated artifact',
   ), /outside the checkout and does not match one retained evidence manifest entry/);
+});
+
+test('retained evidence source aliases reject duplicates and traversal paths', () => {
+  const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, retainedEvidenceManifest), 'utf8'));
+  const source = manifest.artifacts.find((entry) => entry.sourcePath);
+  assert.ok(source);
+  const compressed = readFileSync(resolve(repositoryRoot, source.archivePath));
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'loom-retained-aliases-'));
+  const manifestPath = resolve(temporaryRoot, retainedEvidenceManifest);
+  try {
+    const alias = 'docs/verification/playwright/runtime/duplicate-report.json';
+    const secondArchivePath = 'verification/builder-interactions/retained-browser-evidence/duplicate-report.json.gz';
+    const first = { ...source, sourcePath: alias };
+    const second = { ...source, path: source.path + '.duplicate.json', archivePath: secondArchivePath, sourcePath: alias };
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    mkdirSync(dirname(resolve(temporaryRoot, first.archivePath)), { recursive: true });
+    mkdirSync(dirname(resolve(temporaryRoot, secondArchivePath)), { recursive: true });
+    writeFileSync(manifestPath, JSON.stringify({ schemaVersion: 1, artifacts: [first, second] }, null, 2) + '\n');
+    writeFileSync(resolve(temporaryRoot, first.archivePath), compressed);
+    writeFileSync(resolve(temporaryRoot, secondArchivePath), compressed);
+    assert.throws(() => loadRetainedBrowserEvidenceArchive(temporaryRoot), /sourcePath alias duplicates an existing retained evidence path/);
+
+    writeFileSync(manifestPath, JSON.stringify({
+      schemaVersion: 1,
+      artifacts: [{ ...source, sourcePath: 'docs/verification/../escape/native-report.json' }],
+    }, null, 2) + '\n');
+    assert.throws(() => loadRetainedBrowserEvidenceArchive(temporaryRoot), /sourcePath alias must be a canonical repository-relative path/);
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });

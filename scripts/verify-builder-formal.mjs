@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readUiContractInventory } from './lib/ui-contract-inventory.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
@@ -20,7 +21,6 @@ const ROOT = realpathSync(resolve(SCRIPT_DIR, '..'));
 const MANIFEST_RELATIVE = 'verification/builder-interactions/builder-preview-contract.json';
 const MODEL_DIR = 'verification/builder-interactions';
 const MAP_RELATIVE = 'verification/builder-interactions/affordance-model-map.json';
-const INVENTORY_RELATIVE = 'docs/ui-contract-inventory/ui-supported-affordances.json';
 const REPORT_RELATIVE = 'verification/builder-interactions/report.json';
 const REPORT_MD_RELATIVE = 'verification/builder-interactions/report.md';
 const TLC_VERSION = '1.7.4';
@@ -697,9 +697,11 @@ function runRouteLedger() {
 }
 
 function runReadiness() {
+  const prepared = runCommand('Prepare local Builder reports', 'bash', ['scripts/prepare-builder-reports.sh'], ROOT);
+  if (prepared.status !== 0) return { name: 'builder-readiness', status: 'fail', output: prepared.output };
   const checks = [
     ['Builder obligation parser self-test', ['scripts/build-test-obligations.mjs', '--self-test']],
-    ['Builder obligation report freshness', ['scripts/build-test-obligations.mjs', '--check']],
+    ['Builder source contracts and local obligation index', ['scripts/build-test-obligations.mjs', '--check']],
     ['Builder route action proposals', ['scripts/propose-builder-route-actions.mjs', '--check']],
     ['Builder contract proof proposals', ['scripts/propose-builder-contract-proofs.mjs', '--check']],
     ['Builder proposal decision self-test', ['scripts/apply-builder-proposal-decisions.mjs', '--self-test']],
@@ -764,7 +766,7 @@ export async function main({
   process.env.LOOM_SOURCE_COMMIT = sourceCommit;
   process.env.LOOM_CONTRACT_SOURCE_COMMIT = contractSourceCommit;
   process.env.LOOM_SOURCE_FINGERPRINT = sourceFingerprint;
-  const inventory = readJson(INVENTORY_RELATIVE);
+  const inventory = readUiContractInventory(ROOT);
   if (manifest.sourceCommit !== inventory.sourceCommit) {
     fail('builder-preview-contract.json sourceCommit does not match the inventory');
   }

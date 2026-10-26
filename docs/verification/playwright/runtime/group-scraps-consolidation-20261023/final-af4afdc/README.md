@@ -19,11 +19,17 @@ The CDA run checked the independent raw Observation status multiset, staged rela
 
 The authored trace has 29 observed actions. `BuilderJourney` replay passed one trace with 31 states, 30 distinct states, depth 30, zero invalid traces, and zero unmodeled events. Its journey-only self-test passed 24 controls and reported one explicit skip: this capture did not observe a `LatePreviewErrorIgnored` event paired with a later Preview from the same request attempt. That schedule remains model-only.
 
-The docs closeout is a separate documentation-only commit after the tested source commit. `closure.json` records the tested source identity, runtime reports, TLA trace, self-test, failure attempts, and SHA-256 hashes for retained evidence. The docs commit does not update product source pins or generated test metadata.
+The docs closeout is a separate documentation-only commit after the tested source commit. `closure.json` records source identity, run outcomes, TLA traces, self-tests, and artifact hashes. Each raw native report that is no longer tracked has a recovery command that restores its exact bytes from the base commit. The docs commit does not update product source pins or generated test metadata.
 
 ## Recorded corrections and remaining gaps
 
-Earlier iterations also corrected saved Row definition settings closure, the `Other fields` role=tab target, and selection inside collapsed route alternatives. Two final failed CDA attempts are retained with their reports. The first treated the array count badge as part of the cell value; the next found that a related step was inside a collapsed Column adjustments disclosure. The current driver reads the value span separately, checks the array badge against the oracle, and opens the disclosure through its native summary control.
+Earlier iterations also corrected saved Row definition settings closure, the `Other fields` role=tab target, and selection inside collapsed route alternatives. The closure summarizes the two final failed CDA attempts. Restore the first report's exact bytes from the base commit with this command:
+
+```sh
+git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json > /private/tmp/failed-preview-reader-native-report.json
+```
+
+The first attempt treated the array count badge as part of the cell value. The second found a related step inside a collapsed Column adjustments disclosure. The current driver reads the value span separately, checks the array badge against the oracle, and opens the disclosure through its native summary control.
 
 The full `BuilderWorkspace.addColumnsSource` component file still has three failures that were reproduced on the clean base: one shared-source inventory expectation, one missing Member status menu option, and one missing related-source search box. The focused Group additions passed 4/4 and `PreviewTable.unit.test.ts` passed 44/44. `npm run typecheck:tests` also retains existing diagnostics; no new changed-line type diagnostic was found. The native-verification-bracket suite has the same SIGINT startup failure on base and candidate (63/64 baseline, 64/65 candidate). These are recorded gaps, not full-suite passes.
 
