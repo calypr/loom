@@ -4712,6 +4712,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       baseConstruction: { version: 1, steps: [] },
       stages: [sourceStage],
       selectedStage: sourceStage,
+      groupFieldChoices: [],
+      groupRowValueChoices: [],
       workspaceInputs: [],
     } satisfies ConstructionCapabilitiesResponse;
     mockLoomClient.getConstructionCapabilities.mockResolvedValue(capabilities);
@@ -4743,6 +4745,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const reshapeEditor = within(rowSettings).getByTestId('construction-reshape-editor');
     expect(within(reshapeEditor).getByRole('heading', { name: 'Turn categories into columns' })).toBeInTheDocument();
     const selectedPivotGroup = await within(reshapeEditor).findByRole('checkbox', { name: 'Pivot group Specimen identifier' });
+    if (!(selectedPivotGroup instanceof HTMLInputElement)) {
+      throw new Error('Pivot row-grain choice should be a checkbox input.');
+    }
     expect(selectedPivotGroup.checked).toBe(true);
     expect(within(rowSettings).queryByText(/Inputs from your selection:/)).not.toBeInTheDocument();
     expect(applyCommands).not.toHaveBeenCalled();
