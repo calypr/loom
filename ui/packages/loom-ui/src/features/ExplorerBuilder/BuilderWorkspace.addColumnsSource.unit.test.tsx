@@ -16,7 +16,7 @@ import {
   usePublishExplorerAuthoringV2Mutation,
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
-import type { ProposeConstructionArgs } from '../../api';
+import type { LoomClient, ProposeConstructionArgs } from '../../api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -1115,7 +1115,35 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.getByTestId('feature-catalog-raw-fields').tagName).not.toBe('DETAILS');
     expect(await screen.findByRole('button', { name: 'Select Patient.birthDate' })).toBeEnabled();
     expect(screen.queryByRole('region', { name: 'Coded values' })).not.toBeInTheDocument();
-    expect(mockLoomClient.browseSemanticInventory).toHaveBeenCalledTimes(semanticRequestCount);
+    const fieldViewBrowseCalls = mockLoomClient.browseSemanticInventory.mock.calls.slice(semanticRequestCount);
+    expect(fieldViewBrowseCalls).toHaveLength(1);
+    const fieldViewBrowseRequest: Parameters<LoomClient['browseSemanticInventory']>[0] | undefined =
+      fieldViewBrowseCalls[0]?.[0];
+    if (!fieldViewBrowseRequest) throw new Error('The fields tab did not request its field presentation.');
+    const { requestId: fieldViewRequestId, ...fieldViewRequestWithoutId } = fieldViewBrowseRequest;
+    expect(fieldViewRequestWithoutId).toEqual({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Patient',
+      outputId: 'patients',
+      selectionMode: 'SYSTEM_VERSION_CATEGORY',
+      resourceType: 'Patient',
+      query: '',
+      cursor: undefined,
+      limit: 50,
+      fieldPresentation: {
+        expectedDraftVersion: 1,
+        expectedDraftDigest: 'sha256:draft-1',
+        sourceNodeId: 'patient-node',
+        occurrenceId: 'base',
+        stageId: 'source_projection',
+        candidateIds: ['patient-birthdate'],
+      },
+    });
+    expect(fieldViewRequestId).toMatch(/^feature-catalog-/);
+    expect(fieldViewBrowseCalls[0]?.[1]).toBeInstanceOf(AbortSignal);
     expect(within(screen.getByRole('group', { name: 'Search scope' })).getByRole('button', { name: 'Patient, Current table rows' }))
       .toHaveAttribute('aria-pressed', 'true');
     unmount();
@@ -1397,6 +1425,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
 
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => {
+      const preview = screen.getByTestId('construction-preview');
+      expect(preview).toHaveAttribute('data-preview-status', 'ready');
+      expect(preview).toHaveAttribute('data-preview-receipt-id', initialReceipt.receiptId);
+    });
     fireEvent.click(await screen.findByRole('button', { name: 'Columns' }));
     const policy = await screen.findByRole('combobox', {
       name: 'Values per cohort member for Member status (member_status)',
@@ -2348,6 +2381,37 @@ describe('BuilderWorkspace Add columns source selection', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
+    const savedRelatedPreview: ExplorerBuilderPreviewResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'saved-related-source-preview',
+      outputId: 'patients',
+      columns: [
+        { column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'related_observation_status', label: 'Observation status', logicalType: 'string', filterable: true, chartable: false },
+      ],
+      rows: [{ patient_row_key: 'patient-1', related_observation_status: 'registered' }],
+      rowCount: 1,
+      diagnostics: [],
+    };
+    const savedRelatedReceipt: ExplorerBuilderCompileResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderReceipt',
+      receiptId: savedRelatedPreview.receiptId,
+      snapshotToken: 'snapshot-1',
+      builder: relatedWorkspace,
+      outputs: [{ outputId: 'patients', columns: savedRelatedPreview.columns }],
+      diagnostics: [],
+    };
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedRelatedReceipt) }),
+      { isLoading: false },
+    ]);
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+      vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue(savedRelatedPreview) }),
+      { isLoading: false },
+    ]);
     mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
       readonly snapshotToken: string;
       readonly expectedDraftVersion: number;
@@ -2455,12 +2519,14 @@ describe('BuilderWorkspace Add columns source selection', () => {
     const relatedSourceSelector = editor.getByRole('combobox', { name: 'Related source to inspect' });
     const reportOption = within(relatedSourceSelector).getByRole('option', { name: /DiagnosticReport/ });
     fireEvent.change(relatedSourceSelector, { target: { value: (reportOption as HTMLOptionElement).value } });
-    fireEvent.change(editor.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+    fireEvent.change(editor.getByRole('searchbox', { name: 'Search coded values by code or label' }), {
       target: { value: 'DiagnosticReport' },
     });
     fireEvent.click(editor.getByRole('button', { name: 'Search' }));
     fireEvent.click(await editor.findByRole('button', { name: 'Select DiagnosticReport.status' }));
     fireEvent.click(editor.getByRole('button', { name: 'Add 1 selected feature' }));
+    const advancedChoices = await editor.findByRole('region', { name: 'Advanced route and form choices' });
+    fireEvent.click(within(advancedChoices).getByRole('button', { name: 'Add 1 selected feature' }));
     await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
     const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0];
     expect(proposalArgs).toEqual(expect.objectContaining({
