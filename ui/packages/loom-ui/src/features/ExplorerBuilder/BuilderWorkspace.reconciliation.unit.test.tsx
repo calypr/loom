@@ -34,6 +34,7 @@ import type { ConstructionCandidateIntent } from './constructionWorkspace/useCon
 import { createLoomClient } from '../../api';
 import type { LoomClient } from '../../api';
 import type {
+  ApplyExplorerBuilderCommandsArgs,
   PreviewExplorerBuilderArgs,
   ProposeConstructionArgs,
   ProposeConstructionChoicesArgs,
@@ -79,6 +80,7 @@ const mockRelatedExpandQueryOwner = vi.hoisted(() => ({
   pauseAndDrain: vi.fn<RelatedExpandQueryOwner['pauseAndDrain']>(async () => undefined),
   resume: vi.fn(),
 }));
+const mockUseActualPreviewTable = vi.hoisted(() => ({ enabled: false }));
 
 const savedSemanticBindingId = (step: Construction['steps'][number] | undefined): string => {
   if (!step || step.operation.kind !== 'GROUP') return '';
@@ -298,30 +300,30 @@ vi.mock('./components/ColumnSelector', () => ({
   ),
 }));
 
-vi.mock('./components/PreviewTable', () => ({
-  PreviewTable: ({
-    expandableColumnIds,
-    onExpandColumn,
-  }: {
-    readonly expandableColumnIds?: ReadonlySet<string>;
-    readonly onExpandColumn?: (columnId: string) => void;
-  }) => (
-    <>
-      <div>Preview table</div>
-      {[...(expandableColumnIds ?? [])].map((columnId) => (
-        <button key={columnId} type="button" data-testid={`mock-expand-column-${columnId}`} onClick={() => onExpandColumn?.(columnId)}>
-          Expand {columnId}
-        </button>
-      ))}
-    </>
-  ),
-  formatPreviewCell: (value: unknown) => String(value ?? ''),
-  previewCellTitle: (value: unknown) => String(value ?? ''),
-  sortByPresentationOrder: <T,>(values: ReadonlyArray<T>, orderOf: (value: T, index: number) => number) => values
-    .map((value, index) => ({ value, index, order: orderOf(value, index) }))
-    .sort((left, right) => left.order - right.order || left.index - right.index)
-    .map(({ value }) => value),
-}));
+vi.mock('./components/PreviewTable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./components/PreviewTable')>();
+  return {
+    ...actual,
+    PreviewTable: (props: Parameters<typeof actual.PreviewTable>[0]) => mockUseActualPreviewTable.enabled
+      ? <actual.PreviewTable {...props} />
+      : (
+        <>
+          <div>Preview table</div>
+          {[...(props.expandableColumnIds ?? [])].map((columnId) => (
+            <button key={columnId} type="button" data-testid={`mock-expand-column-${columnId}`} onClick={() => props.onExpandColumn?.(columnId)}>
+              Expand {columnId}
+            </button>
+          ))}
+        </>
+      ),
+    formatPreviewCell: (value: unknown) => String(value ?? ''),
+    previewCellTitle: (value: unknown) => String(value ?? ''),
+    sortByPresentationOrder: <T,>(values: ReadonlyArray<T>, orderOf: (value: T, index: number) => number) => values
+      .map((value, index) => ({ value, index, order: orderOf(value, index) }))
+      .sort((left, right) => left.order - right.order || left.index - right.index)
+      .map(({ value }) => value),
+  };
+});
 
 vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./constructionOperations/ConstructionReshapeEditor')>();
@@ -864,6 +866,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClientReference.current = undefined;
     mockRelatedExpandOwnerState.enabled = false;
     mockUseActualReshapeEditor.enabled = false;
+    mockUseActualPreviewTable.enabled = false;
     mockUseActualReconcile.enabled = false;
     mockUseActualReconcile.isLoading = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
@@ -1232,6 +1235,29 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         } as unknown as Construction,
       })),
     };
+    const groupChoiceColumn: ExplorerBuilderWorkspace['documents'][number]['columns'][number] = {
+      columnId: 'resource-type-column-id',
+      column: 'resource_type',
+      label: 'Resource Type',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'resourceType', projectionMode: 'VALUE' } },
+      table: { visible: true, order: 2 },
+    };
+    const appliedWorkspace = {
+      ...groupedWorkspace,
+      documents: groupedWorkspace.documents.map((document) => ({
+        ...document,
+        columns: [...document.columns, groupChoiceColumn],
+      })),
+    };
+    const choicePreviewReceiptId = 'group-choice-preview';
+    const candidateWorkspaceDigest = 'sha256:group-choice-candidate';
+    const appliedReceipt: ExplorerBuilderCompileResult = {
+      ...receipt,
+      receiptId: choicePreviewReceiptId,
+      intentDigest: candidateWorkspaceDigest,
+      builder: appliedWorkspace,
+    };
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
       data: { ...builderState, workspace: groupedWorkspace },
       isLoading: false,
@@ -1242,9 +1268,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       readonly draftVersion: number;
       readonly draftDigest: string;
     }) => resolvedRequest({
-      ...receipt,
+      ...appliedReceipt,
       snapshotToken: args.snapshotToken,
-      builder: groupedWorkspace,
     }));
     mockLoomClient.proposeConstructionChoices.mockImplementation(async (args: ProposeConstructionChoicesArgs) => ({
       commandId: args.commandId,
@@ -1254,14 +1279,14 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       outputId: args.outputId,
       constructionChoices: args.constructionChoices,
       candidateColumnIds: ['resource_type'],
-      candidateWorkspaceDigest: 'sha256:group-choice-candidate',
+      candidateWorkspaceDigest,
       previewStatus: 'READY' as const,
       previewDurationMs: 4,
       preview: {
         apiVersion,
         kind: 'ExplorerBuilderPreview' as const,
         rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
-        receiptId: 'group-choice-preview',
+        receiptId: choicePreviewReceiptId,
         outputId: args.outputId,
         columns: [
           { column: 'specimen_id', label: 'Specimen ID', logicalType: 'string', filterable: true, chartable: false },
@@ -1273,6 +1298,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         diagnostics: [],
       },
     }));
+    applyCommands.mockImplementation((args: ApplyExplorerBuilderCommandsArgs) => resolvedRequest({
+      commandId: args.commandId,
+      workspace: appliedWorkspace,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [{ type: 'TABLE_CHANGED', outputId: 'specimens', column: 'resource_type' }],
+      diagnostics: [],
+    }));
+    mockUseActualPreviewTable.enabled = true;
 
     render(
       <BuilderWorkspace
@@ -1283,13 +1317,26 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', { name: 'Add Group row-value fixture' }));
-    const proposalPreview = await screen.findByTestId('construction-proposal-preview');
-    expect(within(proposalPreview).getAllByRole('columnheader').map((header) => header.firstElementChild?.textContent)).toEqual([
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commandId: expect.any(String),
+      commands: [{
+        type: 'APPLY_CONSTRUCTION_CHOICE',
+        outputId: 'specimens',
+        constructionChoice: { choiceId: 'resource-type-choice', form: 'VALUE' },
+        title: 'Resource Type',
+      }],
+    })));
+    expect(mockLoomClient.proposeConstructionChoices.mock.calls[0]?.[0].commandId).toBe(
+      applyCommands.mock.calls[0]?.[0].commandId,
+    );
+    const appliedPreview = await screen.findByTestId('construction-preview');
+    await waitFor(() => expect(appliedPreview).toHaveAttribute('data-preview-receipt-id', choicePreviewReceiptId));
+    expect(within(appliedPreview).getAllByRole('columnheader').map((header) => header.textContent?.trim())).toEqual([
       'Specimen ID',
       'Row count',
       'Resource Type',
     ]);
-    expect(within(proposalPreview).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+    expect(within(appliedPreview).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
       '00001c68-…',
       '12',
       'Specimen',
