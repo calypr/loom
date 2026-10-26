@@ -147,7 +147,7 @@ describe('CodedPivotEditor', () => {
         constructionChoice: { choiceId: 'observation-alternate-choice' },
       },
     ];
-    const onCandidateChange = vi.fn();
+    const onCandidateChange = vi.fn<React.ComponentProps<typeof CodedPivotEditor>['onCandidateChange']>();
     render(<CodedPivotEditor
       client={{
         browseFrameSourceOptions,
@@ -247,7 +247,7 @@ describe('CodedPivotEditor', () => {
     });
     expect(savedSelection).toHaveAttribute('title', 'Specimen type; system https://cda.readthedocs.io; code specimen_type');
     expect(screen.queryByText('Code specimen_type')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Coded values as columns', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /^Coded values as columns$/ })).not.toBeInTheDocument();
     const editor = screen.getByRole('region', { name: 'Coded values as columns' });
     expect([...editor.querySelectorAll('p')].every((paragraph) => paragraph.classList.contains('m-0'))).toBe(true);
   });

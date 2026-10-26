@@ -263,7 +263,7 @@ describe('ConstructionReshapeEditor', () => {
       group: { keys: [], aggregates: [{ operation: 'COUNT_ROWS' }] },
     });
 
-    const onCandidateChange = vi.fn();
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
     const onHistorySelect = vi.fn<(selection: ConstructionHistorySelection) => void>();
     const RowIntentHost = () => {
       const [editorOpen, setEditorOpen] = React.useState(true);
@@ -3324,7 +3324,8 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-expand')).toBeInTheDocument();
     expect(controlValue('Repeated field')).toBe('specimen-type');
     const expansion = unpivotCandidate.mock.lastCall?.[0]?.candidateConstruction;
-    const expandStep = expansion?.steps.at(-1);
+    if (!expansion) throw new Error('Expected the Expand candidate to include a construction plan');
+    const expandStep = expansion.steps.at(-1);
     if (!expandStep || expandStep.operation.kind !== 'EXPAND') throw new Error('Expected the chosen list field to open an Expand candidate');
     expect(expandStep.operation.expand.inputColumnId).toBe('specimen-type');
 
