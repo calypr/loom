@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { sourceFingerprint } from './verify-ui/helpers/source-fingerprint.mjs';
 import {
   assertNativeBuilderJourneyMutationControls,
@@ -20,6 +21,9 @@ const REGISTRY = 'scripts/verify-ui/registry.mjs';
 const BUILDER_SOURCE_CONTRACT = 'verification/builder-interactions/builder-preview-contract.json';
 const HISTORICAL_RECOMPILE_ID = 'builder-controls:recompile';
 const PLAYWRIGHT_SANITIZER = 'scripts/verify-ui/helpers/playwright-browser.mjs';
+const RETAINED_EVIDENCE_MANIFEST = 'verification/builder-interactions/retained-browser-evidence/manifest.json';
+const RETAINED_EVIDENCE_ARCHIVE_PREFIX = 'verification/builder-interactions/retained-browser-evidence/';
+const MAX_RETAINED_EVIDENCE_BYTES = 64 * 1024 * 1024;
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const fail = (message) => { throw new Error(message); };
@@ -65,6 +69,102 @@ const pathWithin = (root, path, label) => {
   const local = relative(root, absolute);
   requireValue(local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local), label + ' path escapes repository root: ' + path);
   return absolute;
+};
+
+const repositoryRelativePath = (root, absolute, label) => {
+  const local = relative(resolve(root), resolve(absolute));
+  requireValue(local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local), label + ' path escapes repository root');
+  return local.split(sep).join('/');
+};
+
+const validRelativeArtifactPath = (path) => typeof path === 'string' && path.length > 0 &&
+  !isAbsolute(path) && !path.includes('\\') && !path.split('/').some((part) => part === '' || part === '.' || part === '..');
+
+export const loadRetainedBrowserEvidenceArchive = (root = ROOT) => {
+  const repositoryRoot = realpathSync(resolve(root));
+  const manifest = readJson(repositoryRoot, RETAINED_EVIDENCE_MANIFEST, 'retained browser evidence manifest');
+  requireValue(manifest?.schemaVersion === 1 && Array.isArray(manifest.artifacts) && manifest.artifacts.length > 0,
+    'retained browser evidence manifest has an unsupported shape');
+  const entries = new Map();
+  for (let index = 0; index < manifest.artifacts.length; index += 1) {
+    const entry = manifest.artifacts[index];
+    const label = 'retained browser evidence manifest artifacts[' + index + ']';
+    requireValue(entry && typeof entry === 'object' && !Array.isArray(entry), label + ' must be an object');
+    requireValue(validRelativeArtifactPath(entry.path) && entry.path.startsWith('.artifacts/'),
+      label + ' path must be a canonical .artifacts-relative path');
+    requireValue(!entries.has(entry.path), label + ' repeats logical path ' + entry.path);
+    requireValue(validRelativeArtifactPath(entry.archivePath) &&
+      entry.archivePath.startsWith(RETAINED_EVIDENCE_ARCHIVE_PREFIX) && entry.archivePath.endsWith('.json.gz'),
+    label + ' archivePath must point to a retained JSON gzip inside the archive directory');
+    requireValue(isSha256(entry.sha256) && isSha256(entry.archiveSha256), label + ' must pin raw and compressed SHA-256 digests');
+    requireValue(Number.isSafeInteger(entry.bytes) && entry.bytes > 0 && entry.bytes <= MAX_RETAINED_EVIDENCE_BYTES,
+      label + ' bytes must be a positive bounded size');
+    requireValue(Number.isSafeInteger(entry.archiveBytes) && entry.archiveBytes > 0 && entry.archiveBytes <= MAX_RETAINED_EVIDENCE_BYTES,
+      label + ' archiveBytes must be a positive bounded size');
+
+    const archivePath = pathWithin(repositoryRoot, entry.archivePath, label + ' archive');
+    let info;
+    let realArchivePath;
+    try {
+      info = lstatSync(archivePath);
+      realArchivePath = realpathSync(archivePath);
+    } catch (error) {
+      fail(label + ' archive is missing or unreadable: ' + entry.archivePath + ' (' + error.message + ')');
+    }
+    requireValue(info.isFile() && !info.isSymbolicLink(), label + ' archive must be a regular file, not a symlink');
+    repositoryRelativePath(repositoryRoot, realArchivePath, label + ' archive');
+    const compressed = readFileSync(realArchivePath);
+    requireValue(compressed.length === entry.archiveBytes, label + ' compressed size mismatch for ' + entry.archivePath);
+    requireValue(sha256(compressed) === entry.archiveSha256, label + ' compressed SHA-256 mismatch for ' + entry.archivePath);
+    let bytes;
+    try {
+      bytes = gunzipSync(compressed, { maxOutputLength: entry.bytes + 1 });
+    } catch (error) {
+      fail(label + ' archive is not valid bounded gzip data: ' + entry.archivePath + ' (' + error.message + ')');
+    }
+    requireValue(bytes.length === entry.bytes, label + ' raw size mismatch for ' + entry.path);
+    requireValue(sha256(bytes) === entry.sha256, label + ' raw SHA-256 mismatch for ' + entry.path);
+    jsonFromBytes(bytes, 'retained browser evidence ' + entry.path);
+    entries.set(entry.path, { ...entry, bytes });
+  }
+  return entries;
+};
+
+const evidenceArtifactBytes = (root, path, label, retainedArchive = null) => {
+  const retained = retainedArchive?.get(path);
+  if (retained) return retained.bytes;
+  const absolute = pathWithin(root, path, label);
+  requireValue(existsSync(absolute), label + ' is missing: ' + path);
+  return readFileSync(absolute);
+};
+
+export const resolveEvidenceReference = (reference, root, retainedArchive, label) => {
+  if (!retainedArchive) return resolveNativeBuilderJourneyArtifactPath(reference, root);
+  requireValue(typeof reference === 'string' && reference.length > 0 && reference.trim() === reference,
+    label + ' path must be an exact non-empty string');
+  const repositoryRoot = realpathSync(resolve(root));
+  if (reference.startsWith('$CHECKOUT/')) {
+    const logicalPath = reference.slice('$CHECKOUT/'.length);
+    if (retainedArchive.has(logicalPath)) return pathWithin(repositoryRoot, logicalPath, label);
+    return resolveNativeBuilderJourneyArtifactPath(reference, repositoryRoot);
+  }
+  if (!isAbsolute(reference)) {
+    requireValue(validRelativeArtifactPath(reference), label + ' relative path must be canonical and repository-relative');
+  }
+
+  const candidate = isAbsolute(reference) ? resolve(reference) : resolve(repositoryRoot, reference);
+  const local = relative(repositoryRoot, candidate);
+  if (local !== '..' && !local.startsWith('..' + sep) && !isAbsolute(local)) {
+    const logicalPath = local.split(sep).join('/');
+    if (retainedArchive.has(logicalPath)) return pathWithin(repositoryRoot, logicalPath, label);
+    return resolveNativeBuilderJourneyArtifactPath(reference, repositoryRoot);
+  }
+
+  const normalized = reference.split(sep).join('/');
+  const matches = [...retainedArchive.keys()].filter((logicalPath) => normalized.endsWith('/' + logicalPath));
+  requireValue(matches.length === 1,
+    label + ' absolute path is outside the checkout and does not match one retained evidence manifest entry');
+  return pathWithin(repositoryRoot, matches[0], label);
 };
 
 const displayPath = (root, absolute) => {
@@ -337,21 +437,21 @@ const nativeRunSourceFreshness = (root, run, historical) => {
   return { status: 'current', reason: 'retained watched-tree and pinned proof-source fingerprints match current source' };
 };
 
-const formalJourneyArtifact = (root, reference, label) => {
+const formalJourneyArtifact = (root, reference, label, retainedArchive = null) => {
   requireValue(typeof reference === 'string' && reference.length > 0, label + ' path is missing');
-  const absolute = resolveNativeBuilderJourneyArtifactPath(reference, root);
-  requireValue(existsSync(absolute), label + ' is missing: ' + reference);
-  const bytes = readFileSync(absolute);
+  const absolute = resolveEvidenceReference(reference, root, retainedArchive, label);
+  const artifactPath = repositoryRelativePath(root, absolute, label);
+  const bytes = evidenceArtifactBytes(root, artifactPath, label, retainedArchive);
   return {
     absolute,
-    path: displayPath(root, absolute),
+    path: artifactPath,
     sha256: sha256(bytes),
     bytes,
     value: jsonFromBytes(bytes, label),
   };
 };
 
-const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus, reportPath) => {
+const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus, reportPath, retainedArchive = null) => {
   const binding = registeredCase.journeyTrace;
   if (binding?.kind !== 'native-lifecycle') return null;
   if (sourceStatus.status !== 'current') {
@@ -375,10 +475,10 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   requireValue(evidence.traceName === binding.name && evidence.nativeCaseKey === nativeCaseKey && evidence.status === 'pass' &&
     evidence.replayStatus === 'pass' && evidence.selfTestStatus === 'pass',
   'current native-lifecycle report does not prove the registered trace, selected browser case, and mutation checks');
-  const nativeReportArtifact = formalJourneyArtifact(root, reportPath, 'native browser report');
-  const traceArtifact = formalJourneyArtifact(root, evidence.tracePath, 'formal journey trace');
-  const tlaArtifact = formalJourneyArtifact(root, evidence.replayReportPath, 'formal journey TLA receipt');
-  const selfTestArtifact = formalJourneyArtifact(root, evidence.selfTestReportPath, 'formal journey mutation report');
+  const nativeReportArtifact = formalJourneyArtifact(root, reportPath, 'native browser report', retainedArchive);
+  const traceArtifact = formalJourneyArtifact(root, evidence.tracePath, 'formal journey trace', retainedArchive);
+  const tlaArtifact = formalJourneyArtifact(root, evidence.replayReportPath, 'formal journey TLA receipt', retainedArchive);
+  const selfTestArtifact = formalJourneyArtifact(root, evidence.selfTestReportPath, 'formal journey mutation report', retainedArchive);
   const traceDocument = traceArtifact.value;
   const tla = tlaArtifact.value;
   const selfTest = selfTestArtifact.value;
@@ -387,13 +487,13 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   const selfTestMutationControls = asArray(selfTest.mutationControls);
   const traceSha256 = sha256(traceArtifact.bytes);
   const replayTracePath = typeof replayReceipt?.tracePath === 'string'
-    ? resolveNativeBuilderJourneyArtifactPath(replayReceipt.tracePath, root) : null;
+    ? resolveEvidenceReference(replayReceipt.tracePath, root, retainedArchive, 'formal replay trace') : null;
   const replayOutputPath = typeof replayReceipt?.replayReportPath === 'string'
-    ? resolveNativeBuilderJourneyArtifactPath(replayReceipt.replayReportPath, root) : null;
+    ? resolveEvidenceReference(replayReceipt.replayReportPath, root, retainedArchive, 'formal replay output') : null;
   const selfTestTracePath = typeof selfTest.tracePath === 'string'
-    ? resolveNativeBuilderJourneyArtifactPath(selfTest.tracePath, root) : null;
+    ? resolveEvidenceReference(selfTest.tracePath, root, retainedArchive, 'formal mutation trace') : null;
   const selfTestOutputPath = typeof selfTest.selfTestReportPath === 'string'
-    ? resolveNativeBuilderJourneyArtifactPath(selfTest.selfTestReportPath, root) : null;
+    ? resolveEvidenceReference(selfTest.selfTestReportPath, root, retainedArchive, 'formal mutation output') : null;
   const contract = readJson(root, binding.contract, 'registered formal journey contract');
   const proofScope = currentProofScope(root);
   requireValue(proofScope.status === 'current' && proofScope.declaredMismatches.length === 0,
@@ -450,7 +550,7 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   requireValue(selfTest.status === 'pass' && evidence.selfTestStatus === 'pass' &&
     selfTest.traceName === binding.name && selfTest.nativeCaseKey === expectedNativeCaseKey &&
     selfTestTracePath === traceArtifact.absolute && selfTestOutputPath === selfTestArtifact.absolute &&
-    tlaArtifact.absolute === resolveNativeBuilderJourneyArtifactPath(evidence.replayReportPath, root),
+    tlaArtifact.absolute === resolveEvidenceReference(evidence.replayReportPath, root, retainedArchive, 'formal replay output'),
   'formal journey mutation receipt does not match the registered trace, native case, or self-test output');
   requireValue(sameJson(evidence.requestCoverage, replayReceipt.requestCoverage) &&
     sameJson(evidence.requiredActionCountsByTrace, replayReceipt.requiredActionCountsByTrace) &&
@@ -520,13 +620,20 @@ const currentFormalJourneyEvidence = (root, report, registeredCase, sourceStatus
   };
 };
 
-const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistry) => {
+const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistry, retainedArchive = null) => {
   const cases = [];
   const generatedFrom = [];
   for (const reportPath of reportPaths) {
     const absolute = isAbsolute(reportPath) ? resolve(reportPath) : pathWithin(root, reportPath, 'browser report');
-    requireValue(existsSync(absolute), 'browser report does not exist: ' + reportPath);
-    const bytes = readFileSync(absolute);
+    const artifactPath = retainedArchive
+      ? isAbsolute(reportPath) ? repositoryRelativePath(root, absolute, 'browser report') : reportPath
+      : null;
+    const bytes = retainedArchive
+      ? evidenceArtifactBytes(root, artifactPath, 'browser report', retainedArchive)
+      : (() => {
+        requireValue(existsSync(absolute), 'browser report does not exist: ' + reportPath);
+        return readFileSync(absolute);
+      })();
     const report = jsonFromBytes(bytes, 'browser report ' + reportPath);
     requireValue(report && typeof report === 'object' && !Array.isArray(report), 'browser report must be an object: ' + reportPath);
     requireValue(report.status === 'passed', reportPath + ': browser report status is ' + report.status + ', expected passed');
@@ -559,7 +666,7 @@ const browserCaseRows = async (root, reportPaths, currentWatched, currentRegistr
       assertReportAssertions(report, registeredCase.requiredChecks, reportPath);
     }
     const formalJourney = registeredCase
-      ? currentFormalJourneyEvidence(root, report, registeredCase, sourceStatus, reportPath)
+      ? currentFormalJourneyEvidence(root, report, registeredCase, sourceStatus, reportPath, retainedArchive)
       : null;
     const id = report.scenario + ':' + report.case;
     requireValue(!cases.some((entry) => entry.id === id), 'duplicate browser case id: ' + id);
@@ -970,7 +1077,7 @@ const validateManualCdaBoundary = (root, journey) => {
   return { manifest: expected.manifest, id: expected.id, status: 'not-run', manualOnly: true, automationCoverage: false };
 };
 
-export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [], requireCurrent = false } = {}) {
+export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [], requireCurrent = false, retainedArchive = null } = {}) {
   const repoRoot = resolve(root);
   const audit = readJson(repoRoot, JOURNEY_AUDIT, 'Builder journey audit');
   const journey = asArray(audit.journeys).find((entry) => entry.id === 'edit-remove-reload');
@@ -978,7 +1085,7 @@ export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [
   const evidence = journey.evidence ?? {};
   const currentWatched = (() => { try { return sourceFingerprint(repoRoot); } catch { return null; } })();
   const currentRegistry = reportPaths.length > 0 && currentWatched ? await currentRegistryForRoot(repoRoot) : null;
-  const browser = await browserCaseRows(repoRoot, reportPaths, currentWatched, currentRegistry);
+  const browser = await browserCaseRows(repoRoot, reportPaths, currentWatched, currentRegistry, retainedArchive);
   const retainedJourneys = [];
   retainedJourneys.push(await makeRetainedNativeRow(repoRoot, journey, 'authored-three', evidence.nativeAuthoredThree, {
     scenario: 'builder-authoring', caseName: 'group-entry',
@@ -1061,11 +1168,15 @@ async function main() {
   }
   const outputPath = isAbsolute(options.output) ? resolve(options.output) : pathWithin(options.root, options.output, 'output');
   let reportPaths = options.reportPaths;
+  let retainedArchive = null;
   if (options.fromEvidence) {
     if (reportPaths.length > 0) fail('--from-evidence cannot be combined with --report');
     requireValue(existsSync(outputPath), options.output + ' does not exist; cannot read --from-evidence');
     const current = jsonFromBytes(readFileSync(outputPath), options.output);
     requireValue(Array.isArray(current.generatedFrom), options.output + ' --from-evidence input must contain a generatedFrom path list');
+    if (current.generatedFrom.some((path) => typeof path === 'string' && (path.startsWith('.artifacts/') || isAbsolute(path)))) {
+      retainedArchive = loadRetainedBrowserEvidenceArchive(options.root);
+    }
     const audit = readJson(options.root, JOURNEY_AUDIT, 'Builder journey audit');
     const legacyRecompile = historicalRecompileRow(options.root, audit);
     const unavailableRecompileReport = legacyRecompile.status === 'unavailable'
@@ -1073,13 +1184,24 @@ async function main() {
       : null;
     reportPaths = current.generatedFrom.flatMap((path) => {
       requireValue(typeof path === 'string' && path.length > 0, options.output + ' --from-evidence contains a malformed report path');
-      const absolute = isAbsolute(path) ? resolve(path) : pathWithin(options.root, path, 'generated browser report');
-      if (existsSync(absolute)) return [path];
       if (path === unavailableRecompileReport) return [];
+      const logicalPath = isAbsolute(path)
+        ? repositoryRelativePath(options.root, resolve(path), 'generated browser report')
+        : path;
+      pathWithin(options.root, logicalPath, 'generated browser report');
+      if (retainedArchive?.has(logicalPath)) return [logicalPath];
+      requireValue(!logicalPath.startsWith('.artifacts/'),
+        options.output + ' --from-evidence report path is not present in the retained evidence manifest: ' + logicalPath);
+      if (existsSync(resolve(options.root, logicalPath))) return [logicalPath];
       fail(options.output + ' --from-evidence report path is missing: ' + path);
     });
   }
-  const payload = await buildBuilderBrowserEvidence({ root: options.root, reportPaths, requireCurrent: options.requireCurrent });
+  const payload = await buildBuilderBrowserEvidence({
+    root: options.root,
+    reportPaths,
+    requireCurrent: options.requireCurrent,
+    retainedArchive,
+  });
   const serialized = JSON.stringify(payload, null, 2) + '\n';
   if (options.check) {
     requireValue(existsSync(outputPath), options.output + ' does not exist; run the generator without --check');
