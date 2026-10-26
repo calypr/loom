@@ -14132,7 +14132,9 @@
       "ui%2Fpackages%2Floom-ui%2Fscripts#all",
       "ui%2Fpackages%2Floom-ui%2Fsrc#all",
       "ui%2Fpackages%2Floom-ui%2Fsrc#all",
-      "verification%2Fbuilder-interactions#all"
+      "verification%2Fbuilder-interactions#all",
+      "scripts#all",
+      "scripts%2Flib#all"
     ],
     "groups": [
       {
@@ -14151,8 +14153,8 @@
         "shards": [
           {
             "path": "mjs-source-semantics/files-scripts-8c5967fd84-all.jsonl",
-            "count": 56,
-            "sha256": "8fa1393d9cf3ec0ca7d87a6f1a34c4500aa625fcdf792634c7c39e33f8393def",
+            "count": 57,
+            "sha256": "8456c22fce47da838313eb1ec30009691102007384b006fa7c428cc822a4f166",
             "bucketPrefix": ""
           }
         ]
@@ -14173,8 +14175,8 @@
         "shards": [
           {
             "path": "mjs-source-semantics/files-scripts-lib-68e4790e4f-all.jsonl",
-            "count": 4,
-            "sha256": "58d6bd23951504382f77b38fdd2c04d9ded18078fd9a224f162397eec1f4bdbf",
+            "count": 5,
+            "sha256": "94d87e275c93b32a8b0b0b6ba67df9caa20abf4e1b0e80e2df987966e2e078b0",
             "bucketPrefix": ""
           }
         ]
@@ -14240,7 +14242,7 @@
           {
             "path": "mjs-source-semantics/files-scripts-verify-ui-helpers-8291653924-all.jsonl",
             "count": 159,
-            "sha256": "bc420dbc737276933ac492c1cb9a450d9a82f2e2544b8ef6fa5b3562feb3c3ce",
+            "sha256": "1a68baa30d5262184e907acf952bfc0f0183c5ec94e9036f65b085d520cff84d",
             "bucketPrefix": ""
           }
         ]
@@ -14251,7 +14253,7 @@
           {
             "path": "mjs-source-semantics/files-scripts-verify-ui-helpers-tests-1bce7181af-all.jsonl",
             "count": 220,
-            "sha256": "4a3a535b4187c72b92453b455dba97cc3ff0dd3382041a98fbd59b8fa5478f8c",
+            "sha256": "d7311cbf7af033ad3a040cf4915d59d0f560ad4da4e0ae62164d33dac787a8a2",
             "bucketPrefix": ""
           }
         ]
