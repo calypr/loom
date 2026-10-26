@@ -1,4 +1,4 @@
-name: MJS Test Catalogue
+name: Builder Verification Contracts
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ on:
       - 'internal/**'
       - 'ui/packages/loom-ui/src/features/ExplorerBuilder/**'
       - '.github/workflows/builder-formal.yml'
-      - '.github/workflows/mjs-test-catalogue.yml'
+      - '.github/workflows/builder-contracts.yml'
   workflow_dispatch:
 
 concurrency:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   catalogue:
-    name: MJS catalogue gate
+    name: Builder contract gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.x'
-      - name: Validate catalogue metadata
-        run: node scripts/build-test-obligations.mjs --self-test
+      - name: Validate model parsing and runtime receipts
+        run: node --test scripts/build-test-obligations.test.mjs
       - name: Check retained browser evidence
         run: |
           node scripts/generate-builder-browser-evidence.mjs --self-test
@@ -38,5 +38,5 @@ jobs:
         run: python3 -m unittest discover -s scripts/maintenance/playwright/tests -p 'test_builder_browser_evidence.py'
       - name: Generate local obligation index
         run: node scripts/build-test-obligations.mjs
-      - name: Validate source contracts and local obligation index
+      - name: Validate derived obligation report
         run: node scripts/build-test-obligations.mjs --check

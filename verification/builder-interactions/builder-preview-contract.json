@@ -34,7 +34,7 @@
     },
     {
       "path": "scripts/verify-builder-formal.mjs",
-      "sha256": "297f1b68a02e27d2861bfc346770a18965e20a62896a78b3c12481fc534308c6",
+      "sha256": "785022e92d4b39041e387b1ba158521fe254db6a9543383f8008c5ab334a8aff",
       "contract": "Formal test-corpus producer and runner that stamps actual HEAD and the formal proof-source fingerprint."
     },
     {
@@ -378,14 +378,9 @@
       "contract": "Selected Unpivot Journey actions and expected trace contract."
     },
     {
-      "path": "scripts/verify-ui/mjs-focused-check-attachments.json",
-      "sha256": "096b07f89211456abfe052da7a390ef945e9589494eb96436ff703a0a6590624",
-      "contract": "Generated focused-check attachments consumed by the canonical verification registry."
-    },
-    {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "a0ecd9c8c09e1fd759255dde23d516d2007f84ccea7646e5b9093d6ffbe6506c",
-      "contract": "Registered native Builder cases, required checks, and generated MJS focused-check attachments consumed by the verification registry."
+      "sha256": "9f792683ed96258e349fc48ccd7fca4477ca36da10d9e8db08c361187d547579",
+      "contract": "Registered native Builder cases, required assertions, and directly declared focused-check commands."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
