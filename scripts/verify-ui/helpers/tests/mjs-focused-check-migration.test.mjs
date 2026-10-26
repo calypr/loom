@@ -27,7 +27,7 @@ import { pathToFileURL } from 'node:url';
 const root = process.cwd();
 const outputIndex = process.argv.indexOf('--json');
 if (!process.argv.includes('--details') || outputIndex < 0 || !process.argv[outputIndex + 1]) process.exit(2);
-const compact = JSON.parse(readFileSync(path.join(root, 'verification/builder-interactions/test-obligations.json'), 'utf8'));
+const compact = JSON.parse(readFileSync(path.join(root, '.cache/builder-verification/test-obligations.json'), 'utf8'));
 const { loadMjsSourceSemantics } = await import(pathToFileURL(path.join(root, 'scripts/mjs-source-semantics.mjs')).href);
 const catalog = loadMjsSourceSemantics(path.join(root, 'verification/builder-interactions/mjs-source-semantics.json'));
 const registryModule = await import(pathToFileURL(path.join(root, 'scripts/verify-ui/registry.mjs')).href);
@@ -188,7 +188,7 @@ function fixture({ ignoreLoader = false } = {}) {
   for (const [file, contents] of files) write(root, file, contents);
   write(root, 'verification/builder-interactions/mjs-focused-check-families.json', `${JSON.stringify(families, null, 2)}\n`);
   writeCatalog(root, catalog);
-  write(root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
+  write(root, '.cache/builder-verification/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
   write(root, 'scripts/verify-ui/mjs-focused-check-attachments.json', `${JSON.stringify({ schemaVersion: 1, attachments: [] }, null, 2)}\n`);
   return { root, files, rows, families, mappingEvidence, sourcePath, oraclePath, workflowPath, specPath, registryPath };
 }
@@ -214,11 +214,7 @@ function cleanup(root) {
 test('plan previews exact nonempty attachment and case-bound claim edits with hash preconditions', () => {
   const state = fixture();
   try {
-    const trackedProjection = JSON.parse(readFileSync(path.join(realRoot, 'verification/builder-interactions/test-obligations.json'), 'utf8'));
-    assert.equal(trackedProjection.projectionKind, 'compact-coverage');
-    assert.equal(Object.hasOwn(trackedProjection, 'scripts'), false);
-    assert.equal(Object.hasOwn(trackedProjection, 'semanticClaims'), false);
-    const compact = JSON.parse(readFileSync(path.join(state.root, 'verification/builder-interactions/test-obligations.json'), 'utf8'));
+    const compact = JSON.parse(readFileSync(path.join(state.root, '.cache/builder-verification/test-obligations.json'), 'utf8'));
     assert.equal(compact.projectionKind, 'compact-coverage');
     assert.equal(Object.hasOwn(compact, 'scripts'), false);
     assert.equal(Object.hasOwn(compact, 'semanticClaims'), false);
@@ -270,18 +266,28 @@ test('plan previews exact nonempty attachment and case-bound claim edits with ha
   }
 });
 
-test('tracked obligations are the exact compact projection of an on-demand schema-3 export', {
+test('local obligations regenerate from a cold checkout and match the full export', {
   skip: process.env.LOOM_SKIP_PINNED_GENERATOR_REGRESSION === '1',
 }, () => {
   const outputDirectory = mkdtempSync(path.join(os.tmpdir(), 'mjs-obligation-details-'));
   const outputPath = path.join(outputDirectory, 'details.json');
-  const compactPath = path.join(realRoot, 'verification/builder-interactions/test-obligations.json');
+  const compactPath = path.join(realRoot, '.cache/builder-verification/test-obligations.json');
   try {
+    rmSync(compactPath, { force: true });
+    const prepared = spawnSync(process.execPath, [path.join(realRoot, 'scripts/build-test-obligations.mjs')],
+      { cwd: realRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+    assert.equal(prepared.status, 0, prepared.stderr || prepared.error?.message);
     const result = spawnSync(process.execPath, [
       path.join(realRoot, 'scripts/build-test-obligations.mjs'), '--details', '--json', outputPath,
     ], { cwd: realRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
     assert.equal(result.status, 0, result.stderr || result.error?.message);
     const compactText = readFileSync(compactPath, 'utf8');
+    writeFileSync(compactPath, '{}\n');
+    const corrupt = spawnSync(process.execPath, [path.join(realRoot, 'scripts/build-test-obligations.mjs'), '--check'],
+      { cwd: realRoot, encoding: 'utf8', timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+    assert.notEqual(corrupt.status, 0, 'a corrupted local report must fail validation');
+    assert.match(corrupt.stderr, /is stale/);
+    writeFileSync(compactPath, compactText);
     const compact = JSON.parse(compactText);
     const full = JSON.parse(readFileSync(outputPath, 'utf8'));
     const catalog = sourceSemantics.loadMjsSourceSemantics(path.join(realRoot, CATALOG_PATH));
@@ -327,11 +333,11 @@ test('a configured test importing the shared helper but missing a family anchor 
     });
     catalog.files.find((row) => row.path === state.registryPath).sha256 = hash(registryText);
     writeCatalog(state.root, catalog);
-    const obligationsPath = path.join(state.root, 'verification/builder-interactions/test-obligations.json');
+    const obligationsPath = path.join(state.root, '.cache/builder-verification/test-obligations.json');
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     obligations.mjsCatalogSummary.currentFiles += 1;
     obligations.mjsCatalogSummary.currentAdded += 1;
-    write(state.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
+    write(state.root, '.cache/builder-verification/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
 
     const proposed = plan(state.root);
     assert.equal(proposed.classifications.find((row) => row.path === configuredPath).classification, 'already-wired');
@@ -461,11 +467,11 @@ test('new matching test is discovered from obligation import edges without chang
     catalog.claims.push({ id: 'claim-b', statement: 'claim claim-b', category: 'oracle', journeys: [] });
     write(state.root, newPath, contents);
     writeCatalog(state.root, catalog);
-    const obligationsPath = path.join(state.root, 'verification/builder-interactions/test-obligations.json');
+    const obligationsPath = path.join(state.root, '.cache/builder-verification/test-obligations.json');
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     obligations.mjsCatalogSummary.currentFiles += 1;
     obligations.mjsCatalogSummary.currentAdded += 1;
-    write(state.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
+    write(state.root, '.cache/builder-verification/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     const proposed = plan(state.root);
     assert.deepEqual(proposed.attachments[0].focusedChecks[0].command, ['node-test', newPath, state.sourcePath]);
     assert.deepEqual(readFileSync(familyPath), familyBefore);
@@ -500,17 +506,17 @@ test('ambiguous family destination and ambiguous test-family matches fail closed
       catalog.files.push({ path: file, sha256: hash(contents), role, testLayer, lifecycle: 'active', purpose: file, assertions: [], executionDiscovery: { status: 'static-path-found', evidence: [{ path: file, line: 1, kind: 'source' }], unresolvedFacts: [] } });
     }
     writeCatalog(duplicateMatch.root, catalog);
-    const obligationsPath = path.join(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json');
+    const obligationsPath = path.join(duplicateMatch.root, '.cache/builder-verification/test-obligations.json');
     const obligations = JSON.parse(readFileSync(obligationsPath, 'utf8'));
     obligations.mjsCatalogSummary.currentFiles += 2;
     obligations.mjsCatalogSummary.currentAdded += 2;
-    write(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
+    write(duplicateMatch.root, '.cache/builder-verification/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     let registryText = readFileSync(registryPath, 'utf8');
     registryText = registryText.replace("export const registry = [{ id: 'scenario-a'", "export const registry = [{ id: 'scenario-b', script: 'irrelevant.mjs', cases: { 'case-b': { playwrightTest: 'scripts/verify-ui/specs/scenario-b.spec.mjs', requiredChecks: ['exact'] } } }, { id: 'scenario-a'");
     write(duplicateMatch.root, duplicateMatch.registryPath, registryText);
     catalog.files.find((row) => row.path === duplicateMatch.registryPath).sha256 = hash(registryText);
     writeCatalog(duplicateMatch.root, catalog);
-    write(duplicateMatch.root, 'verification/builder-interactions/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
+    write(duplicateMatch.root, '.cache/builder-verification/test-obligations.json', `${JSON.stringify(obligations, null, 2)}\n`);
     const rulesPath = path.join(duplicateMatch.root, 'verification/builder-interactions/mjs-focused-check-families.json');
     const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
     rules.families.push({ ...rules.families[0], id: 'oracle-family-b', scenarioId: 'scenario-b', caseId: 'case-b', workflowPath: workflowB, mappingEvidence: [{ path: workflowB, line: 1, kind: 'oracle call' }, { path: specB, line: 1, kind: 'case identity' }] });

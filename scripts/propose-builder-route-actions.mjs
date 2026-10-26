@@ -4,11 +4,11 @@ import { resolve } from 'node:path';
 import { ROOT, evidenceForRoute, readJson, routeMode, uniqueSorted } from './lib/builder-route-evidence.mjs';
 
 const LEDGER = 'verification/builder-interactions/route-contract.json';
-const OBLIGATIONS = 'verification/builder-interactions/test-obligations.json';
+const OBLIGATIONS = '.cache/builder-verification/test-obligations.json';
 const BROWSER = 'verification/builder-interactions/browser-evidence.json';
 const TRACE = 'verification/builder-interactions/builder-trace-contract.json';
-const OUTPUT_JSON = 'verification/builder-interactions/route-action-proposals.json';
-const OUTPUT_MD = 'verification/builder-interactions/route-action-proposals.md';
+const OUTPUT_JSON = '.cache/builder-verification/route-action-proposals.json';
+const OUTPUT_MD = '.cache/builder-verification/route-action-proposals.md';
 const check = process.argv.includes('--check');
 
 const ledger = readJson(LEDGER);

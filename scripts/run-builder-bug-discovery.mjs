@@ -8,9 +8,9 @@ import { ROOT, readJson } from './lib/builder-route-evidence.mjs';
 const PROBES = 'verification/builder-interactions/mutation-probes.json';
 const EVIDENCE = 'verification/builder-interactions/mutation-evidence.json';
 const ALLOWLIST = 'verification/builder-interactions/mutation-strict-allowlist.json';
-const OBLIGATIONS = 'verification/builder-interactions/test-obligations.json';
-const OUTPUT_JSON = 'verification/builder-interactions/bug-discovery.json';
-const OUTPUT_MD = 'verification/builder-interactions/bug-discovery.md';
+const OBLIGATIONS = '.cache/builder-verification/test-obligations.json';
+const OUTPUT_JSON = '.cache/builder-verification/bug-discovery.json';
+const OUTPUT_MD = '.cache/builder-verification/bug-discovery.md';
 
 const args = process.argv.slice(2);
 const run = args.includes('--run');

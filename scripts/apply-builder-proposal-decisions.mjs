@@ -4,8 +4,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ROOT, readJson } from './lib/builder-route-evidence.mjs';
 
-const ROUTE_ACTIONS = 'verification/builder-interactions/route-action-proposals.json';
-const CONTRACT_PROOFS = 'verification/builder-interactions/contract-proof-proposals.json';
+const ROUTE_ACTIONS = '.cache/builder-verification/route-action-proposals.json';
+const CONTRACT_PROOFS = '.cache/builder-verification/contract-proof-proposals.json';
 const OVERRIDES = 'verification/builder-interactions/builder-route-overrides.json';
 const DECISIONS = 'verification/builder-interactions/proposal-decisions.json';
 

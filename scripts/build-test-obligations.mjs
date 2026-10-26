@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -18,8 +18,9 @@ const REGISTRY = 'scripts/verify-ui/registry.mjs';
 const FORMAL_RUNNER = 'scripts/verify-builder-formal.mjs';
 const UI_ROOT = 'ui/packages/loom-ui/src/features/ExplorerBuilder';
 const GO_ROOT = 'internal';
-const OUTPUT_JSON = MODEL_DIR + '/test-obligations.json';
-const OUTPUT_MD = MODEL_DIR + '/test-obligations.md';
+const BASELINE_INVENTORY = MODEL_DIR + '/test-obligations.json';
+const OUTPUT_JSON = '.cache/builder-verification/test-obligations.json';
+const OUTPUT_MD = '.cache/builder-verification/test-obligations.md';
 
 const args = process.argv.slice(2);
 const suppliedJsonPath = valueFor('--json');
@@ -1370,7 +1371,8 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
   const currentHashes = new Map(paths.filter((path) => existsSync(resolve(ROOT, path)))
     .map((path) => [path, createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex')]));
   const baselinePaths = new Set(trackedMjsPaths(catalog.sourceCommit));
-  const baselineInventorySha256 = blobInfoAtCommit(catalog.sourceCommit, [OUTPUT_JSON]).get(OUTPUT_JSON)?.sha256;
+  const baselineInventoryInfo = blobInfoAtCommit(catalog.sourceCommit, [BASELINE_INVENTORY]).get(BASELINE_INVENTORY);
+  const baselineInventorySha256 = baselineInventoryInfo?.sha256;
   const currentPathSet = new Set(paths);
   const reviewedPathsByCommit = new Map();
   for (const file of catalog.files ?? []) {
@@ -1382,6 +1384,7 @@ function scriptInventory(modelDefinitions, registry, traceContract, journeyAudit
   for (const [commit, reviewedPaths] of reviewedPathsByCommit) {
     for (const [path, info] of blobInfoAtCommit(commit, uniqueSorted(reviewedPaths))) reviewedBlobInfos.set(path, info);
   }
+  if (baselineInventoryInfo) reviewedBlobInfos.set(BASELINE_INVENTORY, baselineInventoryInfo);
   const caseIndex = buildRegistryCaseIndex(registry);
   const errors = catalogErrors(catalog, {
     currentPaths: currentPathSet,
@@ -2305,6 +2308,7 @@ if (runtimeSummaryPaths.length > 0) {
   }
   console.log('PASS ' + jsonPath + ' is current');
 } else {
+  mkdirSync(resolve(ROOT, jsonPath, '..'), { recursive: true });
   writeFileSync(resolve(ROOT, jsonPath), serialized);
 }
 
@@ -2380,6 +2384,7 @@ if (runtimeSummaryPaths.length > 0 || details) {
     fail(markdownPath + ' is stale; run node scripts/build-test-obligations.mjs');
   }
 } else {
+  mkdirSync(resolve(ROOT, markdownPath, '..'), { recursive: true });
   writeFileSync(resolve(ROOT, markdownPath), lines.join('\n'));
   console.log('wrote ' + jsonPath + ' and ' + markdownPath + ' with ' + obligations.length + ' obligations and ' + tests.size + ' tests');
 }

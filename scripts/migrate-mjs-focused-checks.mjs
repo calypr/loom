@@ -14,7 +14,7 @@ import {
 
 const FAMILY_PATH = 'verification/builder-interactions/mjs-focused-check-families.json';
 const CATALOG_PATH = MJS_SOURCE_SEMANTICS_RELATIVE_PATH;
-const OBLIGATIONS_PATH = 'verification/builder-interactions/test-obligations.json';
+const OBLIGATIONS_PATH = '.cache/builder-verification/test-obligations.json';
 const REGISTRY_PATH = 'scripts/verify-ui/registry.mjs';
 const ATTACHMENT_PATH = 'scripts/verify-ui/mjs-focused-check-attachments.json';
 const TOOL_PATH = 'scripts/migrate-mjs-focused-checks.mjs';

@@ -7,19 +7,19 @@ import { isCurrentBrowserEvidence } from './lib/builder-route-evidence.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const LEDGER = 'verification/builder-interactions/route-contract.json';
-const OBLIGATIONS = 'verification/builder-interactions/test-obligations.json';
+const OBLIGATIONS = '.cache/builder-verification/test-obligations.json';
 const BROWSER = 'verification/builder-interactions/browser-evidence.json';
 const TRACE = 'verification/builder-interactions/builder-trace-contract.json';
 const INVENTORY = 'docs/ui-contract-inventory/ui-supported-affordances.json';
 const MODEL_MAP = 'verification/builder-interactions/affordance-model-map.json';
-const ROUTE_ACTION_PROPOSALS = 'verification/builder-interactions/route-action-proposals.json';
-const CONTRACT_PROOF_PROPOSALS = 'verification/builder-interactions/contract-proof-proposals.json';
-const BUG_DISCOVERY = 'verification/builder-interactions/bug-discovery.json';
+const ROUTE_ACTION_PROPOSALS = '.cache/builder-verification/route-action-proposals.json';
+const CONTRACT_PROOF_PROPOSALS = '.cache/builder-verification/contract-proof-proposals.json';
+const BUG_DISCOVERY = '.cache/builder-verification/bug-discovery.json';
 const PROPOSAL_DECISIONS = 'verification/builder-interactions/proposal-decisions.json';
-const MUTATION_PROPOSALS = 'verification/builder-interactions/mutation-probe-proposals.json';
-const BROWSER_PROPOSALS = 'verification/builder-interactions/browser-case-proposals.json';
-const OUTPUT_JSON = 'verification/builder-interactions/readiness.json';
-const OUTPUT_MD = 'verification/builder-interactions/readiness.md';
+const MUTATION_PROPOSALS = '.cache/builder-verification/mutation-probe-proposals.json';
+const BROWSER_PROPOSALS = '.cache/builder-verification/browser-case-proposals.json';
+const OUTPUT_JSON = '.cache/builder-verification/readiness.json';
+const OUTPUT_MD = '.cache/builder-verification/readiness.md';
 const check = process.argv.includes('--check');
 
 const readJson = (path) => JSON.parse(readFileSync(resolve(ROOT, path), 'utf8'));

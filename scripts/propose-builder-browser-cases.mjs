@@ -5,8 +5,8 @@ import { ROOT, isCurrentBrowserEvidence, readJson, routeMode } from './lib/build
 
 const LEDGER = 'verification/builder-interactions/route-contract.json';
 const BROWSER = 'verification/builder-interactions/browser-evidence.json';
-const OUTPUT_JSON = 'verification/builder-interactions/browser-case-proposals.json';
-const OUTPUT_MD = 'verification/builder-interactions/browser-case-proposals.md';
+const OUTPUT_JSON = '.cache/builder-verification/browser-case-proposals.json';
+const OUTPUT_MD = '.cache/builder-verification/browser-case-proposals.md';
 const check = process.argv.includes('--check');
 
 const ledger = readJson(LEDGER);

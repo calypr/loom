@@ -697,9 +697,11 @@ function runRouteLedger() {
 }
 
 function runReadiness() {
+  const prepared = runCommand('Prepare local Builder reports', 'bash', ['scripts/prepare-builder-reports.sh'], ROOT);
+  if (prepared.status !== 0) return { name: 'builder-readiness', status: 'fail', output: prepared.output };
   const checks = [
     ['Builder obligation parser self-test', ['scripts/build-test-obligations.mjs', '--self-test']],
-    ['Builder obligation report freshness', ['scripts/build-test-obligations.mjs', '--check']],
+    ['Builder source contracts and local obligation index', ['scripts/build-test-obligations.mjs', '--check']],
     ['Builder route action proposals', ['scripts/propose-builder-route-actions.mjs', '--check']],
     ['Builder contract proof proposals', ['scripts/propose-builder-contract-proofs.mjs', '--check']],
     ['Builder proposal decision self-test', ['scripts/apply-builder-proposal-decisions.mjs', '--self-test']],
