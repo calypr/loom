@@ -113,9 +113,11 @@
           "bytes": 45468
         },
         "nativeReport": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/native-report.json",
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/native-report.json",
           "sha256": "5f9417a40c2ef6e0fee0606cfe9c13450154c7428eb1c9aa139b9a90f9403649",
-          "bytes": 928814
+          "bytes": 928814,
+          "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/native-report.json > /private/tmp/passed-native-report.json"
         }
       }
     },
@@ -182,9 +184,11 @@
           "bytes": 27065
         },
         "nativeReport": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json",
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json",
           "sha256": "74bbb3d9aa91949c6ef43642a56b8be176632e8d080c8c8e0ddabf86ac069447",
-          "bytes": 1355164
+          "bytes": 1355164,
+          "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json > /private/tmp/authored-group-native-report.json"
         },
         "trace": {
           "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
@@ -279,29 +283,14 @@
       "bytes": 31793
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json",
-      "sha256": "50a6e1e6a4069fb6898d0945167caa9dde9161a430700b032bdc75af89a53659",
-      "bytes": 454770
-    },
-    {
       "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
       "sha256": "8c5348a599d6cf642433ed5dac2c18ec8b463609e20d3342831173e105a856db",
       "bytes": 31158
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/native-report.json",
-      "sha256": "868293f44d94c0870cbe4493dc473a78e9619abf3b44c5c7b25867743bd7d91e",
-      "bytes": 752059
-    },
-    {
       "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
       "sha256": "9bd3573f3bc0d39b59e0095711749e054c9cd25e3f413cf4d5e40f0cf2b1ea2e",
       "bytes": 45468
-    },
-    {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/native-report.json",
-      "sha256": "5f9417a40c2ef6e0fee0606cfe9c13450154c7428eb1c9aa139b9a90f9403649",
-      "bytes": 928814
     },
     {
       "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
@@ -312,11 +301,6 @@
       "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
       "sha256": "33505658bc13b496a0605500f50b2ce577805028cbc33e14e56a4b3df893f5ce",
       "bytes": 27065
-    },
-    {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json",
-      "sha256": "74bbb3d9aa91949c6ef43642a56b8be176632e8d080c8c8e0ddabf86ac069447",
-      "bytes": 1355164
     },
     {
       "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
@@ -369,9 +353,11 @@
           "bytes": 31793
         },
         "nativeReport": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json",
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json",
           "sha256": "50a6e1e6a4069fb6898d0945167caa9dde9161a430700b032bdc75af89a53659",
-          "bytes": 454770
+          "bytes": 454770,
+          "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/native-report.json > /private/tmp/failed-preview-reader-native-report.json"
         }
       }
     },
@@ -390,9 +376,11 @@
           "bytes": 31158
         },
         "nativeReport": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/native-report.json",
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/native-report.json",
           "sha256": "868293f44d94c0870cbe4493dc473a78e9619abf3b44c5c7b25867743bd7d91e",
-          "bytes": 752059
+          "bytes": 752059,
+          "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/native-report.json > /private/tmp/failed-history-disclosure-native-report.json"
         }
       }
     }
