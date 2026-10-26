@@ -115,14 +115,22 @@ const LifecycleEditor = (props: {
   readonly chooseGroupDuringLayout?: boolean;
 }) => {
   const lifecycle = useConstructionLifecycle({ client: props.client, capabilitiesRequest: request });
+  const [groupIntentSelected, setGroupIntentSelected] = React.useState(false);
   const layoutChoiceTriggered = React.useRef(false);
   React.useLayoutEffect(() => {
     if (!props.chooseGroupDuringLayout || lifecycle.capabilities.status !== 'ready' || layoutChoiceTriggered.current) return;
+    if (!groupIntentSelected) {
+      const groupIntent = document.querySelector<HTMLButtonElement>('[data-testid="construction-reshape-intent-group"]');
+      if (!groupIntent) return;
+      groupIntent.click();
+      setGroupIntentSelected(true);
+      return;
+    }
     const choice = document.querySelector<HTMLButtonElement>('[data-testid="construction-reshape-choice-group"]');
     if (!choice) return;
     layoutChoiceTriggered.current = true;
     choice.click();
-  }, [props.chooseGroupDuringLayout, lifecycle.capabilities.status]);
+  }, [props.chooseGroupDuringLayout, lifecycle.capabilities.status, groupIntentSelected]);
   if (lifecycle.capabilities.status !== 'ready') return <p role="status">Loading stage capabilities</p>;
   const response = lifecycle.capabilities.response;
   return (
@@ -171,9 +179,9 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
   });
 
   it.each([
-    { kind: 'GROUP' as const, choice: 'construction-reshape-choice-group' },
-    { kind: 'EXPAND' as const, choice: 'construction-reshape-choice-expand' },
-  ])('previews an intermediate-stage $kind proposal before Apply', async ({ kind, choice }) => {
+    { kind: 'GROUP' as const },
+    { kind: 'EXPAND' as const },
+  ])('previews an intermediate-stage $kind proposal before Apply', async ({ kind }) => {
     const { client, proposeConstruction, preview } = makeClient();
     const onApply = vi.fn();
     render(<LifecycleEditor client={client} onApply={onApply} />);
@@ -181,7 +189,11 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     await screen.findByTestId('construction-reshape-editor');
     const apply = screen.getByRole('button', { name: 'Apply change' });
     expect(apply).toBeDisabled();
-    fireEvent.click(screen.getByTestId(choice));
+    fireEvent.click(screen.getByTestId('construction-reshape-intent-group'));
+    fireEvent.click(await screen.findByTestId('construction-reshape-choice-group'));
+    if (kind === 'EXPAND') {
+      fireEvent.click(await screen.findByRole('button', { name: 'Expand Tags' }));
+    }
     await screen.findByLabelText(kind === 'EXPAND' ? 'Empty list policy' : 'Summary output label 1');
     if (kind === 'EXPAND') {
       fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
@@ -224,8 +236,9 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     );
     const { rerender } = render(renderEditor(capabilities));
 
-    await screen.findByTestId('construction-reshape-choice-group');
-    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    await screen.findByTestId('construction-reshape-intent-group');
+    fireEvent.click(screen.getByTestId('construction-reshape-intent-group'));
+    fireEvent.click(await screen.findByTestId('construction-reshape-choice-group'));
     await screen.findByLabelText('Summary output label 1');
 
     const nextCapabilities = {
@@ -235,6 +248,7 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     };
     rerender(renderEditor(nextCapabilities));
     await waitFor(() => expect(screen.queryByLabelText('Summary output label 1')).not.toBeInTheDocument());
-    expect(screen.getByTestId('construction-reshape-choice-group')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-intent-group')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
   });
 });
