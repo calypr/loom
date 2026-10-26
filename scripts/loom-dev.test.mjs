@@ -302,13 +302,12 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(ownerFlow, /await waitForAddColumnsAction\(page, 'Observation owner records'\)/);
   assert.match(ownerFlow, /construction-action-add-columns/);
   assert.match(ownerFlow, /getByTestId\('construction-action-add-columns'\)/);
-  assert.match(ownerFlow, /clickButton\('Other fields'\)/);
+  assert.match(ownerFlow, /getByRole\('tab', \{ name: 'Coded values', exact: true \}\)/);
   assert.ok(ownerFlow.indexOf("clickButton('Advanced options')") >= 0 &&
     ownerFlow.indexOf("clickButton('Advanced options')") < ownerFlow.indexOf("clickButton('Add 1 selected feature', ownerAdvancedOptions)"),
   'the owner-record flow opens inline Advanced options before choosing its explicit form');
   assert.match(ownerFlow, /shared: Keep each matching record/);
   assert.match(ownerFlow, /clickButton\('Add 1 selected feature', ownerAdvancedOptions\)/);
-  assert.match(ownerFlow, /clickButton\('Apply columns'\)/);
   assert.match(ownerFlow, /builder-persists-owner-record-construction/);
   assert.match(ownerFlow, /const ownerRecordsStateIsApplied = \(builder\) =>/);
   assert.match(ownerFlow, /source\?\.kind === 'ownerRecords'/);
@@ -324,15 +323,14 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(ownerFlow, /code: 'shared'/);
   assert.match(ownerFlow, /ownerPath: 'component\[\]'/);
   assert.match(ownerFlow, /valuePath: 'valueQuantity\.value'/);
-  const applyOwnerRecords = ownerFlow.indexOf("clickButton('Apply columns')");
+  const applyOwnerRecords = ownerFlow.indexOf("clickButton('Add 1 selected feature', ownerAdvancedOptions)");
   const savedOwnerRecordsWait = ownerFlow.indexOf('ownerApplyDeadline = Date.now() + 30000');
   const exactSavedOwnerRecordsPoll = ownerFlow.indexOf('if (ownerRecordsStateIsApplied(ownerRecordsBuilder)) break;');
   const exactSavedOwnerRecordsAssertion = ownerFlow.indexOf("recordAssertion(report, 'builder-persists-owner-record-construction'");
-  const closeOwnerEditor = ownerFlow.indexOf("getByTestId('construction-close-operation-editor')");
   const closedOwnerEditor = ownerFlow.indexOf("!document.querySelector('[aria-label=\"Add columns editor\"]')");
   const configuredOwnerInput = ownerFlow.indexOf('Display name for configured ${ownerRecordsColumn.label}');
-  assert.ok(applyOwnerRecords >= 0 && savedOwnerRecordsWait > applyOwnerRecords && exactSavedOwnerRecordsPoll > savedOwnerRecordsWait && exactSavedOwnerRecordsAssertion > exactSavedOwnerRecordsPoll && closeOwnerEditor > exactSavedOwnerRecordsAssertion && closedOwnerEditor > closeOwnerEditor && configuredOwnerInput > closedOwnerEditor,
-    'the exact saved ownerRecords binding and new draft are observed before closing the editor that hides configured-column controls');
+  assert.ok(applyOwnerRecords >= 0 && savedOwnerRecordsWait > applyOwnerRecords && exactSavedOwnerRecordsPoll > savedOwnerRecordsWait && exactSavedOwnerRecordsAssertion > exactSavedOwnerRecordsPoll && closedOwnerEditor > exactSavedOwnerRecordsAssertion && configuredOwnerInput > closedOwnerEditor,
+    'the exact saved ownerRecords binding and new draft are observed before the editor closes and reveals configured-column controls');
   assert.match(ownerFlow, /const ownerApplyDeadline = Date\.now\(\) \+ 30000/);
   assert.match(ownerFlow, /while \(Date\.now\(\) < ownerApplyDeadline\)/);
   assert.match(ownerFlow, /input\.getAttribute\('aria-label'\) === \$\{JSON\.stringify\(configuredOwnerLabel\)\} && !input\.disabled/);
@@ -350,7 +348,7 @@ test('verify-fast creates its Observation and Patient tables through the current
   assert.match(patientFlow, /construction-action-add-columns/);
   assert.match(patientFlow, /feature-catalog-raw-fields/);
   assert.match(patientFlow, /Select Patient\.id/);
-  assert.match(patientFlow, /clickButton\('Apply columns'\)/);
+  assert.match(patientFlow, /clickButton\('Add 1 selected feature'\)/);
   assert.match(addColumnsReady, /page\.waitForFunction/);
   assert.match(addColumnsReady, /document\.querySelector\(\`\$\{selector\}:not\(:disabled\)\`\)/);
   assert.match(addColumnsReady, /preview\.dataset\.previewStatus === 'ready'/);
