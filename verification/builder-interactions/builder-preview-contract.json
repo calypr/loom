@@ -134,7 +134,7 @@
     },
     {
       "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx",
-      "sha256": "770129ee1b538f31296ec444fc6b6b74156e9d151495649aa076dc8d8635416f",
+      "sha256": "fd87d42f2f846c070879416b794b50c5ba0aec5b2e2d8070ad30868b26966343",
       "contract": "Mounted BuilderWorkspace A/B reconcile race, captured request/settlement identities, and rendered receipt/output oracle."
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
+      "sha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {

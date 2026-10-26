@@ -388329,7 +388329,7 @@
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "e6e4bb0532856a85014c2a0363c2976d40acb9437a05fb15d2718297b37feeb1",
+      "sha256": "394e35fea7bf350bb351ecb291b6a3573bebd9d9368411f093d9a479409ce2f4",
       "role": "tool-or-module",
       "lifecycle": "active",
       "purpose": "Reads retained browser reports and generates or checks the normalized Builder browser-evidence ledger.",
@@ -388344,77 +388344,77 @@
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 532,
+            "line": 639,
             "kind": "passed report status guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 536,
+            "line": 643,
             "kind": "source fingerprint validation guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 538,
+            "line": 645,
             "kind": "API build identity validation guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 546,
+            "line": 653,
             "kind": "failed assertion rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 1085,
+            "line": 1207,
             "kind": "missing output rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 1086,
+            "line": 1208,
             "kind": "stale output rejection guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 532,
+            "line": 639,
             "kind": "passed browser report guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 536,
+            "line": 643,
             "kind": "source fingerprint shape guard"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 546,
+            "line": 653,
             "kind": "failed assertion rejection"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 547,
+            "line": 654,
             "kind": "classifies source status from the current watched-tree fingerprint"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 152,
+            "line": 253,
             "kind": "imports and executes the sanitizer blob from the tested source commit"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 556,
+            "line": 663,
             "kind": "resolves current read-only-custom cases with their custom registry checks"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 755,
+            "line": 862,
             "kind": "requires audited trace identity to match the tested registry"
           },
           {
             "path": "scripts/generate-builder-browser-evidence.mjs",
-            "line": 1066,
+            "line": 1174,
             "kind": "requires a present generatedFrom evidence input"
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "bccd5399d4ec24f9b0b53eeff0aabf8d9fb4d65c"
+        "reviewedCommit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -399675,7 +399675,7 @@
       "testLayer": "command-line",
       "sourceReview": {
         "status": "reviewed",
-        "reviewedCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed",
+        "reviewedCommit": "eec7fb7ee7b409279e7a01fa1a7f87dbf44d96f0",
         "evidence": [
           {
             "path": "scripts/run-builder-mutation-probe.mjs",
@@ -421138,7 +421138,7 @@
     },
     {
       "path": "scripts/verify-ui/helpers/playwright-actions.mjs",
-      "sha256": "f21a8bcdf4e9ca90b6c4aaa41dec67c6f85e59dabcf8f8d9feaa2ed75ec9aef1",
+      "sha256": "de4dcf0d2397f3f49a6bc071b4ba6cf7021c9d9451a8963f7ec75ea052e31f47",
       "role": "helper-or-oracle",
       "lifecycle": "active",
       "purpose": "Requires unique native controls, prepares editability, performs Playwright actions, and records action timing.",
@@ -421148,7 +421148,7 @@
         "evidence": [
           {
             "path": "scripts/verify-ui/helpers/playwright-actions.mjs",
-            "line": 5,
+            "line": 10,
             "kind": "exported helper/tool body reviewed"
           },
           {
@@ -421157,7 +421157,8 @@
             "kind": "source guard/assertion reviewed"
           }
         ],
-        "confidence": "high"
+        "confidence": "high",
+        "reviewedCommit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e"
       },
       "executionDiscovery": {
         "status": "static-path-found",
@@ -454721,6 +454722,74 @@
       "unresolvedFacts": []
     },
     {
+      "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+      "sha256": "df1ccde8e8fe0205366f093fad9099c8645d4ced28e3928a66a726db8deb2ec9",
+      "role": "test",
+      "lifecycle": "active",
+      "purpose": "Exercises Playwright-free retained Builder evidence generation and archive/path rejection controls.",
+      "testLayer": "node-test",
+      "sourceReview": {
+        "status": "reviewed",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 44,
+            "kind": "Lead-reviewed bootstrap test; the assigned-check Node suite passed 4/4 on this source blob."
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 51,
+            "kind": "Lead-reviewed retained-report generation and check test."
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 69,
+            "kind": "Lead-reviewed missing and corrupted archive rejection test."
+          },
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 91,
+            "kind": "Lead-reviewed retained-path confinement test."
+          }
+        ],
+        "confidence": "low",
+        "reviewedCommit": "b2df3124fa0e87732cdc502198294f9bb9f92e3e"
+      },
+      "executionDiscovery": {
+        "status": "uncertain-dynamic-or-manual",
+        "evidence": [],
+        "unresolvedFacts": [
+          "No static CI or script invocation is recorded for this standalone Node test."
+        ]
+      },
+      "assertions": [],
+      "formalApplicability": {
+        "kind": "uncertain",
+        "rationale": "This test is cataloged as evidence-tool bootstrap tooling without a Builder model association.",
+        "evidence": [
+          {
+            "path": "scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs",
+            "line": 44,
+            "kind": "Focused evidence-tool regression with no formal transition mapping."
+          }
+        ],
+        "bindings": [],
+        "limitation": "No Builder product action, formal transition, invariant, or lifecycle coverage is claimed."
+      },
+      "disposition": {
+        "kind": "keep",
+        "reason": "Retain the focused Node bootstrap regression without attributing semantic or formal coverage."
+      },
+      "replacementProof": {
+        "paths": [],
+        "evidence": [],
+        "gap": "No replacement is proposed."
+      },
+      "unresolvedFacts": [],
+      "formalBindings": null,
+      "testMappings": null
+    },
+    {
       "path": "scripts/verify-ui/helpers/tests/group-add-fields-preview-rows.test.mjs",
       "sha256": "998bb337b52f660c5fe7afc26b9aa895faaba06752b435d764497511ddc9bd8f",
       "role": "test",
@@ -458887,7 +458956,7 @@
           }
         ],
         "confidence": "high",
-        "reviewedCommit": "85c19845083d1cfce416fbbb7ef4e0fb318e98ed"
+        "reviewedCommit": "eec7fb7ee7b409279e7a01fa1a7f87dbf44d96f0"
       },
       "executionDiscovery": {
         "status": "static-path-found",
