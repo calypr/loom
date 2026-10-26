@@ -5919,10 +5919,12 @@ export const verifyBrowserScenario = async (target, report, full, entryTarget = 
       ownerRecordsAvailabilityEvents.some((event) => event.source === 'mutation' && event.acceptedCurrentPreview));
     recordAssertion(report, 'verified-id-first-table-final-action-has-current-preview', true,
       ownerRecordsAvailabilityEvents.some((event) => event.source === 'final' && event.acceptedCurrentPreview));
-    await clickButton('Configure rows');
+    await click('open Observation row settings', page.getByRole('button', { name: 'Change starting records for Observation', exact: true }));
     const ownerRowsDialog = page.getByRole('dialog', { name: 'Row definition settings', exact: true });
     await ownerRowsDialog.waitFor({ state: 'visible', timeout: 30000 });
-    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled))`);
+    const ownerStartingCollection = ownerRowsDialog.getByTestId('construction-starting-collection-footer');
+    await click('open starting collection settings', ownerStartingCollection.locator(':scope > summary'));
+    await waitForDOMCondition(`Boolean([...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled && button.getClientRects().length > 0))`);
     await clickButton('Use selected resources', ownerRowsDialog);
     await waitForDOMCondition(`document.querySelector('section[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id') === ${JSON.stringify(ownerRecordsSelectionID)}`);
     const ownerRecordsPopulationBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
