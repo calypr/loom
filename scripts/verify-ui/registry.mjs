@@ -1057,6 +1057,7 @@ const registryRows = [
               'scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json',
               'scripts/verify-ui/helpers/tests/fixture-context.test.mjs',
               'scripts/verify-ui/helpers/tests/transport-terminal.test.mjs',
+              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
             ],
           },
         ],

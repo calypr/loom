@@ -45,6 +45,7 @@ import { makeSyntheticPolicyOneJourneyTrace } from './fixtures/policy-one-journe
 import { makeTemporalFilterJourneyCaptureFixture } from './fixtures/temporal-filter-journey-schema-fixture.mjs';
 import './fixture-context.test.mjs';
 import './transport-terminal.test.mjs';
+import './builder-journey-trace.test.mjs';
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
 const policyReceiptHistoryFixture = JSON.parse(readFileSync(new URL(
