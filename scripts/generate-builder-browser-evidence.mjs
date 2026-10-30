@@ -420,10 +420,11 @@ const currentProofFingerprint = (root, historical, expectedFingerprint) => {
   };
 };
 
-const sourceFreshness = (root, expected) => {
+const sourceFreshness = (root, expected, currentWatched) => {
   if (!isSha256(expected)) return { status: 'unavailable', reason: 'retained evidence has no full 64-character source fingerprint' };
+  if (currentWatched === null) return { status: 'unavailable', reason: 'current watched-tree fingerprint is unavailable' };
   try {
-    const current = sourceFingerprint(root);
+    const current = currentWatched ?? sourceFingerprint(root);
     if (current.sha256 === expected) return { status: 'current', reason: 'retained watched-tree fingerprint matches the current watched source tree' };
     return {
       status: 'stale',
@@ -435,8 +436,8 @@ const sourceFreshness = (root, expected) => {
   }
 };
 
-const nativeRunSourceFreshness = (root, run, historical) => {
-  const watched = sourceFreshness(root, watchedFingerprintFor(run));
+const nativeRunSourceFreshness = (root, run, historical, currentWatched) => {
+  const watched = sourceFreshness(root, watchedFingerprintFor(run), currentWatched);
   const proofExpected = proofFingerprintFor(run);
   if (!isSha256(proofExpected)) {
     return { status: 'unavailable', reason: 'retained proof-source fingerprint is missing or malformed' };
@@ -823,7 +824,7 @@ const assertFreeze = async (root, run, native, sourceCommit, sourceManifest, lab
   }
 };
 
-const makeRetainedNativeRow = async (root, journey, runId, run, expectedCase, retainedArchive) => {
+const makeRetainedNativeRow = async (root, journey, runId, run, expectedCase, retainedArchive, currentWatched) => {
   const label = 'retained run ' + runId;
   requireValue(run.result === 'pass', label + ': audit result is not pass');
   const refs = artifactRefsFor(run);
@@ -922,7 +923,7 @@ const makeRetainedNativeRow = async (root, journey, runId, run, expectedCase, re
   requireValue(run.counts?.tlcGeneratedStates === receipt.tlc?.stateCount, label + ': audit TLC state count differs from retained TLA receipt');
   requireValue(run.counts?.tlcDistinctStates === receipt.tlc?.distinctStateCount, label + ': audit TLC distinct-state count differs from retained TLA receipt');
   requireValue(run.counts?.tlcDepth === receipt.tlc?.depth, label + ': audit TLC depth differs from retained TLA receipt');
-  const freshness = nativeRunSourceFreshness(root, run, historicalScope);
+  const freshness = nativeRunSourceFreshness(root, run, historicalScope, currentWatched);
   return {
     id: journey.id + ':' + runId + ':' + sourceCommit,
     runId,
@@ -1091,26 +1092,26 @@ const validateManualCdaBoundary = (root, journey) => {
   return { manifest: expected.manifest, id: expected.id, status: 'not-run', manualOnly: true, automationCoverage: false };
 };
 
-export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [], requireCurrent = false, retainedArchive = null, preferRetainedArchive = false } = {}) {
+export async function buildBuilderBrowserEvidence({ root = ROOT, reportPaths = [], requireCurrent = false, retainedArchive = null, preferRetainedArchive = false, watchedFingerprint = null } = {}) {
   const repoRoot = resolve(root);
   const archive = retainedArchive ?? loadRetainedBrowserEvidenceArchive(repoRoot);
   const audit = readJson(repoRoot, JOURNEY_AUDIT, 'Builder journey audit');
   const journey = asArray(audit.journeys).find((entry) => entry.id === 'edit-remove-reload');
   requireValue(journey, 'Builder journey audit is missing edit-remove-reload');
   const evidence = journey.evidence ?? {};
-  const currentWatched = (() => { try { return sourceFingerprint(repoRoot); } catch { return null; } })();
+  const currentWatched = watchedFingerprint ?? (() => { try { return sourceFingerprint(repoRoot); } catch { return null; } })();
   const currentRegistry = reportPaths.length > 0 && currentWatched ? await currentRegistryForRoot(repoRoot) : null;
   const browser = await browserCaseRows(repoRoot, reportPaths, currentWatched, currentRegistry, archive, preferRetainedArchive);
   const retainedJourneys = [];
   retainedJourneys.push(await makeRetainedNativeRow(repoRoot, journey, 'authored-three', evidence.nativeAuthoredThree, {
     scenario: 'builder-authoring', caseName: 'group-entry',
-  }, archive));
+  }, archive, currentWatched));
   retainedJourneys.push(await makeRetainedNativeRow(repoRoot, journey, 'raw-basic', evidence.native, journey.nativeCase && {
     scenario: journey.nativeCase.scenario, caseName: journey.nativeCase.case,
-  }, archive));
+  }, archive, currentWatched));
   retainedJourneys.push(await makeRetainedNativeRow(repoRoot, journey, 'raw-basic-alias-908', evidence.nativeRawBasicAlias908, journey.nativeCase && {
     scenario: journey.nativeCase.scenario, caseName: journey.nativeCase.case,
-  }, archive));
+  }, archive, currentWatched));
   retainedJourneys.push(makeBudgetRow(repoRoot, journey, 'basic-budget-28', evidence.manualBasicBudgetProbe908));
   const cdaBoundary = validateManualCdaBoundary(repoRoot, journey);
   const legacyRecompile = historicalRecompileRow(repoRoot, audit);
@@ -1152,6 +1153,7 @@ const parseArgs = (argv) => {
   let fromEvidence = false;
   let requireCurrent = false;
   let selfTest = false;
+  let watchedFingerprint = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--report') reportPaths.push(argv[++index]);
@@ -1161,18 +1163,20 @@ const parseArgs = (argv) => {
     else if (arg === '--from-evidence') fromEvidence = true;
     else if (arg === '--require-current') requireCurrent = true;
     else if (arg === '--self-test') selfTest = true;
+    else if (arg === '--watched-fingerprint') watchedFingerprint = argv[++index];
     else fail('unknown argument: ' + arg);
   }
   requireValue(reportPaths.every((path) => typeof path === 'string' && path.length > 0), '--report requires a path');
   requireValue(typeof root === 'string' && root.length > 0, '--root requires a path');
   requireValue(typeof output === 'string' && output.length > 0, '--output requires a path');
-  return { root: resolve(root), output, check, fromEvidence, reportPaths, requireCurrent, selfTest };
+  requireValue(watchedFingerprint === null || (typeof watchedFingerprint === 'string' && watchedFingerprint.length > 0), '--watched-fingerprint requires a path');
+  return { root: resolve(root), output, check, fromEvidence, reportPaths, requireCurrent, selfTest, watchedFingerprint };
 };
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.selfTest) {
-    requireValue(options.reportPaths.length === 0 && !options.fromEvidence && !options.check && !options.requireCurrent, '--self-test cannot be combined with report, evidence, check, or freshness options');
+    requireValue(options.reportPaths.length === 0 && !options.fromEvidence && !options.check && !options.requireCurrent && options.watchedFingerprint === null, '--self-test cannot be combined with report, evidence, check, freshness, or watched-fingerprint options');
     const payload = await buildBuilderBrowserEvidence({ root: options.root });
     requireValue(payload.retainedJourneys.length === 4, '--self-test expected four retained journey runs');
     requireValue(payload.cases.find((entry) => entry.id === HISTORICAL_RECOMPILE_ID)?.status === 'unavailable', '--self-test did not preserve the missing Recompile record as unavailable');
@@ -1182,6 +1186,14 @@ async function main() {
     return;
   }
   const outputPath = isAbsolute(options.output) ? resolve(options.output) : pathWithin(options.root, options.output, 'output');
+  const watchedFingerprint = options.watchedFingerprint === null
+    ? null
+    : jsonFromBytes(readFileSync(pathWithin(options.root, options.watchedFingerprint, 'watched fingerprint')), 'watched fingerprint');
+  if (watchedFingerprint !== null) {
+    requireValue(typeof watchedFingerprint === 'object' && !Array.isArray(watchedFingerprint)
+      && isSha256(watchedFingerprint.sha256) && Number.isInteger(watchedFingerprint.files) && watchedFingerprint.files > 0,
+    'watched fingerprint must contain a 64-character sha256 and positive integer file count');
+  }
   let reportPaths = options.reportPaths;
   let retainedArchive = null;
   if (options.fromEvidence) {
@@ -1215,6 +1227,7 @@ async function main() {
     requireCurrent: options.requireCurrent,
     retainedArchive,
     preferRetainedArchive: options.fromEvidence,
+    watchedFingerprint,
   });
   const serialized = JSON.stringify(payload, null, 2) + '\n';
   if (options.check) {

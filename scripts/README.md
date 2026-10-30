@@ -178,19 +178,16 @@ workspaces with `npm ci --prefix ui` and `npm ci --prefix scripts`:
 
 ```sh
 node scripts/maintenance/playwright/check-native-playwright.mjs
-node scripts/maintenance/playwright/check-standalone-playwright-ledger.mjs
 node scripts/maintenance/playwright/check-playwright-migration.mjs --check
 node scripts/maintenance/playwright/check-browser-eval-returns.mjs
 ```
 
-The mapping and ledger gates check file mappings and migration bookkeeping.
-They do not establish a passing browser lifecycle. The migration gate finds
-remaining legacy browser machinery. The return checker audits value-consuming
-browser evaluation calls. Use
+The mapping gate checks file mappings and migration bookkeeping. It does not
+establish a passing browser lifecycle. The migration gate finds remaining
+legacy browser machinery. The return checker audits value-consuming browser
+evaluation calls. Use
 `node scripts/maintenance/playwright/check-browser-expression-syntax.mjs <driver.mjs>`
-to compile browser expressions from one driver. The manifest builder accepts
-explicit source and discovery inputs; inspect its `--help` before rebuilding the
-conversion ledger.
+to compile browser expressions from one driver.
 
 Construction-preview measurements live in
 `scripts/measurements/construction-preview/`. Keep their benchmark reports

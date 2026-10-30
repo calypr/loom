@@ -11,7 +11,6 @@ const legacyDrivers = new Set([
 ]);
 const infrastructureCheckers = new Set([
   'scripts/maintenance/playwright/check-playwright-migration.mjs',
-  'scripts/maintenance/playwright/check-standalone-playwright-ledger.mjs',
 ]);
 const patterns = [
   ['legacy browser import', /\bfrom\s*['"][^'"]*\/browser\.mjs['"]/],

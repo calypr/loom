@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full verify-j01 verify-j02 verify-j03 verify-j04 verify-j04-patient verify-j05 verify-case verify-case-checks dev-down
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full verify-j01 verify-j02 verify-j03 verify-j04 verify-j04-patient verify-j05 verify-case verify-case-checks dev-down
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -67,6 +67,7 @@ generate-openapi:
 
 openapi-check:
 	bash scripts/check_openapi_route_ownership.sh
+	python3 scripts/audit-http-500-responses.py >/dev/null
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)
@@ -80,9 +81,13 @@ test:
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./scripts/local-preview-index-migration.go ./scripts/local-preview-index-migration_test.go -count=1
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run $(GOFLAGS) ./scripts/check_fhir_semantic_resource_types.go
 	node --test scripts/loom-dev.test.mjs
+	bash scripts/tests/test_acceptance_real_cleanup.sh
 
 dev-test:
 	node --test scripts/loom-dev.test.mjs
+
+test-scripts:
+	python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 compiler-bench:
 	mkdir -p $(GOCACHE_DIR)

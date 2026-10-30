@@ -106,20 +106,20 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
     return entry;
   };
   const renderPreview = async (expectedColumns, phase) => {
-    await waitForBrowser(page, () => {
+    await waitForBrowser(page, (columnCount) => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       return Boolean(table && table.getAttribute('aria-rowcount') === '2' &&
-        table.getAttribute('aria-colcount') === String(expectedColumns) &&
+        table.getAttribute('aria-colcount') === String(columnCount) &&
         !document.body.innerText.includes('Loading your table…') &&
         !document.body.innerText.includes('Preview failed:'));
-    }, [], 10000);
+    }, expectedColumns, 10000);
     const view = await inspect(page, () => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       return {
         headers: [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')]
-          .map((cell) => normalize(cell.innerText)),
+          .map((cell) => String(cell.innerText ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim()),
         rows: [...(table?.querySelectorAll('[role="row"]') ?? [])].slice(1).map((row) =>
-          [...row.querySelectorAll('[role="cell"]')].map((cell) => normalize(cell.innerText)),
+          [...row.querySelectorAll('[role="cell"]')].map((cell) => String(cell.innerText ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim()),
         ).filter((row) => row.length),
       };
     });
@@ -129,7 +129,7 @@ export async function semanticSpecimenFieldsWorkflow({ page, cda, caseOptions = 
   const openTable = async (expectedColumns, phase) => {
     const fromIndex = nativeIndex();
     await navigate(page, pageUrl);
-    await waitForBrowser(page, () => Boolean(document.querySelector(`[data-testid="construction-table-${outputId}"]`)), [], 10000);
+    await waitForBrowser(page, (id) => Boolean(document.querySelector(`[data-testid="construction-table-${id}"]`)), outputId, 10000);
     await click(page, `[data-testid="construction-table-${outputId}"]`);
     const dom = await renderPreview(expectedColumns, phase);
     const native = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, fromIndex);

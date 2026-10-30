@@ -2876,12 +2876,12 @@ function validateContract(contract) {
         journeyCase.maxMountEpoch !== 5 || journeyCase.casTransitionCount !== 7) {
       fail('trace contract journeyCase must require exact semantic counts, no unmodeled mutations, five reload epochs, and seven draft transitions');
     }
-    const nativeRequestLedger = journeyCase.nativeRequestLedger;
-    if (!isPlainObject(nativeRequestLedger) || nativeRequestLedger.traceField !== 'nativeRequests' ||
-        nativeRequestLedger.identityField !== 'browserRequestId' ||
-        canonicalJson(nativeRequestLedger.requiredFields) !== canonicalJson([
+    const ledgerContract = journeyCase['nativeRequestLedger'];
+    if (!isPlainObject(ledgerContract) || ledgerContract.traceField !== 'nativeRequests' ||
+        ledgerContract.identityField !== 'browserRequestId' ||
+        canonicalJson(ledgerContract.requiredFields) !== canonicalJson([
           'index', 'browserRequestId', 'method', 'path', 'startedAt', 'isMutation',
-        ]) || canonicalJson(nativeRequestLedger.optionalWhenUnavailable) !== canonicalJson(['requestId'])) {
+        ]) || canonicalJson(ledgerContract.optionalWhenUnavailable) !== canonicalJson(['requestId'])) {
       fail('trace contract journeyCase must define the complete nativeRequests observer ledger schema');
     }
     if (!Array.isArray(journeyCase.requiredMutationControlNames) ||

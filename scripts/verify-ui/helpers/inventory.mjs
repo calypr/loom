@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { registry, coverageDrift as registryDrift } from '../registry.mjs';
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-export const repositoryRoot = resolve(scriptDirectory, '../..');
+export const repositoryRoot = resolve(scriptDirectory, '../../..');
 const localRequire = createRequire(join(repositoryRoot, 'ui/package.json'));
 const ts = localRequire('typescript');
 let postcss;
@@ -162,8 +162,13 @@ const scanCss = (path) => {
   return records;
 };
 
+// useQuery and useMutation are the framework primitives that domain hooks wrap.
+// Their call sites stay in the inventory, but registering the primitive itself
+// would not identify the data dependency a scenario owns.
+const frameworkHooks = new Set(['useQuery', 'useMutation']);
+
 export const inventoryCoverageDrift = (records, scenarios = registry) => {
-  const productionHooks = records.filter((record) => record.kind === 'data-hook-call' && !(record.file?.endsWith('/react.tsx') && ['useQuery', 'useMutation'].includes(record.hook)));
+  const productionHooks = records.filter((record) => record.kind === 'data-hook-call' && !frameworkHooks.has(record.hook));
   const availableHooks = new Set(productionHooks.map((record) => record.hook));
   const registeredHooks = new Set(scenarios.flatMap((scenario) => scenario.hooks));
   return [
@@ -215,8 +220,8 @@ export const renderInventoryMarkdown = (inventory) => {
   return lines.join('\n');
 };
 
-const defaultJSON = join(repositoryRoot, 'docs/UI_INTERACTION_INVENTORY.json');
-const defaultMarkdown = join(repositoryRoot, 'docs/UI_INTERACTION_INVENTORY.md');
+const defaultJSON = join(repositoryRoot, '.cache/builder-verification/UI_INTERACTION_INVENTORY.json');
+const defaultMarkdown = join(repositoryRoot, '.cache/builder-verification/UI_INTERACTION_INVENTORY.md');
 
 const cli = () => {
   const args = process.argv.slice(2);

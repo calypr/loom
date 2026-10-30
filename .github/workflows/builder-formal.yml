@@ -56,6 +56,8 @@ jobs:
           --from-evidence --check
       - name: Run formal models, traces, and retained schedules
         run: node scripts/verify-builder-formal.mjs --skip-go
+      - name: Run temporal filter model controls
+        run: node --test scripts/verify-ui/helpers/tests/temporal-filter-model.test.mjs
 
   full:
     name: Full formal gate
@@ -92,3 +94,5 @@ jobs:
           --from-evidence --check
       - name: Run formal models, traces, schedules, and server contracts
         run: node scripts/verify-builder-formal.mjs
+      - name: Run temporal filter model controls
+        run: node --test scripts/verify-ui/helpers/tests/temporal-filter-model.test.mjs

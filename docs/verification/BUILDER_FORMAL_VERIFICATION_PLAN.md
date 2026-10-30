@@ -150,8 +150,16 @@ From the repository root, regenerate and check the retained evidence:
 node scripts/generate-builder-browser-evidence.mjs --from-evidence
 node scripts/generate-builder-browser-evidence.mjs --from-evidence --check
 node scripts/generate-builder-browser-evidence.mjs --self-test
-python3 -m unittest discover -s scripts/maintenance/playwright/tests -p 'test_builder_browser_evidence.py'
+python3 scripts/maintenance/playwright/run_browser_evidence_tests_parallel.py
 ```
+
+The runner prepares the fixture baseline once, then shards the 23 controls across
+processes. Set `LOOM_BROWSER_EVIDENCE_WORKERS` to change the worker count, or run
+the same file with `python3 -m unittest` for a single-process check.
+
+The controls pass a precomputed watched-tree fingerprint to the generator. They
+exercise evidence classification without materializing the 2,092-file historical
+source tree. Production generation omits that option and scans the checkout.
 
 The output records historical proof separately from source freshness. Route consumers count only cases whose `status` and `sourceStatus` are both `current`. The missing Recompile report remains visible as unavailable. These checks do not run a browser or establish current runtime behavior.
 

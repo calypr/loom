@@ -19,7 +19,11 @@ const readVisibleGrid = page => page.locator('[data-testid="preview-table-scroll
   headers: [...table.querySelectorAll('[role="columnheader"]')].map(cell => cell.innerText.replace(/\s+/g, ' ').trim().toLowerCase()),
   rows: [...table.querySelectorAll('[role="row"]')].slice(1)
     .filter(row => row.querySelector('[role="cell"]'))
-    .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.innerText.replace(/\s+/g, ' ').trim())),
+    .map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => {
+      const indicator = cell.querySelector('[data-testid="preview-array-indicator"]');
+      const value = indicator?.previousElementSibling?.innerText ?? cell.innerText;
+      return value.replace(/\s+/g, ' ').trim();
+    })),
 }));
 
 const fixtureItem = (entries, label, predicate) => {
@@ -49,19 +53,22 @@ const codedCategoryItem = (entries, label, predicate) => {
 
 const selectionButtonForItem = async (page, item) => {
   const source = item.constructionChoice.source;
+  const identity = item.selectionMode === 'SYSTEM_VERSION_CATEGORY'
+    ? ['SYSTEM_VERSION_CATEGORY', item.familyId, item.bindingId]
+    : ['EXACT_CONCEPT', item.conceptId, item.bindingId];
   const sourceCards = page.locator(
-    `[data-source-node-id="${source.nodeId}"] article[data-semantic-identity]`,
+    `article[data-source-node-id=${JSON.stringify(source.nodeId)}][data-semantic-identity=${JSON.stringify(JSON.stringify(identity))}]`,
   );
   assert(await sourceCards.count() > 0, `${semanticLabel(item)} must resolve to its exact source-node cards.`);
   const accessibleNames = await sourceCards.locator('button[aria-pressed]').evaluateAll(buttons =>
     buttons.map(button => button.getAttribute('aria-label') ?? ''));
   const versionQualifier = `version ${semanticVersion(item) || 'unversioned'}`;
-  const matches = accessibleNames.filter(name => name.startsWith(`Select ${item.resourceType} `) &&
-    name.includes(`system ${item.system}`) && name.includes(versionQualifier));
+  const suffix = ` · system ${item.system} · ${versionQualifier}${item.code ? ` · code ${item.code}` : ''}`;
+  const matches = accessibleNames.filter(name => name.startsWith('Select ') && name.endsWith(suffix));
   assert.equal(matches.length, 1,
     `${semanticLabel(item)} must have one accessible card name containing its exact system and version: ${JSON.stringify(accessibleNames)}`);
   return {
-    button: sourceGroup.getByRole('button', { name: matches[0], exact: true }),
+    button: sourceCards.getByRole('button', { name: matches[0], exact: true }),
     accessibleName: matches[0],
   };
 };
@@ -172,7 +179,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
   await fill('name the Patient root table', page.locator('#first-table-name'), 'Standalone coded values by Patient');
   await click('create the Patient root table', page.getByRole('button', { name: 'Choose Patient rows', exact: true }),
     () => waitFor(page, () => document.body.innerText.includes('Standalone coded values by Patient') &&
-      document.body.innerText.includes('DATASET WORKSPACE'), undefined));
+      Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')), undefined));
 
   const base = `/api/v1/projects/${encodeURIComponent(target.fixtureProject)}`
     + `/explorers/${encodeURIComponent(explorerId)}/authoring/v2`;
@@ -438,7 +445,7 @@ export const standaloneCodedFieldsWorkflow = async ({ page, action, check, netwo
       conditionV1.familyId !== conditionV2.familyId &&
       savedFilterStep.operation.kind === 'FILTER' && savedFilterStep.operation.filter.columnId === idColumn.columnId &&
       savedFilterStep.operation.filter.operator === 'EXISTS' && filterCapabilityEntry.response.selectedStage.id === savedFilterStep.id,
-    { outputId, initialRequest: rootInventory.request, sourceRequests: [conditionInventory, medicationInventory, specimenInventory, observationInventory].map(result => result.inventory.request),
+    { outputId, initialRequest: rootInventory.request, sourceRequests: [conditionInventory, medicationInventory, specimenInventory, observationInventory].map(result => result.request),
       groups: expectedGroups, selectedLabels: selectedItems.map(semanticLabel), selectedAccessibleNames: selectedNames,
       filterStepId: savedFilterStep.id, filterOperation: savedFilterStep.operation, filterCapabilityStageId: filterCapabilityEntry.response.selectedStage.id });
 

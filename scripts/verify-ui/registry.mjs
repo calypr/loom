@@ -743,6 +743,12 @@ const registryRows = [
         },
         focusedChecks: [
           {
+            id: 'group-twice-preview-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/group-twice-journey.test.mjs'],
+            sourceFiles: ['scripts/verify-ui/helpers/group-twice-journey.mjs'],
+          },
+          {
             id: 'group-entry-rendered-grid-contract',
             cwd: '.',
             command: ['node-test', 'scripts/verify-ui/helpers/tests/builder-rendered-grid.test.mjs'],
@@ -772,6 +778,7 @@ const registryRows = [
           "Cancel preserves the saved keyed Group and exact draft",
           "removing keyed Group restores the exact source Patient rows after reload",
           "direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget",
+          "grouping the grouped Patient table produces exactly one row with count 1",
         ],
       },
       "selected-resource-coverage": {

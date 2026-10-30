@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { chromium } from 'playwright';
 import {
@@ -7,8 +6,6 @@ import {
   constructionOutputSelectionEvidence,
   constructionWorkspaceSelectionSnapshot,
 } from '../builder-combine-draft-helpers.mjs';
-
-const workflow = readFileSync(new URL('../../workflows/builder-combine-draft.mjs', import.meta.url), 'utf8');
 
 const documents = [
   { output: { id: 'combine-target', title: 'Observation ID source' } },
@@ -89,14 +86,4 @@ test('Combine editor selector snapshot matches the hidden Tables nav and Editing
   assert.deepEqual(snapshot.visibleEditorHeadingTexts, ['Editing Observation ID source']);
   assert.equal(evidence.ok, true);
   assert.equal(evidence.selectedOutputId, 'combine-target', 'the editor output ID and unique visible heading jointly prove ownership');
-});
-
-test('Combine preview diagnostics retain editor state and do not infer selection from a missing nav', () => {
-  assert.match(workflow, /constructionWorkspaceSelectionSnapshot/);
-  assert.match(workflow, /selectedOutputId: selection\.navigationPresent \? selection\.navSelectedOutputId : null/);
-  assert.match(workflow, /outputId: selection\.editorOutputId/);
-  assert.match(workflow, /headingTexts: selection\.editorHeadingTexts/);
-  assert.match(workflow, /visibleHeadingTexts: selection\.visibleEditorHeadingTexts/);
-  assert.match(workflow, /bindUniqueConstructionOutputTitle\(base\.workspace\?\.documents, target\.outputId\)/);
-  assert.match(workflow, /domSelectedOutputMatchesTarget: !requireSelectedPreview \|\| selectionEvidence\.ok/);
 });

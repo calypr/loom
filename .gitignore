@@ -47,3 +47,7 @@ META/
 /verification/builder-interactions/bug-discovery.md
 /verification/builder-interactions/readiness.json
 /verification/builder-interactions/readiness.md
+/verification/builder-interactions/report.json
+/verification/builder-interactions/report.md
+/verification/builder-interactions/http-500-audit.json
+/docs/verification/playwright/source-conversion-manifest.md

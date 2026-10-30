@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { requireNativeDevJourneyContext } from './loom-dev.mjs';
-import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract, verifyFullHTTPFailureMatches, verifyFullUnexpectedNetworkFailures } from './loom-dev.mjs';
+import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, isRecoveredStaleCapabilitiesConflict, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract, verifyFullHTTPFailureMatches, verifyFullUnexpectedNetworkFailures } from './loom-dev.mjs';
 
 test('verify-full diagnostics bind exact 422 responses and reject canceled writes', () => {
   const expected = {
@@ -1794,4 +1794,71 @@ test('J05 artifact mismatches fail deterministically on publication identity and
     () => assertJ05ArtifactRows(artifact, [{ values: { patient_id: 'patient-b' } }]),
     (error) => error.message === 'J05 artifact literal rows differ from Preview/Viewer: expected [{"values":{"patient_id":"patient-b"}}], got [{"values":{"patient_id":"patient-a"}}]',
   );
+});
+
+const staleCapabilitiesURL = 'http://127.0.0.1:3380/api/v1/projects/test%252Frun/explorers/test-explorer/authoring/v2/construction-capabilities';
+const staleCommandsURL = staleCapabilitiesURL.replace('/construction-capabilities', '/commands');
+
+const staleCapabilitiesEvidence = () => ({
+  failure: {
+    status: 409,
+    method: 'POST',
+    url: staleCapabilitiesURL,
+    requestId: 'construction-capabilities-stale-request',
+    startedAt: 405,
+    observedAt: 725,
+    body: JSON.stringify({ error: { code: 'DRAFT_CONFLICT', requestId: 'construction-capabilities-stale-request' } }),
+  },
+  failedRequest: {
+    requestId: 'construction-capabilities-stale-request',
+    status: 409,
+    method: 'POST',
+    url: staleCapabilitiesURL,
+    outputId: 'out-patient-table',
+    expectedDraftVersion: 13,
+    expectedDraftDigest: 'sha256:previous-draft',
+    startedAt: 405,
+    observedAt: 725,
+  },
+  mutationResponse: {
+    status: 200,
+    method: 'POST',
+    url: staleCommandsURL,
+    outputIds: ['out-patient-table'],
+    startedAt: 385,
+    observedAt: 725,
+  },
+  recoveryRequest: {
+    status: 200,
+    method: 'POST',
+    url: staleCapabilitiesURL,
+    outputId: 'out-patient-table',
+    expectedDraftVersion: 14,
+    expectedDraftDigest: 'sha256:current-draft',
+    startedAt: 749,
+    observedAt: 2124,
+  },
+  expectedCapabilitiesURL: staleCapabilitiesURL,
+  expectedCommandsURL: staleCommandsURL,
+  outputId: 'out-patient-table',
+  currentDraftVersion: 14,
+  currentDraftDigest: 'sha256:current-draft',
+});
+
+test('accepts only an overlapping stale capability read recovered for the saved draft', () => {
+  assert.equal(isRecoveredStaleCapabilitiesConflict(staleCapabilitiesEvidence()), true);
+});
+
+test('does not classify conflicts without the exact owner, overlapping mutation, or current-draft recovery', () => {
+  const differentOwner = staleCapabilitiesEvidence();
+  differentOwner.failure.url = `${staleCapabilitiesURL}-other-explorer`;
+  assert.equal(isRecoveredStaleCapabilitiesConflict(differentOwner), false);
+
+  const nonOverlappingMutation = staleCapabilitiesEvidence();
+  nonOverlappingMutation.mutationResponse.startedAt = 500;
+  assert.equal(isRecoveredStaleCapabilitiesConflict(nonOverlappingMutation), false);
+
+  const staleRecovery = staleCapabilitiesEvidence();
+  staleRecovery.recoveryRequest.expectedDraftDigest = 'sha256:previous-draft';
+  assert.equal(isRecoveredStaleCapabilitiesConflict(staleRecovery), false);
 });

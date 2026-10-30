@@ -19,6 +19,7 @@ import {
   observeAuthoringAttempt,
 } from '../helpers/fast-fixtures.mjs';
 import { addField } from '../helpers/cda-journey-fields.mjs';
+import { applyJourneyGroup, assertGroupTwicePreview } from '../helpers/group-twice-journey.mjs';
 
 const expectedPatientIDs = ['dev-patient-001', 'dev-patient-002'];
 const legacyBasicSourceLabels = ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'gender'];
@@ -1759,6 +1760,19 @@ export const groupEntryWorkflow = async (workflow, context) => {
     },
     repositoryRoot,
   });
+  if (rawBasicCase) {
+    const groupTwiceTrace = { actions: [] };
+    await page.getByTestId('construction-rows-settings-trigger').click();
+    const firstGroup = await applyJourneyGroup(page, groupTwiceTrace, 'Group', 'P1');
+    assert.equal(firstGroup.proposalPreview.rows?.length, 1);
+    assert.equal(firstGroup.proposalPreview.rows?.[0]?.row_count, fixtureIDs.length);
+    const secondGroup = await applyJourneyGroup(page, groupTwiceTrace, 'GroupAgain', 'P2');
+    assertGroupTwicePreview(secondGroup.proposalPreview);
+    check('correctness', 'grouping the grouped Patient table produces exactly one row with count 1', true, {
+      preview: secondGroup.proposalPreview,
+      actions: groupTwiceTrace.actions,
+    });
+  }
   report.target.qaIsolation.requiredLifecycleChecks = [
     'applied empty-key Group renders the independently expected count 2',
     'saved Group edit previews exact Patient IDs as one row per key',

@@ -179,6 +179,8 @@ export async function basicPivotUnpivotWorkflow({ page, report, action, check, n
     await click(`${label}: Apply`, apply, async () => {
       await waitFor(page, () => !document.querySelector('[data-testid="construction-proposal-panel"]') &&
         !document.querySelector('[data-testid="construction-choice-proposal-panel"]'), undefined);
+      const back = page.getByRole('button', { name: 'Back to table', exact: true });
+      if (await back.isVisible()) await back.click();
       await waitFor(page, expected => {
         const preview = document.querySelector('[data-testid="construction-preview"]');
         return preview?.dataset.previewStatus === 'ready' && preview.dataset.previewOutputId === expected.outputId &&
@@ -321,8 +323,14 @@ export async function basicPivotUnpivotWorkflow({ page, report, action, check, n
   await waitFor(page, () => document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false, undefined);
 
   const openPivot = async () => {
-    await click('open row changes for Pivot', page.getByTestId('construction-rows-settings-trigger'), () =>
-      waitFor(page, () => document.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled === false, undefined));
+    const reshape = page.getByTestId('construction-row-intent-reshape');
+    if (!await reshape.isVisible()) {
+      await click('open row changes for Pivot', page.getByTestId('construction-rows-settings-trigger'), () => waitVisible(reshape));
+    }
+    if (await reshape.getAttribute('aria-pressed') !== 'true') {
+      await click('choose reshape for Pivot', reshape, () =>
+        waitFor(page, () => document.querySelector('[data-testid="construction-action-table-pivot-rows"]')?.disabled === false, undefined));
+    }
     await click('choose native Pivot', page.getByTestId('construction-action-table-pivot-rows'), () =>
       waitVisible(page.locator('[data-testid="construction-reshape-pivot"] select[aria-label="Pivot category field"]')));
   };
@@ -436,8 +444,14 @@ export async function basicPivotUnpivotWorkflow({ page, report, action, check, n
     unpivotValue: row.value,
   }));
   const openUnpivot = async (fromIndex, nullPolicy, label, expected) => {
-    await click('open row changes for Unpivot', page.getByTestId('construction-rows-settings-trigger'), () =>
-      waitFor(page, () => document.querySelector('[data-testid="construction-action-unpivot-rows"]')?.disabled === false, undefined));
+    const reshape = page.getByTestId('construction-row-intent-reshape');
+    if (!await reshape.isVisible()) {
+      await click('open row changes for Unpivot', page.getByTestId('construction-rows-settings-trigger'), () => waitVisible(reshape));
+    }
+    if (await reshape.getAttribute('aria-pressed') !== 'true') {
+      await click('choose reshape for Unpivot', reshape, () =>
+        waitFor(page, () => document.querySelector('[data-testid="construction-action-unpivot-rows"]')?.disabled === false, undefined));
+    }
     await click('choose native Unpivot', page.getByTestId('construction-action-unpivot-rows'), () =>
       waitVisible(page.locator('[data-testid="construction-reshape-unpivot"]')));
     let result;

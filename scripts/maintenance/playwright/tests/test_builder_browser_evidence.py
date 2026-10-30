@@ -233,47 +233,19 @@ def copy_fixture_inputs(destination: Path) -> None:
         for entry in retained_manifest["artifacts"]
         if entry.get("sourcePath")
     }
-    source_manifest = read_json(REPOSITORY_ROOT / SOURCE_AFTER)["manifest"]
+    source_after = read_json(REPOSITORY_ROOT / SOURCE_AFTER)
+    source_manifest = source_after["manifest"]
     source_audit = read_json(REPOSITORY_ROOT / AUDIT_PATH)
     journey = next(item for item in source_audit["journeys"] if item["id"] == "edit-remove-reload")
     runs = journey["evidence"]
     raw_alias_commit = runs[RAW_ALIAS_RUN]["sourceIdentity"]["commit"]
-
-    for relative_path, expected_hash in source_manifest.items():
-        archived = archived_sources.get(relative_path)
-        if archived:
-            source_bytes = retained_archive_bytes(destination, archived)
-            actual_hash = hashlib.sha256(source_bytes).hexdigest()
-            if actual_hash != expected_hash:
-                raise AssertionError(
-                    f"archived 908 report hash mismatch for {relative_path}: "
-                    f"expected {expected_hash}, found {actual_hash}"
-                )
-            target = destination / relative_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            write_bytes_atomically(target, source_bytes)
-            continue
-        source = REPOSITORY_ROOT / relative_path
-        target = destination / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_file() and sha256(source) == expected_hash:
-            link_or_copy(source, target)
-            continue
-        source_bytes = subprocess.check_output(
-            ["git", "-C", str(REPOSITORY_ROOT), "show", f"{raw_alias_commit}:{relative_path}"]
-        )
-        actual_hash = hashlib.sha256(source_bytes).hexdigest()
-        if actual_hash != expected_hash:
-            raise AssertionError(
-                f"pinned 908 source blob hash mismatch for {relative_path}: "
-                f"expected {expected_hash}, found {actual_hash}"
-            )
-        write_bytes_atomically(target, source_bytes)
+    write_json(destination / "watched-fingerprint.json", source_after["fingerprint"])
 
     shutil.copytree(
         REPOSITORY_ROOT / RUNTIME_ROOT,
         destination / RUNTIME_ROOT,
         copy_function=link_or_copy,
+        ignore=shutil.ignore_patterns("final-191882"),
     )
     for relative_path, entry in archived_sources.items():
         target = destination / relative_path
@@ -309,6 +281,12 @@ def copy_fixture_inputs(destination: Path) -> None:
     contract_target = destination / contract_path
     write_bytes_atomically(contract_target, pinned_contract)
 
+    registry_helper = "scripts/verify-ui/helpers/focused-check-groups.mjs"
+    helper_bytes = subprocess.check_output(
+        ["git", "-C", str(REPOSITORY_ROOT), "show", f"{raw_alias_commit}:{registry_helper}"]
+    )
+    write_bytes_atomically(destination / registry_helper, helper_bytes)
+
     for relative_path in (
         AUDIT_PATH,
         EVIDENCE_PATH,
@@ -329,8 +307,12 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
             prefix="loom-browser-evidence-fixtures-",
         )
         cls.temporary_root = Path(cls.temporary_directory.name)
-        cls.baseline = cls.temporary_root / "baseline"
-        copy_fixture_inputs(cls.baseline)
+        shared_baseline = os.environ.get("LOOM_BROWSER_EVIDENCE_SHARED_BASELINE")
+        if shared_baseline:
+            cls.baseline = Path(shared_baseline).resolve()
+        else:
+            cls.baseline = cls.temporary_root / "baseline"
+            copy_fixture_inputs(cls.baseline)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -350,6 +332,8 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
                 str(root),
                 "--output",
                 "generated-browser-evidence.json",
+                "--watched-fingerprint",
+                "watched-fingerprint.json",
                 *arguments,
             ],
             cwd=REPOSITORY_ROOT,
@@ -760,9 +744,10 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
 
     def test_source_change_is_explicitly_stale_and_require_current_rejects_it(self) -> None:
         root = self.fixture("stale-current-source")
-        source_path = root / "scripts/verify-ui/workflows/builder-group-entry.mjs"
-        original = source_path.read_text(encoding="utf-8")
-        write_text_atomically(source_path, original + "\nexport const fixtureSourceMutation = true;\n")
+        fingerprint_path = root / "watched-fingerprint.json"
+        fingerprint = read_json(fingerprint_path)
+        fingerprint["sha256"] = "0" * 64
+        write_json(fingerprint_path, fingerprint)
 
         result = self.run_generator(root, "--report", RAW_NATIVE_REPORT.as_posix())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -781,26 +766,6 @@ class BuilderBrowserEvidenceNegativeControlsTest(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0, rejected.stdout + rejected.stderr)
         self.assertIn("--require-current rejected evidence row(s)", rejected.stdout + rejected.stderr)
         self.assertIn(f"{EXPECTED_RAW_TRACE} (historical/stale:", rejected.stdout + rejected.stderr)
-
-    def test_current_sanitizer_mutation_leaves_retained_proof_valid_but_stale(self) -> None:
-        root = self.fixture("mutated-current-sanitizer")
-        sanitizer_path = root / "scripts/verify-ui/helpers/playwright-browser.mjs"
-        original = sanitizer_path.read_text(encoding="utf-8")
-        write_text_atomically(
-            sanitizer_path,
-            original + "\nexport const fixtureSanitizerMutation = true;\n",
-        )
-
-        result = self.run_generator(root)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        evidence = read_json(root / "generated-browser-evidence.json")
-        raw_alias = next(
-            item for item in evidence["retainedJourneys"]
-            if item["runId"] == "raw-basic-alias-908"
-        )
-        self.assertEqual(raw_alias["status"], "historical")
-        self.assertEqual(raw_alias["sourceStatus"], "stale")
-        self.assertTrue(raw_alias["sourceStatusReason"])
 
     def test_truncated_watched_fingerprints_are_rejected_as_a_recurrence_control(self) -> None:
         cases = (

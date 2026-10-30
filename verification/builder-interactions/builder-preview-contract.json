@@ -39,7 +39,7 @@
     },
     {
       "path": "scripts/verify-builder-traces.mjs",
-      "sha256": "89ec6aed6ee42681b9acbf0fcb18d53bc531403303fa6cdd11cfcff977bce1b8",
+      "sha256": "64062e473e130de87b8a8edb28fcd8e18b310ded7f965ae664ce859107e2e3af",
       "contract": "Runtime-bound journey trace validator and full-Spec TLA replay, including scoped Group lifecycle evidence, output-bound raw workspace records, ordered keys, owner identities, and exact per-trace action counts."
     },
     {
@@ -78,8 +78,13 @@
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
+      "path": "scripts/verify-ui/helpers/group-twice-journey.mjs",
+      "sha256": "727c6385b9f171d0765bacd2daa0c4d1a92e0d33b189f99080aa6b1931beb055",
+      "contract": "Shared Group-twice proposal, Apply, and exact preview assertions."
+    },
+    {
       "path": "scripts/verify-ui/journey-specs/builder-journey.spec.mjs",
-      "sha256": "3784736f90f917cc1ca0f97028e8549a3046df79caf73da2572cf9da44e46432",
+      "sha256": "7e82d161b279c605a808b58773e1d8be39f25b3c8ef62301b7076efa0943fc11",
       "contract": "Selected synthetic Journey actions, runtime capture points, and independent user-visible oracle assertions."
     },
     {
@@ -379,17 +384,17 @@
     },
     {
       "path": "scripts/verify-ui/registry.mjs",
-      "sha256": "9f792683ed96258e349fc48ccd7fca4477ca36da10d9e8db08c361187d547579",
+      "sha256": "88d3818b7e1b62c06c42618f94a801f6483537c0fa6934489bc9b9e0eba391dd",
       "contract": "Registered native Builder cases, required assertions, and directly declared focused-check commands."
     },
     {
       "path": "scripts/verify-ui/workflows/builder-group-entry.mjs",
-      "sha256": "fd46982e3b4da902338c41aeabf9a6a08ba7841aef8fa484b9fff8e20e7ad5f0",
+      "sha256": "78deff43c6ca571204fe36d0f1ead6032814d4a4860b16c22460604a8ef20fb7",
       "contract": "Registered authored-three and raw-Basic native Group lifecycles with actual Builder reads, captured request owners, mounted reload controls, post-action observations, TLA replay, and trace-bound mutation controls."
     },
     {
       "path": "scripts/generate-builder-browser-evidence.mjs",
-      "sha256": "d604e272265fb4f9b8062d8d78833967c4d59cc8e39510a770ab51f732e49466",
+      "sha256": "63d93da72e590bd01817525a9977899c07fbda195dba52778d7bca6b391e1597",
       "contract": "Builder browser evidence output, including retained native formal journey receipts."
     },
     {

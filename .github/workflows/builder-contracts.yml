@@ -6,6 +6,7 @@ on:
       - '**/*.mjs'
       - 'verification/builder-interactions/**'
       - 'scripts/maintenance/playwright/tests/**'
+      - 'scripts/maintenance/playwright/run_browser_evidence_tests_parallel.py'
       - 'docs/ui-contract-inventory/**'
       - 'internal/**'
       - 'ui/packages/loom-ui/src/features/ExplorerBuilder/**'
@@ -35,7 +36,13 @@ jobs:
           node scripts/generate-builder-browser-evidence.mjs --self-test
           node scripts/generate-builder-browser-evidence.mjs --from-evidence --check
       - name: Exercise retained browser evidence controls
-        run: python3 -m unittest discover -s scripts/maintenance/playwright/tests -p 'test_builder_browser_evidence.py'
+        run: python3 scripts/maintenance/playwright/run_browser_evidence_tests_parallel.py
+      - name: Exercise maintenance checker controls
+        run: node --test scripts/maintenance/playwright/check-native-playwright.test.mjs scripts/maintenance/playwright/check-browser-eval-returns.test.mjs scripts/maintenance/playwright/tests/browser-callback-scope.test.mjs
+      - name: Exercise evidence bootstrap and temporal oracle controls
+        run: |
+          node --test scripts/verify-ui/helpers/tests/generate-builder-browser-evidence-bootstrap.test.mjs
+          node --test scripts/verify-ui/helpers/tests/basic-temporal-filter-oracle-negative.test.mjs
       - name: Generate local obligation index
         run: node scripts/build-test-obligations.mjs
       - name: Validate derived obligation report

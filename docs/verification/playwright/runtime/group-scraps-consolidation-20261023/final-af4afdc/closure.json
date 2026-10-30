@@ -41,7 +41,7 @@
       "scoped proposal preview response rows",
       "mounted saved-preview rendered rows",
       "construction proposal panel DOM rows",
-      "raw Specimen → Patient → Observation route rows"
+      "raw Specimen \u2192 Patient \u2192 Observation route rows"
     ],
     "populationSemantics": "Complete row-frequency comparison preserves duplicate rows and duplicate ALL cell values, ignores only row order and within-cell ALL item order, and rejects missing/extra rows and damaged multiplicity.",
     "boundedPreviewApiAndArrayOrderChanged": false,
@@ -60,7 +60,7 @@
     {
       "commit": "5a8de0cde2a1bcdb2360ee7a350fe88e6eb89b39",
       "summary": "Added a normal-user Preview action for related-column selections while preserving the existing atomic Add path; Preview stages a proposal so Cancel and explicit Apply are real user actions.",
-      "proof": "The CDA journey exercises Preview → Cancel with unchanged draft, fresh proposal → Apply, saved source binding, and reload."
+      "proof": "The CDA journey exercises Preview \u2192 Cancel with unchanged draft, fresh proposal \u2192 Apply, saved source binding, and reload."
     },
     {
       "commit": "4470630ff57217d057513e2afd3d9fb9ca5752dc",
@@ -108,9 +108,11 @@
       },
       "artifacts": {
         "summary": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
           "sha256": "9bd3573f3bc0d39b59e0095711749e054c9cd25e3f413cf4d5e40f0cf2b1ea2e",
-          "bytes": 45468
+          "bytes": 45468,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json"
         },
         "nativeReport": {
           "status": "recoverable-from-git-base",
@@ -179,9 +181,11 @@
       },
       "artifacts": {
         "summary": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
           "sha256": "33505658bc13b496a0605500f50b2ce577805028cbc33e14e56a4b3df893f5ce",
-          "bytes": 27065
+          "bytes": 27065,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json"
         },
         "nativeReport": {
           "status": "recoverable-from-git-base",
@@ -191,19 +195,25 @@
           "recoveryCommand": "git show a6ab20357b969370d7f2da444f713942367f62ff:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/native-report.json > /private/tmp/authored-group-native-report.json"
         },
         "trace": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
           "sha256": "9b5fec2fca3715856c6d620927ddc407e9451d416403f26045235ca360d08435",
-          "bytes": 241437
+          "bytes": 241437,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json"
         },
         "tlaReport": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json",
           "sha256": "2d811f6ef9cc2f38e2308d281357735486db08ba201bcdb3107d4a1ee7df9ae7",
-          "bytes": 1317
+          "bytes": 1317,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json"
         },
         "selfTest": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json",
           "sha256": "27646e1e6962c0691c8f8325db76696a95369039be760e9eb101c7a3f9314513",
-          "bytes": 3430
+          "bytes": 3430,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json"
         }
       }
     }
@@ -213,9 +223,11 @@
     "reason": "The first builder-authoring invocation omitted required LOOM_CDA_SOURCE_ROOT; preparation stopped before focused checks or browser fixture creation.",
     "recovery": "Reran with the exact owned stack identity read from the passing dev-doctor report and retained registry-unbound target mode.",
     "artifact": {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
       "sha256": "bd36301b7a3fdf69cf601a629958fa7f54e2eabd150c704726f32a434a49c220",
-      "bytes": 9574
+      "bytes": 9574,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json"
     }
   },
   "focusedAndDeterministicProofs": {
@@ -264,7 +276,7 @@
   "knownGaps": [
     "The authored Group self-test intentionally skips late-aborted-preview-current-error-control: this native trace has no LatePreviewErrorIgnored paired with a distinct later Preview from the same P1/P2 attempt. That schedule remains model-only and requires a future actual observation.",
     "The Group filename inventory keeps 65 independent records; these two native runs do not establish all aggregates, key shapes, sources, or Group workflows. Separate families retained include PRESENCE, repeated expansion, population removal, collection replacement, composite filters, downstream compositions, and Patient ONE failure preconditions.",
-    "The three preexisting BuilderWorkspace.addColumnsSource unit failures remained on the clean base and candidate: tabs shared-source scopes (expected 4 inventory entries, received 5); missing “Values per cohort member for Member status” action; missing saved related-source search box. The focused additions passed 4/4 and the focused PreviewTable suite passed 44/44.",
+    "The three preexisting BuilderWorkspace.addColumnsSource unit failures remained on the clean base and candidate: tabs shared-source scopes (expected 4 inventory entries, received 5); missing \u201cValues per cohort member for Member status\u201d action; missing saved related-source search box. The focused additions passed 4/4 and the focused PreviewTable suite passed 44/44.",
     "npm run typecheck:tests remained red from existing diagnostics, including a test implicit-any at line 961 and unrelated test files; no new changed-line type diagnostic was identified.",
     "The native-verification-bracket test suite has one known SIGINT startup failure on both baseline and candidate (63/64 baseline, 64/65 candidate). It remains an accepted unrelated harness gap; no full-suite-green claim is made.",
     "Historical mutation outcomes remain bound to their earlier source and were not revalidated after BuilderWorkspace changed. The deterministic report checks pass, but current readiness still says end-to-end ready=false.",
@@ -278,44 +290,60 @@
   "published": false,
   "retainedArtifacts": [
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json",
       "sha256": "4e6d9b28dfb50b63077b08d5a2ef0d79d5f0f42a63a183d59316c4d2dac06846",
-      "bytes": 31793
+      "bytes": 31793,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
       "sha256": "8c5348a599d6cf642433ed5dac2c18ec8b463609e20d3342831173e105a856db",
-      "bytes": 31158
+      "bytes": 31158,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
       "sha256": "9bd3573f3bc0d39b59e0095711749e054c9cd25e3f413cf4d5e40f0cf2b1ea2e",
-      "bytes": 45468
+      "bytes": 45468,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/passed/bracket-summary.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
       "sha256": "bd36301b7a3fdf69cf601a629958fa7f54e2eabd150c704726f32a434a49c220",
-      "bytes": 9574
+      "bytes": 9574,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/preparation-env-omission.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
       "sha256": "33505658bc13b496a0605500f50b2ce577805028cbc33e14e56a4b3df893f5ce",
-      "bytes": 27065
+      "bytes": 27065,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/bracket-summary.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
       "sha256": "9b5fec2fca3715856c6d620927ddc407e9451d416403f26045235ca360d08435",
-      "bytes": 241437
+      "bytes": 241437,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/trace.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json",
       "sha256": "2d811f6ef9cc2f38e2308d281357735486db08ba201bcdb3107d4a1ee7df9ae7",
-      "bytes": 1317
+      "bytes": 1317,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/tla-report.json"
     },
     {
-      "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json",
       "sha256": "27646e1e6962c0691c8f8325db76696a95369039be760e9eb101c7a3f9314513",
-      "bytes": 3430
+      "bytes": 3430,
+      "status": "recoverable-from-git-base",
+      "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json",
+      "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/authored-group/self-test.json"
     }
   ],
   "integratedProductCommits": [
@@ -343,14 +371,16 @@
       "status": "failed before correction",
       "durationMs": 91312,
       "checksPassed": "8/16",
-      "failure": "After Apply, the rendered-preview reader included the separate “12 values” array count badge in the cell value; the independent proposal API row oracle had already passed.",
+      "failure": "After Apply, the rendered-preview reader included the separate \u201c12 values\u201d array count badge in the cell value; the independent proposal API row oracle had already passed.",
       "classification": "Harness DOM projection defect; PreviewTable product behavior was correct.",
       "correctionCommit": "db44b11da18f9a5ebbcf76bfe30ce391909b3dec",
       "artifacts": {
         "summary": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json",
           "sha256": "4e6d9b28dfb50b63077b08d5a2ef0d79d5f0f42a63a183d59316c4d2dac06846",
-          "bytes": 31793
+          "bytes": 31793,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-preview-reader/bracket-summary.json"
         },
         "nativeReport": {
           "status": "recoverable-from-git-base",
@@ -371,9 +401,11 @@
       "correctionCommit": "7cccd229be5b281bc7dc675d20369a43f4eb0f84",
       "artifacts": {
         "summary": {
-          "path": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
           "sha256": "8c5348a599d6cf642433ed5dac2c18ec8b463609e20d3342831173e105a856db",
-          "bytes": 31158
+          "bytes": 31158,
+          "status": "recoverable-from-git-base",
+          "historicalPath": "docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json",
+          "recoveryCommand": "git show ad531a0b6:docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/cda-group-related-source/failed-history-disclosure/bracket-summary.json"
         },
         "nativeReport": {
           "status": "recoverable-from-git-base",

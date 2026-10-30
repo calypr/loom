@@ -9,6 +9,7 @@ import {
 import {
   assertExactRows,
   protectNativeRequestBodies,
+  stableDigest,
   summarizeOracle,
 } from '../helpers/semantic-group-expanded-report.mjs';
 import { validatedArangoContainer } from '../helpers/native-cda-workflow-tools.mjs';

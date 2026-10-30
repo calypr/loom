@@ -83,6 +83,9 @@ jobs:
     - name: Run Go tests
       run: make test
 
+    - name: Run repository script tests
+      run: make test-scripts
+
     - name: Build server image
       uses: docker/build-push-action@v6
       with:

@@ -4,6 +4,7 @@
 
 - Start with the requested change. Read the relevant source and make the smallest coherent patch.
 - Use skills when explicitly requested or when they solve a concrete problem. Do not stack workflows automatically.
+- For repository-wide cleanup, follow `docs/REPO_CLEANUP_GOAL.md`. Age is a screening signal, not deletion evidence.
 - Handle focused tasks directly. Delegate only independent work that saves time, with one owner per file or issue.
 - Use separate worktrees for concurrent implementation. Keep unfinished changes out of the live checkout during runtime verification.
 - Preserve unrelated changes. Do not reset, stash, clean, or overwrite someone else's work.

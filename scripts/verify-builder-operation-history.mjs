@@ -11,6 +11,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { exploreOperationHistory } from '../verification/builder-interactions/operationHistoryModel.mjs';
 
 const ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -482,8 +483,54 @@ function reportGoCounterexample(output, traces) {
 
 async function main() {
   if (realpathSync(process.cwd()) !== ROOT) fail('run from the repository root: ' + ROOT);
+  const { values } = parseArgs({ options: {
+    help: { type: 'boolean' },
+    'current-source': { type: 'boolean' },
+    case: { type: 'string' },
+    'list-cases': { type: 'boolean' },
+    'allow-source-drift-for-mutation': { type: 'string' },
+  } });
+  if (values.help) {
+    console.log('usage: node scripts/verify-builder-operation-history.mjs [--list-cases | [--current-source] --case <id> | --allow-source-drift-for-mutation <pristine-root>]');
+    console.log('No arguments runs pinned-source acceptance. A selected case also runs the required frontend wiring and Go-response panel witnesses.');
+    console.log('--current-source records current input hashes and rejects in-run changes, without claiming pinned-source acceptance.');
+    return;
+  }
+  if (values['allow-source-drift-for-mutation'] && (values.case || values['current-source'] || values['list-cases'])) {
+    fail('controlled mutation mode cannot be combined with development case selection');
+  }
+  if (values['current-source'] && !values.case) fail('--current-source requires --case <id>');
+  if (values['list-cases'] && (values.case || values['current-source'])) fail('--list-cases cannot be combined with a run');
+  const explored = exploreOperationHistory();
+  validateModel(explored.cases, explored.stats);
+  if (values['list-cases']) {
+    for (const trace of explored.cases) console.log(trace.id + '\t' + JSON.stringify(trace.actions));
+    return;
+  }
+  let { cases, stats } = explored;
+  if (values.case) {
+    if (!cases.some(({ id }) => id === values.case)) fail('unknown operation-history case ' + values.case);
+    const selectedIds = new Set([
+      values.case,
+      'operation-history-count-to-mean-accepted-history-filter',
+      'operation-history-group-key-cascade-count-to-mean-ready-preserves-calculate',
+    ]);
+    cases = cases.filter(({ id }) => selectedIds.has(id));
+    if (cases.length !== selectedIds.size) fail('required frontend wiring or response-panel witness is missing');
+    stats = {
+      ...stats,
+      emittedTraceCount: cases.length,
+      uniqueProposalRequestCount: new Set(cases.flatMap(trace => trace.expectations
+        .filter((_, index) => trace.actions[index].kind === 'propose')
+        .map(expectation => expectation.requestFingerprint))).size,
+      proposalInputTraceCount: cases.filter(trace => trace.traceKind === 'proposal-input').length,
+      lifecycleWitnessCount: cases.filter(trace => trace.traceKind === 'lifecycle-witness').length,
+    };
+    console.log('Selected case and required wiring/panel witnesses: ' + cases.map(({ id }) => id).join(', '));
+  }
   const mutationReference = mutationReferenceArgument();
-  requirePinnedSources(mutationReference);
+  if (values['current-source']) console.log('Development run against current source; not pinned-source acceptance.');
+  else requirePinnedSources(mutationReference);
   const sourceSnapshot = captureRunInputs();
   const runDirectory = mkdtempSync(join(tmpdir(), 'loom-builder-operation-history-'));
   const tracePath = join(runDirectory, 'operation-history-cases.json');
@@ -494,7 +541,12 @@ async function main() {
   const prepareReportPath = join(runDirectory, 'vitest-prepare.json');
   const replayReportPath = join(runDirectory, 'vitest-replay.json');
   const panelReportPath = join(runDirectory, 'vitest-panel.json');
-  const { cases, stats } = exploreOperationHistory();
+  writeFileSync(join(runDirectory, 'run-inputs.json'), JSON.stringify({
+    mode: values['current-source'] ? 'current-source' : 'pinned-source',
+    requestedCase: values.case ?? null,
+    executedCases: cases.map(({ id }) => id),
+    inputs: Object.fromEntries(sourceSnapshot),
+  }, null, 2) + '\n');
   writeFileSync(tracePath, JSON.stringify({ schemaVersion: 1, cases }, null, 2) + '\n');
   const modelInventory = validateModel(cases, stats);
   console.log('Operation-history bounded model: ' + JSON.stringify(stats));
@@ -608,7 +660,9 @@ async function main() {
   }));
   console.log('Go response panel: ' + modelInventory.proposalCount + ' service DTOs matched by trace/action; panel uses actual Go impact/candidate/preview data in a presentation fixture, not wire JSON.');
   console.log('Evidence directory: ' + runDirectory);
-  console.log('\nPASS bounded model-based operation-history conformance.');
+  console.log(values['current-source']
+    ? '\nPASS selected current-source operation-history checks; pinned-source acceptance not run.'
+    : '\nPASS bounded model-based operation-history conformance.');
 }
 
 main().catch((error) => {

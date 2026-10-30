@@ -22,10 +22,10 @@ import {
   explorerBuilderStateSchema,
   explorerBuilderWorkspaceSchema,
 } from '../../types';
-import { peripheralAdapters } from './builderContractAdapters/peripheral';
-import { relationalAdapters } from './builderContractAdapters/relational';
-import { shapeCombineAdapters } from './builderContractAdapters/shapeCombine';
-import { coreAdapters } from './builderContractAdapters/core';
+import { peripheralAdapters } from '../../../testSupport/builderContractAdapters/peripheral';
+import { relationalAdapters } from '../../../testSupport/builderContractAdapters/relational';
+import { shapeCombineAdapters } from '../../../testSupport/builderContractAdapters/shapeCombine';
+import { coreAdapters } from '../../../testSupport/builderContractAdapters/core';
 import BuilderWorkspace from './BuilderWorkspace';
 
 type CapturedRequest = {
@@ -317,10 +317,10 @@ const captureOutputPath = process.env.BUILDER_FULL_UI_UI_OBSERVATIONS;
 const centralTestSourcePath = 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx';
 const adapterImplementationPathById = new Map<string, string>([
   ...Object.keys(centralContractAdapters).map((id) => [id, centralTestSourcePath] as const),
-  ...Object.keys(coreAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts'] as const),
-  ...Object.keys(relationalAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/relational.ts'] as const),
-  ...Object.keys(shapeCombineAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts'] as const),
-  ...Object.keys(peripheralAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/peripheral.tsx'] as const),
+  ...Object.keys(coreAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/core.ts'] as const),
+  ...Object.keys(relationalAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/relational.ts'] as const),
+  ...Object.keys(shapeCombineAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/shapeCombine.ts'] as const),
+  ...Object.keys(peripheralAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/peripheral.tsx'] as const),
 ]);
 const hashNamedBytes = (files: ReadonlyArray<{ readonly path: string; readonly bytes: Buffer }>): string => {
   const hash = createHash('sha256');
