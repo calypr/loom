@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -42,6 +43,12 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	}
 
 	project := "loom_cohort_lineage_" + uuid.NewString()
+	// Production selection/group metadata uses canonical project identity;
+	// resource documents retain the legacy storage alias.
+	selectionProject := projectid.Canonical(project)
+	if selectionProject == project {
+		t.Fatal("fixture must exercise distinct selection and resource project identities")
+	}
 	generation := "cohort-lineage-generation"
 	revisionID, selectionID := project+"_revision", project+"_selection"
 	staleRevisionID, staleSelectionID := project+"_stale_revision", project+"_stale_selection"
@@ -80,32 +87,32 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	}
 
 	insert(revisionsCollection, map[string]any{
-		"_key": revisionID, "state": "COMPLETE", "project": project, "generation": generation,
+		"_key": revisionID, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "sourceSelectionRevisionId": selectionID,
 		"scopeDigest": "scope-current", "sourceMembershipDigest": "members-current",
 	})
 	insert(selectionsCollection, map[string]any{
-		"_key": selectionID, "complete": true, "project": project, "generation": generation,
+		"_key": selectionID, "complete": true, "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "scopeDigest": "scope-current", "membershipDigest": "members-current",
 	})
 	insert(definitionsCollection,
-		map[string]any{"_key": project + "_definition_assigned", "revisionId": revisionID, "project": project, "groupId": "assigned", "label": "Assigned", "ordinal": 0},
-		map[string]any{"_key": project + "_definition_empty", "revisionId": revisionID, "project": project, "groupId": "empty", "label": "Empty", "ordinal": 1},
+		map[string]any{"_key": project + "_definition_assigned", "revisionId": revisionID, "project": selectionProject, "groupId": "assigned", "label": "Assigned", "ordinal": 0},
+		map[string]any{"_key": project + "_definition_empty", "revisionId": revisionID, "project": selectionProject, "groupId": "empty", "label": "Empty", "ordinal": 1},
 	)
 
 	const allowedID, revokedID, missingID, unassignedID = "allowed-a", "revoked-b", "missing-c", "unassigned-z"
 	selectionMembers := []map[string]any{}
 	for _, id := range []string{allowedID, revokedID, missingID, unassignedID} {
 		selectionMembers = append(selectionMembers, map[string]any{
-			"_key": project + "_selected_" + id, "selectionId": selectionID, "project": project,
+			"_key": project + "_selected_" + id, "selectionId": selectionID, "project": selectionProject,
 			"generation": generation, "resourceType": "Observation", "id": id,
 		})
 	}
 	insert(selectionMembersCollection, selectionMembers...)
 	insert(membershipsCollection,
-		groupRowsMembership(revisionID, project, generation, "assigned", allowedID),
-		groupRowsMembership(revisionID, project, generation, "assigned", revokedID),
-		groupRowsMembership(revisionID, project, generation, "assigned", missingID),
+		groupRowsMembership(revisionID, selectionProject, generation, "assigned", allowedID),
+		groupRowsMembership(revisionID, selectionProject, generation, "assigned", revokedID),
+		groupRowsMembership(revisionID, selectionProject, generation, "assigned", missingID),
 	)
 	insert("Observation",
 		map[string]any{"_key": project + "_resource_" + allowedID, "id": allowedID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/allowed", "payload": map[string]any{"id": allowedID}},
@@ -116,7 +123,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	// resource document. GROUP_ROWS preserves that identity with a null payload.
 
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 		IncludeRowIdentity: true,
 	}
@@ -226,12 +233,12 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	// A stale source membership digest must fail the same guard used by the
 	// canonical GROUP_ROWS renderer, before any contributor page is returned.
 	insert(revisionsCollection, map[string]any{
-		"_key": staleRevisionID, "state": "COMPLETE", "project": project, "generation": generation,
+		"_key": staleRevisionID, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "sourceSelectionRevisionId": staleSelectionID,
 		"scopeDigest": "scope-stale", "sourceMembershipDigest": "members-stale",
 	})
 	insert(selectionsCollection, map[string]any{
-		"_key": staleSelectionID, "complete": true, "project": project, "generation": generation,
+		"_key": staleSelectionID, "complete": true, "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "scopeDigest": "scope-stale", "membershipDigest": "members-current",
 	})
 	staleOutput := output

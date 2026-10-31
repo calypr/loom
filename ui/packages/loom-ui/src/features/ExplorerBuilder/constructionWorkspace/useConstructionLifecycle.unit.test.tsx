@@ -184,13 +184,15 @@ describe('useConstructionLifecycle', () => {
     expect(result.current.canApply).toBe(true);
 
     let proposalId: string | undefined;
+    let apply: ReturnType<typeof result.current.beginApply>;
     act(() => {
-      proposalId = result.current.beginApply();
+      apply = result.current.beginApply();
+      proposalId = apply?.proposalId;
     });
     expect(proposalId).toBe('proposal-1');
     expect(result.current.proposal.status).toBe('applying');
     expect(result.current.canApply).toBe(false);
-    act(() => result.current.finishApply(true));
+    act(() => apply?.finish(true));
     expect(result.current.proposal.status).toBe('idle');
     unmount();
   });
@@ -250,8 +252,8 @@ describe('useConstructionLifecycle', () => {
     let duplicateProposalId: string | undefined;
     await act(async () => {
       const ready = await repairedAttempt;
-      proposalId = result.current.beginApply(ready);
-      duplicateProposalId = result.current.beginApply(ready);
+      proposalId = result.current.beginApply(ready)?.proposalId;
+      duplicateProposalId = result.current.beginApply(ready)?.proposalId;
     });
     expect(proposalId).toBe('proposal-1');
     expect(duplicateProposalId).toBeUndefined();

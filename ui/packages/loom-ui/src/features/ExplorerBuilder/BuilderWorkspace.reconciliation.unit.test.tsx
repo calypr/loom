@@ -4142,6 +4142,23 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(reconcile).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['snapshot', 'output', 'diagnostics'] as const)('formal mounted reconcile rejects mismatched %s receipt', async (mismatch) => {
+    reconcile.mockImplementation((args: ReconcileExplorerBuilderArgs) => resolvedRequest({
+      ...receipt,
+      snapshotToken: mismatch === 'snapshot' ? 'wrong-snapshot' : args.snapshotToken,
+      diagnostics: mismatch === 'diagnostics' ? [{ severity: 'error', code: 'FORMAL_REPAIR', message: 'Formal compile receipt requires repair.' }] : receipt.diagnostics,
+      outputs: mismatch === 'output'
+        ? [{ ...receipt.outputs[0], outputId: 'other-output' }]
+        : receipt.outputs,
+    }));
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(reconcile).toHaveBeenCalled());
+    const message = mismatch === 'diagnostics' ? 'Formal compile receipt requires repair.' : 'Loom returned a compile receipt for a different snapshot or output.';
+    await waitFor(() => expect(screen.queryByText(message)).not.toBeNull());
+    expect(preview).not.toHaveBeenCalled();
+    if (mismatch !== 'diagnostics') expect(screen.getByTestId('construction-preview').getAttribute('data-preview-receipt-id') ?? '').toBe('');
+  });
+
   it('formal mounted reconcile race keeps B visible after late A settles', async () => {
     type ReconcileKey = 'A' | 'B';
     type WorkspaceKey = 'W1' | 'W2';
@@ -4279,6 +4296,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         request: requestSnapshot(eventCall),
         receipt: surfacedReceipt
           ? {
+              snapshotToken: surfacedReceipt.result.snapshotToken,
+              outputIds: surfacedReceipt.result.outputs.map((output) => output.outputId),
               modelKey: receiptModelKeyFor(surfacedReceipt.result.receiptId),
               receiptId: surfacedReceipt.result.receiptId,
               requestKey: surfacedReceipt.modelKey,

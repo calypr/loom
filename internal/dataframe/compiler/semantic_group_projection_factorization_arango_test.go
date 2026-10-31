@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -177,6 +181,30 @@ func TestSemanticGroupProjectionFactorizationSelectsReadOnlyIndexForScopedFixtur
 	rows = append(rows, semanticGroupProjectionDirectCodingRow("blocked", "/blocked", codings))
 	insertSemanticGroupProjectionRowsForResource(t, ctx, client, resourceType, project, generation, rows)
 
+	// The selector is read-only: explicitly provision its prerequisite in this
+	// test-owned fixture instead of relying on an index from a developer's CDA DB.
+	const fixtureIndex = "loom_pivot_preview_semantic_projection_fixture"
+	indexesBeforeSetup := semanticProjectionIndexSnapshot(t, ctx, resourceType)
+	if err := client.EnsurePreviewCoveringIndex(ctx, resourceType, fixtureIndex,
+		[]string{"project", "dataset_generation", "auth_resource_path", "payload.type.coding"}); err != nil {
+		t.Fatalf("prepare fixture-owned covering index: %v", err)
+	}
+	indexesBeforePreview := semanticProjectionIndexSnapshot(t, ctx, resourceType)
+	for _, index := range indexesBeforePreview {
+		if index.Name == fixtureIndex {
+			owned := true
+			for _, previous := range indexesBeforeSetup {
+				if previous.ID == index.ID {
+					owned = false
+				}
+			}
+			if owned {
+				id := index.ID
+				t.Cleanup(func() { semanticProjectionIndexRequest(t, context.Background(), http.MethodDelete, "/_api/index/"+id) })
+			}
+		}
+	}
+
 	bindings := semanticGroupProjectionBindings(project, generation)
 	output := semanticGroupProjectionOutputForResource(t, resourceType, recipe.ConstructionGroupMissingKeyGroup,
 		bindingID, familyID, ruleVersion, targetSystem, targetVersion, codingPath)
@@ -190,13 +218,45 @@ func TestSemanticGroupProjectionFactorizationSelectsReadOnlyIndexForScopedFixtur
 		"A Alias":      {float64(repeatedRows)},
 		"Shared label": {float64(repeatedRows), float64(repeatedRows)},
 	})
-	assertProjectionSelectionCallbacks(t, result.ordinaryQuery, result.callbacks, "loom_pivot_preview_903397e30bbf044a", true)
+	assertProjectionSelectionCallbacks(t, result.ordinaryQuery, result.callbacks, fixtureIndex, true)
+	if after := semanticProjectionIndexSnapshot(t, ctx, resourceType); !reflect.DeepEqual(indexesBeforePreview, after) {
+		t.Fatalf("read-only preview mutated indexes: before=%#v after=%#v", indexesBeforePreview, after)
+	}
 }
 
 func TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly(t *testing.T) {
+	if os.Getenv("LOOM_TEST_FULL_CDA_READONLY") != "1" {
+		t.Skip("requires explicit LOOM_TEST_FULL_CDA_READONLY=1 and a preseeded full CDA database with its existing covering index; the bounded scoped fixture runs separately")
+	}
+	// Do not let arangostore.Open create an empty DB for this read-only probe.
+	semanticProjectionIndexRequest(t, context.Background(), http.MethodGet, "/_api/database/current")
 	ctx, client := openSemanticGroupProjectionArango(t)
 	const resourceType, project, generation, codingPath = "Specimen", "loom_dev_cda_fhir", "cda-fhir-v1", "type.coding[]"
 	const system, version = "https://cda.readthedocs.io/", ""
+	var sourceRows int
+	if err := client.QueryRowsWithMaxRuntime(ctx,
+		"FOR row IN Specimen FILTER row.project == @project && row.dataset_generation == @generation COLLECT WITH COUNT INTO count RETURN {count}",
+		1, map[string]any{"project": project, "generation": generation}, 8*time.Second,
+		func(row map[string]any) error {
+			sourceRows = int(semanticGroupProjectionNumber(row["count"]))
+			return nil
+		}); err != nil {
+		t.Fatalf("full-CDA precondition probe: %v", err)
+	}
+	if sourceRows == 0 {
+		t.Fatalf("full-CDA precondition missing: no Specimen rows for %s/%s; this read-only probe never seeds substitute data", project, generation)
+	}
+	const existingIndex = "loom_pivot_preview_903397e30bbf044a"
+	indexesBeforePreview := semanticProjectionIndexSnapshot(t, ctx, resourceType)
+	indexPresent := false
+	for _, index := range indexesBeforePreview {
+		if index.Name == existingIndex {
+			indexPresent = true
+		}
+	}
+	if !indexPresent {
+		t.Fatalf("full-CDA precondition missing: existing covering index %s; this read-only probe never creates indexes", existingIndex)
+	}
 	bindingID, familyID, ruleVersion := semanticGroupProjectionFixtureBindingForResource(t, resourceType, system, version, codingPath)
 	bindings := recipe.RuntimeBindings{
 		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted,
@@ -218,7 +278,10 @@ func TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOn
 	if summary.RowCount != len(previewRows) || len(previewRows) == 0 {
 		t.Fatalf("full-CDA preview summary = %+v with %d rows, want nonempty emitted rows", summary, len(previewRows))
 	}
-	assertProjectionSelectionCallbacks(t, ordinaryQuery, callbacks, "loom_pivot_preview_903397e30bbf044a", true)
+	assertProjectionSelectionCallbacks(t, ordinaryQuery, callbacks, existingIndex, true)
+	if after := semanticProjectionIndexSnapshot(t, ctx, resourceType); !reflect.DeepEqual(indexesBeforePreview, after) {
+		t.Fatalf("read-only full-CDA preview mutated indexes: before=%#v after=%#v", indexesBeforePreview, after)
+	}
 }
 
 func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *testing.T) {
@@ -565,6 +628,57 @@ func semanticGroupProjectionDirectCodingRow(id, authResourcePath string, codings
 		"id": id, "status": "active", "auth_resource_path": authResourcePath,
 		"type": map[string]any{"coding": codings},
 	}
+}
+
+// Only stable index definition fields are compared; read queries may update
+// planner estimates, which are not schema mutations.
+type semanticProjectionIndexDefinition struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Type         string   `json:"type"`
+	Fields       []string `json:"fields"`
+	StoredValues []string `json:"storedValues"`
+	Unique       bool     `json:"unique"`
+	Sparse       bool     `json:"sparse"`
+	CacheEnabled bool     `json:"cacheEnabled"`
+}
+
+func semanticProjectionIndexRequest(t *testing.T, ctx context.Context, method, path string) []byte {
+	t.Helper()
+	endpoint, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if endpoint == "" || database == "" {
+		t.Fatal("read-only index probe requires an explicit Arango URL and database")
+	}
+	request, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(endpoint, "/")+"/_db/"+url.PathEscape(database)+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+	if err != nil {
+		t.Fatalf("Arango index fixture request: %v", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		t.Fatalf("Arango index fixture request status=%d body=%s", response.StatusCode, body)
+	}
+	return body
+}
+
+func semanticProjectionIndexSnapshot(t *testing.T, ctx context.Context, collection string) []semanticProjectionIndexDefinition {
+	t.Helper()
+	body := semanticProjectionIndexRequest(t, ctx, http.MethodGet, "/_api/index?collection="+url.QueryEscape(collection))
+	var result struct {
+		Indexes []semanticProjectionIndexDefinition `json:"indexes"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	sort.Slice(result.Indexes, func(i, j int) bool { return result.Indexes[i].ID < result.Indexes[j].ID })
+	return result.Indexes
 }
 
 type semanticGroupProjectionCoding struct{ code, display string }

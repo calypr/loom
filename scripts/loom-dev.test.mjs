@@ -1,10 +1,11 @@
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { requireNativeDevJourneyContext } from './loom-dev.mjs';
+import { requireNativeDevJourneyContext, dispatchNativeDevJourney } from './loom-dev.mjs';
 import { addColumnsActionReadinessCondition, AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewFailureMatchesDraft, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, expectedTrainingArtifactMembers, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, isRecoveredStaleCapabilitiesConflict, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, J05_REQUIRED_ASSERTIONS, j05AssertionCompletion, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract, verifyFullHTTPFailureMatches, verifyFullUnexpectedNetworkFailures } from './loom-dev.mjs';
 
 test('verify-full diagnostics bind exact 422 responses and reject canceled writes', () => {
@@ -405,14 +406,8 @@ test('generic Builder and interpretation browser paths use only Playwright brows
     'migrated generic paths must not set DOM values or invoke handlers directly');
 });
 
-test('native dev journeys use the Playwright Test-owned page and diagnostics fixture', () => {
+test('retained native journey functions preserve context and source integrity guards', () => {
   const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/verify-ui/specs/dev-journeys.spec.mjs'), 'utf8');
-  assert.match(nativeSpec, /import \{ test as base \} from '@playwright\/test'/);
-  assert.match(nativeSpec, /async \(\{ page \}, use\)/);
-  assert.match(nativeSpec, /@dev-journey:\$\{command\}/);
-  assert.doesNotMatch(nativeSpec, /from ['"]\.\/fixtures\.mjs/,
-    'dev journeys do not borrow the unrelated registry fixture');
   assert.match(driver, /requireNativeDevJourneyContext\(page, diagnostics\)/);
   assert.match(driver, /captureDevJourneyFailure\(page, diagnostics, report/);
   assert.match(driver, /const captureCommandResult = async \(item\) =>/,
@@ -441,23 +436,12 @@ test('native dev journeys use the Playwright Test-owned page and diagnostics fix
     'HMR source probes must be absent/restored before integrity is considered proven');
   assert.match(driver, /await verifyDevJourneyIdentity\(journey\)/,
     'native journey completion verifies source and API identity');
-  assert.match(nativeSpec, /push\(diagnostics\.httpFailures, entry\);[\s\S]*?response\.text\(\)/,
-    'failed response status is retained before bounded body capture');
-  assert.match(nativeSpec, /setTimeout\(\(\) => resolve\(undefined\), 1000\)/,
-    'response body diagnostics use a bounded read');
-  assert.match(nativeSpec, /await flushPending\(\)/,
-    'pending diagnostic captures are flushed at fixture teardown');
-  assert.match(nativeSpec, /droppedDiagnostics > 0/,
-    'diagnostic truncation fails the domain report instead of disappearing');
-  assert.match(nativeSpec, /captureScreenshots: process\.env\.LOOM_DEV_CAPTURE_SCREENSHOTS === '1'/);
   assert.match(driver, /if \(!diagnostics\.captureScreenshots\) return null/,
     'successful journey screenshots are opt-in');
   assert.match(driver, /page\.screenshot\(\{ path, fullPage: true, \.\.\.options, timeout: Math\.max\(1, Math\.min\(requestedTimeout, 1000\)\) \}\)/,
     'opt-in screenshots have an enforced 1-second cap after caller options');
   assert.doesNotMatch(driver, /launchPlaywrightEvidenceBrowser|launchBrowser as launchPlaywrightEvidenceBrowser|new\s+WebSocket\s*\(/,
     'journey functions must not launch their own browser');
-  assert.doesNotMatch(nativeSpec, /chromium\.launch|launchBrowser|browser\.close\(/,
-    'the official Playwright test page owns browser lifecycle');
 });
 
 test('native journey diagnostics disable screenshots by default and preserve an explicit opt-in', () => {
@@ -497,28 +481,17 @@ test('local J01 browser lifecycle uses Playwright actions and retains its exact 
   ]) assert.ok(scenario.includes(assertion), `J01 contract is missing ${assertion}`);
 });
 
-test('all nine loom-dev browser scopes have native Playwright Test cases and exported workflows', () => {
-  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
-  const nativeSpec = readFileSync(join(process.cwd(), 'scripts/verify-ui/specs/dev-journeys.spec.mjs'), 'utf8');
-  for (const [command, workflow] of [
-    ['verify-current', 'verifyCurrentBuilderDOM'],
-    ['verify-fast', 'verifyBrowserScenario'],
-    ['verify-full', 'verifyBrowserScenario'],
-    ['verify-j01', 'verifyJ01BrowserScenario'],
-    ['verify-j02', 'verifyJ02BrowserScenario'],
-    ['verify-j03', 'verifyJ03BrowserScenario'],
-    ['verify-j04', 'verifyJ04BrowserScenario'],
-    ['verify-j04-patient', 'verifyJ04PatientOperatorScenario'],
-    ['verify-j05', 'verifyJ05BrowserScenario'],
+test('all retired dev journey commands reject without claiming native browser coverage', async () => {
+  for (const command of [
+    'verify-current', 'verify-fast', 'verify-full', 'verify-j01', 'verify-j02',
+    'verify-j03', 'verify-j04', 'verify-j04-patient', 'verify-j05',
   ]) {
-    assert.ok(nativeSpec.includes(`'${command}'`), `${command} is missing from the native case registry`);
-    assert.ok(nativeSpec.includes(workflow), `${command} does not call ${workflow}`);
-    assert.match(driver, new RegExp(`export const ${workflow} = async`), `${workflow} must accept the native fixture context`);
+    await assert.rejects(() => dispatchNativeDevJourney(command), error => {
+      assert.match(error.message, new RegExp(`${command} is unavailable`));
+      assert.match(error.message, /did not run a check/);
+      return true;
+    });
   }
-  assert.match(driver, /export const verifyJ01ExternalBrowserScenario = async/,
-    'the J01 external CDA variant remains a distinct workflow');
-  assert.match(nativeSpec, /externalManifest/,
-    'J01 native setup retains the external manifest/profile selection');
 });
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
@@ -1861,4 +1834,23 @@ test('does not classify conflicts without the exact owner, overlapping mutation,
   const staleRecovery = staleCapabilitiesEvidence();
   staleRecovery.recoveryRequest.expectedDraftDigest = 'sha256:previous-draft';
   assert.equal(isRecoveredStaleCapabilitiesConflict(staleRecovery), false);
+});
+
+
+test('core development CLI loads and explains available commands without browser dependencies', () => {
+  const result = spawnSync(process.execPath, [new URL('./loom-dev.mjs', import.meta.url).pathname, '--help'], { encoding: 'utf8', timeout: 5000, env: { ...process.env, NODE_TEST_CONTEXT: '', PATH: '' } });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /dev-doctor/);
+  assert.match(result.stdout, /dev-down/);
+  assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND/);
+});
+
+test('retired browser journey rejects before spawning a runner or claiming a pass', () => {
+  const result = spawnSync(process.execPath, [new URL('./loom-dev.mjs', import.meta.url).pathname, 'verify-fast'], { encoding: 'utf8', timeout: 5000, env: { ...process.env, NODE_TEST_CONTEXT: '', PATH: '' } });
+  assert.ifError(result.error);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /verify-fast is unavailable/);
+  assert.match(result.stderr, /did not run a check/);
+  assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND|spawn npm/);
 });

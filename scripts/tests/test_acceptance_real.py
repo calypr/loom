@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "acceptance-real.sh"
 PERFORMANCE = ROOT / "scripts" / "acceptance-performance.sh"
 COMPOSE = ROOT / "compose.yaml"
-WORKFLOW = ROOT / ".github" / "workflows" / "acceptance.yaml"
 
 
 class AcceptanceDeploymentContractTest(unittest.TestCase):
@@ -95,20 +94,6 @@ class AcceptanceDeploymentContractTest(unittest.TestCase):
         self.assertIn('scripts/demo-down.sh" --volumes --remove-orphans', source)
         self.assertIn("--performance-repeat-base-report", source)
         self.assertIn("--performance-repeat-current-report", source)
-
-    def test_github_workflow_uses_compose_performance_path(self) -> None:
-        source = WORKFLOW.read_text(encoding="utf-8")
-
-        self.assertNotIn("services:", source)
-        self.assertNotIn("LOOM_ACCEPTANCE_MODE", source)
-        self.assertIn("LOOM_ACCEPTANCE_BROWSER_SMOKE: false", source)
-        self.assertIn("run: make acceptance-performance", source)
-        self.assertIn("fetch-depth: 0", source)
-        self.assertIn("GITHUB_STEP_SUMMARY", source)
-        self.assertIn("current/report.json", source)
-        self.assertIn("cleanup_status", source)
-        self.assertIn("actions/upload-artifact@v4", source)
-
 
 if __name__ == "__main__":
     unittest.main()

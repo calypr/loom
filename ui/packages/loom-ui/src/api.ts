@@ -1720,7 +1720,14 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       revisionId: args.revisionId,
       outputId: args.outputId,
       idempotencyKey: args.idempotencyKey,
-    }, signal)).then((value) => artifactSchema.parse(value));
+    }, signal)).then((value) => {
+      const artifact = artifactSchema.parse(value);
+      if (canonicalProject(artifact.project) !== canonicalProject(args.project) ||
+        artifact.explorerId !== args.explorerId || artifact.revisionId !== args.revisionId || artifact.outputId !== args.outputId) {
+        throw new Error('Prepared dataset artifact does not match the requested project, Explorer, revision, and output.');
+      }
+      return artifact;
+    });
   const artifactDownloadURL = (args: DownloadArtifactArgs): string =>
     urlFor(`${authoringPath(args, '/artifacts')}/${encodeURIComponent(args.artifactId)}`);
   const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>

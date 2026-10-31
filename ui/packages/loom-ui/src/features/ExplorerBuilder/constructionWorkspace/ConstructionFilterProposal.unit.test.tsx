@@ -87,7 +87,7 @@ const FilterProposalHarness = ({ client, onApplyReceipt }: { readonly client: Co
         state={lifecycle.proposal}
         canApply={lifecycle.canApply}
         onApply={() => {
-          const proposalId = lifecycle.beginApply();
+          const proposalId = lifecycle.beginApply()?.proposalId;
           if (proposalId) onApplyReceipt?.(proposalId);
         }}
         onCancel={lifecycle.cancel}

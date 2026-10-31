@@ -1,3 +1,4 @@
+import { reconcileAcceptance } from './authoring/reconcileAcceptance';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './useAutomaticPreview';
@@ -102,9 +103,7 @@ import { shouldSyncServerDraft } from './authoring/serverDraftSync';
 import {
   isDraftDesynchronized,
   isStaleSnapshot,
-  reconcileReceiptMatchesRequest,
   reconcileRecoveryAction,
-  reconcileResultIsCurrent,
 } from './authoring/reconcileRecovery';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
@@ -1810,11 +1809,12 @@ const BuilderWorkspaceContent = ({
       if (fromColumnPicker) constructionLifecycle.cancel();
       return false;
     }
-    const proposalId = constructionLifecycle.beginApply(expectedProposal);
-    if (!proposalId || !table) {
+    const apply = constructionLifecycle.beginApply(expectedProposal);
+    if (!apply || !table) {
       if (fromColumnPicker) constructionLifecycle.cancel();
       return false;
     }
+    const { proposalId } = apply;
     appliedChoicePreview.current = undefined;
     const previewIdentity = automaticPreviewRequest.current;
     const constructionApplyIdentity = previewIdentity && previewIdentity.outputId === table.outputId
@@ -1826,8 +1826,8 @@ const BuilderWorkspaceContent = ({
       proposalId,
     }], undefined, constructionApplyIdentity);
     const applied = Boolean(appliedResult);
-    constructionLifecycle.finishApply(applied);
-    if (applied) {
+    const settledCurrentOwner = apply.finish(applied);
+    if (applied && settledCurrentOwner) {
       const closeEditor = !fromColumnPicker || activeConstructionFamily === 'ADD_COLUMNS';
       if (closeEditor) {
         cancelCombineCatalogRequest();
@@ -1835,7 +1835,7 @@ const BuilderWorkspaceContent = ({
         setConstructionHistorySelection({ kind: 'source' });
         setEditingConstructionStepId(undefined);
       }
-    } else if (fromColumnPicker) {
+    } else if (!applied && settledCurrentOwner && fromColumnPicker) {
       constructionLifecycle.cancel();
     }
     return applied;
@@ -2563,18 +2563,16 @@ const BuilderWorkspaceContent = ({
         const value = await request.unwrap();
         if (owner?.cancelled) return undefined;
         const current = latestState.current;
-        if (!reconcileResultIsCurrent({
+        const acceptance = reconcileAcceptance(value, {
           generation,
           currentGeneration: compileGeneration.current,
           submittedExplorerId: submitted.explorerId,
           currentExplorerId: current.explorerId,
           submittedFingerprint,
           currentFingerprint: intentFingerprint(workspaceFromState(current)),
-        })) return undefined;
-        if (!reconcileReceiptMatchesRequest(value, {
-          snapshotToken,
-          ...(outputId ? { outputId } : {}),
-        })) {
+        }, { snapshotToken, ...(outputId ? { outputId } : {}) });
+        if (acceptance === 'obsolete') return undefined;
+        if (acceptance === 'mismatch') {
           dispatch({
             type: 'repair',
             diagnostics: [{
@@ -2586,11 +2584,7 @@ const BuilderWorkspaceContent = ({
           return undefined;
         }
         dispatch({ type: 'compiled', value });
-        return value.diagnostics.some(
-          (diagnostic) => diagnostic.severity === 'error',
-        )
-          ? undefined
-          : value;
+        return acceptance === 'accepted' ? value : undefined;
       } catch (error) {
         const apiError = error as ExplorerAuthoringApiError;
         if (

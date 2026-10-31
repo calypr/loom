@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createdExplorerScope } from '../created-explorer-scope.mjs';
 import { classifyNativeBrowserApiRequest } from '../native-browser-api-scope.mjs';
 
-test('population coverage browser waits use the canonical created-project route scope', async () => {
+test('created Explorer scope exposes canonical browser command, reconcile, and mapping routes', () => {
   const project = 'loom_dev_verify_mv39vfc5/3dbf068';
   const explorerId = 'verify-c5-3dbf068-population-coverage';
   const scope = createdExplorerScope(project, { project, explorerId });
@@ -22,14 +21,9 @@ test('population coverage browser waits use the canonical created-project route 
     `${expectedRoot}/authoring/v2/population-mapping`,
   ]);
 
-  const workflow = await readFile(new URL('../../workflows/population-coverage.mjs', import.meta.url), 'utf8');
-  assert.match(workflow, /createdExplorerScope\(selectionProject, createdExplorer\)\.browserAuthoringBase/,
-    'the workflow must derive browser waits from the server-created Explorer scope');
-  assert.match(workflow, /const commandPath = `\$\{browserAuthoringBase\}\/commands`/);
-  assert.match(workflow, /const reconcilePath = `\$\{browserAuthoringBase\}\/reconcile`/);
-  assert.match(workflow, /const mappingPath = `\$\{browserAuthoringBase\}\/population-mapping`/);
-  assert.match(workflow, /const apiRoot = `\/api\/v1\/projects\/\$\{encodeURIComponent\(target\.fixtureProject\)\}/,
-    'direct API fetches must retain their existing API root');
+  // This covers the route helper; the retired population browser workflow's
+  // use of these routes remains a separate, unverified wiring guarantee.
+
 });
 
 test('created Explorer scope uses the observed truncated related ONE/ALL ID', () => {

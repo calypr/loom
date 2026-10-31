@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -34,10 +35,14 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	project := "loom_explicit_group_test_" + uuid.NewString()
+	// Repository metadata receives canonical projects from the service boundary.
+	project := projectid.Canonical("loom_explicit_group_test_" + uuid.NewString())
 	source, sourceWriter, err := persistExplicitGroupTestSelection(ctx, t, persistence, project)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if source.MemberCount != 3 {
+		t.Fatalf("source selection has %d members, want 3", source.MemberCount)
 	}
 	defer func() { _ = persistence.AbortSelection(context.Background(), source.ID, sourceWriter) }()
 	header := explicitGroupTestRevision(source, "primary")

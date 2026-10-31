@@ -18,7 +18,7 @@
       "sha256": "22a47c5f101a3c59621513f5b31489d3e651916149f01d547049ffeffafa7bc8"
     }
   ],
-  "expandedSha256": "6a66a7e4ff07b2327f5308ae27bbcdc87ce5e0987b38d7ae8efade41b1b139a7",
+  "expandedSha256": "39b747eda51e8d9b169ce76fbd1d95488041de4cb392192dd345a8c984541466",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -88,11 +88,11 @@
         },
         {
           "path": "ui/packages/loom-ui/src/api.ts",
-          "sha256": "02eb5a4a44efc9f15ba756c23b6a2c80908e955ccbc74d8d76df09ff7a2844be"
+          "sha256": "98a5d042e995010b550fd3974c607713dc8797a2a891ea674340aac9bd219abb"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "sha256": "28b3359be12bb0ac30772058d494d972b543eb90d8fa89a41589450e9f03fd77"
+          "sha256": "9d2d82f911e8b58879d2b2d398ed85b3657747815f2f5c6b4988e86a3400de23"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",
@@ -117,6 +117,10 @@
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/previewRecovery.ts",
           "sha256": "c977bc618ae3655d4fd922e48d29fa29f0305ddc7c567ea64250072a9ec4bf03"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileAcceptance.ts",
+          "sha256": "679a1b1dcbb4c2d22137b2d69dc58c0e1f28acc8662da6f98bfc46d4ee6a40bb"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts",
@@ -168,7 +172,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-          "sha256": "79307ec363304b3601f7d12058b10cac3136901893283aa6a3c34bc94258c8f5"
+          "sha256": "1f431fad06fdc86646cab39baa177215936a55f911f787688b8ce01dfd975954"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DataframeContractPanel.tsx",
@@ -387,6 +391,10 @@
           "sha256": "56111d24e1e15f95dcc74ea040c6272cd1484f8717ea57f38c3a973ef063bc7f"
         },
         {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionApplyOwnership.ts",
+          "sha256": "13c34fa493dfe6990b07601d8ad650ae550ba8d3649b50cead12c3fda04aa942"
+        },
+        {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionHistory.ts",
           "sha256": "e3c352e0f91cd25ac0b25e4ff51938037519b44e420ed1aad6a00f1eddea75b4"
         },
@@ -412,7 +420,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-          "sha256": "b7ddd433499bcaf55f1a57d59374555fb22aa6764d51744e11585025f68629eb"
+          "sha256": "89f7d081fb7f45ed3492128f1035ad1562434e196c9f5f62a685454612047c38"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/discovery/ObservedCodeEvidence.tsx",
@@ -500,7 +508,43 @@
           "schema": "allOperationFamilies",
           "mappingField": "affordances[].operation.family"
         }
-      ]
+      ],
+      "reviewedWorkingTree": {
+        "baselineCommit": "5646633e0e5c7ff8de568a4f111478d121e7f75f",
+        "uncommitted": true,
+        "contractOriginCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
+        "reviewNote": "docs/ui-contract-inventory/source-review.md",
+        "changes": [
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
+            "review": "Apply cleanup follows the initiating completion handle. Reconcile admission now delegates the same synchronous current/receipt/diagnostic decisions to reconcileAcceptance; cancellation and repair/compiled dispatch semantics and public HTTP request shapes are preserved."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
+            "review": "Attempt-bound completion and current-context checks replace shared finishApply; proposal/preview public request shapes unchanged."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionApplyOwnership.ts",
+            "review": "New synchronous ownership helper extracted from beginApply/finish; watched as production source, not a new user affordance."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
+            "review": "Selected-feature labels wrap and display their route suffix; existing selection actions and request constructors unchanged."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileAcceptance.ts",
+            "review": "New actual synchronous reconcile response classifier. It calls existing current-result and receipt predicates, rejects error diagnostics for preview, and distinguishes obsolete/mismatch/diagnostics/accepted caller branches. No new affordance or HTTP request."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/api.ts",
+            "review": "prepareArtifact now rejects responses whose canonical project, Explorer, revision or output differs from the submitted identity. Existing artifact request method, endpoint, payload and valid response shape are unchanged."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerViewer/components.tsx",
+            "review": "FileCell appends the encoded file ID to the path before preserving query/fragment and setting redirect=true. This Viewer source is outside this Builder manifest watched scope; separate component/browser proofs cover it. No Builder HTTP request ABI change."
+          }
+        ]
+      }
     }
   }
 }

@@ -86,6 +86,28 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionNoPolicy}
 	}
 
+	// Ordinary Pivot previews omit presence metadata to retain bounded execution.
+	// Diagnostics must recover missing versus explicit null from the exact direct
+	// root projection, rather than HAS on its always-populated projected column.
+	if pivot.CategoryPresence == nil && !pivot.CategoryPresenceFromInput && physical.StageSequence == nil &&
+		len(physical.Operations) > 0 && physical.Operations[0].RootScan != nil {
+		root := physical.Operations[0].RootScan.Variable
+		for index, projection := range pivot.InputProjections {
+			if projection.Name != pivot.CategoryColumn {
+				continue
+			}
+			value, direct := categoryScanDirectRootProjectionValue(projection, root)
+			if direct && len(value.Path) > 1 && value.Path[0] == "payload" {
+				pivot.CategoryPresence = &ir.PhysicalProjectionPresence{
+					Source: ir.PhysicalValue{Variable: root, Path: []string{"payload"}},
+					Paths:  [][]string{append([]string(nil), value.Path[1:]...)},
+				}
+				pivot.CategoryPresenceColumn = "__loom_exclusion_category_present"
+				pivot.InputProjections[index].Presence = pivot.CategoryPresence
+			}
+		}
+	}
+
 	const offsetBind, limitBind, fetchLimitBind = "table_shape_exclusion_offset", "table_shape_exclusion_limit", "table_shape_exclusion_fetch_limit"
 	for _, bind := range []string{offsetBind, limitBind, fetchLimitBind} {
 		if _, exists := physical.BindVars[bind]; exists {

@@ -283,9 +283,7 @@
     "The historical raw-basic Group journey at source 191882 remains a separate prior proof; the fresh current Group smoke in this unit is the authored group-entry case."
   ],
   "protectedUserDeletionsPreserved": [
-    "AGENTS.md",
-    ".codex/skills/peter-mode/SKILL.md",
-    ".codex/skills/peter-mode/agents/openai.yaml"
+    "AGENTS.md"
   ],
   "published": false,
   "retainedArtifacts": [
