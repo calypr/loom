@@ -23,6 +23,7 @@ import type {
   Construction,
   ConstructionProposalResponse,
   ConstructionCapabilitiesResponse,
+  ExplorerBuilderCommandsResult,
   ExplorerBuilderCompileResult,
   ExplorerBuilderDocument,
   ExplorerBuilderPreviewResult,
@@ -52,6 +53,7 @@ import {
 afterAll(() => writeTraces());
 
 const mockLoomClient = vi.hoisted(() => ({
+  getBuilder: vi.fn(),
   getSelection: vi.fn(),
   listRowDefinitionChoices: vi.fn(),
   searchPopulationRoutes: vi.fn(),
@@ -152,11 +154,12 @@ vi.mock('./components/BuilderToolbar', () => ({
     readonly onSelectTable: (outputId: string) => void;
     readonly onDuplicateTable: () => void;
     readonly onDeleteTable: () => void;
-    readonly tables: ReadonlyArray<{ readonly outputId: string }>;
+    readonly tables: ReadonlyArray<{ readonly outputId: string; readonly title: string }>;
     readonly publishDisabled: boolean;
     readonly publishing: boolean;
   }) => (
     <div>
+      <output data-testid="workspace-table-identities">{JSON.stringify(tables.map(({ outputId, title }) => ({ outputId, title })))}</output>
       <button type="button" onClick={onReview}>
         Review dataset
       </button>
@@ -273,12 +276,14 @@ vi.mock('./components/ConceptCatalog', () => ({
 
 vi.mock('./components/ColumnSelector', () => ({
   ColumnSelector: ({
-    onChange,
+    onChange, disabled,
   }: {
+    readonly disabled?: boolean;
     readonly onChange: (value: unknown) => void;
   }) => (
     <button
       type="button"
+      disabled={disabled}
       onClick={() =>
         onChange({
           column: 'specimen_identifier',
@@ -871,6 +876,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockUseActualReconcile.isLoading = false;
     mockRelatedExpandQueryOwner.pauseAndDrain.mockReset().mockResolvedValue(undefined);
     mockRelatedExpandQueryOwner.resume.mockReset();
+    mockLoomClient.getBuilder.mockReset();
     mockLoomClient.getSelection.mockReset();
     mockLoomClient.listRowDefinitionChoices.mockReset();
     mockLoomClient.listRowDefinitionChoices.mockResolvedValue({
@@ -1059,7 +1065,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       isLoading: false,
       refetch: vi.fn(),
     });
-    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+    (useGetExplorerBuilderStateV2Query as Mock).mockReset().mockReturnValue({
       data: builderState,
       isLoading: false,
       refetch: vi.fn(),
@@ -3190,6 +3196,32 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
   });
 
+  it.each(['switch-owner', 'unmount', 'return-to-owner'] as const)('does not preview obsolete root assessment after %s', async (boundary) => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: rootPickerBuilderState, isLoading: false, refetch: vi.fn() });
+    const pending = deferredRequest<ReturnType<typeof readyRootChangeAssessment>>();
+    assessRowChange.mockReturnValueOnce(pending.request);
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    fireEvent.click(await screen.findByTestId('construction-rows-settings-trigger'));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const picker = within(dialog).getByRole('combobox', { name: 'Record type' });
+    const patientChoice = within(picker).getByRole('option', { name: /^Patient/ });
+    fireEvent.change(picker, { target: { value: patientChoice.getAttribute('value') } });
+    await waitFor(() => expect(assessRowChange).toHaveBeenCalledTimes(1));
+    if (boundary !== 'unmount') {
+      view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+      await screen.findByTestId('construction-rows-settings-trigger');
+      if (boundary === 'return-to-owner') {
+        view.rerender(<BuilderWorkspace project="project-a" explorerId="test" />);
+        await screen.findByTestId('construction-rows-settings-trigger');
+      }
+    } else {
+      view.unmount();
+    }
+    await act(async () => pending.resolve(readyRootChangeAssessment({ receiptId: 'obsolete-root-receipt' })));
+    expect(mockLoomClient.preview.mock.calls.filter(call => call[0].receiptId === 'obsolete-root-receipt')).toHaveLength(0);
+    expect(applyCommands).not.toHaveBeenCalled();
+  });
+
   it('keeps the row-definition dialog open for ambiguity and previews the exact compiler route before Apply', async () => {
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
       data: rootPickerBuilderState,
@@ -3657,6 +3689,259 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each(['STALE_CATALOG_SNAPSHOT', 'DRAFT_CONFLICT', 'TRANSIENT_FAILURE'])('ignores obsolete manual reconcile recovery after a saved edit: %s', async code => {
+    let resolveRefresh!: (value: { readonly data: typeof builderState }) => void;
+    const refetch = vi.fn(() => new Promise<{ readonly data: typeof builderState }>(resolve => { resolveRefresh = resolve; }));
+    const multiWorkspace = { ...workspace, documents: [...workspace.documents, { ...workspace.documents[0], output: { id: 'patients', title: 'Patients' } }], tabs: [...workspace.tabs, { id: 'patients-tab', outputId: 'patients', title: 'Patients', order: 1, visible: true }] };
+    const initial = { ...builderState, workspace: multiWorkspace };
+    reconcile.mockImplementation((args: { snapshotToken: string }) => resolvedRequest({ ...receipt, builder: multiWorkspace, snapshotToken: args.snapshotToken }));
+    applyCommands.mockReturnValue(resolvedRequest({ commandId: 'saved-edit', workspace: multiWorkspace, draftVersion: 2, draftDigest: 'sha256:draft-2', results: [], diagnostics: [] }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: initial, isLoading: false, refetch });
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    reconcile.mockReturnValueOnce(rejectedRequest({ code, message: 'Controlled stale manual compilation.', retryable: code === 'TRANSIENT_FAILURE' }));
+    // Publish reconciles the whole workspace without the automatic preview owner.
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    if (code === 'TRANSIENT_FAILURE') {
+      await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    } else {
+      await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    const reconcilesAfterEdit = reconcile.mock.calls.length;
+    expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
+    if (code === 'TRANSIENT_FAILURE') {
+      await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 300)); });
+    } else {
+      await act(async () => resolveRefresh({ data: { ...initial, catalog: { ...initial.catalog, snapshotToken: 'snapshot-obsolete' } } }));
+    }
+    expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
+    expect(reconcile).toHaveBeenCalledTimes(reconcilesAfterEdit);
+    expect(publish).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(2));
+    expect(applyCommands.mock.calls[1][0]).toMatchObject({ snapshotToken: 'snapshot-1', expectedDraftVersion: 2, expectedDraftDigest: 'sha256:draft-2' });
+  });
+
+  it.each(['STALE_CATALOG_SNAPSHOT', 'TRANSIENT_FAILURE'].flatMap(code => ['switch', 'unmount', 'return'].map(departure => ({ code, departure }))))('does not resume manual reconcile recovery after owner navigation: $code $departure', async ({ code, departure }) => {
+    let resolveRefresh!: (value: { readonly data: typeof builderState }) => void;
+    const refetch = vi.fn(() => new Promise<{ readonly data: typeof builderState }>(resolve => { resolveRefresh = resolve; }));
+    const multiWorkspace = { ...workspace, documents: [...workspace.documents, { ...workspace.documents[0], output: { id: 'patients', title: 'Patients' } }], tabs: [...workspace.tabs, { id: 'patients-tab', outputId: 'patients', title: 'Patients', order: 1, visible: true }] };
+    const initial = { ...builderState, workspace: multiWorkspace };
+    reconcile.mockImplementation((args: { snapshotToken: string }) => resolvedRequest({ ...receipt, builder: multiWorkspace, snapshotToken: args.snapshotToken }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: initial, isLoading: false, refetch });
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    reconcile.mockReturnValueOnce(rejectedRequest({ code, message: 'Controlled manual recovery.', retryable: code === 'TRANSIENT_FAILURE' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    if (code === 'TRANSIENT_FAILURE') await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    else await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    if (departure === 'unmount') view.unmount();
+    else {
+      view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+      if (departure === 'return') {
+        view.rerender(<BuilderWorkspace project="project-a" explorerId="test" />);
+        await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+      }
+    }
+    const previousOwnerCalls = reconcile.mock.calls.filter(call => call[0].project === 'project-a').length;
+    if (code === 'TRANSIENT_FAILURE') await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 300)); });
+    else await act(async () => resolveRefresh({ data: { ...initial, catalog: { ...initial.catalog, snapshotToken: 'snapshot-obsolete' } } }));
+    expect(reconcile.mock.calls.filter(call => call[0].project === 'project-a')).toHaveLength(previousOwnerCalls);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('retries a current reconcile after backoff and renders its receipt', async () => {
+    reconcile.mockReturnValueOnce(rejectedRequest({
+      code: 'TRANSIENT_FAILURE', message: 'Temporary compiler failure.', retryable: true,
+    }));
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(reconcile.mock.calls.map(call => call[0])).toEqual([
+      expect.objectContaining({ draftVersion: 1, snapshotToken: 'snapshot-1' }),
+      expect.objectContaining({ draftVersion: 1, snapshotToken: 'snapshot-1' }),
+    ]);
+    expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-status', 'ready');
+  });
+
+  it('ignores obsolete publication catalog refresh after a saved edit', async () => {
+    let resolveRefresh!: (value: { readonly data: typeof builderState }) => void;
+    const refetch = vi.fn(() => new Promise<{ readonly data: typeof builderState }>(resolve => { resolveRefresh = resolve; }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: builderState, isLoading: false, refetch });
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    publish.mockReturnValueOnce(rejectedRequest({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Controlled stale publication receipt.', retryable: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
+    await act(async () => resolveRefresh({ data: { ...builderState, catalog: { ...builderState.catalog, snapshotToken: 'snapshot-obsolete' } } }));
+    expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries current publication with its freshly compiled receipt after catalog refresh', async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: { ...builderState, catalog: { ...builderState.catalog, snapshotToken: 'snapshot-fresh' } } });
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: builderState, isLoading: false, refetch });
+    reconcile.mockImplementation((args: { snapshotToken: string }) => resolvedRequest({
+      ...receipt, snapshotToken: args.snapshotToken,
+      receiptId: args.snapshotToken === 'snapshot-fresh' ? 'receipt-fresh' : 'receipt-1',
+    }));
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    publish.mockReturnValueOnce(rejectedRequest({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Controlled stale publication receipt.', retryable: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls.map(call => call[0].receiptId)).toEqual(['receipt-1', 'receipt-fresh']);
+  });
+
+  it('does not resume obsolete publication recovery after switching owner', async () => {
+    let resolveRefresh!: (value: { readonly data: typeof builderState }) => void;
+    const refetch = vi.fn(() => new Promise<{ readonly data: typeof builderState }>(resolve => { resolveRefresh = resolve; }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: builderState, isLoading: false, refetch });
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    publish.mockReturnValueOnce(rejectedRequest({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Controlled stale publication receipt.', retryable: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    const currentReconciles = reconcile.mock.calls.length;
+    await act(async () => resolveRefresh({ data: { ...builderState, catalog: { ...builderState.catalog, snapshotToken: 'snapshot-obsolete' } } }));
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(currentReconciles);
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
+  });
+
+  it.each(['unmount', 'return-to-owner'] as const)('does not revive obsolete publication recovery after %s', async departure => {
+    let resolveRefresh!: (value: { readonly data: typeof builderState }) => void;
+    const refetch = vi.fn(() => new Promise<{ readonly data: typeof builderState }>(resolve => { resolveRefresh = resolve; }));
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: builderState, isLoading: false, refetch });
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    publish.mockReturnValueOnce(rejectedRequest({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Controlled stale publication receipt.', retryable: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    if (departure === 'unmount') view.unmount();
+    else {
+      view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+      view.rerender(<BuilderWorkspace project="project-a" explorerId="test" />);
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+    }
+    const currentReconciles = reconcile.mock.calls.length;
+    await act(async () => resolveRefresh({ data: { ...builderState, catalog: { ...builderState.catalog, snapshotToken: 'snapshot-obsolete' } } }));
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(reconcile).toHaveBeenCalledTimes(currentReconciles);
+    if (departure === 'return-to-owner') expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
+  });
+
+  it.each(['switch-owner', 'unmount'] as const)('does not start obsolete publication recovery after a pending failure and %s', async departure => {
+    let rejectPublish!: (error: unknown) => void;
+    const pending = new Promise((_resolve, reject) => { rejectPublish = reject; });
+    const refetch = vi.fn().mockResolvedValue({ data: builderState });
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: builderState, isLoading: false, refetch });
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    publish.mockReturnValueOnce({ unwrap: () => pending, abort: vi.fn() });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    if (departure === 'unmount') view.unmount();
+    else {
+      view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+      await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    }
+    const currentReconciles = reconcile.mock.calls.length;
+    await act(async () => rejectPublish({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Obsolete pending publication.', retryable: false }));
+    expect(refetch).not.toHaveBeenCalled();
+    expect(reconcile).toHaveBeenCalledTimes(currentReconciles);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry obsolete publication after detaching during recovery compilation', async () => {
+    const refetch = vi.fn().mockResolvedValue({ data: { ...builderState, catalog: { ...builderState.catalog, snapshotToken: 'snapshot-fresh' } } });
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: builderState, isLoading: false, refetch });
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    const pending = deferredRequest<ExplorerBuilderCompileResult>();
+    reconcile.mockReturnValueOnce(pending.request);
+    publish.mockReturnValueOnce(rejectedRequest({ code: 'STALE_CATALOG_SNAPSHOT', message: 'Controlled stale publication receipt.', retryable: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    view.rerender(<BuilderWorkspace project="project-b" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    await act(async () => pending.resolve({ ...receipt, snapshotToken: 'snapshot-fresh', receiptId: 'receipt-obsolete' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
+  });
+
+  it('does not start obsolete publication after detaching during initial compilation', async () => {
+    const multiWorkspace = { ...workspace, documents: [...workspace.documents, { ...workspace.documents[0], output: { id: 'patients', title: 'Patients' } }], tabs: [...workspace.tabs, { id: 'patients-tab', outputId: 'patients', title: 'Patients', order: 1, visible: true }] };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({ data: { ...builderState, workspace: multiWorkspace }, isLoading: false, refetch: vi.fn() });
+    reconcile.mockImplementation(() => resolvedRequest({ ...receipt, builder: multiWorkspace }));
+    const view = render(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    const pending = deferredRequest<ExplorerBuilderCompileResult>();
+    reconcile.mockReturnValueOnce(pending.request);
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    view.unmount();
+    await act(async () => pending.resolve({ ...receipt, builder: multiWorkspace, outputs: [...receipt.outputs, { ...receipt.outputs[0], outputId: 'patients' }] }));
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('publishes from a live StrictMode workspace after ref attachment replay', async () => {
+    render(<React.StrictMode><BuilderWorkspace project="project-a" explorerId="test" /></React.StrictMode>);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled());
+  });
+
+  it('acknowledges a matching publication after unrelated preview recompilation', async () => {
+    mockUseActualPreviewTable.enabled = true;
+    const pending = deferredRequest<Record<string, never>>();
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    await screen.findByRole('combobox', { name: 'Preview row limit' });
+    publish.mockReturnValueOnce(pending.request);
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    preview.mockReturnValueOnce(rejectedRequest({ code: 'COMPILE_RECEIPT_NOT_FOUND', message: 'The preview receipt expired.', retryable: false }));
+    const limit = screen.getByRole('combobox', { name: 'Preview row limit' });
+    expect(limit).toBeEnabled();
+    fireEvent.change(limit, { target: { value: '50' } });
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+    expect(applyCommands).not.toHaveBeenCalled();
+    expect(reconcile.mock.calls.map(call => call[0].draftDigest)).toEqual(['sha256:draft-1', 'sha256:draft-1']);
+    await act(async () => pending.resolve({}));
+    expect(screen.getByRole('button', { name: 'Publish' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('keeps the edited draft publishable after an older publication completes', async () => {
+    const pending = deferredRequest<Record<string, never>>();
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    publish.mockReturnValueOnce(pending.request);
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('construction-preview').getAttribute('data-current-draft-version')).toBe('2');
+    await act(async () => pending.resolve({}));
+    expect(screen.getByRole('button', { name: 'Publish' }).hasAttribute('disabled')).toBe(false);
   });
 
   it('applies commands with the refreshed server draft identity after catalog recovery', async () => {
@@ -5331,4 +5616,200 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       }],
     })));
   });
+  it('binds the next command to fresh Builder identity after actual query recovery', async () => {
+    const actual = await vi.importActual<typeof import('../../react')>('../../react');
+    (useGetExplorerBuilderStateV2Query as Mock).mockImplementation(actual.useGetExplorerBuilderStateV2Query);
+    const multiWorkspace = { ...workspace, documents: [...workspace.documents, { ...workspace.documents[0], output: { id: 'patients', title: 'Patients' } }], tabs: [...workspace.tabs, { id: 'patients-tab', outputId: 'patients', title: 'Patients', order: 1, visible: true }] };
+    const workspaceFor = (version: number) => ({ ...multiWorkspace, documents: multiWorkspace.documents.map(document => ({ ...document, output: { ...document.output, title: `${document.output.id} accepted v${version}` } })), tabs: multiWorkspace.tabs.map(tab => ({ ...tab, title: `${tab.outputId} accepted v${version}` })) });
+    const initial = { ...builderState, workspace: multiWorkspace };
+    const version2 = { ...initial, draftVersion: 2, draftDigest: 'sha256:draft-2', workspace: workspaceFor(2) };
+    const refreshedVersion2 = { ...version2, catalog: { ...version2.catalog, snapshotToken: 'snapshot-fresh' } };
+    const version3 = { ...initial, draftVersion: 3, draftDigest: 'sha256:draft-3', workspace: workspaceFor(3) };
+    let resolveGet!: (value: typeof initial) => void;
+    mockLoomClient.getBuilder.mockResolvedValueOnce(initial).mockImplementation(() => new Promise<typeof initial>(resolve => { resolveGet = resolve; }));
+    let currentWorkspace = multiWorkspace;
+    reconcile.mockImplementation((args: { snapshotToken: string }) => resolvedRequest({ ...receipt, builder: currentWorkspace, snapshotToken: args.snapshotToken }));
+    let saves = 0;
+    applyCommands.mockImplementation(() => {
+      const saved = ++saves === 1 ? version2 : version3;
+      currentWorkspace = saved.workspace;
+      return resolvedRequest({ commandId: `saved-${saves}`, workspace: saved.workspace, draftVersion: saved.draftVersion, draftDigest: saved.draftDigest, results: [], diagnostics: [] });
+    });
+    const expectedTables = (version: number) => [
+      { outputId: 'specimens', title: `specimens accepted v${version}` },
+      { outputId: 'patients', title: `patients accepted v${version}` },
+    ];
+    const renderedTables = () => JSON.parse(screen.getByTestId('workspace-table-identities').textContent ?? 'null');
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
+    expect(renderedTables()).toEqual(expectedTables(2));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled());
+    reconcile.mockReturnValueOnce(rejectedRequest({ code: 'DRAFT_CONFLICT', message: 'Controlled stale manual compilation.', retryable: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(mockLoomClient.getBuilder).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('status')).toHaveTextContent('Loading the selected Explorer configuration');
+    expect(screen.queryByRole('button', { name: 'Save column change' })).not.toBeInTheDocument();
+    expect(mockLoomClient.getBuilder.mock.calls[1][1]).toMatchObject({ reload: true });
+    expect(applyCommands).toHaveBeenCalledTimes(1);
+    await act(async () => resolveGet(refreshedVersion2));
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
+    expect(renderedTables()).toEqual(expectedTables(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(2));
+    expect(applyCommands.mock.calls[1][0]).toMatchObject({ snapshotToken: 'snapshot-fresh', expectedDraftVersion: 2, expectedDraftDigest: 'sha256:draft-2' });
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '3'));
+    expect(renderedTables()).toEqual(expectedTables(3));
+  });
+
+  const openPopulationExclusion = async (mode: 'normal' | 'refresh' | 'unrelated' | 'queued-refresh' = 'normal', deferRoutes = false) => {
+    const actualReact = await vi.importActual<typeof import('../../react')>('../../react');
+    (useGetExplorerBuilderStateV2Query as Mock).mockImplementation(actualReact.useGetExplorerBuilderStateV2Query);
+    mockLoomClient.createSelection.mockReset();
+    mockLoomClient.searchPopulationRoutes.mockReset();
+    const makeSelection = (id: string): SelectionRevision => ({
+      id, project: 'HTAN_INT/BForePC', generation: 'generation-1', resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' }, source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: 'scope-1', ruleDigest: `rule-${id}`, membershipDigest: `members-${id}`,
+      memberCount: 1, memberBytes: 32, complete: true, createdAt: '2026-09-21T00:00:00Z',
+    });
+    const selectionA = { ...makeSelection('selection-a'), memberCount: 2, memberBytes: 64 }, selectionB = makeSelection('selection-b');
+    const removedRef = { project: 'HTAN_INT/BForePC', generation: 'generation-1', resourceType: 'Specimen', id: 'unmapped-a' };
+    const variantA: SelectionRevision = { ...makeSelection('selection-a-excluded'), source: { kind: 'SELECTION_REVISION', revisionId: selectionA.id, generation: 'generation-1' }, exclusions: [removedRef] };
+    const populationWorkspace = (id: string): ExplorerBuilderWorkspace => ({
+      ...workspace, documents: [{ ...workspace.documents[0], population: { selectionRevisionId: id, route: [] } }],
+    });
+    const workspaceA = populationWorkspace(selectionA.id), workspaceB = populationWorkspace(selectionB.id);
+    let currentServerWorkspace = workspaceA;
+    const initial = { ...builderState, workspace: workspaceA };
+    const newer = { ...builderState, workspace: workspaceB, draftVersion: 2, draftDigest: 'sha256:draft-2' };
+    mockLoomClient.getBuilder.mockResolvedValueOnce(initial).mockImplementation(async () => {
+      currentServerWorkspace = workspaceB;
+      return newer;
+    });
+    mockLoomClient.getSelection.mockImplementation(async (args: { selectionRevision: string }) => {
+      if (args.selectionRevision === variantA.id) return new Promise(() => undefined);
+      return { revision: args.selectionRevision === selectionA.id ? selectionA : selectionB, members: [{ ref: { project: 'HTAN_INT/BForePC', generation: 'generation-1', resourceType: 'Specimen', id: args.selectionRevision === selectionB.id ? 'member-b' : 'member-a-kept' }, ordinal: 0 }] };
+    });
+    const routesFor = (id: string) => ({
+      snapshotToken: 'snapshot-1', outputId: 'specimens', selectionRevisionId: id, complete: true, truncated: false,
+      choices: [{ routeChoiceId: `route-${id}`, route: [], presentation: { summary: 'Direct Specimen rows', facts: [] } }],
+    });
+    let resolveRoutes: ((value: ReturnType<typeof routesFor> & { nextCursor?: string }) => void) | undefined;
+    mockLoomClient.searchPopulationRoutes.mockImplementation(async (args: { selectionRevisionId: string }) => {
+      if (deferRoutes && args.selectionRevisionId === variantA.id) {
+        return new Promise<ReturnType<typeof routesFor> & { nextCursor?: string }>(resolve => { resolveRoutes = resolve; });
+      }
+      return routesFor(args.selectionRevisionId);
+    });
+    let resolveVariant!: (value: SelectionRevision) => void;
+    mockLoomClient.createSelection.mockImplementation(() => new Promise<SelectionRevision>(resolve => { resolveVariant = resolve; }));
+    reconcile.mockImplementation((args: { snapshotToken: string }) => resolvedRequest({ ...receipt, builder: currentServerWorkspace, snapshotToken: args.snapshotToken }));
+    const mapping = vi.fn().mockReturnValue(resolvedRequest({
+      status: 'COMPLETE', binding: { receiptId: 'receipt-1', outputId: 'specimens', project: selectionA.project, explorerId: 'test', generation: selectionA.generation, scopeDigest: selectionA.scopeDigest, selectionRevisionId: selectionA.id, membershipDigest: selectionA.membershipDigest, resourceType: selectionA.resourceType },
+      counts: { selected: 2, mapped: 1, unmapped: 1 }, unmapped: [removedRef],
+    }));
+    (usePopulationMappingMutation as Mock).mockReturnValue([mapping, { isLoading: false }]);
+    const attached = () => {
+      currentServerWorkspace = populationWorkspace(variantA.id);
+      return resolvedRequest({ commandId: 'attach-variant', workspace: currentServerWorkspace, draftVersion: mode === 'normal' ? 2 : 3, draftDigest: mode === 'normal' ? 'sha256:draft-2' : 'sha256:draft-3', results: [], diagnostics: [] });
+    };
+    applyCommands.mockImplementation(attached);
+    if (mode === 'refresh') applyCommands.mockReturnValueOnce(rejectedRequest({ code: 'DRAFT_CONFLICT', message: 'Another writer attached selection B.', retryable: false }));
+    let rejectQueuedCommand: (reason: unknown) => void = () => undefined;
+    if (mode === 'queued-refresh') {
+      const pending = new Promise<ExplorerBuilderCommandsResult>((_resolve, reject) => { rejectQueuedCommand = reject; });
+      applyCommands.mockReturnValueOnce({ unwrap: () => pending, abort: vi.fn() });
+    }
+    if (mode === 'unrelated') applyCommands.mockReturnValueOnce(resolvedRequest({ commandId: 'save-column', workspace: workspaceA, draftVersion: 2, draftDigest: 'sha256:draft-2', results: [], diagnostics: [] }));
+    const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    const panel = await within(dialog).findByRole('region', { name: 'Starting collection' });
+    await waitFor(() => expect(within(panel).getByRole('button', { name: 'Check selected-resource coverage' })).toBeEnabled());
+    fireEvent.click(within(panel).getByRole('button', { name: 'Check selected-resource coverage' }));
+    const exclude = await within(panel).findByRole('button', { name: 'Remove from collection' });
+    expect(exclude).toBeEnabled();
+    fireEvent.click(exclude);
+    await waitFor(() => expect(mockLoomClient.createSelection).toHaveBeenCalledTimes(1));
+    return { view, selectionA, selectionB, variantA, routesFor, resolveVariant, rejectQueuedCommand, resolveRoutes: (value: ReturnType<typeof routesFor> & { nextCursor?: string }) => resolveRoutes?.(value), dialog, panel };
+  };
+
+  const finishPopulationVariant = async (resolve: () => void) => {
+    await act(async () => { resolve(); await new Promise(done => setTimeout(done, 25)); });
+  };
+
+  const refreshPopulationByColumnEdit = async (dialog: HTMLElement, selectionB: SelectionRevision) => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
+    expect(screen.getByRole('button', { name: 'Save column change' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(mockLoomClient.getBuilder).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const refreshedDialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    await waitFor(() => expect(within(refreshedDialog).getByRole('region', { name: 'Starting collection' })).toHaveAttribute('data-attached-selection-revision-id', selectionB.id));
+  };
+
+  it('does not attach an obsolete population exclusion after a fresh query admits another selection', async () => {
+    const { selectionB, variantA, resolveVariant, dialog, panel } = await openPopulationExclusion('refresh');
+    expect(within(panel).getByRole('button', { name: 'Use all authorized rows' })).toBeDisabled();
+    await refreshPopulationByColumnEdit(dialog, selectionB);
+    expect(applyCommands).toHaveBeenCalledTimes(1);
+    await finishPopulationVariant(() => resolveVariant(variantA));
+    expect(applyCommands).toHaveBeenCalledTimes(1);
+    expect(mockLoomClient.searchPopulationRoutes.mock.calls.filter(call => call[0].selectionRevisionId === variantA.id)).toHaveLength(0);
+  });
+
+  it('attaches a current population exclusion and retains its immediate selection override', async () => {
+    const { variantA, resolveVariant } = await openPopulationExclusion();
+    await finishPopulationVariant(() => resolveVariant(variantA));
+    expect(applyCommands).toHaveBeenCalledOnce();
+    expect(applyCommands.mock.calls[0][0]).toMatchObject({ expectedDraftVersion: 1, expectedDraftDigest: 'sha256:draft-1', commands: [{ type: 'SET_TABLE_POPULATION', selectionRevisionId: variantA.id }] });
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Starting collection' })).toHaveAttribute('data-attached-selection-revision-id', variantA.id));
+  });
+
+  it('keeps a population exclusion current across an unrelated successful save and uses fresh CAS', async () => {
+    const { variantA, resolveVariant, dialog } = await openPopulationExclusion('unrelated');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
+    await finishPopulationVariant(() => resolveVariant(variantA));
+    expect(applyCommands).toHaveBeenCalledTimes(2);
+    expect(applyCommands.mock.calls[1][0]).toMatchObject({ expectedDraftVersion: 2, expectedDraftDigest: 'sha256:draft-2', commands: [{ type: 'SET_TABLE_POPULATION', selectionRevisionId: variantA.id }] });
+  });
+
+  it('stops obsolete population exclusion pagination after a fresh query changes the base', async () => {
+    const { selectionB, variantA, resolveVariant, resolveRoutes, dialog, routesFor } = await openPopulationExclusion('refresh', true);
+    await finishPopulationVariant(() => resolveVariant(variantA));
+    expect(mockLoomClient.searchPopulationRoutes.mock.calls.filter(call => call[0].selectionRevisionId === variantA.id)).toHaveLength(1);
+    await refreshPopulationByColumnEdit(dialog, selectionB);
+    await finishPopulationVariant(() => resolveRoutes({ ...routesFor(variantA.id), choices: [], nextCursor: 'next-old-page' }));
+    expect(mockLoomClient.searchPopulationRoutes.mock.calls.filter(call => call[0].selectionRevisionId === variantA.id)).toHaveLength(1);
+    expect(applyCommands).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks population exclusion admission after an earlier queued command refreshes the base', async () => {
+    const { variantA, resolveVariant, rejectQueuedCommand, dialog } = await openPopulationExclusion('queued-refresh');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Back to table' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await finishPopulationVariant(() => resolveVariant(variantA));
+    expect(mockLoomClient.searchPopulationRoutes.mock.calls.filter(call => call[0].selectionRevisionId === variantA.id)).toHaveLength(1);
+    expect(applyCommands).toHaveBeenCalledTimes(1);
+    await finishPopulationVariant(() => rejectQueuedCommand({ code: 'DRAFT_CONFLICT', message: 'Another writer attached B before this queued edit.', retryable: false }));
+    await waitFor(() => expect(mockLoomClient.getBuilder).toHaveBeenCalledTimes(2));
+    expect(applyCommands).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-current-draft-version', '2'));
+  });
+
+  it('does not continue population exclusion creation after its Workspace unmounts', async () => {
+    const { view, variantA, resolveVariant } = await openPopulationExclusion();
+    view.unmount();
+    await finishPopulationVariant(() => resolveVariant(variantA));
+    expect(mockLoomClient.searchPopulationRoutes.mock.calls.filter(call => call[0].selectionRevisionId === variantA.id)).toHaveLength(0);
+    expect(applyCommands).not.toHaveBeenCalled();
+  });
+
 });

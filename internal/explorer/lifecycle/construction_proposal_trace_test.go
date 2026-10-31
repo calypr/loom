@@ -515,23 +515,44 @@ type operationHistoryCandidateCheckpoint struct {
 	Expected              operationHistoryExpectation
 	RequestFingerprint    string
 }
+type operationHistoryReloadFile struct {
+	SchemaVersion int                          `json:"schemaVersion"`
+	Cases         []operationHistoryReloadCase `json:"cases"`
+}
+type operationHistoryReloadCase struct {
+	ID              string                           `json:"id"`
+	ActionIndex     int                              `json:"actionIndex"`
+	OutputID        string                           `json:"outputId"`
+	StageID         string                           `json:"stageId"`
+	Before          authoringv2.BuilderState         `json:"before"`
+	After           authoringv2.BuilderState         `json:"after"`
+	StoredWorkspace authoringv2.Workspace            `json:"storedWorkspace"`
+	Capabilities    ConstructionCapabilitiesResponse `json:"capabilities"`
+}
+type operationHistoryReloadSummary struct {
+	ID           string `json:"id"`
+	ActionIndex  int    `json:"actionIndex"`
+	DraftVersion int64  `json:"draftVersion"`
+	DraftDigest  string `json:"draftDigest"`
+}
 type operationHistoryReplaySummary struct {
-	SchemaVersion                         int                          `json:"schemaVersion"`
-	TraceCaseCount                        int                          `json:"traceCaseCount"`
-	CandidateCaseCount                    int                          `json:"candidateCaseCount"`
-	ReplayedCaseCount                     int                          `json:"replayedCaseCount"`
-	SkippedCaseCount                      int                          `json:"skippedCaseCount"`
-	ProposalCheckpointCount               int                          `json:"proposalCheckpointCount"`
-	UniqueRequestFingerprintCount         int                          `json:"uniqueRequestFingerprintCount"`
-	UniqueAbstractRequestFingerprintCount int                          `json:"uniqueAbstractRequestFingerprintCount"`
-	UniqueRawRequestFingerprintCount      int                          `json:"uniqueRawRequestFingerprintCount"`
-	ReadyProposalCount                    int                          `json:"readyProposalCount"`
-	NeedsRepairProposalCount              int                          `json:"needsRepairProposalCount"`
-	ApplyInvocationCount                  int                          `json:"applyInvocationCount"`
-	ApplyAckSuccessCount                  int                          `json:"applyAckSuccessCount"`
-	ApplyAckFailureCount                  int                          `json:"applyAckFailureCount"`
-	ServicePreviewCount                   int                          `json:"servicePreviewCount"`
-	Cases                                 []operationHistoryReplayCase `json:"cases"`
+	SchemaVersion                         int                             `json:"schemaVersion"`
+	TraceCaseCount                        int                             `json:"traceCaseCount"`
+	CandidateCaseCount                    int                             `json:"candidateCaseCount"`
+	ReplayedCaseCount                     int                             `json:"replayedCaseCount"`
+	SkippedCaseCount                      int                             `json:"skippedCaseCount"`
+	ProposalCheckpointCount               int                             `json:"proposalCheckpointCount"`
+	UniqueRequestFingerprintCount         int                             `json:"uniqueRequestFingerprintCount"`
+	UniqueAbstractRequestFingerprintCount int                             `json:"uniqueAbstractRequestFingerprintCount"`
+	UniqueRawRequestFingerprintCount      int                             `json:"uniqueRawRequestFingerprintCount"`
+	ReadyProposalCount                    int                             `json:"readyProposalCount"`
+	NeedsRepairProposalCount              int                             `json:"needsRepairProposalCount"`
+	ApplyInvocationCount                  int                             `json:"applyInvocationCount"`
+	ApplyAckSuccessCount                  int                             `json:"applyAckSuccessCount"`
+	ApplyAckFailureCount                  int                             `json:"applyAckFailureCount"`
+	ServicePreviewCount                   int                             `json:"servicePreviewCount"`
+	Cases                                 []operationHistoryReplayCase    `json:"cases"`
+	Reloads                               []operationHistoryReloadSummary `json:"reloads"`
 }
 type operationHistoryProposalResponseFile struct {
 	SchemaVersion int                                    `json:"schemaVersion"`
@@ -710,7 +731,8 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 		}
 	}
 
-	summary := operationHistoryReplaySummary{SchemaVersion: 1, TraceCaseCount: len(traces.Cases), CandidateCaseCount: len(candidates.Cases)}
+	summary := operationHistoryReplaySummary{SchemaVersion: 1, TraceCaseCount: len(traces.Cases), CandidateCaseCount: len(candidates.Cases), Reloads: []operationHistoryReloadSummary{}}
+	reloads := operationHistoryReloadFile{SchemaVersion: 1, Cases: []operationHistoryReloadCase{}}
 	uniqueFingerprints := map[string]bool{}
 	uniqueRawFingerprints := map[string]bool{}
 	actualResponses := operationHistoryProposalResponseFile{SchemaVersion: 1, Cases: make([]operationHistoryProposalResponseCase, 0, len(traceIDs))}
@@ -905,6 +927,15 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					t.Fatalf("trace %s action %d unsupported/non-ready apply ack", traceID, actionIndex)
 				}
 				version, digest := store.created.DraftVersion, store.created.DraftDigest
+				reloadService := newTestService(t, store, service.config)
+				beforeReload, reloadErr := reloadService.Builder(context.Background(), BuilderRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID})
+				if reloadErr != nil {
+					t.Fatalf("fresh Builder before Apply: %v", reloadErr)
+				}
+				beforeCanonical, reloadErr := beforeReload.Workspace.CanonicalJSON()
+				if reloadErr != nil || !bytes.Equal(beforeCanonical, store.created.DraftConfig) || beforeReload.DraftVersion != version || beforeReload.DraftDigest != digest {
+					t.Fatalf("fresh Builder changed initial saved Group: err=%v", reloadErr)
+				}
 				applied, err := service.ApplyCommands(context.Background(), store.created.Project, store.created.ExplorerID, authoringv2.ApplyCommandsRequest{
 					CommandID: "operation-history-" + traceID + "-" + fmt.Sprint(actionIndex), SemanticsVersion: authoringv2.CurrentSemanticsVersion,
 					SnapshotToken: snapshot.Token, ExpectedDraftVersion: version, ExpectedDraftDigest: digest,
@@ -946,6 +977,21 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 					proposalJSON, _ := json.Marshal(lastProposal.CandidateConstruction)
 					t.Fatalf("trace %s action %d applied/persisted construction differs from exact proposal: applied=%s persisted=%s candidate=%s", traceID, actionIndex, appliedJSON, persistedJSON, proposalJSON)
 				}
+				reloadService = newTestService(t, store, service.config)
+				afterReload, reloadErr := reloadService.Builder(context.Background(), BuilderRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID})
+				if reloadErr != nil {
+					t.Fatalf("fresh Builder after Apply: %v", reloadErr)
+				}
+				readCanonical, reloadErr := afterReload.Workspace.CanonicalJSON()
+				if reloadErr != nil || !bytes.Equal(readCanonical, persistedCanonical) || afterReload.DraftDigest != persistedDigest || afterReload.DraftVersion != version+1 {
+					t.Fatalf("fresh Builder lost saved Group: err=%v", reloadErr)
+				}
+				reloadCaps, reloadErr := reloadService.GetConstructionCapabilities(context.Background(), ConstructionCapabilitiesRequest{Project: store.created.Project, ExplorerID: store.created.ExplorerID, SnapshotToken: snapshot.Token, ExpectedDraftVersion: afterReload.DraftVersion, ExpectedDraftDigest: afterReload.DraftDigest, OutputID: lastProposal.OutputID, StageID: "source_projection"})
+				if reloadErr != nil {
+					t.Fatalf("fresh Group capabilities: %v", reloadErr)
+				}
+				reloads.Cases = append(reloads.Cases, operationHistoryReloadCase{ID: traceID, ActionIndex: actionIndex, OutputID: lastProposal.OutputID, StageID: "source_projection", Before: beforeReload, After: afterReload, StoredWorkspace: persistedWorkspace, Capabilities: reloadCaps})
+				summary.Reloads = append(summary.Reloads, operationHistoryReloadSummary{ID: traceID, ActionIndex: actionIndex, DraftVersion: afterReload.DraftVersion, DraftDigest: afterReload.DraftDigest})
 				replay.ApplyAck = append(replay.ApplyAck, operationHistoryReplayAck{ActionIndex: actionIndex, Result: "SUCCESS", AcceptedVersionBefore: version, AcceptedVersionAfter: store.created.DraftVersion, AcceptedDigestBefore: digest, AcceptedDigestAfter: store.created.DraftDigest})
 				summary.ApplyInvocationCount++
 				summary.ApplyAckSuccessCount++
@@ -985,6 +1031,15 @@ func TestConstructionProposalOperationHistoryTraces(t *testing.T) {
 	}
 	if err := os.WriteFile(responsePath, responseJSON, 0o600); err != nil {
 		t.Fatalf("write actual proposal responses %s: %v", responsePath, err)
+	}
+	if path := os.Getenv("BUILDER_OPERATION_RELOADS"); path != "" {
+		encodedReloads, err := json.Marshal(reloads)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encodedReloads, 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fmt.Printf("BUILDER_OPERATION_RESPONSES_PATH=%s CASES=%d CHECKPOINTS=%d\n", responsePath, len(actualResponses.Cases), summary.ProposalCheckpointCount)
 	encoded, err := json.Marshal(summary)
@@ -1254,8 +1309,23 @@ func newOperationHistoryService(t *testing.T, w authoringv2.Workspace, request C
 		snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{ID: "trace-candidate-" + f.ColumnID, NodeID: rootID, ResourceType: rootType, FieldPath: f.FieldPath, Label: f.Label, LogicalType: f.LogicalType, Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true})
 	}
 	config := testConfig(snapshot)
+	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
 	config.Capability.Catalog = func(got capability.Snapshot, explorerID string) authoringv2.CatalogSnapshot {
-		return traceWorkspaceCatalog(got, explorerID, w, rootID)
+		c := traceWorkspaceCatalog(got, explorerID, w, rootID)
+		for i := range c.Nodes {
+			count := int64(2)
+			c.Nodes[i].DocumentCount = &count
+		}
+		if c.Edges == nil {
+			c.Edges = []authoringv2.CatalogEdge{}
+		}
+		for i := range c.Candidates {
+			if c.Candidates[i].AggregateOperations == nil {
+				c.Candidates[i].AggregateOperations = []capability.AggregateOperationCapability{}
+			}
+			c.Candidates[i].Transformations = authoringv2.AggregateTransformationCapabilitiesForCapability(got, c.Candidates[i].ID)
+		}
+		return c
 	}
 	stats := &operationHistoryCompileStats{}
 	config.CompileReceipt = func(ctx context.Context, cr CompileReceiptRequest) (*explorer.CompilationReceipt, error) {

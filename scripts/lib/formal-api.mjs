@@ -1,3 +1,4 @@
+import { verificationTimeoutMs, goTestTimeout } from './verification-budget.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -8,6 +9,10 @@ import { spawnSync } from 'node:child_process';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const boundary = 'production HTTP routes, services and compiler; test-owned in-memory repository and external execution fixtures; not browser or durable database proof';
 export const apiChecks = [
+    { id: 'derived-policy', title: 'Bounded actual AQL derived arithmetic, missing input and division policies', package: './internal/server', tests: ['TestDerivedArithmeticPoliciesAgainstArango'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL'], boundary: '400 authored source/literal inputs through production recipe compiler and Engine with actual Arango; eight guard-order conformance cases; no arbitrary numerics, both-input-missing, FHIR profile, HTTP or browser claim' },
+    { id: 'append-rows', title: 'Actual current-workspace Group, Calculate and APPEND rows after edit and restoration', package: './internal/server', tests: ['TestCurrentDraftAppendRowsAgainstArangoClickHouse'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL', 'LOOM_CLICKHOUSE_URL'], boundary: 'production recipe compiler, current-workspace capture and Engine execution against actual Arango and ClickHouse; fixed authored recipes, exact row multisets, nullable padding and cleanup; no public save, HTTP, browser or exhaustive-input claim' },
+    { id: 'draft-cas', title: 'Real draft write conflict classification and transactional history rollback', package: './internal/explorer/arango', tests: ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL'], boundary: 'production SaveDraft and public lifecycle Apply with actual Arango transactions in private databases; controlled read barriers and update failure; no HTTP, browser or database-process-restart claim' },
+    { id: 'publication-rows', title: 'Actual compiled rows through publication storage and fresh Viewer', package: './internal/server', tests: ['TestPublicationRowsAndFreshViewerAgainstArangoClickHouse'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL', 'LOOM_CLICKHOUSE_URL'], boundary: 'production compiler/AQL, ClickHouse materializer, Arango registry and Explorer activation, fresh database clients and public Viewer; test-owned auth/capabilities; no browser or process-restart claim' },
     { id: 'route-rows', title: 'Actual Arango route rows, persisted history and fresh repository read-back', package: './internal/server', tests: ['TestSavedRelatedRouteRowsAgainstArango'], integration: true, requiredEnvironment: ['LOOM_TEST_ARANGO_URL'], boundary: 'production public HTTP/service/compiler/query execution and actual Arango repository; isolated test-owned database; no browser or database-process-restart claim' },
     { id: 'route-roundtrip', title: 'Saved Related route proposal, Apply, restore and fresh-read identity', package: './internal/server', tests: ['TestSavedRelatedRouteProposalApplyRestoreAndFreshRead'], boundary },
     { id: 'publication', title: 'Publish receipt, stored revision and fresh Viewer agreement', package: './internal/server', tests: ['TestPublicationHTTPReceiptRevisionAndViewerAgreeAfterFreshRead'], boundary },
@@ -23,6 +28,15 @@ export const apiChecks = [
         'TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP',
     ], boundary },
 ];
+export function serviceProfileEvidence({ phase, feature, checks = [] }) {
+    return apiChecks.filter(check => check.integration).map(({ id, requiredEnvironment, boundary }) => {
+        const selected = phase === 'api' && feature === id;
+        const status = selected
+            ? checks.some(check => check.id === id) ? 'passed' : 'failed-or-incomplete'
+            : 'not-run-in-this-command';
+        return { id, status, requiredEnvironment, boundary };
+    });
+}
 export function selectApiChecks(feature = 'all') {
     const checks = apiChecks.filter(check => feature === 'all' ? !check.integration : check.id === feature);
     assert.ok(checks.length, `Unknown API feature: ${feature}`);
@@ -38,7 +52,7 @@ export function apiSourceFingerprint() {
         }
     };
     for (const directory of ['internal', 'generated', 'schemas']) visit(directory);
-    for (const file of ['go.mod', 'go.sum', 'scripts/lib/formal-api.mjs']) hash.update(file).update('\0').update(readFileSync(join(root, file))).update('\0');
+    for (const file of ['go.mod', 'go.sum', 'scripts/lib/formal-api.mjs', 'scripts/lib/verification-budget.mjs']) hash.update(file).update('\0').update(readFileSync(join(root, file))).update('\0');
     return hash.digest('hex');
 }
 export function apiDoctor() {
@@ -93,9 +107,9 @@ export function runApi({ feature = 'all', output }) {
     }
     try {
         for (const check of checks) {
-            const args = ['test', '-json', '-timeout=30s', '-count=1', '-run', `^(${check.tests.join('|')})$`, check.package];
+            const args = ['test', '-json', `-timeout=${goTestTimeout}`, '-count=1', '-run', `^(${check.tests.join('|')})$`, check.package];
             const started = performance.now();
-            const result = spawnSync(tool.executable, args, { cwd: root, env, encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024, detached: true });
+            const result = spawnSync(tool.executable, args, { cwd: root, env, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 16 * 1024 * 1024, detached: true });
             if (result.error && result.pid) {
                 try { process.kill(-result.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
             }

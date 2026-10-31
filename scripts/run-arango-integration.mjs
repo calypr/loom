@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { verificationTimeoutMs, goTestTimeout } from './lib/verification-budget.mjs';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -24,15 +25,19 @@ export const profiles = [
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
+profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
+profiles.find(p => p.id === 'explorer').alsoRequired = ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'];
+// The assembled dual-store checkpoint has its own API/CI route with both services.
+profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';
 export function checkEvents(stdout, profile) {
     const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     assert.ok(events.some(e => !e.Test && e.Action === 'pass'), 'No successful package completion');
     assert.ok(!events.some(e => e.Action === 'fail'), 'Go reported failure');
     const passes = events.filter(e => e.Test && e.Action === 'pass').map(e => e.Test);
     assert.ok(passes.length, 'No test assertions completed');
-    if (profile.required) {
-        assert.ok(events.some(e => e.Test === profile.required && e.Action === 'run'), `Required real integration case did not run: ${profile.required}`);
-        assert.ok(passes.includes(profile.required), `Required real integration case did not pass: ${profile.required}`);
+    for (const name of [profile.required, ...(profile.alsoRequired || [])].filter(Boolean)) {
+        assert.ok(events.some(e => e.Test === name && e.Action === 'run'), `Required real integration case did not run: ${name}`);
+        assert.ok(passes.includes(name), `Required real integration case did not pass: ${name}`);
     }
     const skipped = events.filter(e => e.Test && e.Action === 'skip').map(e => ({ test: e.Test, reason: events.filter(o => o.Test === e.Test && o.Action === 'output').map(o => o.Output).join('').trim() }));
     for (const skip of skipped) assert.ok(external.has(skip.test), `Unexpected skipped case: ${skip.test}`);
@@ -50,7 +55,7 @@ export async function runArango(output) {
     assert.ok(!existsSync(directory) || readdirSync(directory).length === 0, 'Evidence directory must be empty');
     mkdirSync(directory, { recursive: true });
     const before = sourceFingerprint(), owned = [], deadline = performance.now() + 8 * 60 * 1000;
-    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], status: 'running' };
+    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
     const database = `loom_test_restricted_starting_collection_${randomUUID()}`;
     const c01 = `loom_backend_c01_${randomUUID().replaceAll('-', '')}`;
     const sc02 = 'loom_qa_semantic_cov_resource_20261016';
@@ -62,11 +67,12 @@ export async function runArango(output) {
         if (!env.GOCACHE && existsSync('/workspace/loom/.gocache')) env.GOCACHE = '/workspace/loom/.gocache';
     }
     const child = (profile, setup) => {
-        const args = ['test', '-json', '-p', '1', '-timeout=30s', '-count=1'];
+        const args = ['test', '-json', '-p', '1', `-timeout=${goTestTimeout}`, '-count=1'];
         if (setup || profile.run) args.push('-run', setup ? '^$' : `^${profile.run}$`);
+        if (profile.skip) args.push('-skip', profile.skip);
         args.push(profile.package);
         const start = performance.now();
-        const timeout = Math.min(setup ? 60000 : 30000, Math.floor(deadline - start));
+        const timeout = Math.min(setup ? Math.max(60000, verificationTimeoutMs) : verificationTimeoutMs, Math.floor(deadline - start));
         assert.ok(timeout > 0, 'Eight-minute driver budget exhausted; reserve remaining CI time for cleanup');
         const result = spawnSync(tool.executable, args, { cwd: root, env, encoding: 'utf8', timeout, maxBuffer: 64 * 1024 * 1024, detached: true });
         if (result.error && result.pid) { try { process.kill(-result.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; } }

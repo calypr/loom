@@ -18,7 +18,7 @@
       "sha256": "22a47c5f101a3c59621513f5b31489d3e651916149f01d547049ffeffafa7bc8"
     }
   ],
-  "expandedSha256": "39b747eda51e8d9b169ce76fbd1d95488041de4cb392192dd345a8c984541466",
+  "expandedSha256": "66f91f2f28977158b1e3544bb72482d370b1f7610c378c7ddf9ff953bf96f09e",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -92,7 +92,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "sha256": "9d2d82f911e8b58879d2b2d398ed85b3657747815f2f5c6b4988e86a3400de23"
+          "sha256": "61bf6c569b40cf6e99e782d235c687a5637b795930cd6cc93ac9159f11c20804"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",
@@ -464,7 +464,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/populationRoutes.ts",
-          "sha256": "2d82bdd202972b6836862889bbd459f82f3dbe5e1963d5d05be5ea825d80dc9f"
+          "sha256": "b87be14b84be936cb1f3c1dac60493b1ced394147decac61566c9b46fcea0d77"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/useAutomaticPreview.ts",
@@ -510,14 +510,14 @@
         }
       ],
       "reviewedWorkingTree": {
-        "baselineCommit": "5646633e0e5c7ff8de568a4f111478d121e7f75f",
+        "baselineCommit": "e736e1300716e8cdfe4dbfbe370e87b6713bebd2",
         "uncommitted": true,
         "contractOriginCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
         "reviewNote": "docs/ui-contract-inventory/source-review.md",
         "changes": [
           {
             "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-            "review": "Apply cleanup follows the initiating completion handle. Reconcile admission now delegates the same synchronous current/receipt/diagnostic decisions to reconcileAcceptance; cancellation and repair/compiled dispatch semantics and public HTTP request shapes are preserved."
+            "review": "Apply cleanup follows the initiating completion handle. Reconcile admission now delegates the same synchronous current/receipt/diagnostic decisions to reconcileAcceptance; cancellation and repair/compiled dispatch semantics and public HTTP request shapes are preserved. Recovery now rechecks generation, Explorer and workspace fingerprint after each catalog refresh and before retrying after backoff; obsolete continuations cannot overwrite a newer draft/catalog or resubmit an old request. Public request constructors and affordances unchanged. Publication refresh and completion also reject obsolete ownership and retain the submitted draft digest; request shapes unchanged. Successful publication acknowledgement now follows captured owner/Explorer/draft/intent/snapshot identity rather than an unrelated preview compile epoch. The old stale-refetch recovery rule is preserved. No request constructor or user affordance changed. Population exclusion validates captured base/context/lifetime after preflight and after the real queued drain, including current local/server coherence. Existing public command and route request shapes are preserved. Six mounted schedules and model-backed real-code source controls establish this review."
           },
           {
             "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
@@ -542,6 +542,10 @@
           {
             "path": "ui/packages/loom-ui/src/features/ExplorerViewer/components.tsx",
             "review": "FileCell appends the encoded file ID to the path before preserving query/fragment and setting redirect=true. This Viewer source is outside this Builder manifest watched scope; separate component/browser proofs cover it. No Builder HTTP request ABI change."
+          },
+          {
+            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/populationRoutes.ts",
+            "review": "Saved route matching now honors optional catalog edge and storage direction pins, retaining legacy omitted-pin matching. No request shape or affordance changes. The targeted actual helper regression and semantic source fault pass."
           }
         ]
       }

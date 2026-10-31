@@ -1,7 +1,9 @@
 # Builder formal verification plan
 
-Status: active
-Baseline: `cd02d1306`
+Status: historical. Superseded by [the core protocol verification plan](CORE_PROTOCOL_VERIFICATION_PLAN.md).
+The progress entries, route counts and commands below describe earlier tooling and are not current verification evidence.
+
+Historical baseline: `cd02d1306`
 
 ## Goal
 

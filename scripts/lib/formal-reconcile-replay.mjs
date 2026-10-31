@@ -1,3 +1,4 @@
+import { verificationTimeoutMs } from './verification-budget.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -134,7 +135,7 @@ export async function reconcileAcceptanceGraph(output) {
     const directory = mkdtempSync(join(tmpdir(), 'loom-reconcile-graph-'));
     try {
         const result = spawnSync('java', ['-XX:+UseParallelGC', '-cp', jar, 'tlc2.TLC', '-workers', '1', '-metadir', join(directory, 'states'),
-            '-config', `${modelName}.cfg`, '-dump', 'dot,actionlabels', join(directory, 'graph'), `${modelName}.tla`], { cwd: modelDirectory, encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+            '-config', `${modelName}.cfg`, '-dump', 'dot,actionlabels', join(directory, 'graph'), `${modelName}.tla`], { cwd: modelDirectory, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
         assert.ifError(result.error);
         assert.equal(result.status, 0, result.stdout + result.stderr);
         const [{ parseDot }, { json }] = await Promise.all([import(pathToFileURL(join(scripts, 'frontends/dot.ts')).href), import(pathToFileURL(join(scripts, 'frontends/view.ts')).href)]);

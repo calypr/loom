@@ -47,3 +47,38 @@ increases from 99 to 100 files solely for the new actual acceptance helper.
 The source-only verifier and existing normalizer/verifier tests pass against this
 checkpoint. Deliberate source-byte and active-file-set changes must still fail;
 the review does not replace those controls or establish browser/storage coverage.
+
+
+## Recovery continuation review
+
+The prior fixes are now committed in `e736e1300716e8cdfe4dbfbe370e87b6713bebd2`. The reviewed working tree adds `reconcileCurrent` checks after both catalog-refresh awaits and at the retry loop head, using the existing generation/Explorer/fingerprint predicate. This prevents obsolete manual recovery from overwriting a newer draft/catalog or resubmitting an old request. Mounted saved-edit schedules reproduce all three missing guards separately; the new await-split model records the suspension point the older lifecycle model omitted. No request endpoint, constructor, affordance, fragment, binding or surface mapping changed. All 57 affordances and 159 request checkpoints remain identical; only reviewed metadata/source hashes and the corresponding expansion digest changed.
+
+Publication follow-up: `executePublish` checks its captured generation/Explorer/fingerprint after catalog recovery. Successful acknowledgement checks owner, Explorer, submitted draft digest, intent and snapshot instead. Preview-only compilation may advance its generation without invalidating that acknowledgement. The publish marker uses the submitted digest. A mounted row-limit/compile-receipt recovery regression demonstrates this distinction. A newer saved draft remains publishable when an old acknowledgement returns. Public publish/reconcile request shapes and all affordance definitions remain unchanged.
+
+
+## Committed publication lifetime
+
+All four existing Workspace main branches now share a stable host ref. Detached keyed instances stop publication continuation before new requests and after awaited recovery. This fixes background publication for a project the operator has left, including return to the original owner. The acknowledgement identity remains independent of preview compilation generation. Mounted negative schedules and direct attachment inputs exercise this distinction. No request constructor or affordance changed. The manifest renews only reviewed source metadata and its expansion digest.
+
+
+## Manual reconcile lifetime
+
+Manual reconcile reuses the same committed host lifetime before entry, receipt admission and error recovery. Existing retry and post-refresh checks now reject detached instances as well. Six mounted stale-refresh/backoff schedules reproduce obsolete-project retries after navigation, full unmount and return to the original owner. The expanded recovery model includes independent detachment. Public request constructors and all affordance contracts remain unchanged; reviewed metadata records the new Workspace bytes.
+
+
+## Root assessment lifetime
+
+The existing root-change attempt predicate now also requires committed Workspace attachment. Mounted record-type selection reproduces obsolete preview after project navigation and full unmount; the repaired source and a return-to-owner case pass, and removing attachment fails all three. This changes no request constructor, affordance or contract fragment. Only reviewed Workspace source metadata and the expansion digest are renewed.
+
+## Population intent and saved-route pins
+
+Reviewed the current Workspace exclusion guard and saved-route matcher against their
+actual mounted/function regressions and source controls. Exclusion admission checks
+captured population intent after preflight and after the real command-queue drain,
+with current local/server identity coherence. Saved-route matching honors supplied
+catalog-edge and direction pins while preserving omitted-pin behavior. These are
+admission/matching fixes, not new affordances or request shapes. Fragment hashes,
+expanded affordances, request bindings and surface mappings remain unchanged.
+Only the two reviewed source hashes, review metadata and expansion digest are renewed.
+The existing baseline plus reviewed working-tree metadata remains explicit; no
+fictitious new sync commit is recorded before this commit exists.

@@ -1,12 +1,33 @@
 import assert from 'node:assert/strict';
 
+/** Read the repository's explicit one-rule-per-line TLC configuration format.
+ * Unsupported rule syntax blocks instead of silently omitting a declaration.
+ */
+export function configuredModelRules(config) {
+    assert.equal(typeof config, 'string', 'Missing model configuration');
+    const rules = [];
+    for (const line of config.split(/\r?\n/)) {
+        const declaration = line.replace(/\\\*.*/, '').trim();
+        if (!/^(?:INVARIANTS?|PROPERT(?:Y|IES))\b/.test(declaration)) continue;
+        const match = /^(?:INVARIANT|PROPERTY)\s+([A-Za-z_]\w*)$/.exec(declaration);
+        assert.ok(match, `Unsupported model rule declaration: ${declaration}`);
+        rules.push(match[1]);
+    }
+    assert.ok(rules.length > 0, 'Configuration declares no model rules');
+    assert.equal(new Set(rules).size, rules.length, 'Duplicate configured model rule');
+    return rules;
+}
+
 /** Validate the pinned statechart worker's structured verdict, never stdout text.
  * A named negative control may fail in Init before TLC records an initial state.
  */
-export function validateModelVerdict(checked, processExit, expectedInvariant) {
+export function validateModelVerdict(checked, processExit, expectedInvariant, expectedRules) {
     assert.ok(checked && typeof checked === 'object' && !Array.isArray(checked), 'Missing structured statechart verdict');
     assert.ok(expectedInvariant === undefined || typeof expectedInvariant === 'string' && expectedInvariant.trim().length > 0, 'Invalid expected invariant');
     assert.ok(Array.isArray(checked.rules) && checked.rules.length > 0, 'Statechart verdict contains no checked rules');
+    assert.ok(Array.isArray(expectedRules) && expectedRules.length > 0, 'Missing configured rule inventory');
+    assert.ok(expectedRules.every(name => typeof name === 'string' && /^[A-Za-z_]\w*$/.test(name)), 'Malformed configured rule inventory');
+    assert.equal(new Set(expectedRules).size, expectedRules.length, 'Duplicate configured rule inventory');
     const names = new Set();
     const broken = [];
     for (const rule of checked.rules) {
@@ -16,6 +37,22 @@ export function validateModelVerdict(checked, processExit, expectedInvariant) {
         assert.ok(['holds', 'broken', 'not checked'].includes(rule.outcome), `Unknown rule outcome: ${rule.name}`);
         assert.notEqual(rule.outcome, 'not checked', `Rule was not checked: ${rule.name}`);
         if (rule.outcome === 'broken') broken.push(rule.name);
+    }
+    assert.deepEqual([...names].sort(), [...expectedRules].sort(), 'Statechart verdict does not match configured model rules');
+    assert.ok(Array.isArray(checked.counterexamples), 'Missing decoded counterexample inventory');
+    if (expectedInvariant === undefined) {
+        assert.deepEqual(checked.counterexamples, [], 'Successful verdict contains counterexamples');
+    } else {
+        assert.equal(checked.counterexamples.length, 1, 'Negative control must retain one decoded counterexample');
+        const counterexample = checked.counterexamples[0];
+        assert.ok(counterexample && typeof counterexample === 'object' && !Array.isArray(counterexample), 'Malformed decoded counterexample');
+        assert.equal(counterexample.property, expectedInvariant, 'Counterexample does not witness the expected invariant');
+        assert.ok(Array.isArray(counterexample.states) && counterexample.states.length > 0, 'Counterexample contains no decoded states');
+        for (const state of counterexample.states) {
+            // TLC can use an empty action label for a violation in the initial state.
+            assert.ok(state && typeof state === 'object' && !Array.isArray(state) && typeof state.action === 'string', 'Malformed decoded counterexample state');
+            assert.ok(state.vars && typeof state.vars === 'object' && !Array.isArray(state.vars) && Object.keys(state.vars).length > 0, 'Missing decoded counterexample variables');
+        }
     }
     const states = checked.states;
     assert.ok(states && typeof states === 'object' && !Array.isArray(states), 'Missing state-space result');

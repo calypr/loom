@@ -24,13 +24,13 @@ for (let i = 2; i < process.argv.length; i++) {
         options[key] = process.argv[++i];
     }
 }
-assert.ok(['all', 'drag', 'download'].includes(options.feature), 'Unknown browser feature');
+assert.ok(['all', 'drag', 'download', 'route'].includes(options.feature), 'Unknown browser feature');
 for (const file of [fixture, options.chrome, 'ui/node_modules/esbuild/lib/main.js', 'ui/node_modules/postcss/lib/postcss.mjs', 'ui/node_modules/tailwindcss/lib/index.js'])
     assert.ok(existsSync(resolve(root, file)), `Missing browser prerequisite: ${file}`);
 const version = spawnSync(options.chrome, ['--version'], { encoding: 'utf8', timeout: 3000 });
 assert.equal(version.status, 0, version.stderr);
 if (options.doctor) {
-    console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['drag', 'download'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
+    console.log(JSON.stringify({ status: 'ready-for-browser-component-checks', chrome: version.stdout.trim(), features: ['drag', 'download', 'route'], boundary: 'real production components in real Chromium; test-owned caller/data/download HTTP response, not deployed Loom/backend or disk durability' }));
     process.exit(0);
 }
 assert.ok(options.out, '--out is required');
@@ -56,7 +56,7 @@ const assets = join(temp, 'assets'), profile = join(temp, 'profile'), downloads 
 await mkdir(downloads);
 let server, chrome, client, browser, stopBuild;
 const started = performance.now(), requests = [], browserErrors = [];
-const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable in Chromium with native input. Test-owned caller persists column settings in sessionStorage; controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
+const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium with native input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(probe, message, milliseconds = 5000) {
     const deadline = performance.now() + milliseconds;
@@ -76,6 +76,9 @@ async function position(selector) {
     return evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if(!e) return null; const b=e.getBoundingClientRect(); return {x:b.x+b.width/2,y:b.y+b.height/2,top:b.top,height:b.height,width:b.width}; })()`);
 }
 async function click(selector) {
+    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), `control mounted ${selector}`);
+    await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center', inline:'center'})`);
+    await wait(40);
     const point = await until(() => position(selector), `visible control ${selector}`);
     assert.ok(point.width > 0 && point.height > 0, `Invisible target ${selector}`);
     await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
@@ -83,7 +86,7 @@ async function click(selector) {
 }
 async function navigate(feature) {
     await client.send('Page.navigate', { url: `${report.origin}/?feature=${feature}` });
-    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(feature === 'drag' ? '[data-testid="preview-table-scroll"]' : 'a[aria-label="file_download"]')}))`), 'production component mounted');
+    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(feature === 'route' ? '[data-testid="construction-related-expand-editor"]' : feature === 'drag' ? '[data-testid="preview-table-scroll"]' : 'a[aria-label="file_download"]')}))`), 'production component mounted');
 }
 async function identities() {
     const result = [];
@@ -197,6 +200,45 @@ try {
         }
         assert.deepEqual(requests, [downloadPath, downloadPath, configuredDownloadPath, configuredDownloadPath].map(url => ({ method: 'GET', url })));
         report.checks.push({ feature: 'download', status: 'passed', cases: observedCases, filename: 'loom-browser-fixture.txt', bytes: payload.length, sha256: createHash('sha256').update(payload).digest('hex'), requests: [...requests], seconds: (performance.now() - before) / 1000 });
+    }
+    if (['all', 'route'].includes(options.feature)) {
+        const before = performance.now(); await navigate('route');
+        const saved = () => evaluate(`JSON.parse(document.querySelector('[data-testid="route-saved"]').textContent)`);
+        const rows = () => evaluate(`Array.from(document.querySelectorAll('[data-testid="route-preview"] [role="row"]'),r=>Array.from(r.querySelectorAll('[role="cell"]'),e=>e.textContent.trim()).filter(Boolean)).filter(r=>r.length)`);
+        const checkedRoute = () => evaluate(`document.querySelector('input[type="radio"]:checked')?.getAttribute('aria-label')`);
+        const choose = async id => {
+            if (!(await evaluate(`Boolean(document.querySelector('input[aria-label*="${id}"]'))`))) await click('[data-testid="construction-related-expand-other-routes"] summary');
+            await click(`input[aria-label*="${id}"]`);
+        };
+        const panelButton = async text => {
+            const selector = await evaluate(`(() => {const e=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()===${JSON.stringify(text)}); if(!e)return null; e.setAttribute('data-browser-action','${text.replaceAll(' ', '-')}'); return '[data-browser-action="${text.replaceAll(' ', '-')}"]';})()`);
+            assert.ok(selector, `Missing production button ${text}`); await click(selector);
+        };
+        const ready = () => until(() => evaluate(`document.querySelector('[data-testid="route-proposal"]').textContent==='ready'`), 'current proposal ready');
+        const a = [['p1','o1'],['p2','o2']], b = [['p1','o2']];
+        assert.deepEqual(await saved(), {route:'route-A',version:1,writes:0});
+        assert.deepEqual(await rows(), a);
+        await choose('route-B'); await ready(); assert.deepEqual(await rows(),b);
+        await panelButton('Cancel'); assert.deepEqual(await saved(),{route:'route-A',version:1,writes:0}); assert.deepEqual(await rows(),a);
+        await client.send('Page.reload'); await until(()=>checkedRoute(), 'saved route remounted');
+        assert.ok((await checkedRoute()).includes('route-A')); assert.deepEqual(await rows(),a);
+        await choose('route-B'); await ready(); await panelButton('Apply change');
+        await until(async()=> (await saved()).route==='route-B', 'Apply persisted route B');
+        assert.deepEqual(await saved(),{route:'route-B',version:2,writes:1}); assert.deepEqual(await rows(),b);
+        await client.send('Page.reload'); await until(()=>checkedRoute(),'route B remounted');
+        assert.ok((await checkedRoute()).includes('route-B')); assert.deepEqual(await rows(),b);
+        await choose('route-A'); await ready(); await panelButton('Apply change');
+        await until(async()=> (await saved()).route==='route-A','restore route A');
+        assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2}); assert.deepEqual(await rows(),a);
+        await click('[data-testid="route-hold"]'); await choose('route-B');
+        await until(()=>evaluate(`!document.querySelector('[data-testid="route-release"]').disabled`),'old response held');
+        await choose('route-A'); await ready(); assert.deepEqual(await rows(),a);
+        await click('[data-testid="route-release"]');
+        await until(()=>evaluate(`document.querySelector('[data-testid="route-released"]').textContent==='1'`),'old response released');
+        await wait(100); assert.deepEqual(await rows(),a); assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2});
+        await panelButton('Cancel'); await client.send('Page.reload'); await until(()=>checkedRoute(),'restored A remounted');
+        assert.deepEqual(await rows(),a); assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2});
+        report.checks.push({feature:'route',status:'passed',routeA:a,routeB:b,restored:a,versions:[1,2,3],writes:2,cancelWrites:0,lateResponseIgnored:true,seconds:(performance.now()-before)/1000,boundary:'Actual RelatedExpandEditor, proposal lifecycle, panel and PreviewTable; test-owned service responses and sessionStorage Apply caller. Not BuilderWorkspace or deployed API/database.'});
     }
     assert.deepEqual(browserErrors, [], 'Browser runtime exceptions');
     assert.equal(fingerprint(), inputFingerprint, 'Browser verification sources changed during run');

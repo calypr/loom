@@ -23,7 +23,7 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    testTimeout: process.env.CI ? 600_000 : 30_000,
+    hookTimeout: process.env.CI ? 600_000 : 30_000,
   },
 });

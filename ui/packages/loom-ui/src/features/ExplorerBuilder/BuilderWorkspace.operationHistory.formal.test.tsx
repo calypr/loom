@@ -23,7 +23,7 @@ import type {
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
 } from '../../types';
-import { constructionProposalResponseSchema, constructionSchema, explorerBuilderPreviewResultSchema } from '../../types';
+import { constructionCapabilitiesResponseSchema, explorerBuilderStateSchema, explorerBuilderWorkspaceSchema, constructionProposalResponseSchema, constructionSchema, explorerBuilderPreviewResultSchema } from '../../types';
 import BuilderWorkspace from './BuilderWorkspace';
 import { ConstructionProposalPanel, constructionProposalIsApplicable } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
@@ -738,7 +738,8 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     harness.nextProposalStatus = 'READY';
     harness.proposalCounter = 0;
     harness.client.getConstructionCapabilities.mockReset().mockImplementation(async (args) => {
-      const response = harness.replayCapabilities ?? {
+      if (harness.replayCapabilities) return harness.replayCapabilities;
+      const response = {
         snapshotToken: args.snapshotToken,
         draftVersion: args.expectedDraftVersion,
         draftDigest: args.expectedDraftDigest,
@@ -783,6 +784,58 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('keeps the saved Group operation and identifiers across remounts', async () => {
+    const localWorkspace = structuredClone(workspace);
+    localWorkspace.documents[0].output.id = 'patients';
+    for (const tab of localWorkspace.tabs) tab.outputId = 'patients';
+    const localBefore = { ...acceptedState, workspace: structuredClone(localWorkspace) };
+    const localConstruction = localWorkspace.documents[0].construction;
+    if (!localConstruction || localConstruction.steps[0].operation.kind !== 'GROUP') throw new Error('Local saved Group fixture missing');
+    localConstruction.steps[0].operation.group.aggregates = [{ operation: 'MEAN', inputColumnId: 'multiple-birth-integer-id', outputColumnId: aggregateOutputId }];
+    for (const step of localConstruction.steps) for (const column of step.outputs) if (column.id === aggregateOutputId) column.type = 'decimal';
+    const localSaved = { ...acceptedState, draftVersion: 2, draftDigest: `sha256:${'a'.repeat(64)}`, workspace: localWorkspace };
+    const localCapabilities = { snapshotToken: catalog.snapshotToken, draftVersion: 2, draftDigest: localSaved.draftDigest, outputId: 'patients', stageId: sourceStage.id, baseConstruction: localConstruction, stages: [sourceStage], selectedStage: sourceStage, semanticGroupChoices: [], groupFieldChoices: [], groupRowValueChoices: [], workspaceInputs: [] };
+    const file = process.env.BUILDER_OPERATION_RELOADS;
+    const artifact = z.object({ schemaVersion: z.literal(1), cases: z.array(z.object({ id: z.string().min(1), actionIndex: z.number().int().nonnegative(), outputId: z.string().min(1), stageId: z.string().min(1), before: explorerBuilderStateSchema, after: explorerBuilderStateSchema, storedWorkspace: explorerBuilderWorkspaceSchema, capabilities: constructionCapabilitiesResponseSchema }).strict()).length(1) }).strict().parse(file ? JSON.parse(readFileSync(file, 'utf8')) : { schemaVersion: 1, cases: [{ id: 'local-saved-group', actionIndex: 3, outputId: 'patients', stageId: sourceStage.id, before: localBefore, after: localSaved, storedWorkspace: localWorkspace, capabilities: localCapabilities }] });
+    const record = artifact.cases[0], saved = record.after, caps = record.capabilities;
+    expect(saved.draftVersion).toBe(record.before.draftVersion + 1);
+    expect(saved.draftDigest).not.toBe(record.before.draftDigest);
+    expect(saved.workspace).toEqual(record.storedWorkspace);
+    expect(caps.draftVersion).toBe(saved.draftVersion);
+    expect(caps.draftDigest).toBe(saved.draftDigest);
+    expect(caps.snapshotToken).toBe(saved.catalog.snapshotToken);
+    expect(caps.outputId).toBe(record.outputId);
+    expect(caps.stageId).toBe(record.stageId);
+    const construction = saved.workspace?.documents.find(document => document.output.id === record.outputId)?.construction;
+    const group = construction?.steps.find(step => step.id === groupStepId);
+    expect(group?.operation.kind).toBe('GROUP');
+    if (group?.operation.kind !== 'GROUP') throw new Error('Saved Group missing');
+    expect(group.operation.group.aggregates?.[0]?.operation).toBe('MEAN');
+    expect(construction?.steps.map(step => step.id)).toEqual([groupStepId, filterStep.id]);
+    expect(caps.baseConstruction).toEqual(construction);
+    for (let mount = 0; mount < 2; mount++) {
+      harness.builderState = saved;
+      harness.replayCapabilities = caps;
+      harness.client.getConstructionCapabilities.mockClear();
+      const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+      fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+      await screen.findByTestId('construction-reshape-editor');
+      expect((screen.getByRole('combobox', { name: 'Summary 1' }) as HTMLSelectElement).value).toBe('MEAN');
+      expect(harness.client.getConstructionCapabilities).toHaveBeenCalled();
+      for (const [request] of harness.client.getConstructionCapabilities.mock.calls) {
+        expect(request, JSON.stringify(request)).toMatchObject({
+          expectedDraftVersion: caps.draftVersion,
+          expectedDraftDigest: caps.draftDigest,
+          snapshotToken: caps.snapshotToken,
+          outputId: record.outputId,
+        });
+      }
+      expect(harness.client.getConstructionCapabilities.mock.calls.some(([request]) => request.stageId === record.stageId)).toBe(true);
+      expect(harness.client.proposeConstruction).not.toHaveBeenCalled();
+      view.unmount();
+    }
   });
 
   it('wires BuilderWorkspace history and the actual Group editor to its proposal request', async () => {
@@ -843,7 +896,7 @@ describe('BuilderWorkspace operation history actual candidate capture', () => {
     expect(harness.client.preview).not.toHaveBeenCalled();
   });
 
-  it.each(operationHistoryTraceFile.cases)('replays each operation schedule through ConstructionReshapeEditor: $id', async (trace) => {
+  for (const trace of operationHistoryTraceFile.cases) it(`replays each operation schedule through ConstructionReshapeEditor: '${trace.id}'`, async () => {
     const construction = constructionForTrace(trace);
     const acceptedDocument = documentForTrace(trace, construction);
     const acceptedWorkspace = workspaceForTrace(trace, acceptedDocument);

@@ -1,3 +1,4 @@
+import { verificationTimeoutMs } from './verification-budget.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,7 +13,7 @@ export async function modelGraph(modelDirectory, output) {
     try {
         const result = spawnSync('java', ['-XX:+UseParallelGC', '-cp', jar, 'tlc2.TLC', '-workers', '1',
             '-metadir', join(directory, 'states'), '-config', 'ApplySettlementRace.cfg',
-            '-dump', 'dot,actionlabels', join(directory, 'graph'), 'ApplySettlementRace.tla'], { cwd: modelDirectory, encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+            '-dump', 'dot,actionlabels', join(directory, 'graph'), 'ApplySettlementRace.tla'], { cwd: modelDirectory, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
         assert.ifError(result.error);
         assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
         const { parseDot } = await import(pathToFileURL(join(scripts, 'frontends/dot.ts')).href);

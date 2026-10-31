@@ -1,6 +1,29 @@
 export const title = 'Builder ownership verification';
 const owner = (value) => value === 'none' ? 'no owner' : value;
 export const state = (v) => {
+    if ('exclusionPhase' in v) return `Population exclusion ${v.exclusionPhase}; local ${v.localBase}/v${v.localVersion}; server ${v.serverBase}/v${v.serverVersion}; context ${v.contextKind}; attached ${v.hostAttached}; change ${v.changeKind}; route requests ${v.routeCalls}; submitted ${v.submitted}`;
+    if ('transactionResult' in v) return `SaveDraft ${v.phase}; staged history ${v.stagedHistory}, staged head ${v.stagedHead}; committed history ${v.history}, committed head ${v.head}; transaction ${v.transactionResult}; returned ${v.result}${v.backendConflict ? '; backend write conflict retained' : ''}`;
+    if ('removalInput' in v) return `Removal ${v.removalPhase}; receipt ${v.removalInput.receiptMatches}; provenance ${v.removalInput.provenanceMatches}; authorization ${v.removalInput.authorizationMatches}; preview ${v.removalInput.previewCompletes}; competing write ${v.removalInput.concurrentDraftChange}; accepted ${v.accepted}; preview calls ${v.previewCalls}; save attempts ${v.saveAttempts}; writes ${v.successfulSaves}; preserved head ${v.preservedHead}; exact candidate ${v.exactCandidate}; conflict ${v.conflict}`;
+    if ('acknowledgementInput' in v) {
+        const input = v.acknowledgementInput;
+        return `Publication ${v.acknowledgementPhase}; attached ${input.workspaceAttached}; owner ${input.ownerMatches}; Explorer ${input.explorerMatches}; draft ${input.draftDigestMatches}; intent ${input.intentMatches}; snapshot ${input.snapshotMatches}; preview recompiled ${input.previewRecompiled}; acknowledgement ${v.accepted ? 'accepted' : 'ignored'}`;
+    }
+    if ('populationInput' in v) {
+        const input = v.populationInput;
+        return `Population ${v.populationPhase}; scope ${input.authorizedScopeMatches}; complete ${input.selectionComplete}; binding ${input.selectionBindingMatches}; member read ${input.memberReadCompletes}; mapping ${input.mappingCompletes}; outcome ${v.outcome}; reads ${v.memberReads}; execution ${v.mappingCalls}; counts {${Object.values(v.counts).join(',')}}`;
+    }
+    if ('chainInput' in v) {
+        const input = v.chainInput;
+        return `Construction ${v.chainPhase}; first ${input.firstKind}; second reference ${input.secondInput}; filter column ${input.secondColumn}; ${v.chainPhase === 'checked' ? v.accepted ? 'accepted' : 'rejected' : 'not validated'}`;
+    }
+    if ('refreshPhase' in v) {
+      const current = v => v.workspaceAttached && v.currentOwner === 'A' && v.currentFingerprint === 'F0' && v.currentGeneration === 0;
+  if (v.refreshPhase === 'idle') return 'No recovery wait';
+  if (v.refreshPhase === 'waiting' && !v.workspaceAttached) return 'Detached Workspace recovery waiting';
+  if (v.refreshPhase === 'waiting') return v.cancelled ? 'Recovery pending; owner cancelled' : current(v) ? 'Recovery pending; original workspace current' : 'Recovery pending; original workspace obsolete';
+  if (v.synchronized || v.retried) return `${current(v) && !v.cancelled ? 'Current' : 'Obsolete'} recovery ${v.synchronized ? 'synchronized' : 'resumed'}${v.retried ? '; retry submitted' : '; stopped'}`;
+  return v.cancelled ? 'Cancelled recovery ignored' : !current(v) ? 'Obsolete recovery ignored' : 'Refresh returned no builder data';
+    }
     if ('acceptanceInput' in v) {
         const i = v.acceptanceInput;
         return `Reconcile ${v.phase}; outcome ${v.outcome}; current ${i.currentOwner}/${i.currentFingerprint}/g${i.currentGeneration}; submitted A/F0/g${i.requestGeneration}; snapshots ${i.requestSnapshot}/${i.responseSnapshot}; requested output ${i.requestOutput === 3 ? 'any' : i.requestOutput}; returned {${Object.values(i.responseOutputs).join(',')}}; diagnostics ${i.diagnostic}`;
@@ -40,6 +63,19 @@ export const state = (v) => {
     return `${o.status}${o.receiptId ? ` (${o.receiptId})` : ''}${tags.length ? ` [${tags.join('; ')}]` : ''}`;
 };
 const abstractLabels = {
+    CreationReturns: 'excluded collection revision returns', RoutePageReturns: 'population route page returns',
+    DrainReturnsAndSubmit: 'command queue drains and checks population intent before submission',
+    ChangeBase: 'another selection replaces the original population', DetachHost: 'Workspace host unmounts',
+    UnrelatedSave: 'save an unrelated edit with the same population',
+    BeginHydration: 'fresh Builder response updates server identity before React admission',
+    FinishHydration: 'React admits the refreshed population',
+    Begin: 'begin draft transaction', Query: 'execute draft transaction query', Abort: 'abort draft transaction and discard staged writes', Commit: 'commit transaction or observe commit error', Return: 'classify transaction result and return saved draft',
+    DetachWorkspace: 'Workspace host detaches while recovery waits',
+    ChooseRemoval: 'choose independently bound removal request and persistence outcome', ApplyRemoval: 'execute checked removal and preserve or commit the exact head',
+    ChooseAcknowledgement: 'choose current publication context and independent preview compilation', ReceiveAcknowledgement: 'publication succeeds and acknowledgement is checked',
+    ChoosePopulation: 'choose authorization and population completion inputs', ClassifyPopulation: 'check public population report outcome and disclosure',
+    ChooseChain: 'choose two-stage construction inputs', ClassifyChain: 'validate predecessor reference and available columns',
+    AwaitRecovery: 'wait for catalog or retry delay', ChangeExplorer: 'change selected Explorer', EditWorkspace: 'edit workspace', StartNewCompile: 'start newer compile', CancelOwner: 'cancel automatic preview owner', ResumeRecovery: 'recovery wait completes',
     ChooseInputs: 'receive independent current identity and response inputs', ClassifyResponse: 'classify reconcile response',
     StartProposal: 'start proposal', ReviewProposal: 'review proposal', SetCurrentOwner: 'select current proposal owner', BeginApply: 'begin Apply', Cancel: 'cancel current owner (request remains pending)',
     ApplyReturns: 'Apply returns', ChangeContext: 'change workspace context',
@@ -58,6 +94,11 @@ const observedLabels = {
     workspaceChangeB: 'edit workspace', successB: 'current reconcile returns', lateA: 'old reconcile returns',
 };
 export const step = (action, _from, to) => {
+    if (action === 'Query' && 'transactionResult' in _from) {
+        const labels = { read: 'read head with expected version and digest', archive: 'insert immutable previous draft revision', update: 'update head with expected version and digest' };
+        if (!labels[_from.phase]) throw new Error(`No reader label for draft query phase ${_from.phase}`);
+        return labels[_from.phase];
+    }
     const label = to.observation
         ? to.observation.event === 'finish-apply'
             ? `${to.observation.actorReceipt || 'Apply'} ${to.observation.completionObserved && !to.observation.completionAccepted ? 'completion ignored' : 'completes'}`

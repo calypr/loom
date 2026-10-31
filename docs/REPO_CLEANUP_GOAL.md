@@ -1,66 +1,59 @@
 # Repository cleanup goal
 
-## Product boundary
+## Product and verification
 
-The product is the frontend UI and backend API. Test infrastructure exists to
-protect those surfaces and may be deleted when it becomes slower or harder to
-maintain than the behavior it checks.
+The frontend UI and backend API are the product. Verification protects their behavior.
+Keep the verification code small enough to maintain and rerun during development.
 
-## Required verification contract
+Preserve the intended guarantees when replacing old machinery. A smaller model,
+a unit-test count, or a generated report does not establish equivalent coverage.
+Record the deleted promises and their immutable Git recovery points in
+[Deleted verification guarantees](verification/DELETED_GUARANTEES.md).
+Build a current replacement for one bounded promise at a time. Keep the rest open.
+Restoring the retired reporting system is not a prerequisite for new verification.
 
-- No individual test, model check, mutation control, generator check, or
-  verifier may run longer than 30 seconds.
-- All required jobs must fit within one 10-minute CI window. Independent work
-  runs in parallel and large suites use deterministic shards.
-- Browser acceptance is outside required CI. Historical browser reports are
-  records, not current-source proof.
-- The complete required suite is timed only at coherent checkpoints; editing
-  does not repeatedly invoke the full suite.
+## Execution budgets
 
-## Current design
+Every required CI job has a ten-minute budget. Run complete suites without shard matrices.
+The ordinary Go job includes the complete catalog witness test. UI checks and the build
+share one job. Node and Python each run a complete suite. Database jobs remain separate
+because they need different services. The formal job runs one complete self-test.
 
-`.github/workflows/tests.yaml` splits UI static checks, four Vitest shards,
-four Go groups, ClickHouse tests, four Node shards, Python modules, shell
-checks, generated contracts, and the UI build into independent jobs.
+Focused local checks default to short child-process deadlines. Those local deadlines
+must not become a thirty-second CI policy. The shared verification budget module
+uses ten-minute child limits in CI. Browser checks remain separately selectable.
 
-The Builder formal core contains three bounded statecharts:
+Run the full checkpoint after a coherent change. Use focused actual-code replays
+while editing. Tool, compiler, timeout, missing-case, and malformed-evidence errors block
+verification. They never count as a caught defect.
 
-- `BuilderLifecycle.tla` checks proposal/preview/Apply ownership, settlement,
-  request cancellation/generation safety, and discovery ownership.
-- `ApplySettlementRace.tla` checks attempt-bound completion, outstanding callbacks,
-  and current-context ownership after cancellation or an identity change.
-- `ReconcileLifecycle.tla` checks current request and generation ownership,
-  receipt snapshot/output matching, stale refresh, bounded retry, and repair.
+## Formal implementation checks
 
-Each model maps to current production symbols and reviewed source hashes.
-Each check has a 30-second subprocess limit; the audit batch is sharded in CI.
-Every behavioral rule has a model control and an independent real-source proof
-that fails on broken code and passes after restoration. The Apply model drives
-all bounded transitions against the actual synchronous ownership component;
-the broader models use mounted probes rather than complete React refinement. Concrete FHIR semantics, React
-rendering, transport, persistence, and browser behavior remain implementation
-test concerns.
+The current formal skill owns the model, counterexample, actual-code replay,
+regression, source-fault, and statechart loop. Its source map records the relevant
+production functions, bounds, assumptions, and reviewed hashes.
 
-The formal runner also mounts the real hook/workspace, lowers fresh observations
-into `ImplementationConformance.tla`, and checks their safety properties.
-pstack's parser/IR/Mermaid backend renders those executions using the maintained
-statechart view. `ApplySettlementRace.tla` captures an outstanding-callback gap
-in the coarse lifecycle model. Real cancel/reapply reproductions drove an
-attempt-bound completion handle and current-context cleanup checks in production
-code. Keep those replays and mutation controls as regressions; a smaller model
-alone is not implementation proof. The existing formal skill owns the iterative
-find/replay/fix/control loop and generated diagram.
+TLC checks bounded models. Direct replay executes the named production code against
+model-derived inputs or schedules. Mounted trace checks verify recorded React schedules.
+Ordinary component, API, database, and browser tests remain separate evidence.
+Do not add their counts into a formal-test total.
 
-## Cleanup decisions
+Keep valid and rejected cases. A check that ignores every completion or rejects every
+construction must fail. Remove the actual production guard in a scratch overlay, keep
+its concrete witness, replay it on pristine and broken source, then verify restoration.
+The pinned pstack parser, IR, and Mermaid backend render model results and counterexamples.
 
-- The Playwright specs, configs, package dependencies, browser runners,
-  browser-only helper closure, retained browser-evidence pipeline, and slow
-  acceptance workflows are retired.
-- The former formal catalogue, adapters, proposal machinery, mutation runner,
-  and stale TLA models are replaced by bounded models and mounted implementation checks.
-- Node CI follows relative imports and schedules only tests whose dependency
-  closure is present and browser-free.
-- CdA/FHIR fixtures remain available to fast frontend, API, and oracle tests.
+## Historical material
 
-Preserve unrelated working-tree changes. Do not reset, stash, clean, commit,
-push, or publish this branch as part of cleanup.
+Generated indexes and disposable reports stay outside Git. Authored models, decisions,
+contracts, and historical native evidence have distinct value. Their deletion does not
+establish that their promises were obsolete or replaced. Consult the recovery record
+before porting a guarantee. Update its disposition only after executable evidence exists.
+
+The old browser runners and report generators are retired. Historical command names
+are recovery references, not runnable recipes. Current commands and limits live in the
+[formal skill](../.codex/skills/builder-interaction-formal-verification/SKILL.md) and
+[retained coverage decisions](verification/RETAINED_COVERAGE_DECISIONS.md).
+
+Preserve unrelated working-tree changes. Do not reset, stash, clean, publish,
+or rewrite branch history as part of cleanup.

@@ -19,7 +19,11 @@ on:
       - 'ui/packages/loom-ui/testSupport/**'
       - 'ui/packages/loom-ui/vitest*'
       - 'ui/package*.json'
-      - 'internal/explorer/lifecycle/construction_category_discovery.go'
+      - 'internal/explorer/**'
+      - 'internal/projectid/**'
+      - 'internal/authscope/**'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:
     inputs:
       browser:
@@ -29,21 +33,9 @@ on:
 
 jobs:
   audit:
-    name: Formal ${{ matrix.phase }} ${{ matrix.shard }}
+    name: Formal verification
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { phase: all, shard: '' }
-          - { phase: controls, shard: '1/2' }
-          - { phase: controls, shard: '2/2' }
-          - { phase: source-proofs, shard: '1/3' }
-          - { phase: source-proofs, shard: '2/3' }
-          - { phase: source-proofs, shard: '3/3' }
-          - { phase: trace-controls, shard: '1/2' }
-          - { phase: trace-controls, shard: '2/2' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,6 +43,10 @@ jobs:
           node-version: 22.x
           cache: npm
           cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -62,24 +58,18 @@ jobs:
         run: node scripts/setup-formal-tools.mjs
       - name: Check framework rejection paths
         run: node --test scripts/lib/formal-framework.test.mjs
-      - name: Check scoped promises and controls
-        env:
-          FORMAL_PHASE: ${{ matrix.phase }}
-          FORMAL_SHARD: ${{ matrix.shard }}
-        run: |
-          args=(--phase "$FORMAL_PHASE" --out /tmp/loom-formal-ci)
-          if [ -n "$FORMAL_SHARD" ]; then args+=(--shard "$FORMAL_SHARD"); fi
-          node scripts/verify-builder-formal-core.mjs "${args[@]}"
-      - name: Check UI types
-        if: matrix.phase == 'all'
-        working-directory: ui/packages/loom-ui
-        run: timeout 30s ../../node_modules/.bin/tsc -p tsconfig.test.json
+      - name: Check all scoped promises and controls
+        run: node scripts/verify-builder-formal-core.mjs --self-test --out /tmp/loom-formal-ci
+      - name: Replay representative operation-history journeys
+        run: node scripts/verify-builder-formal-core.mjs --phase journey --feature operation-history-routine --out /tmp/loom-recovered-journeys-ci
       - name: Preserve formal evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: formal-${{ strategy.job-index }}
-          path: /tmp/loom-formal-ci
+          name: formal-verification
+          path: |
+            /tmp/loom-formal-ci
+            /tmp/loom-recovered-journeys-ci
           if-no-files-found: warn
 
   browser:

@@ -20,3 +20,13 @@ test('only a database successfully created by this run becomes cleanup-owned', a
     await ownDatabase('http://example.invalid', 'fresh', owned, async () => ({ ok: true, status: 201 }));
     assert.deepEqual(owned, ['fresh']);
 });
+
+test('every additional real database witness must execute and pass', () => {
+    const profile = { required: 'TestReal', alsoRequired: ['TestCAS', 'TestRollback'] };
+    const events = [{ Action: 'pass' }, ...['TestReal', 'TestCAS', 'TestRollback'].flatMap(Test => [{ Test, Action: 'run' }, { Test, Action: 'pass' }])];
+    assert.equal(checkEvents(stream(events), profile).passes.length, 3);
+    for (const name of profile.alsoRequired) {
+        assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== name)), profile), /did not run/);
+        assert.throws(() => checkEvents(stream(events.filter(e => e.Test !== name || e.Action !== 'pass')), profile), /did not pass/);
+    }
+});

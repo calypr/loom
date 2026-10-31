@@ -5,8 +5,8 @@ This map connects remaining executable suites to user behavior. Run the skill's 
 | Feature | Fast drive | Formal attachment | Remaining boundary |
 | --- | --- | --- | --- |
 | [Ownership](ownership.md) | `--feature ownership` | BuilderLifecycle / ApplySettlementRace | Real browser and transport scheduling |
-| [Draft editing and restore](drafts.md) | `--feature drafts` | ReconcileLifecycle + generated ReconcileAcceptance; focused Apply checks separately | Actual Arango A/B route/storage profile available; full browser wiring and process-restart durability separate |
-| [Construction editors](construction.md) | `--feature construction` | No general formal proof | Full server execution and composed journeys |
+| [Draft editing and restore](drafts.md) | `--feature drafts` | ReconcileLifecycle + generated ReconcileAcceptance + await-split ReconcileRefresh + PublicationAcknowledgement; focused Apply checks separately | Actual Arango A/B route/storage profile available; full browser wiring and process-restart durability separate |
+| [Construction editors](construction.md) | `--feature construction` | ConstructionChain checks a bounded backend subset | Full server execution and composed journeys |
 | [Tables and Viewer](tables.md) | `--feature tables` | No general formal proof | Layout, drag/drop, publication integration |
 | [Client contracts](contracts.md) | `--feature contracts` | No general formal proof | Deployed auth/proxy/server compatibility |
 
@@ -17,3 +17,7 @@ All fast commands start `node scripts/verify-builder-formal-core.mjs --phase beh
 Run `--phase inventory` for actual repository CI routes and explicit missing-dependency/fixture gaps; it is discovery, not a pass. `--phase api --feature restore|apply|receipts` connects public HTTP/service checks. Node checks use `node scripts/ci/list-node-tests.mjs --explain` for inclusion and exclusion reasons. Python, shell and general Go checks retain their existing CI commands. These are concrete execution routes; only the documented model-linked guarantees receive formal coverage.
 
 Opt-in boundaries are now executable: `--phase browser --feature drag|download` for native Chromium components, and `--phase api --feature route-rows` for actual Arango round trips. `publication` adds real publish/Viewer HTTP identity checks with an isolated repository/materializer. The recovered Viewer export tests exercise facet-vs-export population, response identity, Cancel/reopen and old-output completion; download bytes are checked separately by the browser fixture.
+
+`--phase browser --feature route` adds the native Related editor/proposal/preview lifecycle with controlled API/Apply/sessionStorage. `--phase api --feature publication-rows` supplies actual Arango plus ClickHouse stored rows and fresh Viewer reads. Neither closes full deployed browser publication or external authorization.
+
+The [core protocol verification plan](../../../../docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md) defines the remaining UI-to-Builder/reconciliation/compilation work and completion criteria. It is a plan, not a coverage claim.

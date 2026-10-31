@@ -1,3 +1,13 @@
+import { exclusionSourceProofs, checkExclusionSourceProof } from './formal-exclusion-replay.mjs';
+import { draftTransactionSourceProofs, checkDraftTransactionSourceProof } from './formal-draft-transaction.mjs';
+import { attachmentSourceProofs, checkAttachmentSourceProof } from './formal-population-attachment.mjs';
+import { journeySourceProofs, checkJourneySourceProof } from './formal-operation-history.mjs';
+import { removalSourceProofs, checkRemovalSourceProof } from './formal-removal-replay.mjs';
+import { publicationSourceProofs, checkPublicationSourceProof } from './formal-publication-replay.mjs';
+import { populationSourceProofs, checkPopulationSourceProof } from './formal-population-replay.mjs';
+import { constructionSourceProofs, checkConstructionSourceProof } from './formal-construction-replay.mjs';
+import { recoverySourceProofs, checkRecoverySourceProof } from './formal-recovery-replay.mjs';
+import { verificationTimeoutMs } from './verification-budget.mjs';
 import { acceptanceSourceProofs, checkReconcileSourceProof } from './formal-reconcile-replay.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync, existsSync } from 'node:fs';
@@ -17,6 +27,16 @@ const workspaceTest = 'src/features/ExplorerBuilder/BuilderWorkspace.reconciliat
 const ownership = (property, edit, after) => ({ model: 'ApplySettlementRace', property, kind: 'ownership', edits: [[core, edit, after]] });
 const predicate = (property, check, edit, after = '') => ({ model: 'ReconcileLifecycle', property, kind: 'predicate', check, edits: [[recovery, edit, after]] });
 export const sourceProofs = [
+    {"model": "Behavior", "property": "Inv_SavedPopulationRouteHonorsPinnedIdentity", "kind": "vitest", "suite": "src/features/ExplorerBuilder/populationRoutes.unit.test.ts", "pattern": "honors pinned saved edge identity and direction", "edits": [["ui/packages/loom-ui/src/features/ExplorerBuilder/populationRoutes.ts", "      (!candidate.catalogEdgeId || step.edgeId === candidate.catalogEdgeId) &&\n      (!candidate.storageDirection || step.storageDirection === candidate.storageDirection)", "      true"]]},
+    ...exclusionSourceProofs,
+    {"model": "Behavior", "property": "Inv_RecoveryQueryForcesFreshBuilder", "kind": "vitest", "suite": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx", "pattern": "binds the next command to fresh Builder identity after actual query recovery", "edits": [["ui/packages/loom-ui/src/react.tsx", "client.getBuilder(args, { signal, reload: options?.reload })", "client.getBuilder(args, { signal, reload: false })"]]},
+    ...draftTransactionSourceProofs,
+    ...attachmentSourceProofs,
+    ...journeySourceProofs,
+    { model: 'Behavior', property: 'Inv_DetachedRootChangeDoesNotPreview', kind: 'vitest', suite: workspaceTest, pattern: 'does not preview obsolete root assessment', edits: [['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx', 'return workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&', 'return rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&']] },
+    {"model": "ReconcileRefresh", "property": "Inv_ObsoleteRecoveryDoesNotResume", "kind": "vitest", "suite": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx", "pattern": "does not resume manual reconcile recovery after owner navigation", "edits": [["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx", "const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({", "const requestIsCurrent = () => reconcileResultIsCurrent({"]]},
+    ...removalSourceProofs,
+    {"model": "Behavior", "property": "Inv_DetachedPublicationDoesNotResume", "kind": "vitest", "suite": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx", "pattern": "does not (resume|revive|start|retry) obsolete publication", "edits": [["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx", "workspaceAttached.current && publicationOwnerKeyRef.current === ownerKey", "publicationOwnerKeyRef.current === ownerKey"]]},
     { model: 'ImplementationConformance', property: 'Inv_LateResponseDoesNotReplaceOwner', kind: 'vitest', suite: hookTest, pattern: 'formal property Inv_LateResponseDoesNotReplaceOwner', edits: [['ui/packages/loom-ui/src/react.tsx', 'if (controller !== requestController || epoch !== requestEpoch) return { data };', '']] },
     { model: 'BuilderLifecycle', property: 'Inv_ReadyProposalIsCurrent', kind: 'vitest', suite: hookTest, pattern: 'resolve A with snapshotToken mismatch', edits: [[hook, 'if (!matchesBase) throw new Error', 'if (false) throw new Error']] },
     { model: 'BuilderLifecycle', property: 'Inv_ReadyPreviewMatchesProposal', kind: 'vitest', suite: hookTest, pattern: 'fallback preview schedule:.*wrong receipt', edits: [[hook, 'preview.receiptId === proposalId &&', '']] },
@@ -37,6 +57,15 @@ export const sourceProofs = [
     predicate('Inv_RetryBounds', 'retry', 'options.attempt < options.maxAttempts', 'options.attempt <= options.maxAttempts'),
     predicate('Inv_RetryBounds', 'refresh', 'options.staleRefreshes < options.maxStaleRefreshes', 'options.staleRefreshes <= options.maxStaleRefreshes'),
     ...acceptanceSourceProofs,
+    {"model": "ReconcileRefresh", "property": "Inv_ObsoleteRecoveryDoesNotResume", "kind": "vitest", "suite": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx", "pattern": "ignores obsolete publication catalog refresh after a saved edit", "edits": [["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx", "if (!refreshed.data || !publicationIsCurrent()) return;", "if (!refreshed.data) return;"]]},
+    {"model": "Behavior", "property": "Inv_PublicationCompletionOwnsSubmittedDraft", "kind": "vitest", "suite": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx", "pattern": "keeps the edited draft publishable after an older publication completes", "edits": [["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx", "          }).unwrap();\n          if (!acknowledgementIsCurrent()) return;\n          setLastPublished({", "          }).unwrap();\n          setLastPublished({"], ["ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx", "setLastPublished({\n            ownerKey,\n            draftDigest: submitted.draftDigest,", "setLastPublished({\n            ownerKey,\n            draftDigest: latestState.current.draftDigest,"]]},
+
+    ...recoverySourceProofs,
+    ...constructionSourceProofs,
+    ...populationSourceProofs,
+    ...publicationSourceProofs,
+    { model: 'PublicationAcknowledgement', property: 'Inv_MatchingPublicationSurvivesPreviewRecompile', kind: 'vitest', suite: workspaceTest, pattern: 'acknowledges a matching publication after unrelated preview recompilation', edits: publicationSourceProofs.find(proof => proof.property === 'Inv_MatchingPublicationSurvivesPreviewRecompile').edits },
+
     { model: 'Behavior', property: 'Inv_ArtifactResponseOwnsRequestedIdentity', kind: 'vitest', suite: 'src/api.unit.test.ts', pattern: 'prepared dataset artifact identity', edits: [["ui/packages/loom-ui/src/api.ts", "throw new Error('Prepared dataset artifact does not match the requested project, Explorer, revision, and output.');", 'void 0;']] },
     { model: 'Behavior', property: 'Inv_FileDownloadPreservesConfiguredURL', kind: 'vitest', suite: 'src/features/ExplorerViewer/components.unit.test.ts', pattern: 'Viewer file action URLs', edits: [["ui/packages/loom-ui/src/features/ExplorerViewer/components.tsx", "const pathname = (queryAt < 0 ? target : target.slice(0, queryAt)).replace(/\\/+$/, '');", "const pathname = target.replace(/\\/+$/, '');"]] },
 
@@ -133,7 +162,7 @@ function runVitest(proof, scratch, overrides) {
         writeFileSync(file, JSON.stringify(overrides));
         env.LOOM_MUTATION_OVERRIDES = file;
     }
-    const result = spawnSync(process.execPath, [join(root, 'ui/node_modules/vitest/vitest.mjs'), 'run', proof.suite, '--testNamePattern', proof.pattern, '--reporter=json', `--outputFile=${output}`], { cwd: join(root, 'ui/packages/loom-ui'), env, encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+    const result = spawnSync(process.execPath, [join(root, 'ui/node_modules/vitest/vitest.mjs'), 'run', proof.suite, '--testNamePattern', proof.pattern, '--reporter=json', `--outputFile=${output}`], { cwd: join(root, 'ui/packages/loom-ui'), env, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
     assert.ifError(result.error);
     assert.ok(existsSync(output), `No Vitest result: ${result.stderr}`);
     const report = JSON.parse(readFileSync(output, 'utf8'));
@@ -142,6 +171,15 @@ function runVitest(proof, scratch, overrides) {
     return { result, report, selected };
 }
 export async function checkSourceProof(proof, graph, outputDirectory) {
+    if (proof.kind === 'exclusion-replay') return checkExclusionSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'draft-transaction-replay') return checkDraftTransactionSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'attachment-replay') return checkAttachmentSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'operation-history') return checkJourneySourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'removal-replay') return checkRemovalSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'publication-replay') return checkPublicationSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'population-replay') return checkPopulationSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'construction-replay') return checkConstructionSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'recovery-replay') return checkRecoverySourceProof(proof, graph, outputDirectory);
     if (proof.kind === 'reconcile-acceptance') return checkReconcileSourceProof(proof, graph, outputDirectory);
     if (outputDirectory)
         mkdirSync(outputDirectory, { recursive: true });

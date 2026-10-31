@@ -1,5 +1,7 @@
 # Builder verification checkpoint
 
+Current execution uses `node scripts/verify-builder-formal-core.mjs --phase inventory` for discovery and `--self-test --out /tmp/loom-formal-review` for the scoped formal audit. The inventory normalization commands below remain current. Descriptions of retired trace models and `verify-builder-formal.mjs` are historical context. They are not current commands or current-source passes. See [deleted guarantees](../verification/DELETED_GUARANTEES.md) for the recovery ledger.
+
 This checkpoint retains the source inventory, TLA+ models, UI drivers, and Go lifecycle fixtures for Builder verification. It is based on application commit `dc331783dde3f61e764bab3a421b66b28698c9d4`.
 
 The inventory describes 57 affordances and 159 request checkpoints originating at source commit `dc331783dde3f61e764bab3a421b66b28698c9d4`. The current reviewed working-tree source checkpoint is recorded separately in [source-review.md](source-review.md) and manifest metadata. Further source changes require a new review; the source-drift guard continues to reject stale bytes and new/unwatched files.

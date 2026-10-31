@@ -1,3 +1,4 @@
+import { verificationTimeoutMs } from './verification-budget.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -6,8 +7,8 @@ import { root } from './formal-tools.mjs';
 // A partition of existing suites, not a claim that every test is a formal proof.
 export const features = [
     { id: 'ownership', model: ['BuilderLifecycle', 'ApplySettlementRace'], pattern: /^src\/features\/ExplorerBuilder\/constructionWorkspace\/useConstructionLifecycle\./ },
-    { id: 'drafts', model: ['ReconcileLifecycle', 'ReconcileAcceptance'], pattern: /^src\/features\/ExplorerBuilder\/(authoring\/|BuilderWorkspace\.)/ },
-    { id: 'construction', model: [], pattern: /^(src\/features\/ExplorerBuilder\/(constructionOperations\/|constructionWorkspace\/(?!useConstructionLifecycle\.))|testSupport\/)/ },
+    { id: 'drafts', model: ['ReconcileLifecycle', 'ReconcileAcceptance', 'ReconcileRefresh', 'PublicationAcknowledgement'], pattern: /^src\/features\/ExplorerBuilder\/(authoring\/|BuilderWorkspace\.)/ },
+    { id: 'construction', model: ['ConstructionChain'], pattern: /^(src\/features\/ExplorerBuilder\/(constructionOperations\/|constructionWorkspace\/(?!useConstructionLifecycle\.))|testSupport\/)/ },
     { id: 'tables', model: [], pattern: /^src\/features\/(ExplorerViewer\/|ExplorerBuilder\/(?!authoring\/|BuilderWorkspace\.|constructionOperations\/|constructionWorkspace\/))/ },
     { id: 'contracts', model: [], pattern: /^src\/(?!features\/)/ },
 ];
@@ -53,7 +54,7 @@ export function runBehavior({ feature = 'all', shard, pattern, output }) {
         if (key.startsWith('BUILDER_'))
             delete env[key];
     const started = performance.now();
-    const result = spawnSync(process.execPath, args, { cwd: directory, env, encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024, detached: true });
+    const result = spawnSync(process.execPath, args, { cwd: directory, env, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 16 * 1024 * 1024, detached: true });
     if (result.error && result.pid) {
         try {
             process.kill(-result.pid, 'SIGKILL');

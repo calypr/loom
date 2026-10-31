@@ -104,6 +104,7 @@ import {
   isDraftDesynchronized,
   isStaleSnapshot,
   reconcileRecoveryAction,
+  reconcileResultIsCurrent,
 } from './authoring/reconcileRecovery';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
@@ -297,6 +298,14 @@ type PreviewRequest = {
   readonly receiptRefreshes: number;
 };
 
+type PublicationAcknowledgementIdentity = {
+  readonly ownerKey: string;
+  readonly explorerId: string;
+  readonly draftDigest: string;
+  readonly intentFingerprint: string;
+  readonly snapshotToken: string;
+};
+
 type ConstructionApplyPreviewIdentity = {
   readonly ownerKey: string;
   readonly snapshotToken: string;
@@ -398,6 +407,16 @@ const builderOwnerKeyFor = (
   explorerId,
 ]);
 
+const populationBindingKey = (
+  table: BuilderAuthoringState['tables'][number] | undefined,
+  selectionRevisionId = table?.document.population?.selectionRevisionId,
+) => JSON.stringify([
+  selectionRevisionId ?? '',
+  (table?.document.population?.route ?? []).map((step) => [
+    step.resourceType, step.relationship, step.catalogEdgeId ?? '', step.storageDirection ?? '',
+  ]),
+]);
+
 const BuilderWorkspaceContent = ({
   organization,
   project,
@@ -439,6 +458,12 @@ const BuilderWorkspaceContent = ({
         explorers.data?.[0]?.explorerId ??
         '';
   const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId);
+  const workspaceAttached = useRef(false);
+  const workspaceHostRef = useCallback((node: HTMLElement | null) => {
+    workspaceAttached.current = node !== null;
+  }, []);
+  const publicationOwnerKeyRef = useRef(ownerKey);
+  publicationOwnerKeyRef.current = ownerKey;
   const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
   const rememberedOutputId = useMemo(() => {
     try {
@@ -783,6 +808,7 @@ const BuilderWorkspaceContent = ({
       commands: ReadonlyArray<ExplorerBuilderCommand>,
       proposedCommandId?: string,
       constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
+      admitCommand?: () => boolean,
     ) => {
       cancelAutomaticPreview();
       const applyPreviewEpoch = constructionApplyIdentity
@@ -798,6 +824,7 @@ const BuilderWorkspaceContent = ({
         let commandSucceeded = false;
         try {
           await queryOwner?.pauseAndDrain();
+          if (admitCommand && !admitCommand()) return undefined;
           const current = latestState.current;
           const commandId = proposedCommandId ?? window.crypto.randomUUID();
           const draftIdentity = commandDraftIdentity(current, serverDraft.current);
@@ -916,8 +943,11 @@ const BuilderWorkspaceContent = ({
     ],
   );
   const applyCommands = useCallback(
-    (commands: ReadonlyArray<ExplorerBuilderCommand>, proposedCommandId?: string) =>
-      applyCommandsWithResult(commands, proposedCommandId).then(Boolean),
+    (
+      commands: ReadonlyArray<ExplorerBuilderCommand>,
+      proposedCommandId?: string,
+      admitCommand?: () => boolean,
+    ) => applyCommandsWithResult(commands, proposedCommandId, undefined, admitCommand).then(Boolean),
     [applyCommandsWithResult],
   );
 
@@ -1373,6 +1403,14 @@ const BuilderWorkspaceContent = ({
   const activePopulationSelection = populationSelectionOverrideIsCurrent
     ? populationSelectionOverride.selection
     : populationSelection ?? populationSelectionQuery.data;
+  const populationExclusionContext = {
+    contextKey: populationSelectionContextKey,
+    client: loomClient,
+    baseSelectionID: activePopulationSelection?.id,
+    bindingKey: populationBindingKey(table),
+  };
+  const populationExclusionContextRef = useRef(populationExclusionContext);
+  populationExclusionContextRef.current = populationExclusionContext;
   const activePopulationSelectionLoading = populationSelectionLoading || (
     !populationSelection && populationSelectionQuery.isLoading
   );
@@ -1963,6 +2001,23 @@ const BuilderWorkspaceContent = ({
     const currentTable = selectedTable(current);
     const baseSelection = activePopulationSelection;
     if (!currentTable || !baseSelection) return;
+    const exclusionContext = populationExclusionContextRef.current;
+    const requestIsCurrent = () => {
+      const latestContext = populationExclusionContextRef.current;
+      const latest = latestState.current;
+      const latestTable = selectedTable(latest);
+      return workspaceAttached.current &&
+        latestContext.contextKey === exclusionContext.contextKey &&
+        latestContext.client === exclusionContext.client &&
+        latestContext.baseSelectionID === baseSelection.id &&
+        latestContext.bindingKey === exclusionContext.bindingKey &&
+        latestTable?.outputId === currentTable.outputId &&
+        latestTable.document.rootResourceType === currentTable.document.rootResourceType &&
+        populationBindingKey(latestTable) === exclusionContext.bindingKey &&
+        latest.draftVersion === serverDraft.current.version &&
+        latest.draftDigest === serverDraft.current.digest;
+    };
+    if (!requestIsCurrent()) return;
     setPopulationVariantPending(true);
     setPopulationVariantError(undefined);
     try {
@@ -1977,6 +2032,7 @@ const BuilderWorkspaceContent = ({
         exclusions: [ref],
         requestId: idempotencyKey,
       });
+      if (!requestIsCurrent()) return;
       let cursor: string | undefined;
       let routeChoiceId: string | undefined;
       do {
@@ -1991,6 +2047,7 @@ const BuilderWorkspaceContent = ({
           ...(cursor ? { cursor } : {}),
           requestId: `population-routes-${window.crypto.randomUUID()}`,
         });
+        if (!requestIsCurrent()) return;
         routeChoiceId = routes.choices.find((choice) =>
           sameConstructionRoute(choice.route, route),
         )?.routeChoiceId;
@@ -1999,19 +2056,33 @@ const BuilderWorkspaceContent = ({
       if (!routeChoiceId) {
         throw new Error('Loom could not preserve this table connection for the revised collection.');
       }
+      if (!requestIsCurrent()) return;
       const attached = await applyCommands([{
         type: 'SET_TABLE_POPULATION',
         outputId: currentTable.outputId,
         selectionRevisionId: variant.id,
         routeChoiceId,
-      }]);
-      if (!attached) throw new Error('Loom created the revised collection but could not attach it to this table.');
+      }], undefined, requestIsCurrent);
+      if (!attached) {
+        if (!requestIsCurrent()) return;
+        throw new Error('Loom created the revised collection but could not attach it to this table.');
+      }
+      const resultContext = populationExclusionContextRef.current;
+      const resultTable = selectedTable(latestState.current);
+      if (!workspaceAttached.current ||
+          resultContext.contextKey !== exclusionContext.contextKey ||
+          resultContext.client !== exclusionContext.client ||
+          (resultContext.baseSelectionID !== undefined && resultContext.baseSelectionID !== baseSelection.id && resultContext.baseSelectionID !== variant.id) ||
+          resultTable?.outputId !== currentTable.outputId ||
+          resultTable.document.rootResourceType !== currentTable.document.rootResourceType ||
+          populationBindingKey(resultTable) !== populationBindingKey(currentTable, variant.id)) return;
       setPopulationSelectionOverride({
         contextKey: populationSelectionContextKey,
         baseSelectionID: baseSelection.id,
         selection: variant,
       });
     } catch (error) {
+      if (!requestIsCurrent()) return;
       setPopulationVariantError({
         contextKey: populationSelectionContextKey,
         message: error instanceof Error ? error.message : 'Loom could not create the revised collection.',
@@ -2066,7 +2137,7 @@ const BuilderWorkspaceContent = ({
       setRootChangeState({ kind: 'assessing', selection, resolution, identity });
       const isCurrentAttempt = () => {
         const currentIdentity = getCurrentRootChangeIdentity();
-        return rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
+        return workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
           sameRootChangeRequestIdentity(identity, currentIdentity);
       };
       const request = assessRowChange({
@@ -2523,6 +2594,7 @@ const BuilderWorkspaceContent = ({
     owner?: AutomaticPreviewExecution,
     outputId?: string,
   ): Promise<ExplorerBuilderCompileResult | undefined> => {
+    if (!workspaceAttached.current) return undefined;
     const submitted = latestState.current;
     if (
       !submitted.catalog.snapshotToken ||
@@ -2534,6 +2606,14 @@ const BuilderWorkspaceContent = ({
     const submittedFingerprint = intentFingerprint(
       workspaceFromState(submitted),
     );
+    const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({
+      generation,
+      currentGeneration: compileGeneration.current,
+      submittedExplorerId: submitted.explorerId,
+      currentExplorerId: latestState.current.explorerId,
+      submittedFingerprint,
+      currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+    });
     let snapshotToken = submitted.catalog.snapshotToken;
     let draftVersion = submitted.draftVersion;
     let draftDigest = submitted.draftDigest;
@@ -2543,7 +2623,7 @@ const BuilderWorkspaceContent = ({
     const maxStaleRefreshes = 2;
     if (!owner) dispatch({ type: 'compiling' });
     for (;;) {
-      if (owner?.cancelled) return undefined;
+      if (owner?.cancelled || !requestIsCurrent()) return undefined;
       const request = reconcileBuilder({
         project: projectId,
         explorerId: submitted.explorerId,
@@ -2561,7 +2641,7 @@ const BuilderWorkspaceContent = ({
       }
       try {
         const value = await request.unwrap();
-        if (owner?.cancelled) return undefined;
+        if (owner?.cancelled || !requestIsCurrent()) return undefined;
         const current = latestState.current;
         const acceptance = reconcileAcceptance(value, {
           generation,
@@ -2589,7 +2669,7 @@ const BuilderWorkspaceContent = ({
         const apiError = error as ExplorerAuthoringApiError;
         if (
           owner?.cancelled ||
-          generation !== compileGeneration.current ||
+          !requestIsCurrent() ||
           apiError.code === 'CLIENT_CANCELLED'
         )
           return undefined;
@@ -2601,7 +2681,7 @@ const BuilderWorkspaceContent = ({
         });
         if (recovery === 'refresh-and-stop') {
           const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled) return undefined;
+          if (owner?.cancelled || !requestIsCurrent()) return undefined;
           if (refreshed.data) {
             syncBuilderData(refreshed.data, 'hydrate');
             setMessage(undefined);
@@ -2615,7 +2695,7 @@ const BuilderWorkspaceContent = ({
         }
         if (recovery === 'refresh-and-retry') {
           const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || !refreshed.data) return undefined;
+          if (owner?.cancelled || !requestIsCurrent() || !refreshed.data) return undefined;
           syncBuilderData(refreshed.data, 'catalog');
           snapshotToken = refreshed.data.catalog.snapshotToken;
           draftVersion = refreshed.data.draftVersion;
@@ -3018,7 +3098,35 @@ const BuilderWorkspaceContent = ({
     async (receiptId: string) => {
       let activeReceiptId = receiptId;
       let refreshes = 0;
+      const publicationOwnerIsCurrent = () =>
+        workspaceAttached.current && publicationOwnerKeyRef.current === ownerKey;
       for (;;) {
+        if (!publicationOwnerIsCurrent()) return;
+        const submitted = latestState.current;
+        const generation = compileGeneration.current;
+        const submittedFingerprint = intentFingerprint(workspaceFromState(submitted));
+        const publicationIsCurrent = () => publicationOwnerIsCurrent() && reconcileResultIsCurrent({
+          generation,
+          currentGeneration: compileGeneration.current,
+          submittedExplorerId: submitted.explorerId,
+          currentExplorerId: latestState.current.explorerId,
+          submittedFingerprint,
+          currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+        });
+        const acknowledgementIdentity: PublicationAcknowledgementIdentity = {
+          ownerKey,
+          explorerId: submitted.explorerId,
+          draftDigest: submitted.draftDigest,
+          intentFingerprint: submittedFingerprint,
+          snapshotToken: submitted.catalog.snapshotToken,
+        };
+        const acknowledgementIsCurrent = () =>
+          publicationOwnerIsCurrent() &&
+          publicationOwnerKeyRef.current === acknowledgementIdentity.ownerKey &&
+          latestState.current.explorerId === acknowledgementIdentity.explorerId &&
+          latestState.current.draftDigest === acknowledgementIdentity.draftDigest &&
+          latestState.current.catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
+          intentFingerprint(workspaceFromState(latestState.current)) === acknowledgementIdentity.intentFingerprint;
         try {
           await publishBuilder({
             project: projectId,
@@ -3026,26 +3134,29 @@ const BuilderWorkspaceContent = ({
             authResourcePath,
             receiptId: activeReceiptId,
           }).unwrap();
+          if (!acknowledgementIsCurrent()) return;
           setLastPublished({
             ownerKey,
-            draftDigest: latestState.current.draftDigest,
+            draftDigest: submitted.draftDigest,
           });
           dispatch({ type: 'published' });
           setMessage(undefined);
           return;
         } catch (error) {
+          if (!publicationOwnerIsCurrent()) return;
           const apiError = error as ExplorerAuthoringApiError;
           if (isStaleSnapshot(apiError.code) && refreshes === 0) {
+            if (!publicationIsCurrent()) return;
             refreshes += 1;
             const refreshed = await refetchBuilder({ reload: true });
-            if (!refreshed.data) return;
+            if (!refreshed.data || !publicationIsCurrent()) return;
             latestState.current = builderAuthoringReducer(latestState.current, {
               type: 'catalogRefreshed',
               catalog: refreshed.data.catalog,
             });
             syncBuilderData(refreshed.data, 'catalog');
             const receipt = await reconcileCurrent();
-            if (!receipt) return;
+            if (!receipt || !publicationOwnerIsCurrent()) return;
             activeReceiptId = receipt.receiptId;
             continue;
           }
@@ -3110,14 +3221,14 @@ const BuilderWorkspaceContent = ({
     (explorerQueryEnabled && builder.isLoading)
   ) {
     return (
-      <main className="p-6" role="status">
+      <main ref={workspaceHostRef} className="p-6" role="status">
         Loading the selected Explorer configuration…
       </main>
     );
   }
   if (emptyExplorerProject) {
     return (
-      <main className="min-h-full p-6">
+      <main ref={workspaceHostRef} className="min-h-full p-6">
         <section
           aria-labelledby="empty-explorer-project-title"
           className="mx-auto max-w-xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
@@ -3152,7 +3263,7 @@ const BuilderWorkspaceContent = ({
   }
   if (shouldShowBuilderLoadError(Boolean(explorers.error), Boolean(builder.data))) {
     return (
-      <main className="p-6" role="alert">
+      <main ref={workspaceHostRef} className="p-6" role="alert">
         <p>Couldn’t load this dataset.</p>
         <button
           type="button"
@@ -4155,7 +4266,7 @@ const BuilderWorkspaceContent = ({
     sameRootChangeRequestIdentity(pendingRowChangePreview.identity, currentRootChangeIdentity);
 
   return (
-    <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
+    <main ref={workspaceHostRef} className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {reviewOpen ? (
         <DatasetReviewPanel

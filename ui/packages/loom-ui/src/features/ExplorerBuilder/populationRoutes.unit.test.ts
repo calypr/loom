@@ -17,6 +17,19 @@ const route: ReadonlyArray<ConstructionRouteStep> = [{
 }];
 
 describe('population route identity', () => {
+  it('honors pinned saved edge identity and direction while allowing legacy unpinned routes', () => {
+    const saved = [{ resourceType: 'Specimen', relationship: 'subject', catalogEdgeId: route[0]!.edgeId, storageDirection: 'INBOUND' as const }];
+    expect(matchesSavedPopulationRoute(route, saved)).toBe(true);
+    expect(matchesSavedPopulationRoute([{ ...route[0]!, edgeId: 'parallel-edge' }], saved)).toBe(false);
+    expect(matchesSavedPopulationRoute([{ ...route[0]!, storageDirection: 'OUTBOUND' }], saved)).toBe(false);
+    expect(matchesSavedPopulationRoute(route, [{ ...saved[0]!, catalogEdgeId: undefined }])).toBe(true);
+    expect(matchesSavedPopulationRoute([{ ...route[0]!, storageDirection: 'OUTBOUND' }], [{ ...saved[0]!, storageDirection: undefined }])).toBe(true);
+    expect(matchesSavedPopulationRoute(route, [{ ...saved[0]!, catalogEdgeId: undefined, storageDirection: 'OUTBOUND' }])).toBe(false);
+    expect(matchesSavedPopulationRoute([{ ...route[0]!, edgeId: 'parallel-edge' }], [{ ...saved[0]!, storageDirection: undefined }])).toBe(false);
+    expect(matchesSavedPopulationRoute([], [])).toBe(true);
+    expect(matchesSavedPopulationRoute(route, [])).toBe(false);
+  });
+
   it('requires the exact compiler-proved route when preserving a connection', () => {
     expect(sameConstructionRoute(route, route)).toBe(true);
     expect(sameConstructionRoute(route, [{

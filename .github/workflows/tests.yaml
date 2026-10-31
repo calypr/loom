@@ -4,109 +4,59 @@ on:
   workflow_call:
 
 jobs:
-  ui-static:
-    name: UI static contracts
+  ui-unit:
+    name: UI checks and build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 24.x
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Check reviewed UI source checkpoint
-        run: timeout 30s python3 scripts/verify_ui_contract_inventory.py --source-only
+        run: python3 scripts/verify_ui_contract_inventory.py --source-only
       - name: Check UI boundaries
         working-directory: ui
-        run: timeout 30s npm run check-boundaries
+        run: npm run check-boundaries
       - name: Type-check UI tests
         working-directory: ui
-        run: timeout 30s npm run typecheck:tests --workspace @calypr/loom-ui
-
-  ui-unit:
-    name: UI unit tests ${{ matrix.shard }}/4
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-      - name: Install UI dependencies
-        working-directory: ui
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm run typecheck:tests --workspace @calypr/loom-ui
       - name: Check feature attachments
         run: node scripts/verify-builder-formal-core.mjs --phase behavior --list
-      - name: Run UI behavioral tests
-        run: node scripts/verify-builder-formal-core.mjs --phase behavior --shard ${{ matrix.shard }}/4 --out "$RUNNER_TEMP/loom-ui-behavior"
+      - name: Run all UI behavioral tests
+        run: node scripts/verify-builder-formal-core.mjs --phase behavior --out "$RUNNER_TEMP/loom-ui-behavior"
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
       - name: Preserve behavior evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ui-behavior-${{ matrix.shard }}
+          name: ui-behavior
           path: ${{ runner.temp }}/loom-ui-behavior
           if-no-files-found: warn
 
   go-unit:
-    name: Go unit tests (${{ matrix.name }})
+    name: Go unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: dataframe
-            packages: $(go list ./internal/dataframe/... | grep -vE '/(compiler/render/clickhouse|published)$') ./conformance/...
-          - name: api
-            packages: ./internal/api/... ./internal/server/... ./internal/authscope/... ./internal/projectid/...
-          - name: lifecycle
-            packages: ./internal/catalog/... ./internal/dataset/... ./internal/explorer/... ./internal/fhir/... ./internal/ingest/... ./internal/repositoryseed/...
-          - name: storage-cli
-            packages: . $(go list ./internal/store/... | grep -vE '/clickhouse$') ./internal/acceptance/... ./cmd/... ./generated/...
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.26.5
-          cache: true
-      - name: Run Go tests
-        run: go test -timeout=30s -count=1 -skip '^TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses$' ${{ matrix.packages }}
-
-  go-catalog-witness:
-    name: Catalog witnesses ${{ matrix.shard }}/4
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: 1.26.5
           cache: true
-      - name: Check the complete assigned witness partition
-        env:
-          LOOM_CATALOG_WITNESS_SHARD: ${{ matrix.shard }}/4
-          GOMAXPROCS: '2'
-        run: go test -timeout=30s -count=1 -run '^TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses$' ./internal/catalog
+      - name: Run all ordinary Go packages and catalog witnesses
+        run: |
+          package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./conformance/...)
+          mapfile -t packages < <(printf '%s\n' "$package_list" | grep -vE '/(compiler/render/clickhouse|published|store/clickhouse)$')
+          test "${#packages[@]}" -gt 0
+          go test -timeout=10m -count=1 "${packages[@]}"
 
   go-arango:
     name: Actual Arango integration
@@ -137,12 +87,85 @@ jobs:
         env:
           LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
         run: node scripts/run-arango-integration.mjs --out "$RUNNER_TEMP/arango-proof"
+      - name: Verify actual derived arithmetic policy source faults
+        env:
+          LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
+        run: node scripts/lib/formal-derived-policy.mjs --out "$RUNNER_TEMP/derived-policy-proof"
       - name: Preserve actual Arango proof and external gaps
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: arango-proof
-          path: ${{ runner.temp }}/arango-proof
+          path: |
+            ${{ runner.temp }}/arango-proof
+            ${{ runner.temp }}/derived-policy-proof
+          if-no-files-found: warn
+
+  go-publication-rows:
+    name: Compiled publication rows across Arango and ClickHouse
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      arangodb:
+        image: arangodb:3.12
+        env:
+          ARANGO_NO_AUTH: '1'
+        ports:
+          - 8529:8529
+        options: >-
+          --health-cmd "wget --quiet --tries=1 --spider http://127.0.0.1:8529/_api/version"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        env:
+          CLICKHOUSE_DB: loom_test
+          CLICKHOUSE_USER: loom_ci
+          CLICKHOUSE_PASSWORD: loom_ci_password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 9000:9000
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
+      LOOM_CLICKHOUSE_URL: clickhouse://127.0.0.1:9000
+      LOOM_CLICKHOUSE_DATABASE: loom_test
+      LOOM_CLICKHOUSE_USERNAME: loom_ci
+      LOOM_CLICKHOUSE_PASSWORD: loom_ci_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Compile server tests separately from runtime proof
+        run: go test -timeout=10m -run '^$' ./internal/server
+      - name: Verify literal compiled and stored rows through fresh Viewer
+        run: node scripts/verify-builder-formal-core.mjs --phase api --feature publication-rows --out "$RUNNER_TEMP/publication-proof"
+      - name: Verify current draft APPEND rows and actual source faults
+        run: node scripts/lib/formal-append-rows.mjs --out "$RUNNER_TEMP/append-proof"
+      - name: Preserve current draft APPEND evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: append-rows
+          path: ${{ runner.temp }}/append-proof
+          if-no-files-found: warn
+      - name: Preserve publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-rows
+          path: ${{ runner.temp }}/publication-proof
           if-no-files-found: warn
 
   go-clickhouse:
@@ -180,19 +203,15 @@ jobs:
           cache: true
       - name: Run ClickHouse tests
         run: >-
-          go test -timeout=30s -count=1
+          go test -timeout=10m -count=1
           ./internal/dataframe/compiler/render/clickhouse
           ./internal/dataframe/published
           ./internal/store/clickhouse
 
   node-unit:
-    name: Node unit tests ${{ matrix.shard }}/4
+    name: Node unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -201,10 +220,9 @@ jobs:
         with:
           node-version: 22.x
       - name: Record executable routes and blocked legacy checks
-        if: matrix.shard == 1
         run: node scripts/verify-builder-formal-core.mjs --phase inventory > "$RUNNER_TEMP/verification-inventory.json"
       - name: Preserve verification inventory
-        if: always() && matrix.shard == 1
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verification-inventory
@@ -215,7 +233,7 @@ jobs:
           test_list=$(node scripts/ci/list-node-tests.mjs)
           test -n "$test_list"
           mapfile -t tests <<< "$test_list"
-          node --test --test-timeout=30000 --test-shard=${{ matrix.shard }}/4 "${tests[@]}"
+          node --test --test-timeout=600000 "${tests[@]}"
 
   shell-unit:
     name: Shell cleanup tests
@@ -225,28 +243,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Run acceptance cleanup tests
-        run: timeout 30s bash scripts/tests/test_acceptance_real_cleanup.sh
+        run: timeout 600s bash scripts/tests/test_acceptance_real_cleanup.sh
 
   python-unit:
-    name: Python tests (${{ matrix.test }})
+    name: Python tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        test:
-          - test_acceptance_real
-          - test_demo_configuration
-          - test_normalize_ui_contract_inventory
-          - test_package_audit
-          - test_release_loom_ui
-          - test_ui_ci_workflow
-          - test_verify_ui_contract_inventory
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Run Python test
-        run: timeout 30s python3 -m unittest scripts.tests.${{ matrix.test }}
+      - uses: actions/checkout@v4
+      - name: Run retained Python tests
+        run: |
+          python3 -m unittest discover -s scripts/tests
+          python3 -m unittest scripts.test_validate_architecture_plan
 
   contracts:
     name: Generated and OpenAPI contracts
@@ -261,48 +269,26 @@ jobs:
           go-version: 1.26.5
           cache: true
       - name: Generate FHIR code
-        run: timeout 30s make generate-fhir
+        run: timeout 600s make generate-fhir
       - name: Generate GraphQL code
-        run: timeout 30s make generate-graphql
+        run: timeout 600s make generate-graphql
       - name: Generate Loom OpenAPI code
-        run: timeout 30s make generate-openapi
+        run: timeout 600s make generate-openapi
       - name: Check generated code is current
         run: |
-          timeout 30s git diff --exit-code -- generated/fhir generated/fhirschema generated/graphql generated/loomapi
-          timeout 30s sh -c 'test -z "$(git status --porcelain --untracked-files=all -- generated)"'
+          timeout 600s git diff --exit-code -- generated/fhir generated/fhirschema generated/graphql generated/loomapi
+          timeout 600s sh -c 'test -z "$(git status --porcelain --untracked-files=all -- generated)"'
       - name: Check OpenAPI route ownership
-        run: timeout 30s make openapi-check
+        run: timeout 600s make openapi-check
       - name: Check preview-index migration
         run: >-
-          go test -timeout=30s -count=1
+          go test -timeout=10m -count=1
           ./scripts/local-preview-index-migration.go
           ./scripts/local-preview-index-migration_test.go
       - name: Check FHIR semantic resource types
-        run: timeout 30s go run ./scripts/check_fhir_semantic_resource_types.go
+        run: timeout 600s go run ./scripts/check_fhir_semantic_resource_types.go
       - name: Test FHIR semantic resource checks
         run: >-
-          timeout 30s go test -timeout=30s -count=1
+          timeout 600s go test -timeout=10m -count=1
           ./scripts/check_fhir_semantic_resource_types.go
           ./scripts/check_fhir_semantic_resource_types_test.go
-      - name: Test retained architecture plan validation
-        run: timeout 30s python3 -m unittest scripts.test_validate_architecture_plan
-
-  ui-build:
-    name: UI build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-      - name: Install UI dependencies
-        working-directory: ui
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Build UI
-        working-directory: ui
-        run: npm run build

@@ -3,11 +3,13 @@ package arango
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -90,6 +92,9 @@ UPDATE d WITH MERGE(base, @doc, {
 		return nil
 	})
 	if err != nil {
+		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
+			return nil, errors.Join(explorer.ErrDraftConflict, err)
+		}
 		return nil, err
 	}
 	return out, nil

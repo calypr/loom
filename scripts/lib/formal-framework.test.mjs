@@ -56,7 +56,7 @@ test('reject mixed trace families before constructing a model', () => {
     assert.throws(() => prepareTraces(h, expected), /Mixed trace/);
 });
 test('every actual model action has an explicit reader label', () => {
-    for (const name of ['BuilderLifecycle', 'ApplySettlementRace', 'ReconcileLifecycle', 'ReconcileAcceptance']) {
+    for (const name of Object.keys(modelControls)) {
         const source = readFileSync(join(root, `verification/builder-interactions/${name}.tla`), 'utf8');
         const definitions = [...source.matchAll(/^([A-Z]\w*)(?:\([^\n]*\))? ==([\s\S]*?)(?=^\w+(?:\([^\n]*\))? ==|^={3})/gm)];
         const actions = definitions.filter((match) => /\w+'/.test(match[2])).map((match) => match[1]);
@@ -76,10 +76,14 @@ test('view preserves the reason an Apply began without prior readiness', () => {
     assert.notEqual(state({ observation: o, previousObservation: { status: 'ready', canApply: true, proposalId: 'P' } }), state({ observation: o, previousObservation: { status: 'ready', canApply: false, proposalId: 'P' } }));
 });
 test('source and model proof inventory covers every declared behavioral rule', () => {
-    for (const model of ['BuilderLifecycle', 'ApplySettlementRace', 'ReconcileLifecycle', 'ReconcileAcceptance']) {
+    for (const proof of sourceProofs) if (proof.checkedProperties) {
+        assert.ok(proof.checkedProperties.includes(proof.property));
+        assert.equal(new Set(proof.checkedProperties).size, proof.checkedProperties.length);
+    }
+    for (const model of Object.keys(modelControls)) {
         const declared = [...readFileSync(join(root, `verification/builder-interactions/${model}.cfg`), 'utf8').matchAll(/^INVARIANT (\w+)$/gm)].map((m) => m[1]).filter((name) => name !== 'TypeOK').sort();
         assert.deepEqual([...new Set(modelControls[model].map((control) => control[0]))].sort(), declared);
-        assert.deepEqual([...new Set(sourceProofs.filter((proof) => proof.model === model).map((proof) => proof.property))].sort(), declared);
+        assert.deepEqual([...new Set(sourceProofs.filter((proof) => proof.model === model).flatMap((proof) => proof.checkedProperties || [proof.property]))].sort(), declared);
     }
 });
 test('tool tree digests detect a modified dependency byte', () => {
@@ -151,6 +155,19 @@ test('generation input failures retain a witness that breaks and restores', asyn
     assert.equal((await replayWitness(witness, { source: broken })).status, 'reproduced');
     assert.equal((await replayWitness(witness)).status, 'property-held');
     await assert.rejects(() => replayWitness({ ...witness, inputs: { ...witness.inputs, liveGeneration: 'bad' } }));
+});
+test('every registered source fault has an exact current production anchor', () => {
+    for (const proof of sourceProofs) {
+        const sources = new Map();
+        assert.ok(proof.edits.length > 0, `Missing source fault: ${proof.property}`);
+        for (const [file, before, after] of proof.edits) {
+            const source = sources.get(file) ?? readFileSync(join(root, file), 'utf8');
+            assert.ok(before.length > 0, `Empty source fault anchor: ${proof.property}`);
+            assert.notEqual(before, after, `Ineffective source fault: ${proof.property}`);
+            assert.equal(source.split(before).length, 2, `Nonunique source fault: ${proof.property} in ${file}`);
+            sources.set(file, source.replace(before, after));
+        }
+    }
 });
 test('every bounded predicate mutation preserves a replayable concrete input', async () => {
     const { checkSourceProof, replayPredicateWitness } = await import('./formal-source-proofs.mjs');

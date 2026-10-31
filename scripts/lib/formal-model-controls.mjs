@@ -1,5 +1,21 @@
+import { exclusionModelControls } from './formal-exclusion-replay.mjs';
+import { draftTransactionModelControls } from './formal-draft-transaction.mjs';
+import { removalModelControls } from './formal-removal-replay.mjs';
+import { publicationModelControls } from './formal-publication-replay.mjs';
+import { populationModelControls } from './formal-population-replay.mjs';
+import { constructionModelControls } from './formal-construction-replay.mjs';
 import { acceptanceModelControls } from './formal-reconcile-replay.mjs';
 export const modelControls = {
+    PopulationExclusion: exclusionModelControls,
+    DraftSaveTransaction: draftTransactionModelControls,
+    PopulationRemoval: removalModelControls,
+    PublicationAcknowledgement: publicationModelControls,
+    PopulationMapping: populationModelControls,
+    ConstructionChain: constructionModelControls,
+    ReconcileRefresh: [
+        ['Inv_ObsoleteRecoveryDoesNotResume', 'ResumeRecovery', 'admitted == CurrentRequest /\\ workspaceAttached /\\ ~cancelled', 'admitted == workspaceAttached /\\ ~cancelled'],
+        ['Inv_ObsoleteRecoveryDoesNotResume', 'ResumeRecovery', 'admitted == CurrentRequest /\\ workspaceAttached /\\ ~cancelled', 'admitted == CurrentRequest /\\ ~cancelled'],
+    ],
     ReconcileAcceptance: acceptanceModelControls,
     ApplySettlementRace: [
         ["Inv_CompletionOwnsCurrentContext", "ApplyReturns", "ownerContext[owner] = currentContext THEN owner ELSE None", "TRUE THEN owner ELSE None"],

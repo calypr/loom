@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { RouteFixture } from './routeFixture';
 import { createRoot } from 'react-dom/client';
 import { MantineProvider } from '@mantine/core';
 import '@mantine/core/styles.css';
@@ -53,7 +54,7 @@ function App() {
   });
   return <MantineProvider><main className="loom-ui-root" style={{ width: 1100, margin: 24 }}>
     <h1>Production component browser fixture</h1>
-    {new URLSearchParams(location.search).get('feature') === 'download'
+    {new URLSearchParams(location.search).get('feature') === 'route' ? <RouteFixture /> : new URLSearchParams(location.search).get('feature') === 'download'
       ? <OutputTable runtime={runtime} output={runtime.outputs[0]}
           result={{ columns: ['file'], rows: [{ file: fileId, file_name: 'fixture.txt' }], rowIds: ['file-row-A'], totalCount: 1, pageInfo: { hasNextPage: false }, facets: [] }}
           state={createViewerReducerState(runtime)} dispatch={() => undefined} />

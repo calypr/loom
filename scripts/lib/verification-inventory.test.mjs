@@ -59,11 +59,16 @@ test('repository inventory names actual execution commands and preserves uncover
   const result = await verificationInventory();
   assert.equal(result.status, 'inventory-only');
   assert.match(result.policy, /not evidence/);
-  assert.ok(result.jobs.find(job => job.id === 'ui-unit').commands.some(run => run.command.includes('--phase behavior --shard')));
+  assert.ok(result.jobs.find(job => job.id === 'ui-unit').commands.some(run => run.command.includes('--phase behavior --out')));
   const node = result.groups.find(group => group.id === 'node');
   assert.ok(node.included.includes('.codex/skills/verify-loom-ui/scripts/verify.test.mjs'));
   assert.ok(node.included.includes('scripts/lib/verification-inventory.test.mjs'));
   for (const row of node.excluded) assert.ok(row.reason && row.chain.length);
+  const go = result.groups.find(group => group.id === 'go').files;
+  assert.deepEqual(go.filter(row => row.file.startsWith('internal/ingest/') && row.additionalRoutes.includes('go-arango')).map(row => row.file),
+    ['internal/ingest/semantic_inventory_backfill_integration_test.go']);
+  const publication = go.find(row => row.file === 'internal/server/publication_rows_integration_test.go');
+  assert.deepEqual(publication.additionalRoutes, ['go-publication-rows']);
   const jobIds = new Set(result.jobs.map(job => job.id));
   for (const row of result.groups.find(group => group.id === 'go').files)
     if (row.route) assert.ok(jobIds.has(row.route));

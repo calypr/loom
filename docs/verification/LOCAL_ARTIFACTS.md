@@ -1,5 +1,25 @@
 # Local verification reports
 
+## Current commands
+
+Run the current formal audit with a fresh output directory:
+
+```sh
+CI=true node scripts/verify-builder-formal-core.mjs --self-test --out /tmp/FRESH-formal-proof
+```
+
+The output separates model results, actual-code replay, source faults and ordinary checks.
+Keep generated run evidence outside Git. Keep authored verifier code and the compact
+[deleted-guarantee record](DELETED_GUARANTEES.md) in Git. Historical reports remain
+recoverable through that record's immutable Git links.
+
+## Historical pipeline reference
+
+The sections below describe the retired report pipeline. Its generator commands and
+statements about tracked archives are historical references, not current instructions.
+Use the [formal skill](../../.codex/skills/builder-interaction-formal-verification/SKILL.md)
+for current checks. Do not recreate the old generators merely to satisfy this guide.
+
 Keep executable tests, verifiers, fixture inputs, TLA models, required-check registrations, source pins, and authored proof decisions in Git. Expanded indexes and summaries are generated outputs.
 
 The obligation index lives in `.cache/builder-verification/test-obligations.json`. Its Markdown summary is beside it. `.cache/` is ignored. Both files can be deleted and rebuilt.

@@ -1,3 +1,4 @@
+import { verificationTimeoutMs } from './verification-budget.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,7 +34,7 @@ function runTests(root, scratch, suite, pattern, env = {}) {
     if (pattern)
         args.push('--testNamePattern', pattern);
     const result = spawnSync(process.execPath, args, {
-        cwd: join(root, 'ui/packages/loom-ui'), encoding: 'utf8', timeout: 30000,
+        cwd: join(root, 'ui/packages/loom-ui'), encoding: 'utf8', timeout: verificationTimeoutMs,
         maxBuffer: 8 * 1024 * 1024,
         env: { ...process.env, LOOM_VITEST_CACHE_DIR: join(scratch, 'vite-cache'), ...env },
     });
@@ -277,6 +278,8 @@ export function checkMountedImplementation(root, name, checkModel, outputRoot) {
         assert.equal(result.status, 0, JSON.stringify(parsed.testResults.flatMap((file) => file.assertionResults ?? []).filter((test) => test.status === 'failed')));
         assert.equal(parsed.success, true);
         assert.equal(sourceFingerprint(root), fingerprint, 'Source changed during conformance verification');
+        const traces = prepareTraces(header, expected);
+        return { family: name, testCasesPassed: parsed.numPassedTests, schedules: traces.length, observations: traces.reduce((count, trace) => count + trace.length, 0), sourceFingerprint: fingerprint, boundary: 'TLC checks recorded mounted React schedules; not exhaustive React execution' };
     }
     finally {
         rmSync(scratch, { recursive: true, force: true });

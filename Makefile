@@ -183,10 +183,7 @@ verify-formal:
 verify-current: verify-fast verify-api verify-formal
 
 verify-full: verify-api verify-formal
-	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 1/4
-	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 2/4
-	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 3/4
-	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 4/4
+	CI=true node scripts/verify-builder-formal-core.mjs --phase behavior
 
 # Real Chromium component boundary, deliberately outside the fast default loop.
 BROWSER_FEATURE ?= all

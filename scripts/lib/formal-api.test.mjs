@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
-import { apiChecks, checkApiEvents, selectApiChecks } from './formal-api.mjs';
+import { apiChecks, checkApiEvents, selectApiChecks, serviceProfileEvidence } from './formal-api.mjs';
 
 const check = { tests: ['TestReadBack'] };
 const line = event => JSON.stringify(event);
@@ -34,4 +34,13 @@ test('API evidence requires actual named execution and successful completion', (
     assert.throws(() => checkApiEvents(valid + '\n' + line({ Action: 'skip', Test: 'TestReadBack/subcase' }), check), /subtest skipped/);
     assert.throws(() => checkApiEvents(valid.split('\n').slice(0, 2).join('\n'), check), /package did not pass/);
     assert.throws(() => checkApiEvents('not json', check));
+});
+
+test('service evidence separates failed selection from unrequested and passed profiles', () => {
+    const status = (options, id) => serviceProfileEvidence(options).find(row => row.id === id).status;
+    assert.equal(status({ phase: 'all' }, 'append-rows'), 'not-run-in-this-command');
+    assert.equal(status({ phase: 'api', feature: 'append-rows' }, 'append-rows'), 'failed-or-incomplete');
+    assert.equal(status({ phase: 'api', feature: 'append-rows', checks: [{ id: 'append-rows' }] }, 'append-rows'), 'passed');
+    assert.equal(status({ phase: 'api', feature: 'route-rows', checks: [{ id: 'append-rows' }] }, 'append-rows'), 'not-run-in-this-command');
+    assert.equal(status({ phase: 'api', feature: 'route-rows', checks: [{ id: 'append-rows' }] }, 'route-rows'), 'failed-or-incomplete');
 });
