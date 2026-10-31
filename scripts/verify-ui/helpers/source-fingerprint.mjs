@@ -20,7 +20,8 @@ export const sourceFingerprintWithManifest = (root) => {
     if (!stat) return;
     if (stat.isDirectory()) {
       for (const name of readdirSync(absolute).sort()) {
-        if (name === 'node_modules' || name === '.artifacts') continue;
+        if (['node_modules', '.artifacts', '.cache', '__pycache__', '.pytest_cache', '.DS_Store'].includes(name)
+          || /\.py[co]$/.test(name)) continue;
         visit(join(relative, name));
       }
       return;

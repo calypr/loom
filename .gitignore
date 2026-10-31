@@ -1,4 +1,8 @@
 .DS_Store
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
 .gocache/
 .cache/
 .artifacts/
@@ -27,3 +31,23 @@ META/
 
 # Explicit machine-local native CDA target configuration.
 /.codex/owned-cda-target.json
+
+# Legacy locations of generated verification reports. Current outputs use .cache/.
+/verification/builder-interactions/test-obligations.json
+/verification/builder-interactions/test-obligations.md
+/verification/builder-interactions/route-action-proposals.json
+/verification/builder-interactions/route-action-proposals.md
+/verification/builder-interactions/contract-proof-proposals.json
+/verification/builder-interactions/contract-proof-proposals.md
+/verification/builder-interactions/mutation-probe-proposals.json
+/verification/builder-interactions/mutation-probe-proposals.md
+/verification/builder-interactions/browser-case-proposals.json
+/verification/builder-interactions/browser-case-proposals.md
+/verification/builder-interactions/bug-discovery.json
+/verification/builder-interactions/bug-discovery.md
+/verification/builder-interactions/readiness.json
+/verification/builder-interactions/readiness.md
+/verification/builder-interactions/report.json
+/verification/builder-interactions/report.md
+/verification/builder-interactions/http-500-audit.json
+/docs/verification/playwright/source-conversion-manifest.md

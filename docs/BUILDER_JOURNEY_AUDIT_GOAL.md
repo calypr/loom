@@ -24,8 +24,9 @@ This case-specific evidence does not establish browser-ledger freshness or
 global readiness. Multi-report browser-evidence generation remains blocked by
 a missing historical `builder-controls` report and external-path basename
 handling. F-001 and F-004 remain open product findings; their journey specs
-stay red as evidence. The six-column source accountability and QC trail for the
-678 MJS files is retained in [the decision TSV](verification/mjs-catalogue-decisions.tsv).
+stay red as evidence. The historical MJS catalog decision trail is available in
+Git at `ad531a0b6:docs/verification/mjs-catalogue-decisions.tsv`; the catalog
+and its bookkeeping gate have since been retired.
 
 ## Goal contract
 
@@ -359,8 +360,8 @@ in a manual-only entry.
   `9f47a6f4b3a9b4c97b25a6949f51f49fb7304c67afeb84cc95e6f0560484995` across
   2,092 files, and the API build identity stayed unchanged. Both Cancel actions
   and both reloads remain native-only checks and are explicitly unmodeled.
-  - Native report: `docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/native-report.json`
-    (SHA-256 `49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e`).
+  - Native report archive: `verification/builder-interactions/retained-browser-evidence/group-entry-raw-basic-alias-908-native-report.json.gz`
+    (raw SHA-256 `49fc0cc324e3d29542dbc5c4166d73444de4cadec9ceda171d6b612c98c9a75e`; `manifest.json` records the original path and byte counts).
   - Bracket summary: `docs/verification/playwright/runtime/builder-group-entry-20261023/final-908/raw-basic-alias/bracket-summary.json`
     (SHA-256 `7a72bb91ed225994c6531ebd04d71c5de9821e48dff8d7c3c37e776b24996443`).
   - Journey report, trace, TLA report, trace controls, and source/API/mount/health
@@ -421,9 +422,9 @@ verification bracket and validates its emitted trace against
 `builder-edit-remove-contract.json`. Configure the validated native environment
 expected by the native bracket (`LOOM_CDA_*` capture values and `LOOM_DEV_*`
 fixture values); `LOOM_CDA_SOURCE_ROOT` must resolve to the checkout running
-the command. `docs/verification/playwright/NATIVE_RUN_PLAN.md` records an owned
-stack example whose values must match the selected checkout and stack. The
-native fixture owns the fresh synthetic project. It checks the raw five-column
+the command. The native fixture validates ownership, ports, and source identity
+before each case; its environment values must match the selected checkout and
+stack. The native fixture owns the fresh synthetic project. It checks the raw five-column
 Patient source and all fixture values, applies the ID-and-gender edit, then
 edits the same Group back to ID-only and checks the rows after reload. It
 previews and cancels removal, applies removal, and checks exact source
@@ -467,3 +468,21 @@ manual-only and unrun. The historical F-003 ID+gender rerun did not reproduce
 the error. Keep F-001 and F-004 red until the product fixes the pivot and
 unpivot proposal errors, then finish the requirement-by-requirement completion
 audit.
+
+## Historical CDA and synthetic comparison
+
+At source `4a2a165fbf92f56cce85a143364368734215c538`, the CDA duplicate-pivot
+case returned `422 TABLE_PIVOT_CELL_CARDINALITY`, while the synthetic case
+returned a 500. CDA Unpivot preview returned 25 rows, while the synthetic
+preview returned a 500; the CDA trace included setup actions outside the retained
+TLA path. The CDA Group edit case was blocked by a repeated extension rather
+than demonstrating an equivalent outcome. These are historical observations,
+not current acceptance results. The complete comparison is available in Git at
+`ad531a0b6:verification/builder-interactions/cda-vs-synthetic-comparison.json`.
+
+The historical Group-scraps closeout at `af4afdc` recorded a native CDA Group
+lifecycle and an authored Group trace replay; one late-preview schedule was not
+observed and remained model-only. It also recorded pre-existing component-test,
+typecheck, and bracket-test failures. The detailed closeout and run artifacts
+can be recovered from Git at `a6ab20357b969370d7f2da444f713942367f62ff` under
+`docs/verification/playwright/runtime/group-scraps-consolidation-20261023/final-af4afdc/`.

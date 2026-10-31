@@ -1,2 +1,0 @@
-{"resourceType":"Specimen","id":"s1","status":"available","subject":{"reference":"Patient/p1"}}
-{"resourceType":"Specimen","id":"s2","status":"unavailable","subject":{"reference":"Patient/p2"}}

@@ -5,6 +5,29 @@ description: Verify Loom Builder features in the real local browser, including b
 
 # Verify Loom development
 
+## Current executable routes
+
+Use the existing verification entry point and feature map:
+
+```sh
+node scripts/verify-builder-formal-core.mjs --phase inventory
+node scripts/verify-builder-formal-core.mjs --phase behavior --feature drafts
+node scripts/verify-builder-formal-core.mjs --phase api --feature restore
+```
+
+See `../builder-interaction-formal-verification/features/README.md` for the five frontend groups, current formal links, exact evidence and remaining boundaries. Run focused cases while editing; batch the full retained checks at coherent checkpoints. `make verify-fast`, `verify-api`, `verify-formal`, `verify-inventory`, and the Builder `verify-full` checkpoint now have real routes. Inventory is read-only discovery, not proof that tests passed.
+
+The core `scripts/loom-dev.mjs` commands load independently of retired browser helpers. Inspect `docker compose ls --all` first; use `make dev-doctor` only for the explicitly owned development identity. A stopped or missing project is blocked, not verified. No runtime is started by these instructions.
+
+For an already deployed authenticated target use `../verify-loom-ui/SKILL.md`. Run its doctor before drive, provide credentials only through its documented protected file/environment, and on Linux pass `--chrome /usr/bin/chromium` to drive. That harness currently proves Builder load; it does not establish every authoring/publication journey. Its native helper tests are connected to Node CI.
+
+Keep `features/README.md` and its four feature pages as user-guarantee requirements. Browser wiring, layout/drag/drop, exact composed results, and durable storage need their own proof. Component/API checks close only the boundaries they actually exercise. Do not run the canonical `acceptance-real` deployment command as a passive doctor or fast check.
+
+## Historical procedures retained for coverage review
+
+**The procedures below reference retired browser runners/specs and are not an executable recipe for this checkout. Do not run the old native bracket or journey commands.** Their behavioral requirements and historical evidence are retained while deleted coverage is assessed. Use the current routes above; never report an old Make no-op, skipped case, or historical report as a current pass.
+
+
 Use this skill for frontend and backend iterations against the development
 Compose project. It does not drive the canonical `loom-demo` deployment.
 
@@ -12,7 +35,7 @@ Compose project. It does not drive the canonical `loom-demo` deployment.
 
 One small change gets one focused test under 5 seconds. Run only the test or mutation probe for the edited behavior. Do not run a browser lifecycle or the integrated formal gate for a small change. Batch those at checkpoints.
 
-For the Builder formal loop, use `node scripts/run-builder-mutation-probe.mjs <probe-id> --force`. The `builder-interaction-formal-verification` skill documents the current probe set and cache behavior.
+For Builder ownership/reconcile changes, use the focused tests and current commands in `.codex/skills/builder-interaction-formal-verification/SKILL.md`. That skill owns the model → real-code replay → product refinement → regression/control loop. The retired `run-builder-mutation-probe.mjs` is not an executable gate.
 
 ## Development Compose identity
 

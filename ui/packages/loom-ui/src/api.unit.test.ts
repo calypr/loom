@@ -2395,6 +2395,46 @@ describe('Loom project paths', () => {
   });
 });
 
+describe('prepared dataset artifact identity', () => {
+  const args = { project: 'org/project', explorerId: 'explorer-main', revisionId: 'revision-published-7', outputId: 'patients', idempotencyKey: 'artifact-request-1' };
+  const validArtifact = () => ({
+    id: `artifact_${'a'.repeat(64)}`, project: 'org/project', explorerId: 'explorer-main', revisionId: 'revision-published-7', outputId: 'patients',
+    receiptId: 'receipt-7', executionId: 'execution-7', datasetGeneration: 'generation-7', schemaDigest: 'schema-7',
+    state: 'COMPLETE', format: 'CSV', filename: 'complete-patients.zip', mediaType: 'application/zip', archiveSha256: 'b'.repeat(64),
+    bytes: 1024, rows: 2, features: 2, createdAt: '2026-10-31T00:00:00Z', completedAt: '2026-10-31T00:00:01Z', expiresAt: '2026-11-01T00:00:00Z',
+  });
+  // Four independent Boolean dimensions, enumerating all 16 matching/foreign
+  // responses. Only the all-matching input is authorized for this request.
+  it.each(Array.from({ length: 16 }, (_, mask) => mask))('rejects every foreign identity combination: mask %i', async mask => {
+    const response = {
+      ...validArtifact(),
+      project: mask & 1 ? 'foreign/project' : 'org/project',
+      explorerId: mask & 2 ? 'foreign-explorer' : 'explorer-main',
+      revisionId: mask & 4 ? 'foreign-revision' : 'revision-published-7',
+      outputId: mask & 8 ? 'foreign-output' : 'patients',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const result = createLoomClient({ fetch }).prepareArtifact(args);
+    if (mask === 0) await expect(result).resolves.toEqual(response);
+    else {
+      const error = await result.then(() => undefined, failure => failure);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toContain('Prepared dataset artifact does not match the requested');
+    }
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { requested: 'org%2Fproject', returned: 'org/project' },
+    { requested: 'org/project', returned: 'org%2Fproject' },
+    { requested: ' /org/project/ ', returned: 'org/project' },
+    { requested: 'HTAN_INT-BForePC', returned: 'HTAN_INT/BForePC' },
+  ])('accepts canonical project aliases: $requested / $returned', async ({ requested, returned }) => {
+    const response = { ...validArtifact(), project: returned };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await expect(createLoomClient({ fetch }).prepareArtifact({ ...args, project: requested })).resolves.toEqual(response);
+  });
+});
+
 describe('configured-column interpretation APIs', () => {
   const context = {
     snapshotToken: 'snapshot-1',

@@ -2,7 +2,17 @@
 
 This checkpoint retains the source inventory, TLA+ models, UI drivers, and Go lifecycle fixtures for Builder verification. It is based on application commit `dc331783dde3f61e764bab3a421b66b28698c9d4`.
 
-The inventory describes 57 affordances and 159 request checkpoints from source commit `dc331783dde3f61e764bab3a421b66b28698c9d4`. The Pivot discovery and construction lifecycle changes in that commit were reviewed before refreshing the source hashes. Further source changes require a new review; a source-drift failure is expected until the model and hashes are updated deliberately. The fragment files retain their original extraction pins; `ui-supported-affordances.json` is the normalized reviewed manifest.
+The inventory describes 57 affordances and 159 request checkpoints originating at source commit `dc331783dde3f61e764bab3a421b66b28698c9d4`. The current reviewed working-tree source checkpoint is recorded separately in [source-review.md](source-review.md) and manifest metadata. Further source changes require a new review; the source-drift guard continues to reject stale bytes and new/unwatched files.
+
+`ui-supported-affordances.json` retains the reviewed source hashes, fragment hashes, and a digest of the expanded contract. Consumers reconstruct affordances from the four fragment files in memory. Expansion preserves the original source pins and rejects changed fragments or a changed contract. It never refreshes pins during verification. The Node consumers invoke the Python standard-library normalizer through `scripts/lib/ui-contract-inventory.mjs`.
+
+Run `python3 scripts/normalize_ui_contract_inventory.py --expand` to inspect the expanded inventory. Redirect its output outside the repository when saving a report. After reviewing source or fragment changes, run `python3 scripts/normalize_ui_contract_inventory.py` to update the compact manifest, then run `python3 scripts/verify_ui_contract_inventory.py --source-only`. Regeneration is an explicit review action.
+
+The current source review is [source-review.md](source-review.md). It records the original ABI commit separately from the reviewed baseline and uncommitted ownership changes. Source hashes/file-set alignment is current; the 57/159 inventory is not a claim of complete model or implementation coverage.
+
+## Historical verification notes
+
+The material below describes the earlier checkpoint and retired runner paths. Those commands and coverage claims are historical; use the existing project formal/behavior skill for current executable checks. Do not treat this section as a live verification recipe.
 
 The integrated TLC runner is:
 

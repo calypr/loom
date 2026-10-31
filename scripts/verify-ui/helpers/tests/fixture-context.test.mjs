@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { nativeEnvironmentTargetProblems } from '../../../run-builder-journey.mjs';
 import { readBasicTemporalFilterOracle } from '../basic-temporal-filter-oracle.mjs';
 import { bindFixtureOracleToQaIsolation } from '../fixture-context.mjs';
 
@@ -25,20 +24,8 @@ test('isolated DATE oracle is written under QA isolation with its real project a
   assert.deepEqual(actualOracle.rows, report.target.qaIsolation.fixtureRows,
     'The literal DATE rows must match the retained QA isolation rows.');
 
-  const environmentSummary = {
-    targetIdentity: null,
-    targetValidation: {
-      scope: 'environment-only',
-      registryBinding: 'unbound',
-      runtimeDatasetIdentity: 'not-checked',
-      configPath: null,
-      project: null,
-      generation: null,
-    },
-  };
-  assert(nativeEnvironmentTargetProblems(environmentSummary, report).some(problem =>
-    problem === 'domain report fixture oracle must bind the actual isolated project/generation'),
-  'The retained run5 shape must fail while the oracle exists only in the legacy top-level alias.');
+  // The retired journey report gate is not exercised here. This checks the
+  // retained producer's project/generation binding against the literal oracle.
   assert.equal(report.target.qaIsolation.fixtureOracle, undefined);
 
   const fixtureOracle = {
@@ -52,8 +39,9 @@ test('isolated DATE oracle is written under QA isolation with its real project a
   };
   const bound = bindFixtureOracleToQaIsolation(report, fixtureOracle);
   assert.deepEqual(bound, fixtureOracle, 'The canonical writer must preserve the complete raw oracle record.');
-  assert.deepEqual(nativeEnvironmentTargetProblems(environmentSummary, report), [],
-    'The canonical producer shape must satisfy the native environment target gate.');
+  assert.deepEqual(report.target.qaIsolation.fixtureOracle, fixtureOracle,
+    'The current producer must bind the full raw oracle under QA isolation.');
+  assert.notStrictEqual(bound, fixtureOracle, 'The report owns its oracle record.');
 
   for (const altered of [
     { ...fixtureOracle, project: `${fixtureOracle.project}-foreign` },

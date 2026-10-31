@@ -1,0 +1,14 @@
+{
+  "baselineCommit": "5646633e0e5c7ff8de568a4f111478d121e7f75f",
+  "review": "Reviewed synchronous reconcile acceptance extraction and preserved caller dispatch semantics; prior ownership fixes retained. Working-tree review, not a new commit.",
+  "files": {
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts": "89f7d081fb7f45ed3492128f1035ad1562434e196c9f5f62a685454612047c38",
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPanel.tsx": "f3f22dc79a9c41414f98fe5844b2f2787ed953b1b5ff15052c2c2039638921ec",
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx": "9d2d82f911e8b58879d2b2d398ed85b3657747815f2f5c6b4988e86a3400de23",
+    "ui/packages/loom-ui/src/react.tsx": "4655069a2206447e9db33076da1a8d8ea87d0724b1818af33d789067a11fe7ca",
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileRecovery.ts": "282c4f8dba2d795bbdfb59ed41d88a203600fb50599c715dfa225ad84b822a88",
+    "internal/explorer/lifecycle/construction_category_discovery.go": "ed788312d414014f5bc767e7184fc0c2962598790054f215385cbe4c88e22b96",
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionApplyOwnership.ts": "13c34fa493dfe6990b07601d8ad650ae550ba8d3649b50cead12c3fda04aa942",
+    "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileAcceptance.ts": "679a1b1dcbb4c2d22137b2d69dc58c0e1f28acc8662da6f98bfc46d4ee6a40bb"
+  }
+}

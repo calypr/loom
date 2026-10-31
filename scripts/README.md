@@ -2,196 +2,67 @@
 
 Run commands from the repository root.
 
-Native browser cases live under `scripts/verify-ui/specs/`. The case registry
-maps each workflow and case name to its Playwright spec at
-`scenario.cases[caseName].playwrightTest`. Specs call workflow code under
-`scripts/verify-ui/workflows/`; fixtures, request capture, and source oracles
-live under `scripts/verify-ui/helpers/`. The main suite uses
-`scripts/playwright.config.mjs`.
+The required test loop is split across independent CI jobs in
+`.github/workflows/tests.yaml`. Vitest, Go, Node, Python, shell, contract, and
+build jobs run in parallel. Every test process has a 30-second bound where its
+runner supports one, and every job has a 10-minute timeout.
 
-The native runner and test suite use the existing `scripts` workspace
-dependencies. If `scripts/node_modules` is absent, install them with
-`npm ci --prefix scripts`.
-
-## Run one native browser case
-
-Run from the repository root with the owned local stack ready. For a
-registered case, the runner loads the validated owned environment from its
-target config and binds its project and generation to the selected case:
+Retained Node tests are selected with:
 
 ```sh
-node scripts/run-native-verification-bracket.mjs \
-  --scenario cda-current-draft-membership \
-  --case membership \
-  --target .codex/owned-cda-target.json
+node scripts/ci/list-node-tests.mjs
 ```
 
-The stdout `replayArgv.browser` field is a reference (`referenceOnly: true`)
-with the browser executable, exact argv, working directory, and required and
-overridden environment variable names. Inherited environment values are
-omitted. It does not execute a command; rerun the combined command above with
-its target config.
+The selector follows relative imports and excludes tests whose dependency
+closure reaches Playwright or a missing module. CI distributes that stable
+list across four native `node:test` shards.
 
-The target config must resolve `sourceRoot` to this checkout. Its validation is
-configuration-only and does not prove runtime data identity or expected-value
-independence; review the case report and separate source evidence. Before it
-runs focused checks, the runner resolves the registered spec and test title,
-then uses official Playwright `--list` to require exactly one selected test. A
-missing or ambiguous selection is a preparation failure and does not start the
-focused checks or stack health stages. The runner writes a fresh `summary.json`
-outside watched source. Use
-`--help` for an explicit `--grep`, `--target-from-environment` for a case with
-no registry identity, or `--checks-only` to run focused checks without Docker
-or Playwright. The environment mode requires a validated owned environment and
-an explicit selection; registered cases use `--target`. Do not run a second
-manual precheck, capture, and health around the same case. The stdout summary
-includes focused checks and gaps, failure context, source fingerprint, API
-build identity, command timings, and log paths; it links logs instead of
-embedding them.
+The same Builder entry point also attaches every remaining UI suite to five user-facing feature groups. Run `node scripts/verify-builder-formal-core.mjs --phase behavior --list` for the read-only doctor, then `--phase behavior --feature drafts --out /tmp/loom-drafts-check` for a focused behavior check without Java or formal tools. `--case` narrows the assertion pattern; zero assertions block. Four CI behavior shards cover the complete existing suite inventory and retain actual assertion results. Skipped fixture-gated cases are reported as partial coverage. The feature map in the existing formal skill links these tests to applicable model guarantees and names remaining browser/storage gaps.
 
-The exact selected native Playwright result and source/API integrity determine
-the outcome. A missing or ambiguous selection and a skipped test cannot pass.
-Native fixture assertions fail incomplete outcomes, unexpected HTTP errors,
-uncaught exceptions, non-cancellation transport errors, and failed or canceled
-writes. Read cancellations are diagnostic when required current outcomes still
-succeed. Report generation and response-body capture failures are recorded
-separately; report statuses, check totals, and request inventories are not
-additional pass gates.
-
-## Run selected native cases in one batch
-
-A batch shares one precheck, before and after captures, and before and after
-health checks across an explicit selection. Save a schema-versioned manifest,
-for example:
-
-```json
-{
-  "schemaVersion": 1,
-  "cases": [
-    { "scenario": "builder-controls", "case": "first-table", "target": { "mode": "environment" } },
-    { "scenario": "builder-load", "case": "list", "target": { "mode": "environment" } }
-  ]
-}
-```
-
-Run it with:
+Builder lifecycle and reconcile safety use bounded TLA+ models and mounted code:
 
 ```sh
-node scripts/run-native-verification-bracket.mjs --batch /tmp/native-cases.json --concurrency 2
+node scripts/setup-formal-tools.mjs
+node scripts/verify-builder-formal-core.mjs --model lifecycle
+node scripts/verify-builder-formal-core.mjs --model reconcile
 ```
 
-Use environment targets for cases without a registered target identity and
-config targets for cases with one: `{ "mode": "environment" }` or
-`{ "mode": "config", "path": "..." }`. All entries must resolve to the
-same capture identity, including project and generation, source root, runtime
-endpoints, containers, and mapped target environment. Incompatible targets
-must run in separate batches. The manifest selects registered cases; it is not
-a second work queue and accepts no arbitrary test arguments. Concurrency
-defaults to 1 and accepts 1 through 3. Only cases marked in the registry for
-fresh fixture projects can overlap; other cases run alone. Those marked
-fixtures create and validate their own projects. A failed case does not
-suppress later ready cases, while shared evidence failure prevents a passing
-batch verdict.
-The batch summary points to each case summary and the single shared bracket.
-The existing single-case commands above remain available.
+Requires Node 22.18+, Java 21, curl, Python 3, and UI dependencies.
+Each invocation checks reviewed source and pinned TLC/upstream tool hashes, explores the bounded model,
+mounts the real implementation with controlled response schedules, and runs TLC
+on its observed states. The Apply model also drives every abstract transition
+against the production synchronous ownership component. `--self-test` adds model, trace-integrity, and real-source
+mutation controls. `--out /tmp/loom-formal-review` retains evidence without
+checking generated reports into Git. Child checks have a 30-second timeout;
+`--models-only` explicitly skips mounted code and is not implementation proof.
 
-For diagnosis, the low-level components are
-`owned-stack-verification.mjs` (`--mode precheck|health`) and
-`capture-owned-verification.mjs` (`--phase before|after`). Before capture also
-requires the precheck artifact; both phases write four distinct source, docs,
-API, and mount artifacts. The normal browser workflow is the combined runner
-above.
+The existing skill at
+`.codex/skills/builder-interaction-formal-verification/SKILL.md` records mappings,
+bounds, findings, and a generated Mermaid state diagram. Use pstack `/statechart`
+for every result; the runner already imports its pinned parser/IR/Mermaid API
+with `verification/builder-interactions/statechart.view.mjs`. Models exceeding
+the upstream diagram budget retain reports; scoped trace samples have explicit
+coverage metadata. CI shards the batch instead of imposing a 30-second batch limit.
 
-For a single case, `summary.durationMs` measures that bracket invocation. A
-batch summary measures the full shared batch interval; case summaries retain
-their Playwright command durations. To report observed intervals and optional
-human phase spans, pass each summary explicitly:
+The refinement loop has closed two real ownership gaps. `beginApply` now returns
+an attempt-bound `{ proposalId, finish }` handle: old/duplicate completions cannot
+settle another Apply, and a completion in a changed workspace cannot claim the
+current editor. `BuilderWorkspace` performs editor cleanup only when that handle
+still owns the current context. Receipt IDs are not used as attempt identities.
+
+The lifecycle area includes `ApplySettlementRace.tla` and mounted regressions for
+cancel/reapply, both completion orders, duplicate calls, reused receipt IDs, and
+nine independently changed workspace fields. The focused model also runs with:
 
 ```sh
-node scripts/verification-timing.mjs report \
-  --summary /tmp/native-batch/batch-summary.json \
-  --summary /tmp/native-batch/case-1/summary.json \
-  --summary /tmp/native-batch/case-2/summary.json \
-  --spans /tmp/verification-spans
+node scripts/verify-builder-formal-core.mjs --model apply-settlement --models-only
 ```
 
-Replace these example paths with the `summary` and `cases[*].summaryPath`
-values from the batch command output.
+Use the existing formal skill as a code-refinement workflow: find a counterexample,
+replay it on production code, fix the scoped product behavior, re-run regressions
+and negative controls, update the model/diagram, then explore adjacent schedules.
+A framework-only change is not a completed product refinement. The command checks
+and reports; the agent skill owns diagnosis and reviewed code changes.
 
-The report uses batch summaries for the shared window and case summaries for
-browser command durations. Record a phase with `start`, then copy its returned
-span ID into `finish`:
-
-```sh
-node scripts/verification-timing.mjs start --spans /tmp/verification-spans --owner "reviewer" --case-id "issue-123" --phase review
-node scripts/verification-timing.mjs finish --spans /tmp/verification-spans --span-id "copy-span-id-here"
-```
-
-It does not discover files recursively or infer human time from gaps. Without
-recorded phase spans, diagnosis, implementation, review, and integration
-remain unattributed.
-
-After partial staging from a dirty worktree, verify the exact staged or
-committed snapshot; a dirty-worktree pass does not prove the delivered artifact.
-See the [verification skill](../.codex/skills/verify/SKILL.md) for the required check.
-
-Run the main suite with:
-
-```sh
-./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs
-```
-
-Run the fast read-only preview lane with:
-
-```sh
-cd scripts
-npm run test:browser:fast
-```
-
-The fast lane seeds one disposable dataframe fixture on the first run of the day, caches that fixture under `.artifacts/playwright-fast/`, reuses the browser context per worker, and runs one preview operation per test. It is for read-only preview cases. Do not reuse its cached fixture for tests that mutate the draft. Set `LOOM_FAST_PROJECT` and `LOOM_FAST_GENERATION` to target an existing loaded dataset; the lane runs `check-loaded-dataset.mjs` before launching a browser.
-
-Run the composed Builder journey with:
-
-```sh
-node scripts/run-builder-journey.mjs
-```
-
-The runner creates a fresh verification fixture, opens its authored table, applies
-two Group row-definition changes, captures the second proposal preview, and
-asserts the applied table has exactly one grouped row. It records the real
-authoring calls and UI state to `.artifacts/builder-journey/trace.json`, then
-replays that trace through `BuilderJourney.tla` with
-`scripts/verify-builder-traces.mjs`. The journey is mutating, so it does not
-reuse the read-only fast fixture. Use `--trace` and `--report` to change the
-artifact paths. To run against an already loaded dataset instead of creating a
-fresh fixture, pass `--project <dataset> --generation <generation>` and,
-optionally, `--explorer`, `--ui-url`, or `--api-url`. Add `--bootstrap` when the
-loaded dataset has no Explorer or authored table; it creates the named Explorer,
-a Patient table (or the first eligible row root), and one scalar column before
-preflight.
-
-The journey inventory and completion criteria live in
-[`docs/BUILDER_JOURNEY_AUDIT_GOAL.md`](../docs/BUILDER_JOURNEY_AUDIT_GOAL.md).
-
-Run the static migration gates after installing the existing UI and scripts
-workspaces with `npm ci --prefix ui` and `npm ci --prefix scripts`:
-
-```sh
-node scripts/maintenance/playwright/check-native-playwright.mjs
-node scripts/maintenance/playwright/check-standalone-playwright-ledger.mjs
-node scripts/maintenance/playwright/check-playwright-migration.mjs --check
-node scripts/maintenance/playwright/check-browser-eval-returns.mjs
-```
-
-The mapping and ledger gates check file mappings and migration bookkeeping.
-They do not establish a passing browser lifecycle. The migration gate finds
-remaining legacy browser machinery. The return checker audits value-consuming
-browser evaluation calls. Use
-`node scripts/maintenance/playwright/check-browser-expression-syntax.mjs <driver.mjs>`
-to compile browser expressions from one driver. The manifest builder accepts
-explicit source and discovery inputs; inspect its `--help` before rebuilding the
-conversion ledger.
-
-Construction-preview measurements live in
-`scripts/measurements/construction-preview/`. Keep their benchmark reports
-separate from browser-case lifecycle evidence.
+Historical browser reports under `docs/verification/` are records only. They
+are not executable tests or current-source proof.

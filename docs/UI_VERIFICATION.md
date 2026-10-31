@@ -2,13 +2,13 @@
 
 ## Current execution checkout and named stack
 
-The active execution checkout is `/private/tmp/loom-construction-implementation`.
-Owned registry runs require an explicit named target before Docker inspection or
-fixture creation. The base project identifies the stack; each run seeds a fresh
+Run from the checkout under test. Set `LOOM_DEV_SOURCE_ROOT` to that checkout's
+absolute path. Owned registry runs require an explicit named target before Docker
+inspection or fixture creation. The base project identifies the stack; each run seeds a fresh
 `loom_dev_verify_<run-id>` project and preserves the loaded CDA project.
 
 ```bash
-LOOM_DEV_SOURCE_ROOT=/private/tmp/loom-construction-implementation \
+LOOM_DEV_SOURCE_ROOT="$(pwd)" \
 LOOM_DEV_COMPOSE_PROJECT=loom-dev-6d7df93d6a37 \
 LOOM_DEV_API_PORT=8188 \
 LOOM_DEV_UI_PORT=30008 \
@@ -74,12 +74,10 @@ passes, while its Gender facet remains untested: the published
 fixture declares no runtime filters and renders no facet control. Add a fixture
 that declares a runtime Gender filter before closing that separate coverage gap.
 
-The generated inventory currently contains 257 records from 41 scanned production source files.
-
 The native executable cases live in `scripts/verify-ui/specs/*.spec.mjs`; choose a
 spec and use `--grep` to select a workflow. The feature registry
 (`scripts/verify-ui/registry.mjs`) supplies required checks and coverage metadata
-to those Playwright fixtures. The [source inventory](UI_INTERACTION_INVENTORY.md)
+to those Playwright fixtures. The generated source inventory
 records where production UI code disables controls, hides content, returns early,
 or calls a data hook or client method. Neither list establishes that a feature
 works. Each browser run produces its own evidence and status.
@@ -112,11 +110,14 @@ Install local UI tooling before running the inventory and verifier tests:
 ```bash
 npm ci --prefix ui
 npm ci --prefix scripts
-node --test scripts/verify-ui/tests/*.test.mjs
+node --test scripts/verify-ui/helpers/tests/coverage-status.test.mjs
 ```
 
 The inventory check fails when the recorded source locations or expressions
 are stale. Regenerate it after reviewing the new hooks and interaction gates.
+`useQuery` and `useMutation` call sites are recorded, but the framework
+primitives are not treated as scenario-owned hooks because domain wrappers
+identify the data dependency.
 
 `node scripts/verify-ui/coverage-status.mjs` prints report outcome and evidence
 freshness separately. It fingerprints the current checkout. For an isolated
@@ -126,11 +127,12 @@ Without that baseline or a matching identity in the report, freshness is
 `unknown`; older passes remain available as historical evidence.
 
 ```bash
-node scripts/verify-ui/inventory.mjs
+node scripts/verify-ui/helpers/inventory.mjs
+node scripts/verify-ui/helpers/inventory.mjs --check
 ```
 
-The generator writes `docs/UI_INTERACTION_INVENTORY.json` and
-`docs/UI_INTERACTION_INVENTORY.md`. Use `--json PATH --markdown PATH` to write
+The generator writes `UI_INTERACTION_INVENTORY.json` and
+`UI_INTERACTION_INVENTORY.md` under `.cache/builder-verification/`. Use `--json PATH --markdown PATH` to write
 review copies elsewhere.
 
 ## Read the evidence
@@ -192,7 +194,7 @@ each failed scenario when fixing the owning code.
 ## Coverage limits
 
 The first wave covers loading, basic authoring and preview, and Viewer query
-recovery. The subsequent [control cleanup](UI_CONTROL_AUDIT.md) adds table
+recovery. Subsequent control cleanup added table
 duplication, renaming, deletion, Explorer copying, and Recompile checks.
 Current Builder capability and Explorer-deletion behavior remains untested by
 the registered browser cases. The registry must keep other workflows visible as untested. Required

@@ -1,4 +1,4 @@
-.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full verify-j01 verify-j02 verify-j03 verify-j04 verify-j04-patient verify-j05 verify-case verify-case-checks dev-down
+.PHONY: build build-cli build-server clean compiler-bench dataframe-demo dataframe-profile dataframe-boundaries dataframe-test conformance generate generate-openapi generate-fhir generate-graphql graphql-check gqlgen-check openapi-check test test-scripts dev-test docker-build docker-run acceptance-real acceptance-performance demo-up demo-down demo-smoke demo-browser-smoke repository-up release-ui dev dev-rebuild dev-doctor verify-current verify-fast verify-full dev-down verify-inventory verify-api verify-formal verify-browser
 
 GO ?= go
 GO_VERSION ?= 1.26.5
@@ -67,6 +67,7 @@ generate-openapi:
 
 openapi-check:
 	bash scripts/check_openapi_route_ownership.sh
+	python3 scripts/audit-http-500-responses.py >/dev/null
 
 graphql-check:
 	mkdir -p $(GOCACHE_DIR)
@@ -80,9 +81,13 @@ test:
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) test $(GOFLAGS) ./scripts/local-preview-index-migration.go ./scripts/local-preview-index-migration_test.go -count=1
 	GOCACHE=$(GOCACHE_DIR) GOTOOLCHAIN=$(GO_TOOLCHAIN) $(GO) run $(GOFLAGS) ./scripts/check_fhir_semantic_resource_types.go
 	node --test scripts/loom-dev.test.mjs
+	bash scripts/tests/test_acceptance_real_cleanup.sh
 
 dev-test:
 	node --test scripts/loom-dev.test.mjs
+
+test-scripts:
+	python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 compiler-bench:
 	mkdir -p $(GOCACHE_DIR)
@@ -152,56 +157,38 @@ dev-rebuild:
 dev-doctor:
 	node scripts/loom-dev.mjs dev-doctor
 
-# Public browser targets select native Playwright Test cases directly.
-# verify-current and verify-full write temporary watched-source HMR probes; run them alone.
-verify-current:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-current$$'
-
-.PHONY: verify-base-settings
-verify-base-settings:
-	npm --prefix scripts run test:browser -- verify-ui/specs/standalone-misc.spec.mjs --grep 'preserves authored construction through cancel, apply, and reload$$'
-
-verify-fast:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-fast$$'
-
-verify-full:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-full$$'
-
-# Run one registry-selected native case after its registered cheap prerequisites.
-verify-case:
-	@test -n "$(SCENARIO)" -a -n "$(CASE)" || { echo 'Usage: make verify-case SCENARIO=<id> CASE=<name> TARGET=<config-path> or TARGET_FROM_ENV=1'; exit 2; }
-	@test \( -n "$(TARGET)" -a -z "$(TARGET_FROM_ENV)" \) -o \( -z "$(TARGET)" -a "$(TARGET_FROM_ENV)" = 1 \) || { echo 'Choose exactly one of TARGET=<config-path> or TARGET_FROM_ENV=1'; exit 2; }
-	node scripts/run-native-verification-bracket.mjs --scenario "$(SCENARIO)" --case "$(CASE)" $(if $(TARGET),--target "$(TARGET)",--target-from-environment) $(if $(PLAYWRIGHT_GREP),--grep "$(PLAYWRIGHT_GREP)",)
-
-# Run only registry-selected focused prerequisites; browser-only cases return a visible non-pass.
-verify-case-checks:
-	@test -n "$(SCENARIO)" -a -n "$(CASE)" || { echo 'Usage: make verify-case-checks SCENARIO=<id> CASE=<name>'; exit 2; }
-	node scripts/run-native-verification-bracket.mjs --scenario "$(SCENARIO)" --case "$(CASE)" --checks-only
-
-verify-j01:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j01$$'
-
-verify-j02:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j02$$'
-
-verify-j03:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j03$$'
-
-verify-j04:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j04$$'
-
-verify-j04-patient:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j04-patient$$'
-
-verify-j05:
-	npm --prefix scripts run test:browser -- verify-ui/specs/dev-journeys.spec.mjs --grep '@dev-journey:verify-j05$$'
-
+.PHONY: dev-down clean
 dev-down:
 	node scripts/loom-dev.mjs dev-down
 
 clean:
 	rm -rf bin
 
-.PHONY: verify-cda-root-settings
-verify-cda-root-settings:
-	LOOM_ROOT_REPEAT_CYCLES=3 npm --prefix scripts run test:browser -- verify-ui/specs/standalone-cda-other.spec.mjs --grep 'preserve selected CDA membership while changing and restoring the row root$$'
+# Builder checkpoints. Full repository coverage remains in tests.yaml.
+VERIFY_FEATURE ?= ownership
+API_FEATURE ?= all
+
+verify-inventory:
+	node scripts/verify-builder-formal-core.mjs --phase inventory
+
+verify-fast:
+	node scripts/verify-builder-formal-core.mjs --phase behavior --feature $(VERIFY_FEATURE)
+
+verify-api:
+	node scripts/verify-builder-formal-core.mjs --phase api --feature $(API_FEATURE)
+
+verify-formal:
+	node scripts/verify-builder-formal-core.mjs --self-test
+
+verify-current: verify-fast verify-api verify-formal
+
+verify-full: verify-api verify-formal
+	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 1/4
+	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 2/4
+	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 3/4
+	node scripts/verify-builder-formal-core.mjs --phase behavior --shard 4/4
+
+# Real Chromium component boundary, deliberately outside the fast default loop.
+BROWSER_FEATURE ?= all
+verify-browser:
+	node scripts/verify-builder-formal-core.mjs --phase browser --feature $(BROWSER_FEATURE)

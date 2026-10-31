@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	compilerIR "github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -43,6 +44,10 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 	}
 	project, generation := "loom_cohort_preview_"+uuid.NewString(), "cohort-preview-generation"
 	revision, selection := project+"_revision", project+"_selection"
+	selectionProject := projectid.Canonical(project)
+	if selectionProject == project {
+		t.Fatal("fixture must exercise distinct selection and resource project identities")
+	}
 	owned := map[string][]string{}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -69,32 +74,32 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 		}
 	}
 	insert("loom_explorer_explicit_group_revisions", map[string]any{
-		"_key": revision, "state": "COMPLETE", "project": project, "generation": generation,
+		"_key": revision, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 		"resourceType": "Patient", "sourceSelectionRevisionId": selection,
 		"scopeDigest": "scope", "sourceMembershipDigest": "membership-digest",
 	})
 	insert("loom_explorer_selections", map[string]any{
-		"_key": selection, "complete": true, "project": project, "generation": generation,
+		"_key": selection, "complete": true, "project": selectionProject, "generation": generation,
 		"resourceType": "Patient", "scopeDigest": "scope", "membershipDigest": "membership-digest",
 	})
 	for _, id := range []string{"a", "b"} {
 		insert("loom_explorer_selection_members", map[string]any{
 			"_key": project + "_selection_member_" + id, "selectionId": selection,
-			"project": project, "generation": generation, "resourceType": "Patient", "id": id,
+			"project": selectionProject, "generation": generation, "resourceType": "Patient", "id": id,
 		})
 	}
 	insert("loom_explorer_explicit_group_definitions", map[string]any{
-		"_key": project + "_pair", "revisionId": revision, "project": project,
+		"_key": project + "_pair", "revisionId": revision, "project": selectionProject,
 		"groupId": "pair", "label": "Pair", "ordinal": 0,
 	})
 	insert("loom_explorer_explicit_group_memberships", map[string]any{
-		"_key": project + "_membership_a", "revisionId": revision, "project": project,
+		"_key": project + "_membership_a", "revisionId": revision, "project": selectionProject,
 		"generation": generation, "resourceType": "Patient", "id": "a", "groupId": "pair",
-		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": "a"},
+		"ref": map[string]any{"project": selectionProject, "generation": generation, "resourceType": "Patient", "id": "a"},
 	})
 	for _, resource := range []struct{ key, id, gender string }{
 		{key: "a_keep", id: "a", gender: "male"}, {key: "a_drop", id: "a", gender: "female"},
-		{key: "b_keep", id: "b", gender: "male"}, {key: "outside", id: "x", gender: "male"},
+		{key: "b_keep", id: "b", gender: "male"}, {key: "b_drop", id: "b", gender: "female"}, {key: "outside", id: "x", gender: "male"},
 	} {
 		insert("Patient", map[string]any{
 			"_key": project + "_" + resource.key, "id": resource.id, "project": project, "project_id": project,
@@ -156,7 +161,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 		t.Fatal(err)
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeUnrestricted, IncludeSourceIdentity: true, PreviewLimit: 25,
 	}
 	resolved, err := engine.CompileResolvedBundle(ctx, bundle, bindings)
@@ -217,6 +222,8 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 		"changes": []map[string]any{
 			{"key": project + "_a_keep", "gender": "female"},
 			{"key": project + "_a_drop", "gender": "male"},
+			{"key": project + "_b_keep", "gender": "female"},
+			{"key": project + "_b_drop", "gender": "male"},
 		},
 	}); err != nil {
 		t.Fatalf("swap duplicate resource genders: %v", err)

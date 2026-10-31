@@ -1,55 +1,33 @@
-import json
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "tests.yaml"
-UI_PACKAGE = ROOT / "ui" / "packages" / "loom-ui" / "package.json"
-
-
-def step_body(source: str, name: str) -> str:
-    lines = source.splitlines()
-    marker = f"    - name: {name}"
-    start = lines.index(marker) + 1
-    body = []
-    for line in lines[start:]:
-        if line.startswith("    - name:"):
-            break
-        body.append(line)
-    return "\n".join(body)
+VITEST_CONFIG = ROOT / "ui" / "packages" / "loom-ui" / "vitest.config.ts"
 
 
 class UIWorkflowContractTest(unittest.TestCase):
-    def test_required_ui_gate_runs_from_the_normal_test_workflow(self) -> None:
+    def test_ui_tests_are_sharded_with_bounded_runtime_and_a_separate_build(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        package = json.loads(UI_PACKAGE.read_text(encoding="utf-8"))
+        vitest = VITEST_CONFIG.read_text(encoding="utf-8")
 
-        setup_node = step_body(workflow, "Set up Node")
-        install = step_body(workflow, "Install UI dependencies")
-        tests = step_body(workflow, "Run UI behavioral tests")
-        build = step_body(workflow, "Build UI")
-
-        self.assertIn("uses: actions/setup-node@v4", setup_node)
-        self.assertIn("cache-dependency-path: ui/package-lock.json", setup_node)
-        self.assertIn("working-directory: ui", install)
-        self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", install)
-        self.assertIn("working-directory: ui", tests)
-        self.assertIn("run: npm test", tests)
-        self.assertIn("working-directory: ui", build)
-        self.assertIn("run: npm run build", build)
-        self.assertLess(
-            workflow.index("Install UI dependencies"),
-            workflow.index("Run UI behavioral tests"),
-        )
-        self.assertLess(
-            workflow.index("Run UI behavioral tests"),
-            workflow.index("Build UI"),
-        )
-        test_script = package["scripts"]["test"]
-        self.assertIn("npm run check-boundaries", test_script)
-        self.assertIn("npm run typecheck:tests", test_script)
-        self.assertIn("vitest run", test_script)
+        self.assertIn("ui-unit:", workflow)
+        self.assertIn("shard: [1, 2, 3, 4]", workflow)
+        self.assertIn("--phase behavior --shard ${{ matrix.shard }}/4", workflow)
+        self.assertIn("ui-build:", workflow)
+        self.assertIn("run: npm run build", workflow)
+        self.assertIn("node-unit:", workflow)
+        self.assertIn("--test-shard=${{ matrix.shard }}/4", workflow)
+        self.assertIn("--test-timeout=30000", workflow)
+        self.assertNotIn("run: npm test", workflow)
+        self.assertGreater(workflow.count("timeout-minutes: 10"), 0)
+        self.assertNotRegex(workflow, r"timeout-minutes:\s*(?!10\b)\d+")
+        self.assertIn("go-catalog-witness:", workflow)
+        self.assertIn("LOOM_CATALOG_WITNESS_SHARD", workflow)
+        self.assertIn("go-arango:", workflow)
+        self.assertIn("testTimeout: 30_000", vitest)
+        self.assertIn("hookTimeout: 30_000", vitest)
 
 
 if __name__ == "__main__":

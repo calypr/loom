@@ -4,7 +4,7 @@
 
 `make acceptance-real` proves the path an NCPI researcher uses. The command loads a fixed FHIR Aggregator cohort into ArangoDB, publishes an Explorer V2 workspace into ClickHouse, reads the Explorer viewer state, and queries the published dataframe through GraphQL. `make acceptance-performance` runs that proof for a Git base and the current worktree in equivalent isolated Compose projects, then applies the regression gate.
 
-Docker Compose is authoritative for local and GitHub runs. `make acceptance-real`
+Docker Compose is authoritative for local runs. `make acceptance-real`
 rebuilds and redeploys the canonical `loom-demo` project from the current
 source without reseeding it. It then runs the full `demo-seed` transaction and
 API/UI smoke checks in a disposable Compose project. The verification project
@@ -176,9 +176,8 @@ that cleanup.
 cmd/loom-acceptance/                 Command boundary
 internal/acceptance/                 Fixture, target, scenario, evidence, and comparison logic
 testdata/acceptance/ncpi-tcga-brca/ Fixture lock, provenance, workspace, GraphQL document, and oracle
-scripts/acceptance-real.sh          Stable local and CI entry point
+scripts/acceptance-real.sh          Stable local entry point
 scripts/acceptance-performance.sh   Same-machine base/current regression driver
-.github/workflows/acceptance.yaml   GitHub Compose and artifact wiring
 .codex/skills/verify-loom/          Agent-facing launch, drive, evidence, and cleanup instructions
 ```
 

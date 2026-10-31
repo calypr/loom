@@ -1306,6 +1306,7 @@ describe('ConceptCatalog', () => {
     const selectedList = screen.getByRole('list', { name: 'Selected fields and coded values' });
     const selectedRow = within(selectedList).getByRole('listitem', { name: `Selected ${familyLabel}` });
     expect(selectedRow).toHaveTextContent('Compound name');
+    expect(selectedRow).toHaveTextContent(familyLabel);
     expect(selectedRow).toHaveAttribute('data-semantic-identity');
     fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
     const dialog = await screen.findByRole('region', { name: 'Advanced route and form choices' });

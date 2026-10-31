@@ -8,7 +8,10 @@ while keeping semantic domains/request branches machine-readable.
 
 from __future__ import annotations
 
+import argparse
+import copy
 import hashlib
+import sys
 import json
 import re
 from pathlib import Path
@@ -184,10 +187,10 @@ API_REQUEST_CONTRACTS = {
 }
 
 
-def load_fragments() -> list[dict]:
+def load_fragments(root: Path = ROOT) -> list[dict]:
     entries = []
     for name in FRAGMENTS:
-        path = ROOT / "docs/ui-contract-inventory" / name
+        path = root / "docs/ui-contract-inventory" / name
         if not path.exists():
             if name == "additional-mounted.fragment.json":
                 continue
@@ -671,8 +674,8 @@ def status_for(row: dict) -> str:
     return str(status)
 
 
-def canonicalize() -> tuple[list[dict], list[dict], list[dict]]:
-    raw_entries = load_fragments()
+def canonicalize(root: Path = ROOT) -> tuple[list[dict], list[dict], list[dict]]:
+    raw_entries = load_fragments(root)
     rows: dict[str, dict] = {}
     aliases = list(ALIASES)
     extra_paths: dict[str, list[dict]] = {}
@@ -715,7 +718,7 @@ def canonicalize() -> tuple[list[dict], list[dict], list[dict]]:
                 rows[canonical_id]["sources"].append(row)
 
     # Include new actions from the supplemental fragment as real affordances.
-    supplemental = ROOT / "docs/ui-contract-inventory/additional-mounted.fragment.json"
+    supplemental = root / "docs/ui-contract-inventory/additional-mounted.fragment.json"
     if supplemental.exists():
         doc = json.loads(supplemental.read_text())
         mapping_rows.extend(doc.get("surfaceMappings", []))
@@ -1170,7 +1173,7 @@ def canonicalize() -> tuple[list[dict], list[dict], list[dict]]:
         alias_by_target.setdefault(alias["canonicalId"], []).append(alias["id"])
     for item in out:
         item["aliases"] = alias_by_target.get(item["id"], [])
-    relational = json.loads((ROOT / "docs/ui-contract-inventory/relational.fragment.json").read_text())
+    relational = json.loads((root / "docs/ui-contract-inventory/relational.fragment.json").read_text())
     disabled_targets = {
         "group_rows_unavailable": ["builder.row_definition.explicit_groups", "builder.reshape.group_field", "builder.reshape.group_coded"],
         "group_numeric_summaries_without_numeric_inputs": ["builder.reshape.group_field"],
@@ -1191,20 +1194,20 @@ def canonicalize() -> tuple[list[dict], list[dict], list[dict]]:
     return out, mapping_rows, disabled_affordances
 
 
-def main() -> None:
-    affordances, surface_mappings, disabled_affordances = canonicalize()
+def build_inventory(root: Path = ROOT) -> dict:
+    affordances, surface_mappings, disabled_affordances = canonicalize(root)
     source_files = set()
-    for path in (ROOT / "ui/packages/loom-ui/src/features/ExplorerBuilder").rglob("*.ts*"):
+    for path in (root / "ui/packages/loom-ui/src/features/ExplorerBuilder").rglob("*.ts*"):
         if "builderContractAdapters" in path.parts:
             continue
         if ".test." not in path.name and ".spec." not in path.name:
-            source_files.add(path.relative_to(ROOT).as_posix())
+            source_files.add(path.relative_to(root).as_posix())
     for name in ["ui/packages/loom-ui/src/types.ts", "ui/packages/loom-ui/src/api.ts", "ui/packages/loom-ui/src/Builder.tsx", "ui/apps/demo/src/main.tsx", "ui/apps/demo/src/demo-route.mjs"]:
-        if (ROOT / name).exists():
+        if (root / name).exists():
             source_files.add(name)
     fingerprints = []
     for name in sorted(source_files):
-        data = (ROOT / name).read_bytes()
+        data = (root / name).read_bytes()
         fingerprints.append({"path": name, "sha256": hashlib.sha256(data).hexdigest()})
     doc = {
         "schemaVersion": 1,
@@ -1232,8 +1235,72 @@ def main() -> None:
         "disabledAffordances": disabled_affordances,
         "affordances": affordances,
     }
-    OUT.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
-    print(f"wrote {OUT.relative_to(ROOT)}: {len(affordances)} affordances, {len(fingerprints)} watched source files, {len(surface_mappings)} mounted surface mappings")
+    return doc
+
+
+def inventory_digest(doc: dict) -> str:
+    payload = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def compact_inventory(doc: dict, root: Path = ROOT) -> dict:
+    metadata = copy.deepcopy(doc)
+    del metadata["affordances"]
+    del metadata["disabledAffordances"]
+    del metadata["sourceCoverage"]["bindings"]
+    del metadata["sourceCoverage"]["surfaceMappings"]
+    return {
+        "storageVersion": 1,
+        "fragments": [
+            {"path": "docs/ui-contract-inventory/" + name,
+             "sha256": hashlib.sha256((root / "docs/ui-contract-inventory" / name).read_bytes()).hexdigest()}
+            for name in FRAGMENTS
+        ],
+        "expandedSha256": inventory_digest(doc),
+        "metadata": metadata,
+    }
+
+
+def load_inventory(root: Path = ROOT, manifest_path: Path | None = None) -> dict:
+    manifest_path = manifest_path or root / "docs/ui-contract-inventory/ui-supported-affordances.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("storageVersion") != 1:
+        raise ValueError("unsupported inventory storageVersion")
+    expected_paths = ["docs/ui-contract-inventory/" + name for name in FRAGMENTS]
+    fragments = manifest.get("fragments", [])
+    if [entry.get("path") for entry in fragments] != expected_paths:
+        raise ValueError("inventory must pin exactly its canonical fragments")
+    for entry in fragments:
+        if hashlib.sha256((root / entry["path"]).read_bytes()).hexdigest() != entry.get("sha256"):
+            raise ValueError("inventory fragment changed; review and regenerate: " + entry["path"])
+    doc = copy.deepcopy(manifest["metadata"])
+    affordances, surface_mappings, disabled_affordances = canonicalize(root)
+    doc["affordances"] = affordances
+    doc["disabledAffordances"] = disabled_affordances
+    doc["sourceCoverage"]["surfaceMappings"] = surface_mappings
+    doc["sourceCoverage"]["bindings"] = [
+        {"id": item["id"], "backendKinds": item["operation"]["backendKinds"], "evidence": item["evidence"]}
+        for item in affordances if item["operation"]["backendKinds"]
+    ]
+    if inventory_digest(doc) != manifest.get("expandedSha256"):
+        raise ValueError("inventory expansion changed; review and regenerate the compact manifest")
+    return doc
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--expand", action="store_true", help="print the pinned expanded inventory without updating source pins")
+    args = parser.parse_args()
+    if args.expand:
+        try:
+            print(json.dumps(load_inventory(), ensure_ascii=False))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print("FAIL " + str(error), file=sys.stderr)
+            raise SystemExit(1) from error
+        return
+    doc = build_inventory()
+    OUT.write_text(json.dumps(compact_inventory(doc), indent=2, ensure_ascii=False) + "\n")
+    print(f"wrote {OUT.relative_to(ROOT)}: {len(doc['affordances'])} affordances with pinned fragments and source hashes")
 
 
 if __name__ == "__main__":

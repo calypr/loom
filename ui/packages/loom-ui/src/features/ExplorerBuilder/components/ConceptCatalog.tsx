@@ -2289,7 +2289,10 @@ const ConceptCatalogContent = ({
                       <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
                         {item.kind === 'SEMANTIC' ? 'Coded value' : 'Field'}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-slate-800">{catalogItemTitle(item)}</span>
+                      <span className="min-w-0 flex-1 break-words text-slate-800">
+                        <span>{catalogItemTitle(item)}</span>
+                        {label.startsWith(catalogItemTitle(item)) ? label.slice(catalogItemTitle(item).length) : ''}
+                      </span>
                       <button
                         type="button"
                         aria-label={`Remove ${label} from selected features`}

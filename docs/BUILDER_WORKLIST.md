@@ -2,7 +2,7 @@
 
 [BUILDER_WORKLIST.tsv](BUILDER_WORKLIST.tsv) is the active queue. Each row has one stable ID, exact case or feature, next action, owner, prerequisite, evidence reference, implementation batch and browser batch. This queue is not a list of confirmed bugs. The replacement goal is active and defined in [BUILDER_GOAL.md](BUILDER_GOAL.md). Initial reconciliation kept five exact accepted lifecycles closed and separated metadata corrections from browser work.
 
-[BUILDER_VERIFICATION.tsv](BUILDER_VERIFICATION.tsv) retains historical runs and observations. [EXPLORER_BACKLOG.md](EXPLORER_BACKLOG.md) retains product rationale. [BUILDER_OPEN_TRANSITIONS.md](BUILDER_OPEN_TRANSITIONS.md) retains investigation history. Their dated priorities do not schedule current work. The verifier registry remains the authority for executable case names and required checks; this queue schedules those contracts without duplicating them.
+[BUILDER_VERIFICATION.tsv](BUILDER_VERIFICATION.tsv) retains historical runs and observations. [EXPLORER_BACKLOG.md](EXPLORER_BACKLOG.md) retains product rationale. Historical investigation notes remain in Git history. Their dated priorities do not schedule current work. The verifier registry remains the authority for executable case names and required checks; this queue schedules those contracts without duplicating them.
 
 ## Current finish policy (2026-10-11)
 

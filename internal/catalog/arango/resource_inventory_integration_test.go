@@ -48,6 +48,14 @@ func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T)
 		}
 		defer cleanupClient.Close(context.Background())
 		for _, resourceType := range resourceTypes {
+			exists, err := cleanupClient.CollectionExists(cleanupCtx, resourceType)
+			if err != nil {
+				t.Errorf("check %s fixture collection during cleanup: %v", resourceType, err)
+				continue
+			}
+			if !exists {
+				continue
+			}
 			for _, pair := range cleanupPairs {
 				if err := cleanupClient.ExecuteAQL(cleanupCtx, deleteResourceInventoryFixtureAQL, map[string]any{
 					"@collection": resourceType, "project": pair[0], "dataset_generation": pair[1],
@@ -72,14 +80,12 @@ func TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen(t *testing.T)
 		t.Fatal(err)
 	}
 	defer client.Close(context.Background())
-	for _, resourceType := range resourceTypes {
-		exists, err := client.CollectionExists(ctx, resourceType)
-		if err != nil {
-			t.Fatalf("check fixture resource collection %s: %v", resourceType, err)
-		}
-		if !exists {
-			t.Fatalf("fixture resource collection %s does not exist", resourceType)
-		}
+	// This proof owns its fixture prerequisites even on an empty test database.
+	// Do not truncate existing collections: fixture rows remain UUID-scoped.
+	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
+		{Name: "Observation"}, {Name: "Patient"},
+	}}); err != nil {
+		t.Fatalf("bootstrap resource inventory fixture collections: %v", err)
 	}
 
 	fixtures := []struct {

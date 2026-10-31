@@ -8,15 +8,46 @@ import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
 import { sanitizeBody, sanitizeText } from './verify-ui/helpers/playwright-browser.mjs';
-import { performAction } from './verify-ui/helpers/playwright-actions.mjs';
 import { captureApiBuildFreeze } from './verify-ui/helpers/api-build-freeze.mjs';
-import { captureNativeFailureEvidence } from './verify-ui/helpers/native-failure-evidence.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/helpers/source-fingerprint.mjs';
-import { isMutationRequest } from './verify-ui/helpers/playwright-network-observer.mjs';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+// Browser-only helpers are optional after the acceptance harness retirement.
+// Loading this module must not prevent development startup, shutdown or doctor.
+const optionalBrowserHelper = async (file, name) => {
+  const path = join(SCRIPT_DIR, 'verify-ui/helpers', file);
+  if (!existsSync(path)) throw new Error(`Browser verification is unavailable: ${file} was retired. Use the current verification skill to select an executable check.`);
+  const module = await import(pathToFileURL(path).href);
+  if (typeof module[name] !== 'function') throw new Error(`Browser helper ${name} is unavailable in ${file}`);
+  return module[name];
+};
+const performAction = async (...args) => (await optionalBrowserHelper('playwright-actions.mjs', 'performAction'))(...args);
+const captureNativeFailureEvidence = async (...args) => (await optionalBrowserHelper('native-failure-evidence.mjs', 'captureNativeFailureEvidence'))(...args);
+
+// These are read operations even though the public API represents them as POST.
+// Everything else, including unknown endpoints, remains a write for diagnostics.
+const readOnlyDevPostSuffixes = new Set([
+  'schema-fields', 'suggestions', 'semantic-inventory', 'frame-source-options',
+  'configured-column-context', 'construction-choices', 'related-expand-choices',
+  'related-field-choices', 'related-expand-contributors', 'construction-inputs',
+  'construction-category-discoveries', 'table-shape-capabilities',
+  'table-shape-category-discoveries', 'table-shape-resolutions', 'population-routes',
+  'column-source', 'row-change', 'row-lineage', 'interpretation-preview',
+  'population-mapping', 'preview', 'reconcile', 'construction-capabilities',
+  'construction-proposals', 'construction-choice-proposals', 'row-definition-proposals',
+  'row-definition-choices', 'table-shape-proposals', 'cell-trace',
+].map(suffix => `/authoring/v2/${suffix}`));
+const isMutationRequest = (method, pathOrURL) => {
+  const normalized = String(method ?? '').toUpperCase();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(normalized)) return false;
+  let pathname;
+  try { pathname = new URL(String(pathOrURL), 'http://diagnostic.invalid').pathname; } catch { return true; }
+  return normalized !== 'POST' || ![...readOnlyDevPostSuffixes].some(suffix => pathname.endsWith(suffix));
+};
+
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 const COMPOSE_FILE = join(REPO_ROOT, 'compose.dev.yaml');
 const FIXTURE_DIR = join(REPO_ROOT, 'testdata/devloop-fixture');
@@ -10214,6 +10245,12 @@ export const recordDevJourneyPreparationFailure = async (command, error, env = p
 
 export const dispatchNativeDevJourney = async (command) => {
   if (!DEV_JOURNEY_COMMANDS.has(command)) throw new Error(`unknown native dev journey: ${command}`);
+  const spec = join(SCRIPT_DIR, 'verify-ui/specs/dev-journeys.spec.mjs');
+  const packageFile = join(SCRIPT_DIR, 'package.json');
+  const browserScript = existsSync(packageFile) && JSON.parse(readFileSync(packageFile, 'utf8')).scripts?.['test:browser'];
+  if (!existsSync(spec) || !browserScript) {
+    throw new Error(`${command} is unavailable: its browser journey harness was retired. Use scripts/verify-builder-formal-core.mjs or the current live verification skill; this command did not run a check.`);
+  }
   const child = spawn('npm', [
     'run', 'test:browser', '--',
     'verify-ui/specs/dev-journeys.spec.mjs', '--grep', `@dev-journey:${command}`,
@@ -10227,8 +10264,14 @@ export const dispatchNativeDevJourney = async (command) => {
 
 const main = async (argv) => {
   const command = argv[0] ?? 'dev-doctor';
+  if (['--help', '-h', 'help'].includes(command)) {
+    console.log('Usage: node scripts/loom-dev.mjs dev | dev-rebuild | dev-doctor | dev-down [--purge]');
+    console.log('The retired verify-* browser journeys require a restored harness and cannot report a pass. See the current verification skill for executable checks.');
+    return;
+  }
   if (DEV_JOURNEY_COMMANDS.has(command)) {
-    await dispatchNativeDevJourney(command);
+    try { await dispatchNativeDevJourney(command); }
+    catch (error) { console.error(`LOOM_DEV_FAILED ${error.message}`); process.exitCode = 1; }
     return;
   }
 

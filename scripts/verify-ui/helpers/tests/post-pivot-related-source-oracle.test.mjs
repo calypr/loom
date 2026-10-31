@@ -149,7 +149,6 @@ test('post-Pivot source oracle rejects a mismatched or cross-scope Patient targe
 
 
 const relatedWorkflowPath = new URL('../../workflows/verify-cda-related-source-after-pivot-browser.mjs', import.meta.url);
-const reshapeSpecPath = new URL('../../specs/standalone-reshape.spec.mjs', import.meta.url);
 
 const savedRelatedStep = () => ({
   id: 'related-source-step',
@@ -175,15 +174,11 @@ test('related-source chooser posts the immutable selection to this Explorer’s 
     'The native workflow must use the tested Explorer-scoped route helper.');
 });
 
-test('related-source native registration binds its real registry contract and exact emitted checks', async () => {
+test('related-source retained contract names the ALL workflow checks', async () => {
   const scenarioID = 'standalone-reshape-related-source-after-pivot';
   const caseName = 'related-source-after-pivot';
   const contract = scenarioCaseFor(scenarioID, caseName);
-  const spec = await readFile(reshapeSpecPath, 'utf8');
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
-  assert.match(spec, /cdaScenarioID: `standalone-reshape-\$\{name\}`/);
-  assert.match(spec, /cdaCaseName: name/);
-  assert.match(spec, /register\('related-source-after-pivot',\s*runRelatedSourceAfterPivotBrowserWorkflow(?:\s*,[^)]*)?\)/);
   assert.equal(contract.requiredChecks.length, 25);
   const allWorkflow = workflow
     .replaceAll('${sourceFieldLabel}', 'Patient.id')
@@ -199,7 +194,6 @@ test('related-source native registration binds its real registry contract and ex
 
 test('related-source COUNT after Pivot registers its distinct source-Pivot lifecycle', async () => {
   const contract = scenarioCaseFor('standalone-reshape-related-source-after-pivot', 'related-source-count-after-pivot');
-  const spec = await readFile(reshapeSpecPath, 'utf8');
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
   const countWorkflow = workflow
     .replaceAll('${sourceFieldLabel}', 'Patient.id')
@@ -218,7 +212,6 @@ test('related-source COUNT after Pivot registers its distinct source-Pivot lifec
   for (const check of contract.requiredChecks.filter(name => name !== 'CDA watched source and API build stayed unchanged')) {
     assert(countWorkflow.includes(check), `Registered check is not emitted by the COUNT workflow: ${check}`);
   }
-  assert.match(spec, /register\('related-source-count-after-pivot',\s*runRelatedSourceAfterPivotBrowserWorkflow,\s*\{\s*form:\s*'COUNT'\s*\},\s*\{[\s\S]*?cdaUiRouting:\s*'explicit-query'\s*\}\s*\)/);
   assert.match(workflow, /relatedForm === 'COUNT'\s*\? new Set\(oracle\.members\.map\(\(\{ patient \}\) => patient\._id\)\)\.size/);
   assert.match(workflow, /expectedForm === 'COUNT'.*output\.type, 'integer'/);
 });
@@ -226,14 +219,12 @@ test('related-source COUNT after Pivot registers its distinct source-Pivot lifec
 test('upstream Pivot role-split case registers its exact retained CDA identity and lifecycle checks', async () => {
   const contract = scenarioCaseFor('standalone-reshape-related-source-after-pivot', 'related-resource-type-after-pivot-group-split');
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
-  const spec = await readFile(reshapeSpecPath, 'utf8');
   assert.equal(contract.playwrightGrep,
     'standalone CDA reshape workflows related-resource-type-after-pivot-group-split related-resource-type-after-pivot-group-split$');
   assert.deepEqual(contract.expectedIdentity, { project, generation });
   assert(contract.requiredChecks.includes('Applied upstream Pivot split preserves two exact partitions and the authored Patient.resourceType ALL binding after reload'));
   assert(contract.requiredChecks.includes('Applying Pivot role restoration returns original coalesced workspace with regenerated category output IDs'));
   assert(contract.focusedChecks.some(check => check.command.includes('scripts/verify-ui/helpers/tests/post-pivot-related-source-oracle.test.mjs')));
-  assert.match(spec, /register\('related-resource-type-after-pivot-group-split',\s*runRelatedSourceAfterPivotBrowserWorkflow/);
   const allWorkflow = workflow
     .replaceAll('${sourceFieldLabel}', 'Patient.resourceType')
     .replaceAll('${relatedForm}', 'ALL')
@@ -675,19 +666,17 @@ test('proposal preview browser callback binds receipt, output, headers, and visi
 });
 
 
-test('raw witness absence is skipped only for this case and remains an unverified report', async () => {
+test('raw witness absence is distinguishable from product failures and remains unverified', async () => {
   const unavailable = new Error('bounded witness not found');
   unavailable.name = 'RawOracleUnavailableError';
   unavailable.rawOracleFailure = true;
   assert.equal(isPostPivotRawOracleUnavailable(unavailable), true);
   assert.equal(isPostPivotRawOracleUnavailable(new Error('unrelated workflow failure')), false);
+  assert.equal(isPostPivotRawOracleUnavailable({ name: 'RawOracleUnavailableError' }), false);
+  assert.equal(isPostPivotRawOracleUnavailable({ rawOracleFailure: true }), false);
   const workflow = await readFile(relatedWorkflowPath, 'utf8');
-  const spec = await readFile(reshapeSpecPath, 'utf8');
   assert.match(workflow, /report\.status = 'unverified'/);
   assert.match(workflow, /error\.rawOracleFailure = true/);
-  assert(spec.includes("['related-source-after-pivot', 'related-source-count-after-pivot', 'related-resource-type-after-pivot', 'related-resource-type-after-pivot-group-split'].includes(name) && isPostPivotRawOracleUnavailable(error)"));
-  assert(spec.includes('test.skip(true, error.message);'));
-  assert.match(spec, /throw error;/, 'All non-witness failures must continue to fail the registered test.');
 });
 
 test('workflow response waits use the scoped tracker and local cursor', async () => {

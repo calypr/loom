@@ -58,6 +58,9 @@ func TestCompileTableShapeExclusionsUsesCanonicalGroupedPivotInputs(t *testing.T
 	if !containsBindValue(query.BindVars, ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(query.BindVars, "string_category") || !containsBindValue(query.BindVars, "known") || !containsBindValue(query.BindVars, ir.PhysicalTableShapeExclusionCategoryPresentField) || !containsBindValue(query.BindVars, ir.PhysicalTableShapeExclusionReasonUnlistedCategory) {
 		t.Fatalf("query does not bind exact source document and canonical category identity: %#v", query.BindVars)
 	}
+	if !strings.Contains(query.Query, "HAS(") || !containsBindValue(query.BindVars, "__loom_exclusion_category_present") {
+		t.Fatalf("exclusion diagnostic lost source presence for ordinary value categories: %s", query.Query)
+	}
 	if strings.Contains(query.Query, `"known"`) {
 		t.Fatalf("category value was interpolated rather than retained as a typed canonical bind:\n%s", query.Query)
 	}

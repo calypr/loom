@@ -58,10 +58,17 @@ const fileName = (value: unknown, row: ViewerRow): string => {
 };
 
 const fileActionURL = (action: string, configuredURL: string | undefined, fileId: string): string | undefined => {
-  const baseURL = (configuredURL ?? (action === 'file_download' ? '/download' : action === 'file_image' ? '/image-viewer/view' : '')).replace(/\/+$/, '');
+  const baseURL = configuredURL ?? (action === 'file_download' ? '/download' : action === 'file_image' ? '/image-viewer/view' : '');
   if (!baseURL) return undefined;
-  const separator = baseURL.includes('?') ? '&' : '?';
-  return `${baseURL}/${encodeURIComponent(fileId)}${action === 'file_download' ? `${separator}redirect=true` : ''}`;
+  const fragmentAt = baseURL.indexOf('#');
+  const fragment = fragmentAt < 0 ? '' : baseURL.slice(fragmentAt);
+  const target = fragmentAt < 0 ? baseURL : baseURL.slice(0, fragmentAt);
+  const queryAt = target.indexOf('?');
+  const pathname = (queryAt < 0 ? target : target.slice(0, queryAt)).replace(/\/+$/, '');
+  const query = new URLSearchParams(queryAt < 0 ? '' : target.slice(queryAt + 1));
+  if (action === 'file_download') query.set('redirect', 'true');
+  const search = query.toString();
+  return `${pathname}/${encodeURIComponent(fileId)}${search ? `?${search}` : ''}${fragment}`;
 };
 
 const FileCell = ({ value, row, runtime }: { readonly value: unknown; readonly row: ViewerRow; readonly runtime: ExplorerRuntimeV1 }) => {

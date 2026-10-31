@@ -1,0 +1,14 @@
+{
+  "pstack": {
+    "version": "0.15.36",
+    "commit": "4dd1d05818d19792e7cd6e818f1667f95f7e1dbe",
+    "url": "https://codeload.github.com/cursor/plugins/tar.gz/4dd1d05818d19792e7cd6e818f1667f95f7e1dbe",
+    "archiveSha256": "58e3a9f2a5ad07b2edaf2487c56a4b4aff006dba6e47d5c2291a83145afbe3fd",
+    "scriptsSha256": "965ba92f947dd8b7525e15fa215d6a67cab5598690a549895d3b9465026ff237"
+  },
+  "tlc": {
+    "version": "1.7.4",
+    "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+  }
+}

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -133,8 +135,24 @@ func TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover generated CodeableConcept templates: %v", err)
 	}
-	t.Logf("validated %d generated CodeableConcept templates", len(templates))
-	for _, template := range templates {
+	shard, shards := 1, 1
+	if selection := os.Getenv("LOOM_CATALOG_WITNESS_SHARD"); selection != "" {
+		part, total, ok := strings.Cut(selection, "/")
+		var shardErr, totalErr error
+		shard, shardErr = strconv.Atoi(part)
+		shards, totalErr = strconv.Atoi(total)
+		if !ok || shardErr != nil || totalErr != nil || shard < 1 || shards < 1 || shard > shards || shards > len(templates) {
+			t.Fatalf("invalid LOOM_CATALOG_WITNESS_SHARD %q: require N/M with 1 <= N <= M <= %d", selection, len(templates))
+		}
+	}
+	// DiscoverSemanticCodeableConceptTemplates sorts by resource, canonical path,
+	// and declaring type; modulo partitions the same stable denominator in every job.
+	selected := 0
+	for templateIndex, template := range templates {
+		if templateIndex%shards != shard-1 {
+			continue
+		}
+		selected++
 		template := template
 		t.Run(template.ResourceType+"/"+template.CanonicalPath, func(t *testing.T) {
 			payload := semanticCoverageTemplateWitness(t, index, template)
@@ -159,6 +177,11 @@ func TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses(t *testing.T) {
 			}
 		})
 	}
+	want := (len(templates) + shards - shard) / shards
+	if selected != want || selected == 0 {
+		t.Fatalf("witness shard %d/%d ran %d cases, want %d", shard, shards, selected, want)
+	}
+	t.Logf("generated CodeableConcept witnesses: total=%d selected=%d shard=%d/%d", len(templates), selected, shard, shards)
 }
 
 func TestSemanticCoverageDiscoveryMatchesIndependentGeneratedDefinitionDenominator(t *testing.T) {

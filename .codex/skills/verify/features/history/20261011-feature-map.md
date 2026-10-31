@@ -9,7 +9,7 @@ The existing recipes describe synthetic smoke coverage. The requirements below
 define current Builder coverage; they are not a claim that the harness already
 implements or passes every case.
 
-The current evidence ledger is [docs/BUILDER_VERIFICATION.tsv](../../../../docs/BUILDER_VERIFICATION.tsv).
+The current evidence ledger is [docs/BUILDER_VERIFICATION.tsv](../../../../../docs/BUILDER_VERIFICATION.tsv).
 Each row names a specific behavior, rather than claiming an entire feature is
 complete. Untested rows include missing or unvalidated historical evidence.
 Local report paths are retained artifacts, not portable fixtures. Re-run the
@@ -25,7 +25,7 @@ It compares the visible Patient IDs with the independent
 fields after reload. Run it against an isolated `loom-dev` session with
 `node scripts/verify-ui/builder-authoring.mjs --case authoring`; the exact
 session variables and retained passing report are recorded in
-`docs/PLAYWRIGHT_MIGRATION.md`. That pass predates the CDA extension and is
+`ad531a0b6:docs/PLAYWRIGHT_MIGRATION.md`. That pass predates the CDA extension and is
 historical for its recorded source snapshot.
 
 The same Playwright authoring case can reuse the separately loaded CDA
@@ -36,7 +36,7 @@ The retained CDA report passes those correctness and persistence assertions
 but fails the five-second Publish render gate at 14,690 ms. The migrated
 `builder-authoring/suggestions` case passes on that CDA generation for exact
 Patient ID candidate actionability; it does not Apply or reload. See
-`docs/PLAYWRIGHT_MIGRATION.md` for both commands and report paths. The
+`ad531a0b6:docs/PLAYWRIGHT_MIGRATION.md` for both commands and report paths. The
 registered `verify-ui` cases now use Playwright; their registry status and
 current-source evidence are reported by
 `node scripts/verify-ui/coverage-status.mjs`.

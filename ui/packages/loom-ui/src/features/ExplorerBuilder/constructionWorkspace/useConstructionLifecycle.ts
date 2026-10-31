@@ -23,6 +23,8 @@ import {
   type ConstructionProposalViewState,
 } from './ConstructionProposalPanel';
 
+import { beginConstructionApply, type ConstructionApplyAttempt } from './constructionApplyOwnership';
+
 export type ConstructionLifecycleClient = Pick<
   LoomClient,
   'getConstructionCapabilities' | 'discoverConstructionCategories' | 'proposeConstruction' | 'preview'
@@ -150,7 +152,7 @@ export const useConstructionLifecycle = ({
   const proposalGeneration = useRef(0);
   const proposalOwnerSequence = useRef(0);
   const proposalOwnerRef = useRef<ProposalOwner | undefined>(undefined);
-  const applyingOwnerRef = useRef<ProposalOwner | undefined>(undefined);
+  const applyingOwnerRef = useRef<ConstructionApplyAttempt<ProposalOwner> | undefined>(undefined);
   const pivotDiscoveryGeneration = useRef(0);
   const candidateIntent = useRef<ConstructionCandidateIntent | undefined>(undefined);
   const capabilitiesRequestRef = useRef(capabilitiesRequest);
@@ -490,29 +492,36 @@ export const useConstructionLifecycle = ({
       draftVersion: currentRequest.expectedDraftVersion,
       draftDigest: currentRequest.expectedDraftDigest,
     };
-    if (!constructionProposalIsApplicable(state, identity)) return undefined;
-    applyingOwnerRef.current = owner;
+    const proposalId = state.response.proposalId;
+    if (!proposalId || !constructionProposalIsApplicable(state, identity)) return undefined;
+    const finish = beginConstructionApply(
+      applyingOwnerRef,
+      { owner, requestKey: owner.requestKey, generation: owner.generation },
+      () => {
+        const liveOwner = proposalOwnerRef.current;
+        const liveRequest = capabilitiesRequestRef.current;
+        return liveOwner && liveRequest ? {
+          owner: liveOwner,
+          requestKey: capabilitiesIdentity(liveRequest),
+          generation: proposalGeneration.current,
+        } : undefined;
+      },
+      (applied) => {
+        if (applied) cancel();
+        else setProposalOverride({
+          ownerId: owner.id,
+          state: {
+            status: 'error',
+            message: 'Loom could not save this proposal. Review the Builder message and try again if the draft is unchanged.',
+          },
+        });
+      },
+    );
+    if (!finish) return undefined;
     setProposalOverride({ ownerId: owner.id,
       state: { status: 'applying', response: state.response, preview: state.preview } });
-    return state.response.proposalId;
-  }, [activeProposal, activeProposalOwner]);
-
-  const finishApply = useCallback((applied: boolean) => {
-    const applyingOwner = applyingOwnerRef.current;
-    applyingOwnerRef.current = undefined;
-    if (!applyingOwner) return;
-    if (applied) {
-      if (proposalOwnerRef.current === applyingOwner) cancel();
-      return;
-    }
-    if (proposalOwnerRef.current === applyingOwner) setProposalOverride({
-      ownerId: applyingOwner.id,
-      state: {
-        status: 'error',
-        message: 'Loom could not save this proposal. Review the Builder message and try again if the draft is unchanged.',
-      },
-    });
-  }, [cancel]);
+    return { proposalId, finish };
+  }, [activeProposal, activeProposalOwner, cancel]);
 
   const activeCapabilities = capabilitiesLoad.key === requestKey
     ? capabilitiesLoad.state
@@ -544,7 +553,6 @@ export const useConstructionLifecycle = ({
     retry,
     cancel,
     beginApply,
-    finishApply,
     pivotDiscovery: activePivotDiscovery,
     onDiscoverCategories,
   };
