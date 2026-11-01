@@ -1,5 +1,6 @@
 import { exclusionSourceProofs, checkExclusionSourceProof } from './formal-exclusion-replay.mjs';
 import { draftTransactionSourceProofs, checkDraftTransactionSourceProof } from './formal-draft-transaction.mjs';
+import { coreProtocolSourceProofs, checkCoreProtocolSourceProof } from './formal-core-protocol-replay.mjs';
 import { attachmentSourceProofs, checkAttachmentSourceProof } from './formal-population-attachment.mjs';
 import { journeySourceProofs, checkJourneySourceProof } from './formal-operation-history.mjs';
 import { removalSourceProofs, checkRemovalSourceProof } from './formal-removal-replay.mjs';
@@ -31,6 +32,7 @@ export const sourceProofs = [
     ...exclusionSourceProofs,
     {"model": "Behavior", "property": "Inv_RecoveryQueryForcesFreshBuilder", "kind": "vitest", "suite": "src/features/ExplorerBuilder/BuilderWorkspace.reconciliation.unit.test.tsx", "pattern": "binds the next command to fresh Builder identity after actual query recovery", "edits": [["ui/packages/loom-ui/src/react.tsx", "client.getBuilder(args, { signal, reload: options?.reload })", "client.getBuilder(args, { signal, reload: false })"]]},
     ...draftTransactionSourceProofs,
+    ...coreProtocolSourceProofs,
     ...attachmentSourceProofs,
     ...journeySourceProofs,
     { model: 'Behavior', property: 'Inv_DetachedRootChangeDoesNotPreview', kind: 'vitest', suite: workspaceTest, pattern: 'does not preview obsolete root assessment', edits: [['ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx', 'return workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&', 'return rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&']] },
@@ -173,6 +175,7 @@ function runVitest(proof, scratch, overrides) {
 export async function checkSourceProof(proof, graph, outputDirectory) {
     if (proof.kind === 'exclusion-replay') return checkExclusionSourceProof(proof, graph, outputDirectory);
     if (proof.kind === 'draft-transaction-replay') return checkDraftTransactionSourceProof(proof, graph, outputDirectory);
+    if (proof.kind === 'core-protocol-replay') return checkCoreProtocolSourceProof(proof, graph, outputDirectory);
     if (proof.kind === 'attachment-replay') return checkAttachmentSourceProof(proof, graph, outputDirectory);
     if (proof.kind === 'operation-history') return checkJourneySourceProof(proof, graph, outputDirectory);
     if (proof.kind === 'removal-replay') return checkRemovalSourceProof(proof, graph, outputDirectory);

@@ -61,6 +61,14 @@ type RowBatchClient interface {
 	BatchInserter
 }
 
+// TransactionalRowClient is the composite used by registry writes that must
+// commit several documents atomically (e.g. the bundle publish CAS). Requiring
+// it at the call site makes a silently non-transactional publish impossible.
+type TransactionalRowClient interface {
+	RowBatchClient
+	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error
+}
+
 // IsQueryMemoryLimitExceeded reports whether ArangoDB rejected a query because
 // it exceeded the configured query memory limit.
 func IsQueryMemoryLimitExceeded(err error) bool {

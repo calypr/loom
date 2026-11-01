@@ -1,7 +1,110 @@
 # Complete bounded verification of the Builder core protocol
 
 Status: planned. This document is a work plan, not passing evidence.
-Baseline: the working tree on `feature/deep-clean`, based on `e736e130`.
+Committed starting point: `dc9016bc9080596099c1ad0253ea3ee229544c58` on `feature/deep-clean`.
+Record the actual execution snapshot before work. Preserve relevant later changes.
+
+## Execution through the existing OpenCode harness
+
+Use the operator's existing OpenCode harness and continuation mechanism. No orchestration framework migration, local Source adapter, GitHub intake, PR delivery or external messaging is required. Keep local Git history for source review, fingerprints and historical test recovery. Commits, publication and deployment outside the documented owned local test stack still require separate authorization.
+
+Target: one RTX PRO 6000 Blackwell with 96 GB and the operator's Qwen endpoint. Record the exact model ID, weight revision, quantization format, inference server/version, context limit and sampling settings. Confirm the model actually selected by the execution Session. A saved Session from another task does not establish the intended model or task configuration.
+
+### H0. Confirm the existing OpenCode execution path
+
+Record the installed OpenCode version, relevant harness/plugin versions, working directory and supported start, status, stop and resume operations. Use the installed harness's actual instructions and tools. Do not invent a Goal API, CLI flag, automatic job wakeup or retry policy. Reuse the existing continuation mechanism; a new queue, dispatcher, plugin or service is not a prerequisite for this work.
+
+If the harness has Goal/requirement/evidence tools, use them to track this assignment through its supported interface. Bind this work to the intended Session and a clearly named Builder core verification objective. Preserve unrelated goals. The local `.opencode/goals/` contains state from another assignment, including an objective named `view`; it is not this plan's work queue or completion evidence. Do not hand-edit stored goal JSON, copy old model settings or repurpose another task's goal.
+
+Prove the existing execution path with a disposable task: read a file, apply a small patch, run a passing check and a failing check, and collect their real exit statuses. Test compaction and process restart, then confirm the Session resumes with its source identity, evidence and next action intact. Verify manual stop remains stopped until explicitly resumed. Observe how this harness handles long commands and collect their final results using its actual job/session tools. Missing provider or tool compatibility is a precise H0 blocker, not permission to rewrite the harness.
+
+**H0 exit:** the existing OpenCode/Qwen path runs tools correctly, supported continuation and stop/resume behavior are recorded, and the disposable task survives restart without a second writer. This milestone validates the installed harness; it does not implement another one.
+
+### H1. Provision Loom before unattended execution
+
+Choose absolute paths once for the Loom checkout and persistent work/evidence directory. Record where the existing harness persists its Session and task state. Resolve skills through that host's supported mechanism or read their installed files directly. The `/workspace/.loom-setup` locations below are historical preparation paths, not required installation locations.
+
+Install the exact Go version from `go.mod`, supported Node, Java and pinned formal tools, UI dependencies, Chromium and the owned Arango/ClickHouse fixtures required by the selected checks. Export `GO` as the absolute compatible binary and prove `GOTOOLCHAIN=local "$GO" version`; a Go launcher can report a downloaded version but use an older compiler inside verification. Follow `scripts/setup-formal-tools.mjs` and the project skill. Separate cold compilation/setup from timed checks. Do not set `CI=true` merely to hide local timeouts.
+
+Run the baseline formal command and selected real-service doctors on this host. Record unavailable browser, authentication or service prerequisites before selecting work that depends on them. A blocked integration boundary can leave independent work runnable; it cannot satisfy final acceptance. Prove local app setup and seed availability early. The documented OpenShell rebuild of the owned local test stack is authorized; preserve database volumes and unrelated resources.
+
+**H1 exit:** tool paths, commands, fixture ownership and baseline outcomes are recorded outside Git. The first executable Loom task can run without installation guesses.
+
+### One-model execution for the full program
+
+Run the existing Qwen model through OpenCode. A second loaded model, stronger-model coordinator, new dispatcher or continuous human supervision is not a prerequisite. The operator chooses the model and any available final reviewer. Do not change model routing, inference limits or harness configuration without authorization.
+
+The assignment remains the complete M0–M6 and C01–C19 program, including every mandatory command variant found in the core map. Bounded tasks limit the next implementation decision, not the total work. Continue through the remaining backlog across turns and days until acceptance is met, the operator stops the run, or no authorized useful work remains. Do not invent additional scope or keep running after completion just to fill time.
+
+Use three separate operations in the same model's workflow: select a concrete task, implement and verify it, then check its evidence against the acceptance rule. These are responsibilities, not a requirement for three agents. A fresh same-model review context is optional when supported and affordable. Record it as same-model review; it is not independent final approval and cannot repair a missing execution boundary by agreeing with the worker.
+
+Use OpenCode's existing Goal/task state for continuation, the core map for scope, and one local checkpoint for current execution and evidence. No additional authored queue or generated report catalog is needed. Use supported tools rather than editing stored goal JSON. Task data never grants permission to change policy.
+
+### Parallel agents on one served model
+
+One-model execution means one model checkpoint/provider, not one agent or one serial workstream. Follow `AGENTS.md`'s Parallel work instructions: proactively delegate useful independent work without asking the operator to request subagents. In OpenCode, launch background tasks with `task(background=true)`, up to five workers alongside the parent when serving capacity permits. Give each a concrete deliverable and explicit ownership; keep the parent integrating results and progressing a separate ready task.
+
+One implementation writer means one owner per shared file, worktree, or mutable runtime, not one worker for the whole program. Use separate worktrees or isolated copies for concurrent implementation and fault experiments. Independent source investigations, coverage analysis, reviews, and isolated verification runs can run concurrently. Preserve source freezes, unique TLC metadirs, and serialized mutations of a shared runtime. A short local edit may stay direct; a substantial task should not stay serial merely because the operator has not asked for delegation.
+
+### Select, execute, accept, continue
+
+1. **Select.** Read the current diff, actual test output and unmet core-map rows. Reconcile existing results before inventing another task. Reuse H0/H1 and baseline evidence when its relevant source and environment are unchanged. Do not restart setup or the whole audit at each turn.
+2. **Define.** Record one task with a scenario/property ID, concrete harm, production entry points, exclusive files, existing code to reuse, exact focused command, expected observations, semantic fault where required, and evidence path. If creating a check is the task, name its intended consumer and asserted boundary first. A task can repair an execution path, reproduce a defect, or close part of a scenario without pretending the entire scenario is complete.
+3. **Execute.** Make the smallest coherent change and run the focused check. Keep one implementation writer per shared file or worktree; delegate independent work in parallel. Serialize mutations of a shared runtime and freeze tested source during evidence runs. Preserve unrelated dirty work and inspect existing jobs before resuming after interruption.
+4. **Check the evidence.** Read the real command exit, named assertions, source identity and raw artifacts. Valid behavior must work and the required semantic fault must fail for the intended reason. Check that the observed fields actually establish the named property. Separate server, component, browser and database claims. A completed todo, changed file or progress counter cannot satisfy a verification requirement.
+5. **Record.** Mark work `in-progress`, `ready-for-review`, `accepted-within-bound`, `failed` or `blocked` in the existing task/checkpoint record. Here `accepted-within-bound` means the declared automated checks passed and their scope was inspected; it is not independent approval. Keep the normative core-map statuses and final evidence contract unchanged. Record review capability separately. Never mark a mandatory scenario passed from a partial boundary.
+6. **Continue.** Record the next exact action and immediately take the next runnable task. A task result or progress report does not end the overall Goal. Keep the Goal incomplete until M6, including independent final review. Do not ask the operator to approve each routine task.
+
+The task template and initial instruction are in the handoff. The template is an execution aid, not another scope document. No fresh Session or Goal is required for each task.
+
+### Work available across days
+
+The mandatory scenario floor below remains authoritative. This routing guide divides that work into executable areas; it is not a second status inventory. Reuse existing evidence and recover relevant historical assertions before adding code. Work on only the unmet part of each area.
+
+| Work area | Mandatory attachment | Preferred execution boundary and exit |
+| --- | --- | --- |
+| Joined valid path and competing edit | M2, C05 | Actual UI/client decoding connected to production handlers. Observe saved identities, compiled receipt and displayed preview; add the competing save/refetch and the matching semantic fault. Separate mocked UI and Go tests support but do not replace the joined path. |
+| Hydration and recovery | C01, C03, C07 | Actual query hook/cache and Workspace admission with controlled replies; forced refresh and next-command identity observed. Check public API seams separately where needed. |
+| Command queue and owner release | C02, C04 | Pause the real queue/drain boundary; observe outgoing identity, rejection and correct resumption. Do not replace the owner with a model-generated success response. |
+| Scoped compilation and receipt contracts | C06, C10, C11 | Production handlers/compiler/receipt consumers. Check output closure, each promised binding, valid retained historical execution and revoked/unretained rejection. |
+| Retry and stale-snapshot budgets | C08, C09 | Focused actual callback or mounted schedules with controlled timers. Check mixed counter sequences and owner loss without waiting real retry delays unnecessarily. |
+| Current preview and lifetime | C12, C13, C14 | Mounted production behavior for reordered success/error, cancellation, unmount and A–B–A attempt reuse. Reuse the joined browser checkpoint for browser-specific wiring. |
+| Restore while work is pending | C15 | Actual restore/command/receipt contracts plus controlled client completion ordering; follow with the required saved-state/reload evidence. |
+| Concurrent writes and ambiguous acknowledgements | C16, C17, M4 | Real owned Arango schedules for head/history/rollback claims. Distinguish confirmed save, conflict, committed-but-unconfirmed and legitimately newer reads. |
+| Malformed and failed replies | C18 | Actual decoding/handler boundaries with typed errors, no partial success and valid companions. A server-only check does not establish UI decoding. |
+| Independent row/schema semantics | C19, M4 | Reuse literal fixtures and real Arango/ClickHouse execution for types, values, nulls, duplicates and cardinality after edit/restore. |
+| Usable local lifecycle | M5 | Reuse/adapt one owned real-app journey for edit, Apply, preview, reload and restore. Keep actual user controls and authoritative saved-state checks. |
+| Integration and maintainability | M6 | Final source freeze, combined audit, required service/browser checks, executable skill handoff, resource cleanup and independent final review. |
+
+This is enough work for sustained execution; no time estimate is promised. Difficulty or duration does not remove a requirement. Additional command variants discovered in M1 must acquire evidence within this scope. Do not broaden into unrelated product features or restore the entire deleted test suite for volume.
+
+### Testing and debugging discipline
+
+During editing, run the single failing test by exact name, the affected model/replay, or the narrow API case. Show diagnostic output and preserve the actual exit status. Do not hide the useful output behind `grep`, `head` or `tail` while diagnosing a hang. Run the affected file/feature after the focused correction passes. Run broad audits at coherent integration checkpoints, not after every small edit.
+
+After two runs with unchanged inputs and the same failure, rerunning is not the next action. State the last observed completed operation, the unfinished await/process/transition, one falsifiable hypothesis and the smallest experiment that distinguishes it. Use unique instrumentation per test and remove disposable debugging changes after diagnosis. An interval stopping does not by itself prove event-loop blockage; a marker near a test's end does not establish cleanup completed.
+
+Give each investigation an initial 60-minute checkpoint budget, not a licence to speculate for an hour without observations. After two materially different approaches produce no new evidence, checkpoint and change the approach, select independent work, or use an available review capability. Budget expiry does not kill a healthy bounded verifier or excuse abandoning the mandatory requirement. Record what evidence would unblock it. Do not repeatedly relaunch a full self-test to discover where it stopped.
+
+Use fresh evidence directories. Never delete earlier failure evidence to reuse a path. Collect long-command results through demonstrated harness job controls. Use a detached shell process only if H0 established that the harness lacks adequate job ownership; then retain its exact PID identity, exit-status file, source manifest and cleanup evidence. Sleeps and broad process-name counts are not completion checks. Do not start duplicate workers to compensate for an unresolved one.
+
+Treat infrastructure repair as a bounded blocker task with its own reproduction. Change another runner only when the failure reaches that runner. In OpenShell, process-group signaling is restricted; check permitted child-process operations and prove termination without loosening isolation. A cleanup error must remain visible. Missing privileges, timeouts and import cycles are not Builder defects or successful semantic fault controls.
+
+### Reuse before adding verification
+
+Use the pstack skill that resolves the current uncertainty, through its installed OpenCode name and instructions. Do not run every skill on every task. Use maintain-formal-verification-skill for drift and model/observation alignment; create-formal-verification-skill only for a missing promise; statechart for model results; and the applicable repository verification skill for real execution. Use maintain-verification-skill at coherent coverage/recipe checkpoints. Poteto mode guides concise work and small coherent changes. Skill invocation is not evidence of execution.
+
+Inspect the relevant historical tests at `5646633e` and current helpers before adding a browser path. Recover their assertions and independent oracles, adapting only the missing boundary. Browser-native interaction belongs in the browser. Most controlled interleavings belong in focused mounted/API/replay checks. A separate browser journey for each C01–C19 row is not required. Do not claim that fast mocks replace required durable storage or real client/server wiring.
+
+Every new helper/model/adapter needs a named consumer and a missing guarantee that existing code cannot establish. Prefer extending the existing runner and reusing working fixtures. Line count alone is neither acceptance nor a deletion target. Stop building infrastructure once its demonstrated blocker is removed and return to the next protocol requirement.
+
+### Async continuity, review and stopping
+
+Checkpoint source identity, current task, commands and owned processes, raw evidence, result, blockers, next action and last useful progress. After restart/compaction, reconcile this record with live files/processes and resume the first unmet task. H0 proves actual continuation and manual stop; prose alone does not start a 24/7 service. Keep model selection, context limits and host persistence in existing harness configuration.
+
+An optional fresh same-model review can challenge a bounded change, but it must inspect the raw diff and evidence. Do not label it independent assurance or launch concurrent reviewers that exhaust the same server. Independent final review remains mandatory. While it is unavailable, continue any remaining implementation, validation, evidence reconciliation and handoff work, keeping the result provisional. When independent review is the sole missing gate, report review pending and the required handoff rather than inventing approval or keeping an idle loop alive.
+
+Continue repairing authorized local environment issues and work around a blocked task by taking an independent one. Stop for operator action only when no authorized useful task remains, naming the exact unavailable environment/access/review prerequisite, attempted remedies and smallest manual action. Do not stop merely because a test is hard, one approach failed, or another routine decision is needed. Honor an explicit operator stop. Completion ends the program; no additional work is manufactured to keep the model occupied.
 
 ## Goal and meaning of complete
 
@@ -69,7 +172,9 @@ Runtime reports live outside Git under a fresh run directory. The existing runne
 
 Use the existing project skill rather than generating a second one. These are required inputs, not evidence that their workflows have already finished:
 
-| Skill | Read location in this workspace | Required use |
+The locations below describe the original preparation host. H1 records the installed equivalents on the execution host. Missing required skills are explicit setup blockers, not a reason to assume their procedures ran.
+
+| Skill | Historical preparation location | Required use |
 | --- | --- | --- |
 | Create formal verification | `/workspace/.loom-setup/pstack-source/pstack/skills/create-formal-verification-skill/SKILL.md` | For each new promise, choose the tool from the question, ground every step in code, declare bounds, show a real-source fault, and prove the runnable project skill before handoff. |
 | Maintain formal verification | `/workspace/.loom-setup/pstack/skills/maintain-formal-verification-skill/SKILL.md` | Run existing checks before edits, inspect every relevant change since the sync record including moved/new writers, classify drift versus bug, update from code, rerun and falsify, then update reviewed source/sync records. Outcomes are in sync, updated, bug or blocked. |
@@ -224,7 +329,7 @@ Source readers can investigate UI ownership, backend receipts and historical ass
 
 ## Plan review status
 
-Reviewed for implementation readiness with one independent inherited-model reviewer. The review required an explicit model/production observation relation and correct treatment of newer reads after an acknowledged save. Both gates are included above. Subsequent handoff reviews added strict mandatory completion, source-backed retry/receipt semantics, deleted-test recovery and a rigorous prevented-schedule route for existing production guards. The artifact table distinguishes existing dependencies from planned deliverables. This is a reviewed execution plan, not formal verification of the implementation, a cross-family review, or passing evidence for the unfinished work.
+Reviewed for implementation readiness with one independent inherited-model reviewer. The review required an explicit model/production observation relation and correct treatment of newer reads after an acknowledged save. Both gates are included above. Subsequent handoff reviews added strict mandatory completion, source-backed retry/receipt semantics, deleted-test recovery and a rigorous prevented-schedule route for existing production guards. The artifact table distinguishes existing dependencies from planned deliverables. That review applies to the earlier technical contract. The revised one-model execution policy still needs its target-host trial. This document is not formal verification, cross-model review or passing evidence for unfinished work.
 
 
 ## Normative execution and acceptance contract
@@ -233,9 +338,9 @@ This section governs the milestones above. A checked box, successful tool exit, 
 
 ### A. Starting state and permitted work
 
-1. Read `AGENTS.md`, this plan, the project verification skill and its core-map link. Read the applicable pstack skills through the installed runtime's supported mechanism. The new agent must not assume Codex-only tools or a particular model provider are available.
-2. Verify the branch and exact working tree. The baseline contains substantial modified and untracked work. A checkout of `e736e130` alone does not contain that work or this plan. Record `git status`, tracked and untracked file identities, source hashes and any existing task processes before editing. Do not reset, stash, clean or overwrite dirty work. Save a reversible task-start snapshot outside Git.
-3. Repair verification and make scoped product fixes only for bugs reproduced by this work. Preserve unrelated behavior. Do not add frontend effects, weaken public contracts, or perform unrelated cleanup. Do not commit, push, open external work, deploy, message others or delete shared data without separate authorization. Local progress does not require publication.
+1. Read `AGENTS.md`, this plan and the project verification skill. Complete H0/H1 for the existing OpenCode execution path. The core-map file is a planned output until M1 creates it; do not treat its initial absence as broken setup. Resolve applicable skills through the host's supported mechanism.
+2. Verify the branch and exact working tree against the committed starting point above. Include the selected OpenCode handoff patch and relevant later source. Record `git status`, tracked and relevant untracked identities, hashes and existing processes before editing. Do not reset, stash, clean or overwrite dirty work. Save a reversible task-start snapshot outside Git.
+3. Repair verification and make scoped product fixes only for bugs reproduced by this work. Preserve unrelated behavior. Do not add frontend effects, weaken public contracts, or perform unrelated cleanup. Do not commit, push, open external work, deploy outside the documented owned local test stack, message others or delete shared data without separate authorization. Local progress does not require publication.
 4. Reuse the current runner, model compiler, mutation overlays, real query hooks, public handlers and existing service fixtures. No new parser, report catalog, generic scheduler, broad framework or resurrected generator without a demonstrated requirement the current tools cannot meet. Document a proposed addition's necessary consumer before writing it.
 5. This is a sustained execution policy, not a promise of infinite background availability. The host must keep Qwen running or restart it. A finished or interrupted session does not keep working because this document says “24/7.” Never claim otherwise.
 
@@ -334,6 +439,8 @@ For each milestone, put its evidence receipt in the local checkpoint. A receipt 
 
 | Milestone | Required receipt before advancing |
 | --- | --- |
+| H0. Existing OpenCode harness | Actual harness/plugin/model identity, tool execution, long-command result collection, compaction, restart and manual stop/resume proven on disposable work. No new framework or dispatcher. |
+| H1. Execution host | Exact tools including explicit local-mode Go, persistent paths, skill discovery, owned service/browser readiness and supervised Qwen tool-use trial. |
 | M0. Baseline and ownership | Correct dirty snapshot, usable tools, baseline results with failures classified, owned resource inventory and saved next step. |
 | M1. Core map and contracts | Bidirectional caller/route accounting, command variants, stable property IDs, mandatory/optional scope, targeted deleted-test recovery decisions, source-backed identity/recovery semantics and first vertical witness selected. |
 | M2. First composed witness | Actual UI request reaches real HTTP/service compile and preview; observed result satisfies projection and one competing save/refetch schedule; relevant semantic fault is caught. No generalized bridge is built first. |

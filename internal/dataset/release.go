@@ -159,10 +159,7 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 	if previousErr != nil && !errors.Is(previousErr, ErrNoActiveRelease) {
 		return ProjectRelease{}, previousErr
 	}
-	currentRevision := int64(0)
-	if previousErr == nil {
-		currentRevision = previous.Revision
-	}
+	_ = previous // kept as fail-fast validation of the active pointer; the ID no longer folds the revision (F-B15).
 	for _, selector := range s.Required {
 		if err := selector.Validate(); err != nil {
 			return ProjectRelease{}, fmt.Errorf("invalid required selector: %w", err)
@@ -224,7 +221,12 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 		Project: ref.Project, GitCommit: ref.Generation, Generation: ref.Generation,
 		Publications: publications, RequiredVerifications: verifications, CreatedAt: now,
 	}
-	release.ID = releaseID(release, currentRevision+1)
+	// F-B15 repair: the ID is CONTENT-ADDRESSED (revision excluded). The
+	// activation CAS's alreadyActive guard needs the SAME releaseId to make an
+	// identical re-activation a no-op; folding the live revision into the ID
+	// made every authoring click mint a new immutable document. Create stays
+	// deterministic for byte-identical requests regardless of revision churn.
+	release.ID = releaseID(release)
 	return s.Releases.SaveRelease(ctx, release)
 }
 
@@ -270,9 +272,9 @@ func uniqueSelectors(values []DataframeSelector) []DataframeSelector {
 	return result
 }
 
-func releaseID(release ProjectRelease, revision int64) string {
+func releaseID(release ProjectRelease) string {
 	digest := sha256.New()
-	_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%d", release.Project, release.Generation, revision)
+	_, _ = fmt.Fprintf(digest, "%s\x00%s", release.Project, release.Generation)
 	for _, publication := range release.Publications {
 		_, _ = fmt.Fprintf(digest, "\x00%s\x00%s", publication.Selector.Key(), publication.ExecutionID)
 	}

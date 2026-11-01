@@ -32,7 +32,7 @@ Read [features/README.md](features/README.md), then select the changed user beha
 node scripts/verify-builder-formal-core.mjs --phase behavior --feature drafts --out /tmp/loom-draft-check
 ```
 
-Features: `ownership`, `drafts`, `construction`, `tables`, `contracts`. `--case` accepts a Vitest name pattern for a narrower edit; a pattern that executes no assertions blocks. `--phase behavior --shard 1/4` remains an optional local partition. CI runs the complete unsharded suite. Run a focused feature while editing and the full suite at checkpoints, and the formal audit when its covered boundaries change. Behavioral checks do not require or update formal source pins; they cannot establish that a changed model remains aligned.
+Features: `ownership`, `drafts`, `construction`, `tables`, `contracts`, `core-protocol`. The [core protocol operation map](core-protocol.md) records callers, identities and awaited boundaries for the composed save/reconcile/preview flow. `--case` accepts a Vitest name pattern for a narrower edit; a pattern that executes no assertions blocks. `--phase behavior --shard 1/4` remains an optional local partition. CI runs the complete unsharded suite. Run a focused feature while editing and the full suite at checkpoints, and the formal audit when its covered boundaries change. A failing or failing-revealed run follows the first-failure-capture rule in `../verify/SKILL.md`: preserve evidence, capture the complete log plus exit code once, diagnose the first actionable failure, then rerun only the smallest relevant check; never rerun a broad phase to reveal error output, and never the full suite for one tiny change. Behavioral checks do not require or update formal source pins; they cannot establish that a changed model remains aligned.
 
 ## Restored thin browser checks
 
@@ -214,6 +214,8 @@ stateDiagram-v2
 ```
 
 ## Source mappings and reviewed baseline
+
+Maintenance at `dc9016bc9080596099c1ad0253ea3ee229544c58` on 2026-10-31 is **blocked**, not a new sync. All 29 reviewed source hashes match. The eleven models, their model controls, generated production replays and mounted trace checks passed. Seventeen source-proof records completed with positive/negative controls before `Inv_GroupKeyCascadePreservesIndependentCalculate` exceeded the 30-second local limit. Timeout cleanup additionally assumed Linux `/proc`, which is absent on macOS. The combined audit did not finish its remaining source proofs, trace controls or type check; service/browser profiles were not selected. No current product counterexample was established. Keep the sync commit below unchanged. On a new host, bootstrap pinned tools and set `GO` to the actual compatible binary; verify it under `GOTOOLCHAIN=local` before running. Earlier references below to uncommitted work describe preparation before `dc9016bc9` committed those changes.
 
 Original sync baseline: `5646633e0e5c7ff8de568a4f111478d121e7f75f`.
 The runner pins the production files listed in `reviewed-sources.json`, including the unchanged authoring model helpers used by direct recovery replay. Apply-handle/context fixes and synchronous acceptance extraction were committed in `e736e1300716e8cdfe4dbfbe370e87b6713bebd2`. The current reviewed working tree adds recovery ownership gates across real refresh/backoff awaits. `reviewed-sources.json` records that committed baseline plus reviewed uncommitted hashes. Do not invent a new sync commit for an uncommitted patch. A hash

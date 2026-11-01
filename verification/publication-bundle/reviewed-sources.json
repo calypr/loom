@@ -1,0 +1,746 @@
+{
+  "baselineCommit": "dc9016bc9080596099c1ad0253ea3ee229544c58",
+  "review": "Reviewed ClickHouse publication bundle commit/lease/pointer/reconcile protocol in bundle_store.go (Begin :123-184, Commit :761-828, ConfirmCommit :841-859, Abort :861-897, Reconcile :1043-1101) and bundle_registry.go (SaveExecution fence :44-47, PublishExecution single AQL :284-302 lease filter :289-290 own-pointer :291, AcquireBundleLease expired-takeover :315, AcquireExecutionReadPin :343-376 refuses while cleanup claimed, ClaimExecutionCleanup :411-427 filters only expired pins + slot). Updated model (this record): snapshot-faithful reconciler (rec.cand enumeration snapshot per :1049, rec.ptr memoised single read per :1068 gated by rec.rd, claim/drop use snapshot only, save outcome deterministic from lease via IF/ELSE), ghost drop-moment record so pin/pointer checks judge the instant of the drop (AcquireExecutionReadPin legitimately allows pinning after a drop), Abort path mirrors Abort :861-897 via claim+fenced fail(). Bounded: Workers={w1} (canonical cfg also {w1,w2} reserved), lease TTL 2, cleanup-slot TTL 1, pin TTL 4, Horizon per cfg. Verdicts (all with drop steps proven fireable via probes): baseline (all faults FALSE) VIOLATES InvariantNoDropUnderPointer = independent model rediscovery of F-B1 (already confirmed on real Arango); all-false m-holds run accepts NoDropUnderPin + NoDropUnderPin(ghost).NoDropWhenNamed + NoForeignPublish clean at depth 32; FNoLeaseFencePublish caught (6,884 states) + real-code worktree control; FReconcileSkipsPointerCheck caught via ghost.m (depth 15); FClaimIgnoresPins caught via ghost.p (depth 8). Not covered: QUEUED-survival (liveness, recorded only), real DB/browser behavior on model side, combined UPDATE+UPSERT atomicity, Begin crash-window key uniqueness, keeper renewal modeled purely by clock. Real-code fault control added for the pointer skip: negating the :1071-1074 guard in a detached worktree flips TestReconcileSkipsPointerNamedExecution PASS->FAIL with the sibling controls unchanged; worktree removed, main file hash re-verified. F-B2 (abort-after-lost-publish-ACK) real-DB reproduction still in progress via delegated worker at integration time. ROUND 2: F-B2 PREVENTED by verified lines (:813-815 confirmCommit fallback; :817-822 t.closed; :862 Abort-nil) with one OPEN unverified residual (pre-applied in-flight race); F-B3 CONFIRMED second product bug \u2014 24h pin from crashed export aborts whole startup Reconcile -> permanent publicationReady=false (no retry; control proves pin causality); TLC jar must come from $TLA2TOOLS_JAR (pinned), not stray /opt copy. ROUND 3: F-B4 candidate recorded (source-evident mechanism, untriggered). Canonical spec integrity PROVEN md5==pre-experiment backup; static UNCHANGED audit discredited as an instrument (TLC warnings are the oracle); line-129 phase-entry removal deferred to a re-verify session; 2-worker widening documented-incomplete. H3 selection-staging results still PENDING from running worker; nothing recorded for them yet. ROUND 4 (session-2 continuation): H3 worker verified results recorded (disproven + defense-in-depth gap); artifact confirmed present+green; earlier F-B4 note corrected to source-reviewed variant (stale-clock stamp), trigger unreproduced. ROUND 5: model repaired (TLC-guided UNCHANGED convergence; new canonical md5 14d341f8; matrix reproduces 9/15/7); F-B3 crash-window realism achieved (worker); verification/release contract freshly audited by worker: F-B6 newest-published name-binding = top open candidate (parent line-verified), Bug2-5 recorded. ROUND 6: verification/release brief integrated (F-B6..F-B10 ladder + 7 ruled-sound controls); F-B6 reproduction worker running.",
+  "files": {
+    "internal/dataframe/publication/clickhouse/bundle_store.go": {
+      "role": "Repair-1b shipped: ActiveReleaseReader seam + live pre-drop re-check (pointer + active-release binding veto, fail-closed) in reconcileExecution AND clickHouseBundleTx.Abort",
+      "md5": "1e3ebebe3cbf615dd8682f925e46301c"
+    },
+    "internal/dataframe/publication/arango/bundle_registry.go": "1f0a6cde72895f534070520c4472a818f0237b64adadd96493afba938c1de138; F-B6 suspicion: FindExecutionBySelector :174-182 no identity/digest filters, publishedAt-DESC LIMIT 1",
+    "internal/dataframe/publication/clickhouse/abort_ackloss_e2e_test.go": "Worker A sanctioned F-B2 harness (prevented-by-code assertion + control; both PASS); residue empty",
+    "internal/dataframe/publication/clickhouse/pinblock_reconcile_e2e_test.go": "Worker B sanctioned F-B3 red artifact + identical-seeding control + probe; DBs loom_verify_pbx_* dropped; vet clean",
+    "internal/dataframe/published/export.go": "F-B3 premise: accepts any future PinExpiresAt (:120-126); ticker cadence default 30s vs TTL 120s (:127-129,:156; selection.go:14-15); renewal loss/error aborts stream (:170-173 lost+cancel) -> F-B4 low-likelihood candidate only (stale-clock stamp needs >TTL app stall; untriggered, no positive evidence)",
+    "internal/explorer/lifecycle/artifact.go": "F-B3 premise: defaultArtifactTTL 24h (:21), identity ExpiresAt (:104) as initial stream pin (:152)",
+    "internal/server/server.go": {
+      "role": "r29: bundleStore.SetActiveReleaseReader(lifecycleStore) at production construction site",
+      "md5": "d99dcc0db26d81064a40011c515d96b0"
+    },
+    "internal/explorer/arango/selections_cleanup_e2e_test.go": "Worker C sanctioned H3 artifact (3 tests; PASS/SKIP correctly gated; DBs loom_exv_* dropped, residue empty); H3-a disproven / H3-b verification finding",
+    "internal/explorer/arango/selections.go": "H3 targets: BeginSelection auto-cleanup :41; Append tx renews writerExpiresAt :168; CleanupSelectionStaging :388-402 missing complete!=true guard (5 siblings carry it); CompleteSelection atomic complete+terminal :231-233,244-247; paging :197-225 measured 10ms/50 pages, no idle>10min phase found",
+    "internal/dataframe/publication/clickhouse/export_pin_crash_window_e2e_test.go": "F-B3 realism upgrade: live StreamExactExport pre-first-tick crash end-state, direct-AQL pin proof + renewal control; PASS-gated controls green, finding test sanctioned-red; DBs loom_verify_ecw_* clean",
+    "internal/server/release_verifier.go": "F-B6 chain: :18-35 echoes Selector (:31) -> vacuous release.go:185 guards",
+    "internal/dataset/release.go": {
+      "role": "F-B15 REPAIRED (Repair-3): content-addressed releaseID (revision excluded); fail-fast active read kept",
+      "md5": "7d781afc1ec01a6fe1afaff6e6929de9"
+    },
+    "internal/explorer/lifecycle/publish.go": "F-B13 :32-33 self-consistency receipt gate; F-B14 :87-89 unconditional unavailable() wrap of requirements errors; zero active-gen comparisons",
+    "internal/dataframe/published/current.go": "Bug-2 amplifier: :202-211 single bad binding -> whole-project listing error",
+    "internal/dataset/arango/release_store.go": {
+      "role": "F-B15 REPAIRED: alreadyActive revision-clause-free true zero-write no-op (LENGTH(patched)==LENGTH(updates)); saveReleaseAQL compat excludes only createdAt",
+      "md5": "1f42e36776387af8db1bb52c07b6db49"
+    },
+    "internal/dataset/arango/manifest_lifecycle.go": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
+    "internal/server/options.go": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
+    "internal/dataframe/publication/arango/name_latest_binding_e2e_test.go": "F-B6 sanctioned artifact (531 lines, bug-documenting PASS-with-CONFIRMED pattern): registry CONFIRMED (identity ignored), Bug-3 case asymmetry CONFIRMED, verifier->ReleaseService.Create chain CONFIRMED via production code; four product-reachability preconditions listed; env-gated; vet clean; DBs removed",
+    "internal/dataframe/publication/arango/dangling_binding_e2e_test.go": {
+      "role": "F-B7 sanctioned red (unchanged verdict); citations r31 containment",
+      "md5": "eed457a2ee4d0499fa30464174cb8ed8"
+    },
+    "internal/server/explorer_capability.go": "F-B13 asymmetry: ResolveForCompilation enforces active generation (~:214-218 via dataset.ResolveActive); ResolveForExecution does not (project+scope+self-consistency only)",
+    "internal/dataset/manifest.go": "states LOADING/STAGED/READY/FAILED; prior STAGED never demoted",
+    "verification/publication-bundle/PUBLISHED_IMMORTALITY_PROPOSAL.md": "F-B8 proposal: invariant statement, 9-site removal enumeration (parent-verified anchors incl. lease-only :338-340 and PrivateArtifacts-only chartifact removal), three-tier enforcement proposal; docs-only, no product change",
+    "internal/dataframe/execution/chartifact/arango/catalog.go": "F-B8 anchor: sole chartifact REMOVE :262 gated to PrivateArtifactsCollection + leaseOwner + cleanupPending (parent-verified)",
+    "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go": {
+      "role": "rrd r29: harness reader wiring; citation guard drift-proofed (containment); env PASS-O-DISP (candidate PUBLISHED+table intact+bound, list len=2) replacing archived FAILED-ON-PURPOSE",
+      "md5": "9fba95547280ef7e9a42ab28b80461d4"
+    },
+    "internal/dataframe/publication/clickhouse/release_dangle_reconcile_e2e_test.go": {
+      "role": "rdl r29: production-mirror reader wiring; E4 absent-guard control converted to binding-veto arm (regression direction = F-B12 red); env PASS VERDICT PREVENTED",
+      "md5": "770ada2b907b4dd6f1d928462e535b0f"
+    },
+    "internal/explorer/arango/cross_generation_publish_e2e_test.go": {
+      "role": "F-B13 sanctioned-red artifact (FAILED-ON-PURPOSE silent cross-generation downgrade; worker 39dfd91a + parent 3dc90697)",
+      "md5": "79b5834c2f15a1add85ff98781883524",
+      "status": "verified-this-round"
+    },
+    "release_dangle_reconcile_e2e_test.go [arango pkg]": "F-B12 sanctioned-red artifact intact; 3rd reproduction f1ea7ac5 (/tmp/opencode/fb12-reconfirm.log), FAILED-ON-PURPOSE, authenticated residue 0",
+    "release_dangle_reconcile_e2e_test.go [clickhouse pkg]": "F-B11 PREVENTED control artifact (parent PASS 278d34ac); ABSENT-GUARD fault control",
+    "cross_generation_publish_e2e_test.go.explorer": "F-B13 e2E CONFIRMED artifact (worker 39dfd91a + parent 3dc90697, /tmp/opencode/fb13-parent.log); authenticated residue 0",
+    "internal/dataset/arango/revision_inflation_e2e_test.go": {
+      "role": "F-B15 artifact CONVERTED to natural PASS (4x Activate: rev stays 1, 1 doc, pointer revs stable); before-fault via ridataset+riprobe pre-fix copies (fb15-prefixprobe.log) + archived CONFIRMED parent 25b5af79",
+      "md5": "ba0c109f3bdfd4e1d2084c71ff0534bf"
+    },
+    "internal/dataset/release_requirements_e2e_test.go": {
+      "role": "F-B14 sanctioned red; citations r31 converted to containment guards; red message byte-comparable to archived",
+      "md5": "1ef6caca9673043984419f68049497b3"
+    },
+    "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
+      "role": "Repair-1b unit matrix 6/6 (veto arms + no-over-block controls); guardless prefixprobe copy fails veto arms (before-fault proof)",
+      "md5": "5b1439e9fd226fa62792abd499f1f97b"
+    },
+    "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go": {
+      "role": "F-B1 probe CONVERTED r29 to natural PASS; CONFIRMED branch kept as REGRESSION direction; package fully green without env",
+      "md5": "14baa87657ca52b067d09bcf5e47a208"
+    },
+    "verification/publication-bundle/ReconcileDangleTrust.tla": {
+      "role": "r29 header: RecheckBeforeDrop SHIPPED; m-dangle-atomic-recheck = validated implemented shape; comments only, no semantic change",
+      "md5": "29d78f41fac2e454971f26ff911a1176"
+    },
+    "internal/dataframe/published/page.go": {
+      "role": "Repair-2 shipped: NULLS-LAST pinned ORDER BY; IS-NULL predicate arm + null-bucket resume; encoder accepts NULL last row (no more invalidCursor on legitimate NULLs)",
+      "md5": "c5be4f7ad60042be7341508be80b4413"
+    },
+    "internal/dataframe/published/read.go": {
+      "role": "Repair-2: pageCursor.sortValueNull + cursor Version 2; Page accepts {1,2}",
+      "md5": "55ef051597c2da7cb2f57c95dc329343"
+    },
+    "internal/dataframe/published/page_test.go": {
+      "role": "Repair-2 units: null-bucket predicate 4-arm + NULLS-LAST order pin; legacy v1 null cursor stays invalid",
+      "md5": "77e1d19177efdb4f3f40ff4f29564926"
+    },
+    "internal/dataframe/published/read_test.go": {
+      "role": "cursor V2 roundtrip incl null-bucket flag",
+      "md5": "6234ee06e190519bca6cb2c0ce8fee2b"
+    },
+    "internal/dataframe/published/nullsort_page_cursor_e2e_test.go": {
+      "role": "F-B24 artifact CONVERTED Round 30 to natural-PASS fault control (renamed TestFB24NullSortPageEnumerationIsComplete): 7/7 both directions, no-dup identity tracking, gate re-pinned to repaired anchors; pre-fix copy re-raises missing vals=[3 5] (fixprobe logs)",
+      "md5": "1c25bd4d5c1fee3fad6590df8caa2b9e"
+    },
+    "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go": {
+      "role": "F-B1e2 CONVERTED to natural PASS; REGRESSION direction keeps archived CONFIRMED message; conversion inversion caught by fb1probe instrumented copy (deleted)",
+      "md5": "30e97601ec8f3cd280f56edb95b51c89"
+    },
+    "internal/dataset/arango/generation_activation_cas_e2e_test.go": {
+      "role": "F-B17 sanctioned red; citations r31 containment; red message byte-comparable",
+      "md5": "bae0431fa3224f49fbabffc9f12a6098"
+    }
+  },
+  "model": {
+    "tla": "verification/publication-bundle/BundleCommitLifecycle.tla",
+    "cfg": "verification/publication-bundle/BundleCommitLifecycle.cfg",
+    "tool": "TLA2TOOLS_JAR pinned tla2tools.jar sha256 936a2620 matched against verification/builder-interactions/tools.lock.json",
+    "properties": [
+      "InvariantNoDropUnderPointer: dropped[w] => pointer # w (state-level; baseline-red = F-B1)",
+      "InvariantNoDropWhenNamed: ghost.m = FALSE (memoised ptr named the attempt at drop instant)",
+      "InvariantNoDropUnderPin: ghost.p = FALSE (reader pin live at drop instant)",
+      "InvariantNoForeignPublish: publishedForeign[w] = FALSE"
+    ],
+    "canonicalTlaMd5": "14d341f86d6f4f072a585434334dfc7a",
+    "matrixSignatures": {
+      "m-holds": "complete clean (1.74M distinct, warnings=0)",
+      "m-baseline": "InvariantNoDropUnderPointer violated depth 9",
+      "m-f2": "InvariantNoDropWhenNamed violated depth 15",
+      "m-f3": "InvariantNoDropUnderPin violated depth 7 (restated from 8 after repair re-run; log-hy-m-f3.txt)",
+      "lease-fence-no-fault": "clean complete 3.84M distinct (H=6)",
+      "lease-fence-fault": "InvariantNoForeignPublish violated (H=4)",
+      "r27-canonical-battery": "6/6 match at Horizon=3 (documented bound, per r18 battery practice): fault runs violate the named invariant; clean controls complete no-error (~320s each); stale-metadir contamination caused the first three apparent timeouts (fixed by per-batch metadir tag)"
+    },
+    "repairNote": "repo spec had unassigned-var corruption from earlier edits (backup post-damage, stale md5); repaired via manual BeginAcquire tuple fix + TLC-guided UNCHANGED completion; verified warnings-free; matrix reproduced with f3 depth restated.",
+    "releaseBindingTrust": {
+      "file": "ReleaseBindingTrust.tla",
+      "md5": "226ef0d10fc13842b3267e5f2ccbc5a6",
+      "purpose": "F-B6 release-binding trust gap: name-latest echo bound verbatim by release Create; Recheck constant models activation-time identity re-verification (proposed fix)",
+      "verdicts": {
+        "m-rebind-violation (Recheck=FALSE)": "CorrectBinding violated, shortest trace depth 3 (Publish, PrepareRelease(name-latest != intended), Activate); final evidence via /sandbox/.local/bin/tlc-run (TLC_WORKERS=2 TLC_HEAP_MB=1024, -fp 21, metadir /tmp/opencode/rbt-vio-c): 82 gen/46 distinct; reproducible across seeds/fp sets",
+        "m-rebind-holds (Recheck=TRUE)": "complete clean: 'Model checking completed. No error has been found.', 206 gen/69 distinct, depth 5, 0 left on queue; fingerprint-collision probability 5.1E-16; final evidence via tlc-run (TLC_WORKERS=2 TLC_HEAP_MB=1024, metadir /tmp/opencode/rbt-hld-c)",
+        "warnings": "0 frame UNCHANGED warnings, 0 not-completely-specified (both configs)",
+        "m-rebind-case (LegacyHas={e1}, Recheck=FALSE)": "CorrectBinding violated: intended doc's publish time under capitalised PublishedAt sorts as absent (OrderKey 0, mirrors lowercase-only SORT at bundle_registry.go:179) so the older lowercase doc wins -> Bug-3 route reproduced formally; 59 distinct states",
+        "m-rebind-caseholds (LegacyHas={e1}, Recheck=TRUE)": "complete clean (206/69, depth 5, 0 queue): activation-time identity recheck also neutralises the case-blindness route",
+        "base pair regression": "after OrderKey extension, m-rebind-violation still violates and m-rebind-holds still complete-clean via tlc-run"
+      },
+      "notes": "fidelity fixes during bring-up: ~activated guard on PrepareRelease (production single-transition CAS), stutter UNCHANGED vars in Next, timestamps bounded by MaxStamps=4, '==>' rejected by this SANY build (use =>), E_e/\\E quirk.",
+      "evidence": {
+        "runs": "via /sandbox/.local/bin/tlc-run TLC_WORKERS=2 TLC_HEAP_MB=1024; logs /tmp/opencode/rbt-{vio,hld}-run.log + *-launch.log",
+        "launch": " java -XX:+UseParallelGC -Xmx1024m -cp $TLA2TOOLS_JAR tlc2.TLC -workers 2 -metadir <per-run> -config <cfg> ReleaseBindingTrust",
+        "final": "violation: CorrectBinding violated, min trace depth 3 (Publish; PrepareRelease; Activate); holds: 206 gen/69 distinct/0 queue depth 5, no deadlock, collision prob 5.1E-16; 0 warnings both"
+      },
+      "toolingNote": "local TLC checks now run through /sandbox/.local/bin/tlc-run per operator instruction (2 MiB default heap/4 workers, TLC_WORKERS+TLC_HEAP_MB split, $TLA2TOOLS_JAR respected). Launcher had an environment bug on 2026-11-01: uncaught PermissionError on /sys/fs/cgroup/{cpu,memory}.max in this container; patched in place with try/except OSError fallbacks (unreadable limit treated as 'max'), semantics otherwise unchanged.",
+      "runs": "all four configs via /sandbox/.local/bin/tlc-run TLC_WORKERS=2 TLC_HEAP_MB=1024 -fp 21, per-run -metadir /tmp/opencode/rbt-{vio,hld,vio3,hld3,vioR,hldR}*, logs preserved, 0 warnings",
+      "contentMD5": "226ef0d10fc13842b3267e5f2ccbc5a6",
+      "maintainNote": "round-18 anchor audit; comment path fixed (server/release_verifier.go); 6 arms re-ran identical verdicts; m-downgrade arms belong to ActiveGenerationTrust",
+      "md5Note": "pinned post Round-18 comment fix (path citation server/release_verifier.go:31); re-verified at Round 22 health sweep"
+    },
+    "startupReconcileWedge": {
+      "file": "StartupReconcileWedge.tla",
+      "models": "F-B3 pin-blocked startup wedge (bundle_store.go:1033-1052/1076-1079/301-313, server.go:556-559)",
+      "verdicts": {
+        "m-wedge (PinnedExpiry=10 > TimeMax=8)": "EventuallyReady temporal VIOLATED, complete space 9 distinct, via tlc-run",
+        "m-wedge-clear (PinnedExpiry=10 <= TimeMax=12)": "Model checking completed, no error, 44/16 complete"
+      },
+      "warnings": "0 both configs",
+      "md5": "d9bae1796c97cdafc329baebfe2a312a",
+      "contentMD5": "d9bae1796c97cdafc329baebfe2a312a"
+    },
+    "activeGenerationTrust": {
+      "file": "ActiveGenerationTrust.tla",
+      "models": "F-B13 stale-receipt cross-generation downgrade (release_store.go:163-170 unconditional generationPointer patch)",
+      "verdicts": {
+        "m-downgrade-bug (CrossGen=FALSE)": "NoSilentDowngrade VIOLATED; trace Init;Load(g1);Compile;Load(g2);PublishCAS; 9 distinct",
+        "m-downgrade-fixed (CrossGen=TRUE)": "complete clean, 7 distinct"
+      },
+      "warnings": "0 both configs",
+      "toollesson": "state predicate under cfg PROPERTY silently passed; under INVARIANT violated \u2014 use INVARIANT for state predicates in cfgs",
+      "md5": "685239667df000fe6549494f4939f5b2",
+      "contentMD5": "685239667df000fe6549494f4939f5b2"
+    },
+    "reconcileDangleTrust": {
+      "file": "ReconcileDangleTrust.tla",
+      "models": "F-B12 interleaving + three fix tiers + AtomicPublish boundary (r26 repaired publish)",
+      "verdicts": {
+        "m-dangle-bug (all FALSE)": "NoDanglingBound VIOLATED, trace Observe;PublishExec;CheckPointerAbsent;Activate;DropDemote; re-run r27 AtomicPublish=FALSE (pre-fix fault control), same trace, match",
+        "m-dangle-PinAtActivation": "complete clean (fix tier 1 sufficient)",
+        "m-dangle-RecheckBeforeDrop": "complete clean (fix tier 2 sufficient)",
+        "m-dangle-reader": "HealthyDiscovery holds only (reader tier = discovery-only protection; data integrity NOT claimed)",
+        "m-dangle-atomic-current": "NEW r27: NoDanglingBound VIOLATED even with AtomicPublish=TRUE (full publish lands after the guard read, drop still proceeds with pointer+state visible) -> formal necessity of Repair-1b; caveat: for lease-fenced producers this arm is fault-injection/legacy-data reachable (reconciler holds the lease from :1057 and the publish AQL requires lease.ownerId match), see model comment; non-lease-guarded PUBLISHED writers (F-B13 patch paths) keep the class live",
+        "m-dangle-atomic-recheck": "NEW r27: CLEAN -> RecheckBeforeDrop closes the drop path for BOTH publish shapes (target shape for Repair-1b)",
+        "r27-reruns": "bug/reader/RecheckBeforeDrop/PinAtActivation re-run after AtomicPublish gating, expectations all matched (logs /tmp/opencode/r27-matrix)"
+      },
+      "warnings": "0 all four configs",
+      "md5": "29d78f41fac2e454971f26ff911a1176",
+      "contentMD5": "13b8bf3a27411016d1d8561c0d9cf67f",
+      "repairNote": "Round 29: RecheckBeforeDrop shipped in bundle_store.go (reconcile+Abort live recheck, fail-closed); m-dangle-atomic-current stays as pre-repair fault control"
+    },
+    "tooling": "TLC via /sandbox/.local/bin/tlc-run; state predicates as INVARIANT; logs /tmp/opencode/rbt-*.log",
+    "publishPartialPointer": {
+      "file": "PublishPartialPointer.tla",
+      "md5": "456e459523d4b6fadb6c47e3e8623f69",
+      "models": "F-B16 class: Commit outcomes + retry/sweep repair controls; temporal Agreement leads-to with fairness",
+      "verdicts": {
+        "m-ppp-bug": "temporal properties VIOLATED (permanent split-brain stutter)",
+        "m-ppp-atomic": "complete clean",
+        "m-ppp-repair": "complete clean",
+        "m-ppp-sweep": "complete clean (after removing one-shot latch; first pass violated -> one-shot boot sweep insufficient)"
+      },
+      "contentMD5": "90f1d668b801b7b6cdec55ad160a1e4c",
+      "mappingNote": "r27: header updated -> AtomicPublish=TRUE is the shipped shape (r26 WithTransaction); m-ppp-atomic CLEAN = current-code baseline; m-ppp-bug VIOLATED = pre-fix fault control + legacy pre-repair rows. Comments-only edit; semantics unchanged."
+    },
+    "pointerOrphanLifecycle": {
+      "file": "PointerOrphanLifecycle.tla",
+      "contentMD5": "591ed183b6995e66b732db5ec4feb5bd",
+      "tlcRun": "/sandbox/.local/bin/tlc-run -metadir /tmp/opencode/po-<arm> -fp 21 -config m-po-<arm>.cfg PointerOrphanLifecycle",
+      "arms": {
+        "bug": "temporal OrphanGC violated (permanent orphan never collected)",
+        "reclaim-blind": "NoBoundDeleted violated (F-B12 echo)",
+        "janitor-blind": "NoBoundDeleted violated",
+        "fixed": "both pass (recurring binding-aware janitor + RecheckBeforeReclaim sufficient)"
+      },
+      "warnings": 0
+    },
+    "generationActivationCas": {
+      "file": "GenerationActivationCas.tla",
+      "contentMD5": "c08a62a07ef38bace10ee2f3004297d7",
+      "tlcRun": "/sandbox/.local/bin/tlc-run -metadir /tmp/opencode/gac-<arm> -fp 21 -config m-gac-<arm>.cfg GenerationActivationCas",
+      "arms": {
+        "bug": "NoBlindCommit violated (stale-gate commit over moved pointer)",
+        "cas": "completes clean (expected-value CAS + lawful late-gate retry)"
+      },
+      "warnings": 0,
+      "honestNote": "initial formulation at-most-one-success was WRONG (last-writer-wins legit); harm predicate ghosts blinded-at-commit"
+    },
+    "releaseRevisionIdempotence": {
+      "tla": "verification/publication-bundle/ReleaseRevisionIdempotence.tla",
+      "md5": "108a932ffafa0393571031c3af972599",
+      "status": "IN SYNC Round 31: SOURCE-SYNC header updated to shipped code (content-addressed releaseID in createRelease AEL; zero-write alreadyActive branch; createdAt-excluded save compat). Pair re-run at shipped shape: m-rri-shipped VIOLATES Idempotence (revision bump + pointer _rev churn), m-rri-fixed CLEAN (/tmp/opencode/rri-{shipped,fixed}-r31.log, direct java tlc2.TLC)."
+    },
+    "canonicalTlaMd5Algorithm": "md5 (convention); sha256=c557221898275fccea612a18bf21dec070c08e8cf895ef5e50e4f538869e223d",
+    "nullPageCoverage": {
+      "tla": "055cc546a9a2095b40aab0d1e152e6d9",
+      "cfgs": {
+        "m-null-shipped": "ea3b00a2169c879dedb06d9a36b4ee27",
+        "m-null-fixed": "eea5f95dec6187c433bf15f97ccf8a54"
+      },
+      "verdicts": {
+        "m-null-shipped": "INVARIANT CoverageComplete VIOLATED (NULL-bucket loss; F-B24 fault control)",
+        "m-null-fixed": "CLEAN (Round 30 shipped shape)"
+      },
+      "consumer": "F-B24 Repair-2 guarantee: page selection consistent with pinned total order for every reachable cursor",
+      "logs": [
+        "/tmp/opencode/nullcov-shipped.log",
+        "/tmp/opencode/nullcov-fixed.log"
+      ],
+      "disclosure": "ASC direction enumerated by the model; DESC arm covered by e2e traversal (bucket structure shared)"
+    }
+  },
+  "lastUpdated": "2026-11-01T20:52:02Z",
+  "round": 31,
+  "status_updates": {
+    "F-B13": "CONFIRMED e2e (release-CAS/publish-binding layer); silent cross-generation downgrade",
+    "F-B11": "PREVENTED by bundle_store.go:1068-1075 for pointer-named+bound case; log-string premise DISPROVEN; :1073 load-bearing via shadow control",
+    "F-B12-artifact": "rrd red RETAINED r28 (open defect: drop-path lacks release-binding recheck); post-r26 status block added; converts via existing O-DISP branch when Repair-1b lands; fb12-rrd-r28.log status quo",
+    "F-B11-parent-rerun": "parent-verified PASS uuid 60f1d7e2 (guard PREVENTED printed with :1068-1075 quote; live pins=0; E3 sweep real; ABSENT-GUARD shadow wholesale failure; RDL_DATABASE_REMOVED logged)",
+    "F-B15": "REPAIRED Round 31 (content-addressed releaseID + revision-free alreadyActive zero-write CAS + createdAt-excluded save compat; e2e converted PASS env, pre-fix churn reproduced verbatim via ridataset/riprobe copies; formal pair shipped-VIOLATES/fixed-CLEAN; m-rri model in sync)",
+    "F-B16": "REPAIRED round 26: PublishExecution inside one WithTransaction (executions+pointers+leases Write); before-fail vs HEAD dc9016bc via arangoprefix copy (patom-prefix-run.keep.log arm B), after-pass 3/3 (patom-run2.log); durable artifact publish_atomicity_e2e_test.go (loom_verify_patom_) with A sensitivity control",
+    "F-B12": "REPAIRED Round 29 drop-path (active-release binding veto post-claim; rrd+rdl converted to PASS, archived FAILED-ON-PURPOSE logs fb12-rrd-postfix1/fb12-rrd-r28/rdl-after2-first-run retained as before-fault witnesses; publish-time half repaired r26)",
+    "repair-unit-1": "files: store/arango/client.go (+TransactionalRowClient), publication/arango/bundle_registry.go (tx publish), bundle_registry_test.go (fake), release_dangle artifact (citations), NEW publish_atomicity_e2e_test.go; not committed; untracked arangoprefix staging dir deleted after evidence run",
+    "F-B16-artifact": "ppp converted r28 to labeled fault-control, naturally PASS (env x2 fb16-convert-run1.log; SKIP clean; residue 0); guards fail-loud on replay-heal shipping or Delegated-split regression; historical red md5 4ef560d6@dc9016bc preserved in FINDINGS r11",
+    "F-B1": "REPAIRED Round 29 (post-claim live pointer re-check in reconcile+Abort; toc probe converted with kept regression direction; before-fault via guardless prefixprobe verbatim CONFIRMED reproduction)",
+    "F-B24": "REPAIRED Round 30 (cursor V2 null-bucket + NULLS-LAST pin + IS-NULL predicate arm; latent invalidCursor crash path closed; converted artifact + unit matrix + formal pair m-null-shipped VIOLATED / m-null-fixed CLEAN)",
+    "repair-unit-3": "files: internal/dataset/release.go, internal/dataset/arango/release_store.go; converted internal/dataset/arango/revision_inflation_e2e_test.go; converted toctou e2e (F-B1 family); containment-citation conversions (release_requirements, gac, dangling e2e). Not committed."
+  },
+  "operator": {
+    "digest": "verification/publication-bundle/OPERATOR_REVIEW_DIGEST.md",
+    "digestDate": "2026-11-01",
+    "confirmed": [
+      "F-B1",
+      "F-B3",
+      "F-B6-registry",
+      "F-B7",
+      "F-B12",
+      "F-B13"
+    ],
+    "byReading": [
+      "F-B14",
+      "F-B15"
+    ],
+    "fixMenuCount": 8,
+    "fixesApplied": "NONE (authorization required)"
+  },
+  "confirmed": [
+    {
+      "id": "F-B1",
+      "title": "Reconcile/drop TOCTOU deletes pointer-advertised unpublished bundles (list-path bulk drop)",
+      "severity": "HIGH",
+      "status": "CONFIRMED (component + real-Arango e2e + model; sanctioned-red)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go",
+          "sha256": "aaa139ca86d16ee3184735b108af4fa4bdb5111dbd5c9bd0cd92177ee5b2d8e5"
+        },
+        {
+          "path": "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go",
+          "sha256": "b13b9f1ce8dfa656d5c0262e2a9bc02761b6f0250188e1e2237461f64e91c43e"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "phase-A",
+        "logPaths": [
+          "/tmp/opencode/reconcile-toctou-fault.log"
+        ],
+        "codeRefs": [
+          "bundle_store.go memoised pointer read vs per-item state"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B3",
+      "title": "Pin-blocked startup wedge",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED (real Arango)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/clickhouse/pinblock_reconcile_e2e_test.go",
+          "sha256": "9a74598f94e9af81aa652da17bfc826c47eedaf0acce4239a4f3883ae32faf92"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "queue-1",
+        "logPaths": [
+          "/tmp/opencode/fb11-parent-rerun-2.log"
+        ],
+        "codeRefs": [
+          "startup reconcile ordering vs live foreign pin"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B6",
+      "title": "Name-latest binding ignores pointer identity + case-asymmetry Bug-3",
+      "severity": "HIGH",
+      "status": "CONFIRMED; product-level narrow-race; Bug-3 CONFIRMED (1/2 prevented)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/arango/name_latest_binding_e2e_test.go",
+          "sha256": "a3ca98434fb2c1aff33e67b64f57c375484983cca2285c4382e9296cb055417a"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "queue-2/3",
+        "logPaths": [
+          "/tmp/opencode/parent-rerun-arango-2.log"
+        ],
+        "codeRefs": [
+          "bundle_registry.go:174-182",
+          ":156"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B7",
+      "title": "Dangling pointer binding: reads 503 + republish wedge",
+      "severity": "HIGH",
+      "status": "CONFIRMED (3 reproductions + fault-controls)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/arango/dangling_binding_e2e_test.go",
+          "sha256": "3dfeedf8e1e538b03421e95ad5207218bb4be4cc8bcc02d3c1200cc4b3a1a207"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "queue-4",
+        "logPaths": [
+          "/tmp/opencode/hygiene-2.log"
+        ],
+        "codeRefs": [
+          "published/current.go:206-208",
+          "published/published.go:230-236"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B11",
+      "title": "Pointer-named+bound survives sweep (control)",
+      "severity": "INFO",
+      "status": "PREVENTED (parent 2x PASS + CH control; guard :1068-1075 sole shield, live pins=0)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go",
+          "sha256": "cce2c29d5bf66180d29eddaca64f1d746a430850b6a15398a6b1d30098a87b7a"
+        }
+      ],
+      "adjudication": {
+        "verdict": "PREVENTED",
+        "verdictRunID": "parent fb11-parent-rerun-2 0.284s",
+        "logPaths": [
+          "/tmp/opencode/fb11-parent-rerun-1.log",
+          "/tmp/opencode/fb11-parent-rerun-2.log",
+          "/tmp/opencode/parent-rerun-arango-2.log"
+        ],
+        "codeRefs": [
+          "bundle_store.go:1068-1075"
+        ],
+        "preventedBasis": "OBSERVED GUARD-TRIGGERED x2; ABSENT-GUARD reproduces F-B12 end state"
+      }
+    },
+    {
+      "id": "F-B12",
+      "title": "Release-bound execution swept: DROP TABLE + release demotion + FAILED demotion",
+      "severity": "CRITICAL",
+      "status": "CONFIRMED (3x incl parent 2x) | PARTIALLY REPAIRED r26 (publish atomic; drop-path release-binding recheck open = Repair-1b)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go",
+          "sha256": "cce2c29d5bf66180d29eddaca64f1d746a430850b6a15398a6b1d30098a87b7a"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parent-1e004444 + parent-95176f4b",
+        "logPaths": [
+          "/tmp/opencode/fb12-parent-rerun-1.log",
+          "/tmp/opencode/fb12-parent-rerun-2.log",
+          "/tmp/opencode/fb12-worker-run.log"
+        ],
+        "codeRefs": [
+          "bundle_store.go:1068-1075 TOCTOU vs :1084-1097"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B13",
+      "title": "Cross-generation publish: current flips to unverified older generation",
+      "severity": "HIGH",
+      "status": "CONFIRMED e2e (parent 3dc90697)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/explorer/arango/cross_generation_publish_e2e_test.go",
+          "sha256": "c5846991e91762ef3cf496d54f32c0addb8fa3bb68c226d7538067683f957baf"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parent-3dc90697",
+        "logPaths": [
+          "/tmp/opencode/fb13-ses_305944137ffe-rerun1.log",
+          "/tmp/opencode/fb13-parent2.log"
+        ],
+        "codeRefs": [
+          "dataset/arango/release_store.go:170 no-compare pointer patch",
+          ":167 release CAS intact"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B14",
+      "title": "Deterministic requirements miss as retryable 503 (contract :92-94)",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED (error path + runtime typed-error leg 3346cf57; live HTTP capture config-gated open)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataset/release_requirements_e2e_test.go",
+          "sha256": "645592cd4370170d4f8f34283993062624bab33410e2870bfc4cb78e4ab6a5da"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parent-3346cf57",
+        "logPaths": [
+          "/tmp/opencode/fb14-runtime-1793337752.log",
+          "/tmp/opencode/fb14-runtime-1793352304.log"
+        ],
+        "codeRefs": [
+          "release.go:192-193 via :232",
+          "publish.go:87-89",
+          "reliability-contract :92-94"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B15",
+      "title": "Identical re-Activate churns revision/ID/pointers (guard unreachable)",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED on parent-owned regenerated artifact (uuid 25b5af79 rev 1->4 docs 1->4 identical; earlier 22ffa92b/97d6ab0f; broken worker copy quarantined per integrity events)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataset/arango/revision_inflation_e2e_test.go",
+          "sha256": "b01ab91e9146145d979b0909d433dda3c0e10b6a6af6b15cd237c51a95743038"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parents x3",
+        "logPaths": [
+          "/tmp/opencode/fb17-fb15-parent.log"
+        ],
+        "codeRefs": [
+          "release.go:227,273-280",
+          "dataset/arango/release_store.go:158-159",
+          "server.go:565-581"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B16",
+      "title": "PUBLISHED-never-advertised permanent split-brain; retry never repairs",
+      "severity": "HIGH",
+      "status": "CONFIRMED (parent 4ef560d6; split-legs scope) | REPAIRED r26 (atomic publish; before-fail/after-pass logged)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go",
+          "sha256": "cf13d635dcd984ba6e9d3ee202fe21db879dbade9011728f96e08c0b618ce4ed"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parent-4ef560d6",
+        "logPaths": [
+          "/tmp/opencode/fb16-parent.log"
+        ],
+        "codeRefs": [
+          "bundle_registry.go:292/:293-296",
+          "bundle_store.go:813-821/:858/:1043",
+          "service.go:200-202"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B17",
+      "title": "Blind shared active_generation activation (no CAS, discarded pre-check)",
+      "severity": "HIGH",
+      "status": "CONFIRMED (parent 98155374: 4/4 blind refused=0; interleaving scope)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataset/arango/generation_activation_cas_e2e_test.go",
+          "sha256": "70e9f8885b3ac8068683e91743a27f4e43f1325c694071ce81f061bb5fa41c2c"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parent-98155374",
+        "logPaths": [
+          "/tmp/opencode/fb17-fb15-parent.log"
+        ],
+        "codeRefs": [
+          "manifest_lifecycle.go:334-335",
+          ":198-204",
+          ":243",
+          "bulk/load/service.go:206/:210/:213"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B19",
+      "title": "Pointer-orphaned PUBLISHED executions + ClickHouse tables immortal: unbounded growth per recipe edit, widening name-latest mis-bind surface",
+      "severity": "MEDIUM",
+      "status": "CONFIRMED (dual parent runs e00a7032/e3712285 FAILED-ON-PURPOSE production-only; drift-gated; triangulated with PointerOrphanLifecycle m-po-bug/m-po-fixed)",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go",
+          "sha256": "da5d26c54d3ef5109c0923dee37ccb8bda4295baebd830af3d87b2b72d81fd55"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "parent-e00a7032 + parent-e3712285",
+        "logPaths": [
+          "/tmp/opencode/fb19-run1.log",
+          "/tmp/opencode/fb19-run2.log"
+        ],
+        "codeRefs": [
+          "bundle.go:88-97 PointerName vs :99-115 Key (digest fold)",
+          "bundle_store.go:1041 sweep state list",
+          "bundle_registry.go FindExecutionBySelector publishedAt DESC",
+          "PointerOrphanLifecycle.tla"
+        ],
+        "preventedBasis": ""
+      }
+    },
+    {
+      "id": "F-B21",
+      "title": "PointerName bare-\\x00 join: same-project visibility hijack \u2014 NUL-permuted identities share one pointer; publishing the second silently repoints the first dataset's readers",
+      "severity": "HIGH (intra-project)",
+      "status": "CONFIRMED end-to-end at production boundaries: e2e hijack (worker x2 + parent x2, uuid c80b84cb) + HTTP-decodability/probe (recipe package probe deterministic x2): both colliding author documents pass production Bundle.Validate (non-emptiness-only on $.name/$.translationVersion) and DataframeSelector.Validate. Intra-project only (Project is authorized first pointer component). No live byte-level HTTP capture; probe decodes via the same encoding/json handlers use.",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/publication/clickhouse/pointer_name_nul_ambiguity_e2e_test.go",
+          "sha256": "499574cb828c3342e9a0b7453df0a024398a7b8f7e8472ea5702d9e24d49eea7"
+        },
+        {
+          "path": "internal/dataframe/recipe/publication_identity_nul_http_test.go",
+          "sha256": "19d396a2ddebad08aa66cfc7176d5ccf4c467740a3609a6f3ecd7cc98ebe5545"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "worker-pnn x2 + parent-c80b84cb + parent-run2 + fb21http x2 (deterministic FAIL a06d2b95)",
+        "logPaths": [
+          "/tmp/opencode/pnn_run1.log",
+          "/tmp/opencode/pnn_run2.log",
+          "/tmp/opencode/fb21-parent-run1.log"
+        ],
+        "codeRefs": [
+          "bundle.go:88-97 bare join vs Key :99-115",
+          "validator scope: validation.go:40-44 wired only ref.go:26/29",
+          "contrast catalog/helpers.go:50-62 length-prefix",
+          "reader-only-B via current.go:158-164",
+          "document_validation.go:36-41 vs validateRecipeName regex (validation_rich.go:18-28)",
+          "dataframe_selector.go:16-24 non-blank-only"
+        ]
+      }
+    },
+    {
+      "id": "F-B20",
+      "title": "Execution-status reader: opaque-ID fetch precedes conditional-only authz, count-compare not membership, no AuthorizeProject \u2014 violates its own no-credentials-by-ID comment",
+      "severity": "CONDITIONAL-MEDIUM",
+      "status": "CONFIRMED (documented-promise violation; dual parent deterministic re-runs; drift gate + mutation-proven retirement). Live multi-tenant disclosure requires scoped-principal deployment (unverified). B2 equal-count bypass REFUTED. Side: count-gate over-rejects authorized callers (concealed as not-found). REST twin CONFIRMED at live HTTP level (Round 23): GET /api/v1/dataframe/recipe-executions/{id} over generated Fiber stack returned 200 + foreign projectId/generation/digests/rowCount with scopes=nil; T-B2 refused when wired.",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/api/graphql/graph/resolver/recipe_execution_reader_authz_e2e_test.go",
+          "sha256": "1ecc2bd3cbcd5b055bcdad57991d432b66ff86875e3e0d88689dfd5059ecace6"
+        },
+        {
+          "path": "internal/server/recipe_execution_status_twin_e2e_test.go",
+          "sha256": "e88e8c9ce01c00662472bf16157c851d97613112ce0ae6cd735d5abdff3276c8"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "fb20-parent x2 + worker suite + twin-ok-x2 (c9ff90c8)",
+        "logPaths": [
+          "/tmp/opencode/fb20-parent-run1.log",
+          "/tmp/opencode/fb20-twin-parent1.log"
+        ],
+        "codeRefs": [
+          "reader :30/:34/:40 quoted; promise :23-24",
+          "precedents dataframe/service.go:67, explorer_capability.go:68/188",
+          "refutation scope_resolver.go:176",
+          "REST twin openapi_recipe_execution.go:26/:64"
+        ]
+      }
+    },
+    {
+      "id": "F-B24",
+      "title": "Sorted pagination silently drops every row whose sort column is NULL (both directions) while TotalCount advertises them; GraphQL exposes sort to the client",
+      "severity": "MEDIUM-HIGH",
+      "status": "CONFIRMED against production Reader.Page + live ClickHouse x2 deterministic (RED-ON-PURPOSE); control traversals 7/7 both; latent invalidCursor nil-path recorded unproven.",
+      "sourceSnapshot": "dc9016bc",
+      "artifacts": [
+        {
+          "path": "internal/dataframe/published/nullsort_page_cursor_e2e_test.go",
+          "sha256": "a57fd172b8b6c5ea7d156585accad5b297c901538516d8671f28c597b9bd7d89"
+        }
+      ],
+      "adjudication": {
+        "verdict": "CONFIRMED",
+        "verdictRunID": "fb24 env x2 + final (TotalCount=7 observed), no-env ok",
+        "logPaths": [
+          "/tmp/opencode/fb24-parent-runA.log",
+          "/tmp/opencode/fb24-parent-runB.log",
+          "/tmp/opencode/fb24-parent-final.log"
+        ],
+        "codeRefs": [
+          "page.go cursor predicate + sortValue==nil encoder",
+          "errors.go CodeInvalidCursor",
+          "rows.go Sort: convertSort(input)",
+          "bundle_store.go Nullable( mapping",
+          "raw CH probe: NULL last in ASC/DESC; strict predicate excludes NULL"
+        ]
+      }
+    }
+  ],
+  "prevented": [
+    "F-B9 lease/identity guards hold",
+    "F-B10 recovery converges",
+    "F-B11 (see row)",
+    "queue-5 per-dataset typed degradation",
+    "F-B18 unpinned page-read amplifier (baseline; sweeps cannot reach pointer-named PUBLISHED \u2014 :1043/:1068-1075/current.go:117; needs 2 guard-blinding fixtures). Prevented-by-survey: authoring handler set (all 18 gated), second-order IDOR (store project re-asserts), row-level auth threading, catalog NUL collision (length-prefix)",
+    "F-B23 row-security-metadata smuggling (L1 publicStreamRow declared-set filter; L2 reserved-by-Loom refusal + project_id schema strip; L3 unconditional project_id clamp; artifact row_smuggling_prevention_test.go 5d73990f PASS x2)",
+    "F-B25 sanitize-key collision lost-ack (both Load builder paths validate id to FHIR token charset before SanitizeKey \u2014 generated: value.Validate pattern gate; generic: jsonschema $defs id pattern; artifact ingest/keycollide_generated_e2e_test.go 967642a0 ok-x2, residue 0. Watch: verticesInserted counts SENT docs, generation_workers.go:426)"
+  ],
+  "candidatesOpen": [
+    {
+      "id": "F-B22",
+      "title": "scopeDigest \\x00-join collision",
+      "status": "parked; digest used at decision point (validateAuthorizedReadScope via explorer_capability.go:38 bare-\\x00 join) \u2014 HIGH if Fence ever stores NUL paths; requires out-of-repo NUL-bearing ACL"
+    },
+    {
+      "id": "F-B22",
+      "title": "scopeDigest \\x00-join collisions at 3 sites incl. decision-bearing explorerScopeDigest",
+      "status": "parked; HIGH-if Fence stores NUL paths"
+    }
+  ],
+  "canonicalProbe": {
+    "file": "BundleCommitLifecycle.tla",
+    "expectedMD5": "14d341f86d6f4f072a585434334dfc7a",
+    "lastVerified": "2026-11-01T20:35:45.458202+00:00",
+    "note": "r27: no drift. Apparent mismatch was MY diagnostic error (compared sha256 against the md5-convention pin). md5sum re-verified identical to 14d341f8; mtime 17:38 pre-dates the pin write. Lesson encoded: hash comparisons must match the pinned algorithm; ledger now records both digests for the canonical model. Full falsifier battery re-established on current bytes: baseline full-bound violation (InvariantNoDropUnderPointer, 5445-state run, depth 9, /tmp/opencode/maint-BundleCommitLifecycle-pre.log) + Horizon=3 per-invariant fault/ctrl matrix 6/6 match (/tmp/opencode/r27-matrix-can2; controls ~320s each complete no-error; first timeouts were stale shared metadir contamination)."
+  },
+  "preventedArtifacts": [
+    {
+      "path": "internal/dataframe/publication/clickhouse/unpinned_page_read_e2e_test.go",
+      "sha256": "c64b56677eedbe078a7cb805455933bc06c7a57a37f30ae425eeb2bf9d8ee82d",
+      "verdictRun": "parent fb18-parent-run1 exit0",
+      "logs": [
+        "/tmp/opencode/fb18-parent-run1.log"
+      ],
+      "preventingLines": [
+        "bundle_store.go:1043",
+        "bundle_store.go:1068-1075",
+        "published/current.go:117/121"
+      ]
+    }
+  ],
+  "sideFindings": [
+    "F-B20 side: count-gate denies authorized callers on duplicate/empty AuthResourcePaths counts, concealed as RECIPE_EXECUTION_NOT_FOUND (availability, low)"
+  ],
+  "preventedBySurvey": [
+    "bulk-load client auth_resource_path stamping (AuthorizeWrite before staging, operations.go:60-62; strict membership scope_resolver.go:182-199)"
+  ]
+}

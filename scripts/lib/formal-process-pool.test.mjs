@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runProcessPool } from './formal-process-pool.mjs';
@@ -45,6 +45,20 @@ test('deadline terminates a SIGTERM-resistant child before rejecting', async t =
     });
     assert.equal(Number(readFileSync(ready, 'utf8')), childPid);
     assert.equal(running(childPid), false);
+});
+
+test('deadline cleanup proves detached descendants are terminated, reporting blocked signals', async t => {
+    const directory = temporary(t), out = join(directory, 'pids'), marker = `loom-pool-orphan-${process.pid}-${Date.now()}`;
+    const source = `const fs=require('node:fs'),{spawn}=require('node:child_process');const grand=spawn(process.execPath,['-e','setInterval(()=>{},1000)',process.argv[2]],{stdio:'ignore',detached:true});grand.unref();fs.writeFileSync(process.argv[1],JSON.stringify([process.pid,grand.pid]));setInterval(()=>{},1000)`;
+    await assert.rejects(runProcessPool([job('orphans', source, out, marker)], { timeoutMs: 750 }), error => error.code === 'ETIMEDOUT' && error.jobId === 'orphans');
+    const [childPid, grandPid] = JSON.parse(readFileSync(out, 'utf8'));
+    assert.equal(running(childPid), false, `timed-out child ${childPid} remains running`);
+    assert.equal(running(grandPid), false, `detached grandchild ${grandPid} survived cleanup`);
+    for (const name of readdirSync('/proc')) {
+        if (!/^\d+$/.test(name)) continue;
+        try { assert.ok(!readFileSync(`/proc/${name}/cmdline`, 'utf8').includes(marker), `marker process ${name} survived cleanup`); }
+        catch (error) { if (!['ENOENT', 'ESRCH', 'EACCES'].includes(error.code)) throw error; }
+    }
 });
 
 test('combined stdout and stderr are bounded and overflow cancels the producer', async () => {

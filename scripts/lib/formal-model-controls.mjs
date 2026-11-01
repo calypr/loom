@@ -1,5 +1,6 @@
 import { exclusionModelControls } from './formal-exclusion-replay.mjs';
 import { draftTransactionModelControls } from './formal-draft-transaction.mjs';
+import { coreProtocolModelControls } from './formal-core-protocol-replay.mjs';
 import { removalModelControls } from './formal-removal-replay.mjs';
 import { publicationModelControls } from './formal-publication-replay.mjs';
 import { populationModelControls } from './formal-population-replay.mjs';
@@ -8,6 +9,7 @@ import { acceptanceModelControls } from './formal-reconcile-replay.mjs';
 export const modelControls = {
     PopulationExclusion: exclusionModelControls,
     DraftSaveTransaction: draftTransactionModelControls,
+    CoreAuthoringProtocol: coreProtocolModelControls,
     PopulationRemoval: removalModelControls,
     PublicationAcknowledgement: publicationModelControls,
     PopulationMapping: populationModelControls,

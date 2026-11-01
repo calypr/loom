@@ -29,12 +29,12 @@ for (let i = 2; i < process.argv.length; i++) {
         options[key] = process.argv[++i];
     }
 }
-const groups = { 'population-exclusion': ['PopulationExclusion'], 'draft-transaction': ['DraftSaveTransaction'], all: Object.keys(modelControls), lifecycle: ['BuilderLifecycle', 'ApplySettlementRace'], reconcile: ['ReconcileLifecycle', 'ReconcileAcceptance', 'ReconcileRefresh'], 'publication-ack': ['PublicationAcknowledgement'], 'population-removal': ['PopulationRemoval'], 'population-mapping': ['PopulationMapping'], 'construction-chain': ['ConstructionChain'], 'reconcile-refresh': ['ReconcileRefresh'], 'reconcile-acceptance': ['ReconcileAcceptance'], 'apply-settlement': ['ApplySettlementRace'] };
+const groups = { 'population-exclusion': ['PopulationExclusion'], 'draft-transaction': ['DraftSaveTransaction'], 'core-protocol': ['CoreAuthoringProtocol'], all: Object.keys(modelControls), lifecycle: ['BuilderLifecycle', 'ApplySettlementRace'], reconcile: ['ReconcileLifecycle', 'ReconcileAcceptance', 'ReconcileRefresh'], 'publication-ack': ['PublicationAcknowledgement'], 'population-removal': ['PopulationRemoval'], 'population-mapping': ['PopulationMapping'], 'construction-chain': ['ConstructionChain'], 'reconcile-refresh': ['ReconcileRefresh'], 'reconcile-acceptance': ['ReconcileAcceptance'], 'apply-settlement': ['ApplySettlementRace'] };
 const mountedFamilyByModel = { BuilderLifecycle: 'BuilderLifecycle', ApplySettlementRace: 'BuilderLifecycle', ReconcileLifecycle: 'ReconcileLifecycle', ReconcileAcceptance: 'ReconcileLifecycle', ReconcileRefresh: 'ReconcileLifecycle' };
-const replayScriptByModel = { PopulationExclusion: 'scripts/lib/formal-exclusion-replay.mjs', DraftSaveTransaction: 'scripts/lib/formal-draft-transaction.mjs', PopulationRemoval: 'scripts/lib/formal-removal-replay.mjs', ApplySettlementRace: 'scripts/lib/formal-apply-replay.mjs', ReconcileAcceptance: 'scripts/lib/formal-reconcile-replay.mjs', ReconcileRefresh: 'scripts/lib/formal-recovery-replay.mjs', ConstructionChain: 'scripts/lib/formal-construction-replay.mjs', PopulationMapping: 'scripts/lib/formal-population-replay.mjs', PublicationAcknowledgement: 'scripts/lib/formal-publication-replay.mjs' };
+const replayScriptByModel = { PopulationExclusion: 'scripts/lib/formal-exclusion-replay.mjs', DraftSaveTransaction: 'scripts/lib/formal-draft-transaction.mjs', CoreAuthoringProtocol: 'scripts/lib/formal-core-protocol-replay.mjs', PopulationRemoval: 'scripts/lib/formal-removal-replay.mjs', ApplySettlementRace: 'scripts/lib/formal-apply-replay.mjs', ReconcileAcceptance: 'scripts/lib/formal-reconcile-replay.mjs', ReconcileRefresh: 'scripts/lib/formal-recovery-replay.mjs', ConstructionChain: 'scripts/lib/formal-construction-replay.mjs', PopulationMapping: 'scripts/lib/formal-population-replay.mjs', PublicationAcknowledgement: 'scripts/lib/formal-publication-replay.mjs' };
 const names = groups[options.model];
 const mountedFamilies = [...new Set((names || []).map(name => mountedFamilyByModel[name]).filter(Boolean))];
-assert.ok(names, '--model must be all, population-exclusion, draft-transaction, lifecycle, reconcile, reconcile-acceptance, reconcile-refresh, construction-chain, population-mapping, population-removal, publication-ack, or apply-settlement');
+assert.ok(names, '--model must be all, population-exclusion, draft-transaction, core-protocol, lifecycle, reconcile, reconcile-acceptance, reconcile-refresh, construction-chain, population-mapping, population-removal, publication-ack, or apply-settlement');
 assert.ok(options.phase !== 'generated' || names.some(name => Object.hasOwn(replayScriptByModel, name)), 'No generated-code adapter for selected model');
 assert.ok(['all', 'models', 'implementation', 'generated', 'controls', 'source-proofs', 'trace-controls', 'behavior', 'api', 'inventory', 'browser', 'journey'].includes(options.phase), 'Unknown --phase');
 assert.ok(!['implementation', 'trace-controls'].includes(options.phase) || mountedFamilies.length > 0, 'No mounted trace adapter for selected model; use generated for direct code replay');
@@ -301,6 +301,20 @@ async function draftTransactionGraph() {
     console.log(`Draft transaction production replay PASS: ${JSON.stringify(summary.draftTransactionReplay)}`);
     return draftTransactionGenerated;
 }
+let coreProtocolGenerated;
+async function coreProtocolGraph() {
+    if (coreProtocolGenerated) return coreProtocolGenerated;
+    const checked = summary.models.find(item => item.name === 'CoreAuthoringProtocol' && !item.control) || checkModel('CoreAuthoringProtocol', modelDirectory);
+    const directory = join(reportDirectory, 'core-protocol-replay');
+    const replay = spawnSync(process.execPath, [join(root, replayScriptByModel.CoreAuthoringProtocol), '--generate', directory], { cwd: root, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
+    assert.ifError(replay.error);
+    assert.equal(replay.status, 0, replay.stdout + replay.stderr);
+    coreProtocolGenerated = JSON.parse(readFileSync(join(directory, 'graph.json'), 'utf8'));
+    assert.equal(coreProtocolGenerated.states.length, checked.states?.distinct ?? checked.states, 'Core protocol graph differs from fully checked model');
+    summary.coreProtocolReplay = JSON.parse(replay.stdout);
+    console.log(`Core authoring protocol production replay PASS: ${JSON.stringify(summary.coreProtocolReplay)}`);
+    return coreProtocolGenerated;
+}
 function attachmentReplay() {
     const directory = join(reportDirectory, 'attachment-replay');
     const result = spawnSync(process.execPath, [join(root, 'scripts/lib/formal-population-attachment.mjs'), '--generate', directory], { cwd: root, encoding: 'utf8', timeout: verificationTimeoutMs, maxBuffer: 8 * 1024 * 1024 });
@@ -311,6 +325,7 @@ function attachmentReplay() {
 const sourceGraphAdapters = {
     'exclusion-replay': { ensure: populationExclusionGraph, file: 'exclusion-replay/graph.json' },
     'draft-transaction-replay': { ensure: draftTransactionGraph, file: 'draft-transaction-replay/graph.json' },
+    'core-protocol-replay': { ensure: coreProtocolGraph, file: 'core-protocol-replay/graph.json' },
     ownership: { ensure: graph, file: 'model-graph.json' },
     'reconcile-acceptance': { ensure: acceptanceGraph, file: 'acceptance-replay/graph.json' },
     'recovery-replay': { ensure: recoveryGraph, file: 'recovery-replay/graph.json' },
@@ -384,6 +399,7 @@ try {
     if (!options.modelsOnly && ['all', 'generated'].includes(options.phase) && names.includes('PopulationRemoval')) await removalGraph();
     if (!options.modelsOnly && ['all', 'generated'].includes(options.phase) && names.includes('PublicationAcknowledgement')) await publicationGraph();
     if (!options.modelsOnly && ['all', 'generated'].includes(options.phase) && names.includes('DraftSaveTransaction')) await draftTransactionGraph();
+    if (!options.modelsOnly && ['all', 'generated'].includes(options.phase) && names.includes('CoreAuthoringProtocol')) await coreProtocolGraph();
     if (!options.modelsOnly && ['all', 'generated'].includes(options.phase) && names.includes('PopulationExclusion')) await populationExclusionGraph();
     if (!options.modelsOnly && ['all', 'implementation', 'trace-controls'].includes(options.phase)) {
         const { checkMountedImplementation } = await import('./lib/formal-implementation-conformance.mjs');
@@ -448,6 +464,7 @@ finally {
         generatedProductionReplay: [
             ...(summary.exclusionReplay ? [{ model: 'PopulationExclusion', boundary: summary.exclusionReplay.boundary, coverage: summary.exclusionReplay }] : []),
             ...(summary.draftTransactionReplay ? [{ model: 'DraftSaveTransaction', boundary: summary.draftTransactionReplay.boundary, coverage: summary.draftTransactionReplay }] : []),
+            ...(summary.coreProtocolReplay ? [{ model: 'CoreAuthoringProtocol', boundary: summary.coreProtocolReplay.boundary, coverage: summary.coreProtocolReplay }] : []),
             ...(summary.attachmentReplay ? [{ kind: 'bounded-public-code', check: 'PopulationAttachment', boundary: summary.attachmentReplay.boundary, coverage: summary.attachmentReplay }] : []),
             ...(summary.generated ? [{ model: 'ApplySettlementRace', boundary: 'actual synchronous Apply ownership code', coverage: summary.generated }] : []),
             ...(summary.acceptanceReplay ? [{ model: 'ReconcileAcceptance', boundary: 'actual synchronous response classifier; not async React histories', coverage: summary.acceptanceReplay }] : []),

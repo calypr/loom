@@ -3,6 +3,10 @@ const owner = (value) => value === 'none' ? 'no owner' : value;
 export const state = (v) => {
     if ('exclusionPhase' in v) return `Population exclusion ${v.exclusionPhase}; local ${v.localBase}/v${v.localVersion}; server ${v.serverBase}/v${v.serverVersion}; context ${v.contextKind}; attached ${v.hostAttached}; change ${v.changeKind}; route requests ${v.routeCalls}; submitted ${v.submitted}`;
     if ('transactionResult' in v) return `SaveDraft ${v.phase}; staged history ${v.stagedHistory}, staged head ${v.stagedHead}; committed history ${v.history}, committed head ${v.head}; transaction ${v.transactionResult}; returned ${v.result}${v.backendConflict ? '; backend write conflict retained' : ''}`;
+    if ('rStatus' in v) {
+        const set = value => `{${(Array.isArray(value) ? value : []).join(', ')}}`;
+        return `Reconcile ${v.rStatus} for head ${v.rTarget}, captured ${v.rCaptured}; save ${v.sStatus} of head ${v.sTarget}; head ${v.headVersion}; receipts ${set(v.receipts)}; previews executed ${set(v.previewExecuted)}, echo ${v.previewEcho}; client head ${v.clientCurrent}; admitted ${owner(v.admitted)}`;
+    }
     if ('removalInput' in v) return `Removal ${v.removalPhase}; receipt ${v.removalInput.receiptMatches}; provenance ${v.removalInput.provenanceMatches}; authorization ${v.removalInput.authorizationMatches}; preview ${v.removalInput.previewCompletes}; competing write ${v.removalInput.concurrentDraftChange}; accepted ${v.accepted}; preview calls ${v.previewCalls}; save attempts ${v.saveAttempts}; writes ${v.successfulSaves}; preserved head ${v.preservedHead}; exact candidate ${v.exactCandidate}; conflict ${v.conflict}`;
     if ('acknowledgementInput' in v) {
         const input = v.acknowledgementInput;
@@ -86,6 +90,11 @@ const abstractLabels = {
     StartReconcile: 'start reconcile', ChangeWorkspace: 'edit workspace', ChangeSnapshot: 'change catalog snapshot', ChangeOutput: 'change selected output',
     ResponseArrives: 'reconcile response arrives', StaleSnapshotFailure: 'snapshot is stale', SuccessCurrent: 'accept matching receipt', ReceiptMismatch: 'reject mismatched receipt', StaleResultIgnored: 'ignore old result',
     RetryableFailure: 'request fails', Retry: 'retry [budget remains]', RefreshAndRetry: 'refresh and retry [budget remains]', GiveUpForRepair: 'stop [budget exhausted]',
+    REntry: 'entry CAS accepts reconcile or rejects stale identity', RCapture: 'captured head enters compilation',
+    RPersist: 'immutable receipt persisted', RComplete: 'reconcile returns the captured receipt',
+    SCommit: 'save commits; dispatch cancels in-flight and admitted previews', SCommitStale: 'stale save rejected; click still cancels previews',
+    SAck: 'save ack rebuilds client state without the admitted preview',
+    Preview: 'execute a persisted receipt', Admit: 'admit echoed receipt to the preview display',
 };
 const observedLabels = {
     'propose-construction': 'request proposal', 'proposal-response': 'proposal returns', 'begin-apply': 'begin Apply',
@@ -103,7 +112,7 @@ export const step = (action, _from, to) => {
         ? to.observation.event === 'finish-apply'
             ? `${to.observation.actorReceipt || 'Apply'} ${to.observation.completionObserved && !to.observation.completionAccepted ? 'completion ignored' : 'completes'}`
             : observedLabels[to.observation.event]
-        : abstractLabels[action];
+        : abstractLabels[action] ?? abstractLabels[action.split('/')[0].split('(')[0]];
     if (!label)
         throw new Error(`No reader label for ${action}/${to.observation?.event ?? ''}`);
     return label;

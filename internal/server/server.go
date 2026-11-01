@@ -553,6 +553,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("create dataframe bundle store: %w", err)
 		}
+		bundleStore.SetActiveReleaseReader(lifecycleStore)
 		if err := bundleStore.Reconcile(ctx, time.Now().UTC().Add(-2*time.Minute)); err != nil {
 			degradation = recordDegradation(logger, degradation, "dataframe publication reconciliation", err)
 			publicationReady = false

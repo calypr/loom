@@ -23,6 +23,13 @@ func (c publishCaptureClient) InsertBatchRaw(context.Context, string, []json.Raw
 	return nil
 }
 
+func (c publishCaptureClient) WithTransaction(ctx context.Context, collections arangostore.TransactionCollections, fn arangostore.TransactionFunc) error {
+	if len(collections.Write) != 3 || collections.Write[0] != BundleExecutionsCollection || collections.Write[1] != BundlePointersCollection || collections.Write[2] != BundleLeasesCollection {
+		c.testing.Fatalf("publish transaction must declare executions+pointers+leases as write collections, got %#v", collections)
+	}
+	return fn(ctx, c)
+}
+
 func (c publishCaptureClient) QueryRows(_ context.Context, query string, _ int, bindVars map[string]interface{}, visit arangostore.RowVisitor) error {
 	for _, fragment := range []string{"LET lease = DOCUMENT(@@leases, @leaseKey)", "lease.ownerId == @owner", "lease.expiresAt >= @now"} {
 		if !strings.Contains(query, fragment) {

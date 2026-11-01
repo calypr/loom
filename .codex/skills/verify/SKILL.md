@@ -43,6 +43,17 @@ Discover the running project with `docker compose ls --all`. Inspect it with `do
 
 ## Failure-loop discipline
 
+### First-failure capture
+
+Never re-run a full suite to reveal error output, and never run the whole suite
+for one tiny change. On a failing broad run: preserve the evidence directory,
+capture the complete log and the runner's exit code once, identify the first
+actionable failure, and inspect its cause. After a targeted fix, run the
+smallest relevant check, not the suite. Repeat the broad suite only when
+focused checks justify it. Delegate independent investigations when useful,
+but keep implementation ownership separate from investigation ownership. Do not
+change timeouts unless the failure is established to actually be a timeout.
+
 ### Batch scheduling
 
 Use `docs/BUILDER_WORKLIST.md` and `docs/BUILDER_WORKLIST.tsv` as the active

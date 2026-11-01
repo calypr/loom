@@ -27,6 +27,11 @@ export const apiChecks = [
         'TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP',
         'TestConstructionProposalRelatedCodingGroupReconcilesReceiptMetadataHTTP',
     ], boundary },
+    { id: 'core-protocol', title: 'Builder hydration, CAS save, reconcile receipt and receipt-bound preview identities with a competing-save schedule', package: './internal/server', tests: [
+        'TestCoreAuthoringProtocolVerticalWitness',
+        'TestCoreAuthoringProtocolCompetingSaveDuringReconcile',
+        'TestCoreAuthoringProtocolErrorBoundaries',
+    ], boundary: 'public authoring HTTP routes through the production generated strict adapter, production handlers, lifecycle reconcile/preview service, real compile chain and persisted receipt store with the established test-owned service seams and in-memory store; identities are the ones the production UI client sends; competing save is committed inside the compile seam after entry CAS validation; error boundaries report typed failures without publishing partial state, retained receipts distinguished from newly accepted; no Arango durability, browser, or row-semantics claim' },
 ];
 export function serviceProfileEvidence({ phase, feature, checks = [] }) {
     return apiChecks.filter(check => check.integration).map(({ id, requiredEnvironment, boundary }) => {

@@ -72,7 +72,15 @@ const mockLoomClient = vi.hoisted(() => ({
   browseSemanticInventory: vi.fn(),
 }));
 const mockLoomClientReference = vi.hoisted(() => ({ current: undefined as unknown }));
-const mockRelatedExpandOwnerState = vi.hoisted(() => ({ enabled: false }));
+const mockRelatedExpandOwnerState = vi.hoisted(() => ({
+  enabled: false,
+  owner: null as null | {
+    readonly draftVersion: number;
+    readonly draftDigest: string;
+    readonly pauseAndDrain: () => Promise<void>;
+    readonly resume: () => void;
+  },
+}));
 const mockUseActualReshapeEditor = vi.hoisted(() => ({ enabled: false }));
 const mockUseActualReconcile = vi.hoisted(() => ({ enabled: false, isLoading: false }));
 const mockReconcileMutation = vi.hoisted(() => vi.fn());
@@ -347,8 +355,9 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', async (importOrigi
   }: Parameters<typeof actual.ConstructionReshapeEditor>[0]) => {
     React.useImperativeHandle<RelatedExpandQueryOwner | null, RelatedExpandQueryOwner | null>(
       relatedExpandQueryOwnerRef ?? null,
-      () => mockRelatedExpandOwnerState.enabled ? mockRelatedExpandQueryOwner : null,
-      [relatedExpandQueryOwnerRef, mockRelatedExpandOwnerState.enabled],
+      () => mockRelatedExpandOwnerState.owner ??
+        (mockRelatedExpandOwnerState.enabled ? mockRelatedExpandQueryOwner : null),
+      [relatedExpandQueryOwnerRef, mockRelatedExpandOwnerState.enabled, mockRelatedExpandOwnerState.owner],
     );
     return (
       <div
@@ -2109,6 +2118,85 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
     expect(mockRelatedExpandQueryOwner.resume).not.toHaveBeenCalled();
 
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    mockLoomClient.proposeConstruction.mockClear();
+  });
+
+  // C04 scope note: the finally-guard's identity clauses (version/digest) are
+  // defense-in-depth behind the owner-identity clause. serverDraft.current
+  // only advances from a settled command response (BuilderWorkspace.tsx:836
+  // and the :696 render sync key), so a third-party commit observed via GET
+  // mid-command never reaches the guard mid-await; the stale-identity skip is
+  // proven at the queue level by the C02 drain-time-identity driver case.
+  const resetC04OwnerMocks = () => {
+    // The proposal-opening phase can settle its own commands; the guard legs
+    // below must observe only the owner activity of the command they click.
+    mockRelatedExpandOwnerState.owner = null;
+    mockRelatedExpandQueryOwner.resume.mockReset();
+    mockRelatedExpandQueryOwner.pauseAndDrain.mockReset();
+    mockRelatedExpandQueryOwner.pauseAndDrain.mockImplementation(async () => undefined);
+    mockRelatedExpandQueryOwner.resume.mockImplementation(() => undefined);
+  };
+
+  it('does not resume the failed command query owner after the owner instance is replaced', async () => {
+    const { view } = await openPivotPresentationProposal();
+    resetC04OwnerMocks();
+    let rejectCommand: ((error: unknown) => void) | undefined;
+    const failure = new Promise<never>((_resolve, reject) => { rejectCommand = reject; });
+    applyCommands.mockImplementation(() => ({ unwrap: vi.fn(() => failure), abort: vi.fn() }));
+
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mockRelatedExpandQueryOwner.pauseAndDrain).toHaveBeenCalledOnce());
+    expect(mockRelatedExpandQueryOwner.resume).not.toHaveBeenCalled();
+
+    // Replace the route query owner instance (new imperative handle) while
+    // the command await is still open. Same identity fields: only the object
+    // changes, so a guard that compared version/digest alone would wrongly
+    // resume.
+    const replacementOwner = {
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      pauseAndDrain: vi.fn<() => Promise<void>>(async () => undefined),
+      resume: vi.fn(),
+    };
+    mockRelatedExpandOwnerState.owner = replacementOwner;
+    view.rerender(<BuilderWorkspace project="project-a" explorerId="test" />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+    await act(async () => {
+      rejectCommand?.(Object.assign(new Error('Temporary command failure.'), { code: 'TEST_FAILURE' }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(replacementOwner.resume).not.toHaveBeenCalled();
+    expect(mockRelatedExpandQueryOwner.resume).not.toHaveBeenCalled();
+    mockRelatedExpandOwnerState.owner = null;
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    mockLoomClient.proposeConstruction.mockClear();
+  });
+
+  it('resumes an unchanged owner once when the failed command returns before any replacement', async () => {
+    // Positive control for the two skip legs above: with the same owner
+    // instance and untouched identity, the failure path resumes exactly once.
+    const { view } = await openPivotPresentationProposal();
+    resetC04OwnerMocks();
+    let rejectCommand: ((error: unknown) => void) | undefined;
+    const failure = new Promise<never>((_resolve, reject) => { rejectCommand = reject; });
+    applyCommands.mockImplementation(() => ({ unwrap: vi.fn(() => failure), abort: vi.fn() }));
+
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mockRelatedExpandQueryOwner.pauseAndDrain).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      rejectCommand?.(Object.assign(new Error('Temporary command failure.'), { code: 'TEST_FAILURE' }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => expect(mockRelatedExpandQueryOwner.resume).toHaveBeenCalledOnce());
     view.unmount();
     await new Promise((resolve) => setTimeout(resolve, 0));
     mockLoomClient.proposeConstruction.mockClear();

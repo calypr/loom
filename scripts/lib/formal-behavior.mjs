@@ -7,7 +7,8 @@ import { root } from './formal-tools.mjs';
 // A partition of existing suites, not a claim that every test is a formal proof.
 export const features = [
     { id: 'ownership', model: ['BuilderLifecycle', 'ApplySettlementRace'], pattern: /^src\/features\/ExplorerBuilder\/constructionWorkspace\/useConstructionLifecycle\./ },
-    { id: 'drafts', model: ['ReconcileLifecycle', 'ReconcileAcceptance', 'ReconcileRefresh', 'PublicationAcknowledgement'], pattern: /^src\/features\/ExplorerBuilder\/(authoring\/|BuilderWorkspace\.)/ },
+    { id: 'core-protocol', model: [], pattern: /^src\/features\/ExplorerBuilder\/BuilderWorkspace\.coreProtocol\./ },
+    { id: 'drafts', model: ['ReconcileLifecycle', 'ReconcileAcceptance', 'ReconcileRefresh', 'PublicationAcknowledgement'], pattern: /^src\/features\/ExplorerBuilder\/(authoring\/|BuilderWorkspace\.(?!coreProtocol\.))/ },
     { id: 'construction', model: ['ConstructionChain'], pattern: /^(src\/features\/ExplorerBuilder\/(constructionOperations\/|constructionWorkspace\/(?!useConstructionLifecycle\.))|testSupport\/)/ },
     { id: 'tables', model: [], pattern: /^src\/features\/(ExplorerViewer\/|ExplorerBuilder\/(?!authoring\/|BuilderWorkspace\.|constructionOperations\/|constructionWorkspace\/))/ },
     { id: 'contracts', model: [], pattern: /^src\/(?!features\/)/ },
