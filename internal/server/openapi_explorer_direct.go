@@ -21,6 +21,7 @@ type explorerLegacyOperationError struct {
 	status      int
 	code        string
 	message     string
+	details     map[string]any
 	stringValue bool
 	cause       error
 }
@@ -70,7 +71,14 @@ func lifecycleLegacyFailure(err error) error {
 	case lifecycle.ClassUnavailable:
 		status = http.StatusServiceUnavailable
 	}
-	return legacyOperationFailure(status, value.Code, value.Message, err)
+	return legacyOperationFailureDetails(status, value.Code, value.Message, value.Details, err)
+}
+
+// legacyOperationFailureDetails keeps the lifecycle-error details (explicit
+// retryability and other safe structured diagnostics) so the legacy encoder can
+// emit them; the contract forbids clients inferring retryability from status.
+func legacyOperationFailureDetails(status int, code, message string, details map[string]any, cause error) error {
+	return &explorerLegacyOperationError{status: status, code: code, message: message, details: details, cause: cause}
 }
 
 func explorerLegacyResponse(err error) (int, loomapi.LegacyErrorResponse) {
@@ -91,7 +99,11 @@ func explorerLegacyResponse(err error) (int, loomapi.LegacyErrorResponse) {
 			return operation.status, response
 		}
 		var response loomapi.LegacyErrorResponse
-		_ = response.Error.FromLegacyErrorBody(loomapi.LegacyErrorBody{Code: code, Message: message})
+		body := loomapi.LegacyErrorBody{Code: code, Message: message}
+		if len(operation.details) > 0 {
+			body.AdditionalProperties = map[string]interface{}{"details": operation.details}
+		}
+		_ = response.Error.FromLegacyErrorBody(body)
 		return operation.status, response
 	}
 	var response loomapi.LegacyErrorResponse
@@ -214,8 +226,7 @@ func (r *explorerHTTPHandlers) publishRepositoryExplorerConfig(ctx context.Conte
 	}
 	value, err := r.application.PublishRepository(ctx, lifecycle.RepositoryPublishRequest{Project: project, Generation: generation, Workspace: workspace, Commit: commit, Actor: subjectFromContext(ctx)})
 	if err != nil {
-		status, legacy := explorerLegacyResponse(lifecycleLegacyFailure(err))
-		return result, legacyStringFailure(status, legacyErrorMessage(legacy), err)
+		return result, lifecycleLegacyFailure(err)
 	}
 	return loomapi.PublishRepositoryExplorerConfig200JSONResponse(loomapi.RawJSON{"project": project, "generation": generation, "explorerId": "default", "receiptId": value.Receipt.ID, "revisionId": value.Revision.ID, "executionId": value.Execution.ID, "recipe": value.Receipt.Bundle.Name, "translationVersion": value.Receipt.Bundle.TranslationVersion, "activated": true}), nil
 }
