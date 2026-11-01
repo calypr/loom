@@ -81,6 +81,13 @@ func (e *ReleaseRequirementsError) Error() string {
 }
 func (e *ReleaseRequirementsError) Unwrap() error { return ErrReleaseRequirementsUnmet }
 
+// ErrPublicationRecordMissing marks a deterministic absence of the durable
+// publication record for a selector. The publication store maps its not-found
+// sentinel to this error so release activation can separate permanent contract
+// misses (typed requirements failures, non-retryable) from transient
+// verification-store faults (plain errors, retryable by clients).
+var ErrPublicationRecordMissing = errors.New("publication record is missing for selector")
+
 type PublicationVerifier interface {
 	VerifyPublication(context.Context, string, string, DataframeSelector) (PublicationVerification, error)
 }
@@ -179,6 +186,12 @@ func (s ReleaseService) Create(ctx context.Context, request ActivationRequest) (
 		verification, verifyErr := s.Verifier.VerifyPublication(ctx, ref.Project, ref.Generation, selector)
 		contract := contractVerification(selector, verification, verifyErr)
 		verifications = append(verifications, contract)
+		if verifyErr != nil && !errors.Is(verifyErr, ErrPublicationRecordMissing) {
+			// A verification-store fault is not a contract verdict: keep it a
+			// plain error so callers classify it retryable/unavailable instead
+			// of telling the client to fix data that is already correct.
+			return ProjectRelease{}, fmt.Errorf("publication verification store fault for required selector %s: %w", selector.Key(), verifyErr)
+		}
 		if verifyErr != nil || verification.Selector != selector || verification.State != "PUBLISHED" || !verification.Queryable || verification.Generation != ref.Generation {
 			contract.ErrorCode = "RELEASE_REQUIREMENTS_UNMET"
 			failed = append(failed, contract)
