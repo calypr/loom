@@ -915,14 +915,16 @@ const requestError = async (
   const payloadRequestId = typeof nested.requestId === 'string'
     ? nested.requestId
     : typeof record.requestId === 'string' ? record.requestId : undefined;
+  const details = isRecord(nested.details) ? nested.details : undefined;
+  const explicitRetryable = typeof details?.retryable === 'boolean' ? details.retryable : undefined;
   return {
     status: response.status,
     code,
     message,
     diagnostics: diagnosticsFrom(nested.diagnostics),
     requestId: responseRequestId?.trim() || payloadRequestId?.trim() || callerRequestId,
-    details: isRecord(nested.details) ? nested.details : undefined,
-    retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+    details,
+    retryable: explicitRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),
   };
 };
 
