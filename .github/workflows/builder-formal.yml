@@ -56,6 +56,8 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Bootstrap pinned formal tools
         run: node scripts/setup-formal-tools.mjs
+      - name: Replay model-generated core authoring protocol schedules
+        run: node scripts/verify-builder-formal-core.mjs --phase generated --model core-protocol --out /tmp/loom-core-protocol-replay-ci
       - name: Check framework rejection paths
         run: node --test scripts/lib/formal-framework.test.mjs
       - name: Check all scoped promises and controls
@@ -69,6 +71,7 @@ jobs:
           name: formal-verification
           path: |
             /tmp/loom-formal-ci
+            /tmp/loom-core-protocol-replay-ci
             /tmp/loom-recovered-journeys-ci
           if-no-files-found: warn
 

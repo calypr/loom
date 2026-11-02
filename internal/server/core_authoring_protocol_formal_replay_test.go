@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -57,6 +58,10 @@ const (
 	// coreProtocolReplayArangoURLEnv is the same owned-stack endpoint contract
 	// TestCoreAuthoringProtocolAgainstArango uses; absent means map-store mode.
 	coreProtocolReplayArangoURLEnv = "LOOM_TEST_ARANGO_URL"
+
+	coreProtocolReplayOwningStep    = "Replay model-generated core authoring protocol schedules"
+	coreProtocolReplayOwningCommand = "node scripts/verify-builder-formal-core.mjs --phase generated --model core-protocol"
+	coreProtocolReplayNotThisMode   = "core authoring protocol replay executes only under the harness: the required step \"" + coreProtocolReplayOwningStep + "\" in .github/workflows/builder-formal.yml runs `" + coreProtocolReplayOwningCommand + " --out <dir>` (adapter scripts/lib/formal-core-protocol-replay.mjs); ordinary go test carries no replay fixtures, and deleting that step or its harness wiring fails the Go unit tests job through TestCoreAuthoringProtocolReplayHarnessWired"
 
 	coreProtocolReplayProject         = "project-a"
 	coreProtocolReplayExplorerID      = "core-protocol"
@@ -706,6 +711,9 @@ type coreProtocolReplayWitnessRow struct {
 func TestCoreAuthoringProtocolModelReplay(t *testing.T) {
 	inputPath := os.Getenv(coreProtocolReplayInputEnv)
 	outputPath := os.Getenv(coreProtocolReplayOutputEnv)
+	if inputPath == "" && outputPath == "" {
+		t.Skip(coreProtocolReplayNotThisMode)
+	}
 	if inputPath == "" || outputPath == "" {
 		t.Fatalf("%s and %s must name the replay case input and observation output", coreProtocolReplayInputEnv, coreProtocolReplayOutputEnv)
 	}
@@ -1123,5 +1131,47 @@ func TestCoreAuthoringProtocolConcretePrefixReplay(t *testing.T) {
 	}
 	if err := os.Rename(temporaryPath, outputPath); err != nil {
 		t.Fatalf("publish concrete observations: %v", err)
+	}
+}
+
+func TestCoreAuthoringProtocolReplayHarnessWired(t *testing.T) {
+	start, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve working directory: %v", err)
+	}
+	workflowPath := ""
+	for current := start; ; {
+		candidate := filepath.Join(current, ".github", "workflows", "builder-formal.yml")
+		if _, err := os.Stat(candidate); err == nil {
+			workflowPath = candidate
+			break
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			t.Fatalf("locate .github/workflows/builder-formal.yml from %s", start)
+		}
+		current = parent
+	}
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read required replay owner %s: %v", workflowPath, err)
+	}
+	for _, required := range []string{coreProtocolReplayOwningStep, coreProtocolReplayOwningCommand} {
+		if !strings.Contains(string(workflow), required) {
+			t.Fatalf("%s must keep the required step %q running %q; without it the core authoring protocol replay loses its owning enforcement step", workflowPath, coreProtocolReplayOwningStep, coreProtocolReplayOwningCommand)
+		}
+	}
+	harnessPath := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(workflowPath))), "scripts", "verify-builder-formal-core.mjs")
+	harness, err := os.ReadFile(harnessPath)
+	if err != nil {
+		t.Fatalf("read harness %s: %v", harnessPath, err)
+	}
+	for _, required := range []string{
+		"CoreAuthoringProtocol: 'scripts/lib/formal-core-protocol-replay.mjs'",
+		"['all', 'generated'].includes(options.phase) && names.includes('CoreAuthoringProtocol')) await coreProtocolGraph()",
+	} {
+		if !strings.Contains(string(harness), required) {
+			t.Fatalf("%s must keep the model-generated core protocol replay wired to scripts/lib/formal-core-protocol-replay.mjs; missing %q means the required replay silently stops executing", harnessPath, required)
+		}
 	}
 }
