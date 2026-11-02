@@ -2,6 +2,7 @@ package arango
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,12 +10,25 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 )
 
+// ErrAllGenerationsWithGeneration reports the unsupported option combination
+// of AllGenerations with a selected dataset generation. The all-generations
+// discovery query ignores @dataset_generation, so accepting both would
+// silently drop the caller's generation selection (F-2).
+var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with a selected datasetGeneration")
+
 func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+	if err := ValidateAuthResourcePathOptions(opts); err != nil {
+		return nil, err
+	}
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
 	}
 	result := make([]string, 0, 16)
-	err := s.client.QueryRows(ctx, existingAuthResourcePathsAQL, opts.CursorBatch, map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration)}, func(row map[string]any) error {
+	query := existingAuthResourcePathsAQL
+	if opts.AllGenerations {
+		query = existingAuthResourcePathsAllGenerationsAQL
+	}
+	err := s.client.QueryRows(ctx, query, opts.CursorBatch, map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration)}, func(row map[string]any) error {
 		if value := stringValue(row["auth_resource_path"]); value != "" {
 			result = append(result, value)
 		}
@@ -143,6 +157,34 @@ const existingAuthResourcePathsAQL = `
 FOR d IN fhir_field_catalog
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
+  FILTER d.auth_resource_path != null AND d.auth_resource_path != ""
+  COLLECT auth_resource_path = d.auth_resource_path
+  SORT auth_resource_path
+  RETURN { auth_resource_path: auth_resource_path }`
+
+// The scoped filter treats a null @dataset_generation as "rows without a
+// generation" (Arango == null matches missing), not "any generation".
+// Project-level write authorization needs the union across generations, so it
+// opts in via AuthResourcePathOptions.AllGenerations instead of changing the
+// semantics of the existing generation-scoped query (F-B27).
+// ValidateAuthResourcePathOptions rejects option combinations whose meaning
+// the discovery queries cannot express. AllGenerations asks for the union over
+// every dataset generation while the generation-scoped query binds
+// @dataset_generation, so a non-empty generation alongside AllGenerations is
+// contradictory and must be refused rather than silently ignored. Whitespace
+// only generations follow the optional-field convention and remain valid, as
+// the project-level write authorization caller (authscope) sends exactly that
+// shape.
+func ValidateAuthResourcePathOptions(opts catalog.AuthResourcePathOptions) error {
+	if opts.AllGenerations && catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) != "" {
+		return fmt.Errorf("%w: datasetGeneration %q must be empty when AllGenerations is set", ErrAllGenerationsWithGeneration, opts.DatasetGeneration)
+	}
+	return nil
+}
+
+const existingAuthResourcePathsAllGenerationsAQL = `
+FOR d IN fhir_field_catalog
+  FILTER d.project == @project
   FILTER d.auth_resource_path != null AND d.auth_resource_path != ""
   COLLECT auth_resource_path = d.auth_resource_path
   SORT auth_resource_path

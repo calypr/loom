@@ -59,6 +59,32 @@ func (s ReadScope) Unrestricted() bool {
 	return s.Mode == ReadScopeUnrestricted
 }
 
+// CoversExecutionPaths reports whether this restricted read scope authorizes
+// every non-blank auth resource path an execution declares. A scope that
+// declares no paths, or an execution that declares only blank paths, is not a
+// resolved authorization for that execution. The two execution-status twins
+// use this single set rule, instead of a path-count comparison, as their
+// defense-in-depth gate against resolver drift.
+func (s ReadScope) CoversExecutionPaths(executionAuthResourcePaths []string) bool {
+	if s.Mode != ReadScopeRestricted {
+		return false
+	}
+	declared := normalizeAuthResourcePathList(executionAuthResourcePaths)
+	if len(declared) == 0 {
+		return false
+	}
+	allowed := make(map[string]struct{}, len(s.AuthResourcePaths))
+	for _, path := range normalizeAuthResourcePathList(s.AuthResourcePaths) {
+		allowed[path] = struct{}{}
+	}
+	for _, path := range declared {
+		if _, ok := allowed[path]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Clone returns an independent copy suitable for passing between request
 // layers without sharing a resolver-owned path slice.
 func (s ReadScope) Clone() ReadScope {
@@ -81,6 +107,20 @@ type cachedPaths struct {
 type scopeCacheKey struct {
 	project           string
 	datasetGeneration string
+	// allGenerations separates the single project-level entry (the
+	// auth_resource_path union that AuthorizeWrite uses to bind a write to its
+	// target project, F-B27) from the per-generation entries that read and
+	// write scope resolution use. The discriminator is part of the key type, so
+	// the two namespaces cannot overlap: no datasetGeneration value, and in
+	// particular not the "\x00all-generations" literal that the first F-B27 fix
+	// reserved inside this keyspace, can address the project-level entry. That
+	// matters because a caller chooses datasetGeneration: read-path generations
+	// arrive on request payloads and catalog.NormalizeDatasetGeneration only
+	// TrimSpace's them (the charset gate, publish's validateOpaqueIdentifier,
+	// runs on the write side only). Such a generation is therefore just an
+	// ordinary allGenerations=false key that the project-write-binding lookup
+	// never consults.
+	allGenerations bool
 }
 
 type BearerTokenAuthenticator struct{}
@@ -193,7 +233,25 @@ func (r *ScopeResolver) AuthorizeWrite(ctx context.Context, principal *Principal
 	normalized := NormalizeAuthResourcePath(authResourcePath)
 	for _, path := range callerPaths {
 		if path == normalized {
-			return nil
+			// F-B27: path membership alone lets a principal holding one
+			// project's path publish/activate into any other project,
+			// because `project` never constrains this decision. Bind the
+			// grant to the target project: the path must be one the project
+			// itself has recorded. A project with no catalog paths yet keeps
+			// first-generation bootstrap (no evidence to compare against).
+			projectPaths, err := r.listExistingPathsAllGenerations(ctx, project)
+			if err != nil {
+				return err
+			}
+			if len(projectPaths) == 0 {
+				return nil
+			}
+			for _, recorded := range projectPaths {
+				if recorded == normalized {
+					return nil
+				}
+			}
+			return fmt.Errorf("%w: auth_resource_path %q is not a recorded auth path of project %q", ErrForbidden, normalized, project)
 		}
 	}
 	return fmt.Errorf("%w: auth_resource_path %q is outside caller scope for project %q", ErrForbidden, normalized, project)
@@ -303,7 +361,10 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 	if project == "" {
 		return []string{}, nil
 	}
-	key := scopeCacheKey{project: project, datasetGeneration: datasetGeneration}
+	// A generation-scoped lookup is the false half of the discriminator, so it
+	// can never be answered from (nor overwrite) the project-write-binding
+	// entry, whatever bytes the caller supplied as its generation.
+	key := scopeCacheKey{project: project, datasetGeneration: datasetGeneration, allGenerations: false}
 	now := time.Now()
 	r.mu.RLock()
 	entry, ok := r.cache[key]
@@ -317,6 +378,49 @@ func (r *ScopeResolver) listExistingPaths(ctx context.Context, project, datasetG
 	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
 		Project:           projectid.Legacy(project),
 		DatasetGeneration: datasetGeneration,
+	})
+	if err != nil {
+		return nil, err
+	}
+	paths = normalizeAuthResourcePathList(paths)
+	r.mu.Lock()
+	r.cache[key] = cachedPaths{
+		paths:     cloneStrings(paths),
+		expiresAt: now.Add(r.cacheTTL),
+	}
+	r.mu.Unlock()
+	return paths, nil
+}
+
+// listExistingPathsAllGenerations returns the project's recorded auth paths
+// across every dataset generation for project-level write authorization
+// (F-B27). It is the only writer of an allGenerations=true cache key, whose
+// generation half stays empty because the listing is not scoped to one
+// generation. The discriminator, not a reserved generation string, is what
+// keeps this entry unaddressable from the caller-supplied generation keyspace
+// (see scopeCacheKey), so the collision class that let a restricted caller
+// poison the project binding is eliminated structurally. It fails closed like
+// the generation-scoped path so an unavailable catalog cannot silently
+// downgrade the project binding to the vulnerable pre-repair posture.
+func (r *ScopeResolver) listExistingPathsAllGenerations(ctx context.Context, project string) ([]string, error) {
+	project = projectid.Canonical(project)
+	if project == "" {
+		return nil, fmt.Errorf("%w: project is required for project-level write authorization", ErrAuthorizationBackendUnavailable)
+	}
+	key := scopeCacheKey{project: project, datasetGeneration: "", allGenerations: true}
+	now := time.Now()
+	r.mu.RLock()
+	entry, ok := r.cache[key]
+	r.mu.RUnlock()
+	if ok && now.Before(entry.expiresAt) {
+		return cloneStrings(entry.paths), nil
+	}
+	if r.listExisting == nil {
+		return nil, ErrAuthorizationBackendUnavailable
+	}
+	paths, err := r.listExisting(ctx, catalog.AuthResourcePathOptions{
+		Project:        projectid.Legacy(project),
+		AllGenerations: true,
 	})
 	if err != nil {
 		return nil, err
@@ -355,6 +459,7 @@ func (r *ScopeResolver) InvalidateGeneration(project, datasetGeneration string) 
 	key := scopeCacheKey{
 		project:           projectid.Canonical(project),
 		datasetGeneration: catalog.NormalizeDatasetGeneration(datasetGeneration),
+		allGenerations:    false,
 	}
 	if key.project == "" {
 		return

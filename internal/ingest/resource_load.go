@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -9,6 +10,43 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 )
+
+// LoadIncompleteError means row-level validation, generation, or edge
+// construction failures were observed while the mutable resource load ran with
+// FailFast disabled. The collections may hold partial documents, so the load
+// must never report success. It mirrors GenerationLoadIncompleteError for the
+// unversioned project/resourceType path that has no dataset generation.
+type LoadIncompleteError struct {
+	ValidationErrors int
+	GenerationErrors int
+	EdgeErrors       int
+}
+
+func (e *LoadIncompleteError) Error() string {
+	if e == nil {
+		return "resource load is incomplete"
+	}
+	return fmt.Sprintf(
+		"resource load is incomplete: validation_errors=%d generation_errors=%d edge_errors=%d",
+		e.ValidationErrors,
+		e.GenerationErrors,
+		e.EdgeErrors,
+	)
+}
+
+// loadIncompleteError returns the typed incomplete-load error when any
+// row-level failure counter is nonzero, mirroring the generation loader so a
+// partial mutable load cannot exit 0. It returns nil for a clean summary.
+func loadIncompleteError(summary LoadSummary) error {
+	if summary.ValidationErrors != 0 || summary.GenerationErrors != 0 || summary.EdgeErrors != 0 {
+		return &LoadIncompleteError{
+			ValidationErrors: summary.ValidationErrors,
+			GenerationErrors: summary.GenerationErrors,
+			EdgeErrors:       summary.EdgeErrors,
+		}
+	}
+	return nil
+}
 
 // loadResource preserves the unversioned, overwrite/upsert contract used by
 // the project/resourceType endpoint. It deliberately does not create or
@@ -135,6 +173,10 @@ func loadResource(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 			"file_edges":    result.EdgesBuilt,
 			"seconds":       SecondsSince(fileStart),
 		})
+	}
+
+	if err := loadIncompleteError(summary); err != nil {
+		return summary, err
 	}
 
 	emitEvent(opts.EventSink, "go_load_complete", map[string]any{

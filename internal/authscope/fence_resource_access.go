@@ -219,6 +219,14 @@ func NormalizeAuthResourcePath(value string) string {
 	if value == "" {
 		return ""
 	}
+	// Control characters (including NUL) must never participate in scope
+	// paths: every scope-digest encoder joins normalized paths with \x00,
+	// so a NUL inside one declared path folds distinct restricted grant
+	// lists onto one digest (finding F-B22). Such declarations are refused
+	// at ingest; consumers already treat an empty normalization as absent.
+	if containsAuthPathControlChar(value) {
+		return ""
+	}
 	if key, ok := calyprProjectKeyFromResourcePath(value); ok {
 		return key
 	}
@@ -230,6 +238,9 @@ func authResourcePathsFromResources(resources []string) []string {
 	out := make([]string, 0, len(resources))
 	for _, resource := range resources {
 		if key, ok := calyprProjectKeyFromResourcePath(resource); ok {
+			if containsAuthPathControlChar(key) {
+				continue
+			}
 			if _, exists := seen[key]; exists {
 				continue
 			}
@@ -362,6 +373,9 @@ func cleanAccessToken(raw string) string {
 
 func calyprProjectKeyFromResourcePath(resource string) (string, bool) {
 	normalized := normalizeResourcePath(resource)
+	if containsAuthPathControlChar(normalized) {
+		return "", false
+	}
 	parts := strings.Split(normalized, "/")
 	if len(parts) < 5 {
 		return "", false
@@ -382,4 +396,24 @@ func normalizeResourcePath(resource string) string {
 	}
 	resource = "/" + strings.Trim(resource, "/")
 	return strings.TrimSuffix(resource, "/")
+}
+
+// NormalizeAuthResourcePaths is the exported view of ingest-time scope-path
+// normalization, for callers that build restricted read-scope paths without a
+// wired ScopeResolver. Entries normalizing to empty or containing control
+// characters are dropped (see the F-B22 note in NormalizeAuthResourcePath).
+func NormalizeAuthResourcePaths(paths []string) []string {
+	return normalizeAuthResourcePathList(paths)
+}
+
+// containsAuthPathControlChar reports whether value holds an ASCII control
+// byte (C0 range or DEL). Those bytes never legitimately appear in
+// authorization resource paths and they enable the F-B22 digest fold.
+func containsAuthPathControlChar(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x20 || value[i] == 0x7f {
+			return true
+		}
+	}
+	return false
 }
