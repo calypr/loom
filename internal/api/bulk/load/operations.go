@@ -50,6 +50,9 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	authResourcePath := strings.TrimSpace(firstFormValue(form.Value, "auth_resource_path"))
+	if authResourcePath != "" && authscope.NormalizeAuthResourcePath(authResourcePath) == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
 	deferActivation := false
 	if raw := strings.TrimSpace(firstFormValue(form.Value, "defer_activation")); raw != "" {
 		deferActivation, err = strconv.ParseBool(raw)
