@@ -180,7 +180,6 @@ func (s *Service) constructionCandidateWithFilterSources(
 	changedIndex := constructionStepIndex(candidate.Steps, request.ChangedStepID)
 	applyFilterSources := request.FilterSources != nil && changedIndex >= 0 &&
 		candidate.Steps[changedIndex].Operation.Kind == authoringv2.ConstructionOperationFilter
-	candidate = preserveConstructionOwnedInputs(base.construction, candidate, "")
 	if !applyFilterSources {
 		return candidate, nil
 	}
@@ -242,7 +241,8 @@ func (s *Service) constructionCandidateWithFilterSources(
 		}
 	}
 	for _, projection := range base.construction.SourceProjections {
-		if projection.OwnerStepID != "" && projection.OwnerStepID != request.ChangedStepID && !hasPivotSourceProjection(projections, projection.ColumnID) {
+		if projection.OwnerStepID != "" && projection.OwnerStepID != request.ChangedStepID && !hasPivotSourceProjection(projections, projection.ColumnID) &&
+			!constructionOwnerInputsClearedFromCandidate(base.construction, candidate, projection.OwnerStepID) {
 			projections = append(projections, projection)
 		}
 	}

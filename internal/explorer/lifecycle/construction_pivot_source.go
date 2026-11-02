@@ -381,7 +381,8 @@ func (s *Service) constructionCandidateWithPivotSources(
 		}
 	}
 	for _, projection := range base.construction.SourceProjections {
-		if projection.OwnerStepID != "" && projection.OwnerStepID != pivotID && !hasPivotSourceProjection(projections, projection.ColumnID) {
+		if projection.OwnerStepID != "" && projection.OwnerStepID != pivotID && !hasPivotSourceProjection(projections, projection.ColumnID) &&
+			!constructionOwnerInputsClearedFromCandidate(base.construction, candidate, projection.OwnerStepID) {
 			projections = append(projections, projection)
 		}
 	}
@@ -571,6 +572,9 @@ func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate au
 		if owner.ID == skipOwnerID || owner.Operation.Kind != authoringv2.ConstructionOperationPivot || constructionStepIndex(candidate.Steps, owner.ID) < 0 {
 			continue
 		}
+		if constructionOwnerInputsClearedFromCandidate(base, candidate, owner.ID) {
+			continue
+		}
 		missing := make([]authoringv2.ConstructionStep, 0)
 		for _, step := range base.Steps[:baseIndex] {
 			if step.OwnerStepID == owner.ID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && !present[step.ID] {
@@ -589,6 +593,43 @@ func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate au
 		}
 	}
 	return candidate
+}
+
+// constructionOwnerInputsClearedFromCandidate reports whether the submitted
+// candidate intentionally removed every durable input the accepted base keeps
+// for ownerID. Under the shipped selection contract (nil never re-attaches,
+// [] clears), the candidate is a full replacement of the construction, so
+// dropping all of an owner's server-owned inputs in the proposal window is a
+// clear: no lane may re-import them from the base. A partial chain (the
+// client carried the helper but not its projection, or the reverse) is a
+// client omission of server-owned state, which preservation must still
+// repair.
+func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, candidate authoringv2.Construction, ownerID string) bool {
+	baseInputs := 0
+	for _, step := range base.Steps {
+		if step.OwnerStepID == ownerID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+			baseInputs++
+		}
+	}
+	for _, projection := range base.SourceProjections {
+		if projection.OwnerStepID == ownerID {
+			baseInputs++
+		}
+	}
+	if baseInputs == 0 {
+		return false
+	}
+	for _, step := range candidate.Steps {
+		if step.OwnerStepID == ownerID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+			return false
+		}
+	}
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID == ownerID {
+			return false
+		}
+	}
+	return true
 }
 
 func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivotID string) (authoringv2.Construction, error) {

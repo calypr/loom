@@ -32,11 +32,11 @@ func deriveSourceReconcileFixture(t *testing.T) (authoringv2.Document, lower.Com
 	three := int64(3)
 	projectionName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
 	document := authoringv2.Document{
-		Output:            authoringv2.Output{ID: "patients"},
-		RootResourceType:  "Patient",
-		Columns:           []authoringv2.Column{{ColumnID: "patient-col", Column: "patient_id"}},
+		Output:           authoringv2.Output{ID: "patients"},
+		RootResourceType: "Patient",
+		Columns:          []authoringv2.Column{{ColumnID: "patient-col", Column: "patient_id"}},
 		Construction: &authoringv2.Construction{
-			Version: authoringv2.ConstructionVersion,
+			Version:           authoringv2.ConstructionVersion,
 			SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
 			Steps: []authoringv2.ConstructionStep{{
 				ID: "derive_step",
