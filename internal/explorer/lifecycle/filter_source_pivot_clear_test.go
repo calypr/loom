@@ -1214,3 +1214,234 @@ func TestProposeConstructionDeriveEditDoesNotRestoreClearedPivotSourceInput(t *t
 		t.Fatal("proposal changed the accepted draft")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Derive / Unpivot SET-branch foreign-owner bulk copy. The Pivot and Filter SET
+// branches gate the base bulk copy on constructionOwnerInputsClearedFromCandidate
+// (construction_pivot_source.go:582, filter_source.go:266-267); the Derive and
+// Unpivot SET branches compose the same projection set (derive_source.go:322-325,
+// unpivot_source.go:392-395) and must honour the identical set rule.
+// ---------------------------------------------------------------------------
+
+const (
+	rs05SetFilterID  = "patient-filter-active"
+	rs05SetFilterCol = "patient_filter_active"
+)
+
+// rs05PatientSetFilterStep is a foreign (FILTER-owned) accepted step carrying a
+// server-owned signed projection, used as the owner another lane must not touch.
+func rs05PatientSetFilterStep(prevStepID string) authoringv2.ConstructionStep {
+	return authoringv2.ConstructionStep{
+		ID:     rs05SetFilterID,
+		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: prevStepID}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{
+			ColumnID: rs05SetFilterCol, Operator: authoringv2.ConstructionFilterEquals,
+			Values: []authoringv2.FilterValue{{Kind: authoringv2.ConstructionFilterBoolean, Boolean: filterSourceBool(true)}},
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+			{ID: rs05SetFilterCol, Name: authoringv2.ConstructionSourceProjectionName(rs05SetFilterCol), Label: "Patient.active", Type: "boolean", Nullable: true},
+		},
+	}
+}
+
+func rs05PatientSetFilterProjection() authoringv2.ConstructionSourceProjection {
+	return authoringv2.ConstructionSourceProjection{
+		ColumnID: rs05SetFilterCol, OwnerStepID: rs05SetFilterID, OccurrenceID: authoringv2.RootOccurrenceID,
+		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Patient.active",
+	}
+}
+
+// rs05PatientDerivedColumns is the SET-candidate derive step output set (signed
+// operand slot plus the derived column) used by both SET-branch durables.
+func rs05PatientSetDerivedOutputs() []authoringv2.StageColumn {
+	return append(deriveSourcePatientIdentityColumns(), deriveSourcePatientProjectionColumn(),
+		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+}
+
+// TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection pins the
+// Derive SET-branch foreign copy: a candidate that legitimately cleared a
+// foreign FILTER-owned durable input while the Derive SET materializes its own
+// signed operand must not have that input re-imported from the accepted base.
+func TestXopPortDeriveSetBranchDoesNotReImportClearedFilterProjection(t *testing.T) {
+	harness := newDeriveSourceHarness(t)
+	snapshot, service := harness.snapshot, harness.service
+	durable := authoringv2.Construction{
+		Version: authoringv2.ConstructionVersion,
+		Steps: []authoringv2.ConstructionStep{
+			deriveSourceAddStep(deriveSourceStep, "patient-id", deriveSourcePatientDerivedColumns()),
+			rs05PatientSetFilterStep(deriveSourceStep),
+		},
+		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()},
+	}
+	base := deriveSourcePatientBase(snapshot, durable)
+
+	candidate := rs05CloneConstruction(durable)
+	candidate.SourceProjections = nil
+	left := candidate.Steps[0].Operation.Derive.Left
+	left.ColumnID = deriveSourceBirth
+	candidate.Steps[0].Operation.Derive.Left = left
+	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
+
+	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
+		deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
+		}), candidate)
+	if err != nil {
+		t.Fatalf("derive SET while the foreign Filter source was cleared: %v", err)
+	}
+	if rs05HasProjection(prepared.SourceProjections, rs05SetFilterCol, rs05SetFilterID) {
+		t.Fatalf("REGRESSION: DERIVE SET re-imported the cleared foreign FILTER-owned durable input from the base: %#v", prepared.SourceProjections)
+	}
+	if !rs05HasProjection(prepared.SourceProjections, deriveSourceBirth, deriveSourceStep) {
+		t.Fatalf("DERIVE SET did not materialize its own signed projection: %#v", prepared.SourceProjections)
+	}
+}
+
+// TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection is the
+// mirror through the Unpivot SET-branch foreign copy.
+func TestXopPortUnpivotSetBranchDoesNotReImportClearedFilterProjection(t *testing.T) {
+	harness := newUnpivotSourceHarness(t)
+	snapshot, service := harness.snapshot, harness.service
+	carrierOutputs := append(deriveSourcePatientIdentityColumns(),
+		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	carrier := deriveSourceLiteralOnlyStep("derive-base", carrierOutputs)
+	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"},
+		unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
+	durable := authoringv2.Construction{
+		Version: authoringv2.ConstructionVersion,
+		Steps: []authoringv2.ConstructionStep{
+			carrier, melt, rs05PatientSetFilterStep(unpivotSourceStep),
+		},
+		SourceProjections: []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()},
+	}
+	base := deriveSourcePatientBase(snapshot, durable)
+	base.stages = append(base.stages, explorer.ReceiptConstructionStage{
+		ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
+		Columns: []explorer.ReceiptConstructionStageColumn{
+			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+		},
+	})
+
+	candidate, err := decodeConstruction(durable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.SourceProjections = nil
+	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
+		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
+
+	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
+		unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
+		}), candidate)
+	if err != nil {
+		t.Fatalf("unpivot SET while the foreign Filter source was cleared: %v", err)
+	}
+	if rs05HasProjection(prepared.SourceProjections, rs05SetFilterCol, rs05SetFilterID) {
+		t.Fatalf("REGRESSION: UNPIVOT SET re-imported the cleared foreign FILTER-owned durable input from the base: %#v", prepared.SourceProjections)
+	}
+	if !rs05HasProjection(prepared.SourceProjections, unpivotPatientColumn, unpivotSourceStep) {
+		t.Fatalf("UNPIVOT SET did not materialize its own signed projection: %#v", prepared.SourceProjections)
+	}
+}
+
+// The second half of the same promise: a PARTIAL chain is still a client
+// omission that preservation must repair, and a foreign owner the candidate
+// keeps must survive untouched. These stay green across the gate fix.
+func TestXopPortDeriveSetBranchStillRepairsPartialPivotChain(t *testing.T) {
+	harness := newDeriveSourceHarness(t)
+	snapshot, service := harness.snapshot, harness.service
+	durable := authoringv2.Construction{
+		Version: authoringv2.ConstructionVersion,
+		Steps: []authoringv2.ConstructionStep{
+			deriveSourceAddStep(deriveSourceStep, "patient-id", deriveSourcePatientDerivedColumns()),
+			rs05HelperStep(), rs05SeedPivotStep(), rs05PatientSetFilterStep(rs05PivotID),
+		},
+		SourceProjections: []authoringv2.ConstructionSourceProjection{
+			rs05RootProjection(rs05HelperColumn, rs05PivotID), rs05PatientSetFilterProjection(),
+		},
+	}
+	base := deriveSourcePatientBase(snapshot, durable)
+
+	candidate := rs05CloneConstruction(durable)
+	candidate.SourceProjections = []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()}
+	left := candidate.Steps[0].Operation.Derive.Left
+	left.ColumnID = deriveSourceBirth
+	candidate.Steps[0].Operation.Derive.Left = left
+	candidate.Steps[0].Outputs = rs05PatientSetDerivedOutputs()
+
+	prepared, err := service.constructionCandidateWithDeriveSources(context.Background(), base,
+		deriveSourcePatientProposalRequest(deriveSourceStep, []ConstructionDeriveSourceSelection{
+			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: deriveSourceBirth},
+		}), candidate)
+	if err != nil {
+		t.Fatalf("derive SET with a partially carried Pivot chain: %v", err)
+	}
+	if count := rs05CountOwned(prepared.SourceProjections, rs05PivotID); count != 1 {
+		t.Fatalf("DERIVE SET dropped the partially omitted Pivot-owned input instead of repairing it: owned=%d %#v", count, prepared.SourceProjections)
+	}
+	if count := rs05CountOwned(prepared.SourceProjections, rs05SetFilterID); count != 1 {
+		t.Fatalf("DERIVE SET over-stripped the foreign Filter-owned input the candidate kept: owned=%d %#v", count, prepared.SourceProjections)
+	}
+	if !rs05HasProjection(prepared.SourceProjections, deriveSourceBirth, deriveSourceStep) {
+		t.Fatalf("DERIVE SET did not materialize its own signed projection: %#v", prepared.SourceProjections)
+	}
+}
+
+func TestXopPortUnpivotSetBranchStillRepairsPartialPivotChain(t *testing.T) {
+	harness := newUnpivotSourceHarness(t)
+	snapshot, service := harness.snapshot, harness.service
+	carrierOutputs := append(deriveSourcePatientIdentityColumns(),
+		authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"})
+	carrier := deriveSourceLiteralOnlyStep("derive-base", carrierOutputs)
+	melt := unpivotMeltStep(unpivotSourceStep, []string{"derived_total"},
+		unpivotMeltOutputs(authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}))
+	melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
+	durable := authoringv2.Construction{
+		Version: authoringv2.ConstructionVersion,
+		Steps: []authoringv2.ConstructionStep{
+			carrier, melt, rs05HelperStep(), rs05SeedPivotStep(), rs05PatientSetFilterStep(rs05PivotID),
+		},
+		SourceProjections: []authoringv2.ConstructionSourceProjection{
+			rs05RootProjection(rs05HelperColumn, rs05PivotID), rs05PatientSetFilterProjection(),
+		},
+	}
+	base := deriveSourcePatientBase(snapshot, durable)
+	base.stages = append(base.stages, explorer.ReceiptConstructionStage{
+		ID: "derive-base", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "DERIVE",
+		Columns: []explorer.ReceiptConstructionStageColumn{
+			{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+		},
+	})
+
+	candidate, err := decodeConstruction(durable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.SourceProjections = []authoringv2.ConstructionSourceProjection{rs05PatientSetFilterProjection()}
+	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
+		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+	candidate.Steps[1].Operation.Unpivot.ValueOutputColumnID = unpivotMeltValueColumn
+
+	prepared, err := service.constructionCandidateWithUnpivotSources(context.Background(), base,
+		unpivotPatientProposalRequest(unpivotSourceStep, []ConstructionUnpivotSourceSelection{
+			{ChoiceID: harness.choice(t, "multipleBirthInteger").ChoiceID, ColumnID: unpivotPatientColumn},
+		}), candidate)
+	if err != nil {
+		t.Fatalf("unpivot SET with a partially carried Pivot chain: %v", err)
+	}
+	if count := rs05CountOwned(prepared.SourceProjections, rs05PivotID); count != 1 {
+		t.Fatalf("UNPIVOT SET dropped the partially omitted Pivot-owned input instead of repairing it: owned=%d %#v", count, prepared.SourceProjections)
+	}
+	if count := rs05CountOwned(prepared.SourceProjections, rs05SetFilterID); count != 1 {
+		t.Fatalf("UNPIVOT SET over-stripped the foreign Filter-owned input the candidate kept: owned=%d %#v", count, prepared.SourceProjections)
+	}
+	if !rs05HasProjection(prepared.SourceProjections, unpivotPatientColumn, unpivotSourceStep) {
+		t.Fatalf("UNPIVOT SET did not materialize its own signed projection: %#v", prepared.SourceProjections)
+	}
+}

@@ -321,7 +321,8 @@ func (s *Service) constructionCandidateWithDeriveSources(
 		}
 	}
 	for _, projection := range base.construction.SourceProjections {
-		if projection.OwnerStepID != "" && projection.OwnerStepID != request.ChangedStepID && !hasPivotSourceProjection(projections, projection.ColumnID) {
+		if projection.OwnerStepID != "" && projection.OwnerStepID != request.ChangedStepID && !hasPivotSourceProjection(projections, projection.ColumnID) &&
+			!constructionOwnerInputsClearedFromCandidate(base.construction, candidate, projection.OwnerStepID) {
 			projections = append(projections, projection)
 		}
 	}
