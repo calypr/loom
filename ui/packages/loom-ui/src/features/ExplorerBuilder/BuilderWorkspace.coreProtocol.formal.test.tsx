@@ -1107,8 +1107,12 @@ describe('mounted Builder core protocol admission', () => {
   //   assertions below hold for detached owners only because the :2769-2774 /
   //   :2670-2675 guards short-circuit before those counters can move.
   // - adapter error typing mirrored by typedPreviewError: ui/packages/loom-ui/
-  //   src/api.ts requestError (:904-926); retryable = 408 | 429 | >=500 at
-  //   :925, so a 500 arrives retryable:true and a 409 arrives retryable:false.
+  //   src/api.ts requestError (:903-929); a boolean details.retryable wins, and
+  //   the 408 | 429 | >=500 list at :927 is only the DEFAULT the ?? falls back to
+  //   when the server is silent, so a 500 arrives retryable:true, a 409 arrives
+  //   retryable:false and an unlabelled 408/429 arrives retryable:true. The
+  //   typedPreviewError stub below simulates that status rule alone, with no
+  //   details override.
   // - the real cancel path: applyCommandsWithResult calls cancelAutomaticPreview
   //   synchronously at :813 (definition :649-651), selectExplorer at :755;
   //   cancel() flips execution.cancelled and aborts the owned gate
