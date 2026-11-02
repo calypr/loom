@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -285,11 +286,86 @@ func uniqueSelectors(values []DataframeSelector) []DataframeSelector {
 	return result
 }
 
+// releaseID fingerprints the content-addressed identity of a ProjectRelease.
+// Only Project, Generation, and each publication's (Selector.Key(),
+// ExecutionID) feed the digest, so an identical re-activation reproduces the
+// same id regardless of revision churn (F-B15).
+//
+// HARDENING (defense-in-depth, NOT a defect repair). The previous framing
+// joined fields with a bare "\x00" and left ExecutionID un-length-delimited,
+// so over the previously-breached alphabet (NUL and ':') two DISTINCT releases
+// could fold to one digest: a NUL smuggled into a field blurred a separator,
+// and an un-delimited ExecutionID let one publication's bytes masquerade as
+// the next publication's (Key(), ExecutionID) group. Both classes are
+// proven-unreachable through the public surface today — Project and Generation
+// reject control bytes at internal/dataset/ref.go:26-30 via
+// validateOpaqueIdentifier, Selector components are confined to the injective
+// Key() encoding, and ExecutionID arrives from the publication store as an
+// opaque id that the release layer never lets a caller forge. This change is a
+// hardening: it makes the encoder injective by construction so it cannot be
+// broken even if an upstream validator is weakened. The evidence is the
+// weakness controls in release_id_framing_test.go, which replay the exact
+// archived fold classes against the historical framing while asserting the new
+// framing separates them.
+//
+// Each field is now written length-prefixed, exactly like Selector.Key()
+// (dataframe_selector.go:34) and BundleIdentity.PointerName() (F-B21,
+// internal/dataframe/publication/bundle.go:100-115): a Project and Generation
+// become len:content, Selector.Key() is emitted verbatim because it already
+// self-delimits, and ExecutionID gains the len:content framing it lacked. No
+// field content — NUL, ':', digits, or otherwise — can shift a boundary.
+//
+// OUTPUT-STABILITY ANALYSIS (derived from the store code). Changing this
+// function changes every digest, and releaseId IS persisted and re-compared
+// across binary versions: internal/dataset/arango/release_store.go keys the
+// document on it ("releaseDocument[\"_key\"] = releaseDocumentKey(release.ID)"
+// at L17/L73), stores the id field, and patches it onto the pointers
+// ("releaseKey: @release_key, releaseId: @release_id" at L176-177). It is
+// re-compared against a freshly derived id in activateReleaseAQL:
+//
+//	L162  LET alreadyActive = releasePointer != null AND releasePointer.releaseId == @release_id
+//	L165  FILTER ... storedRelease.id == @release_id ...
+//
+// Yet the only genuine CROSS-VERSION re-derivation is L162's alreadyActive
+// idempotency guard, and readActiveReleaseAQL never re-derives the id — it
+// follows the stored key ("LET release = DOCUMENT(@@lifecycle_collection,
+// pointer.releaseKey)" at L151) — so every reader treats releaseId as an
+// opaque immutable content label. Therefore a digest change cannot yield a
+// wrong serve, orphan active content, or produce an incorrect verdict: at the
+// upgrade boundary the sole effect is that an already-active release's first
+// content-identical re-activation misses the L162 no-op and mints one
+// duplicate, content-identical immutable document plus a single revision bump
+// under the new id, after which alreadyActive hits again (SaveRelease keeps
+// the old document untouched via its same-version `compatible` guard at
+// L139-141). That bounded, self-converging, security-neutral churn is the
+// whole cross-version cost, and no correctness or security guarantee depends
+// on historical digests staying bit-stable, so — matching the F-B21 precedent
+// which likewise made a persisted content-derived identity injective by
+// construction — we adopt the length-prefixed encode.
 func releaseID(release ProjectRelease) string {
 	digest := sha256.New()
-	_, _ = fmt.Fprintf(digest, "%s\x00%s", release.Project, release.Generation)
-	for _, publication := range release.Publications {
-		_, _ = fmt.Fprintf(digest, "\x00%s\x00%s", publication.Selector.Key(), publication.ExecutionID)
-	}
+	_, _ = digest.Write(releaseIDFraming(release))
 	return "release_" + hex.EncodeToString(digest.Sum(nil))
+}
+
+// releaseIDFraming renders the exact byte string hashed by releaseID so the
+// injectivity controls can decode and round-trip it without duplicating the
+// framing in the test. Length-prefixing every field makes the string uniquely
+// decodable: read len digits, a ':', then len bytes, and repeat — Selector.Key()
+// consumes three such prefixed sub-fields, so it needs no separator of its own.
+func releaseIDFraming(release ProjectRelease) []byte {
+	var frame strings.Builder
+	writeLengthPrefixed(&frame, release.Project)
+	writeLengthPrefixed(&frame, release.Generation)
+	for _, publication := range release.Publications {
+		frame.WriteString(publication.Selector.Key())
+		writeLengthPrefixed(&frame, publication.ExecutionID)
+	}
+	return []byte(frame.String())
+}
+
+func writeLengthPrefixed(frame *strings.Builder, field string) {
+	frame.WriteString(strconv.Itoa(len(field)))
+	frame.WriteByte(':')
+	frame.WriteString(field)
 }

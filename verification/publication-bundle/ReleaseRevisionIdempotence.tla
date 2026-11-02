@@ -7,7 +7,7 @@
    (internal/dataset/release.go:247 Create call; Create at :147). Create mints
    release.ID = releaseID(release, currentRevision + 1) folding the revision
    into the sha over (project, generation, REVISION, publications)
-   (release.go:288-295 releaseID at shipped shape; the pre-fix fold hashed REVISION too and was removed at repair), so a byte-identical re-activation is never a
+   (release.go:345 releaseID, length-prefixed framing shipped at releaseIDFraming :356-365 / writeLengthPrefixed :367-371 (comment-only: the Identity() constructor below is the abstraction; no byte-level fold is modeled, so this framing change is model-irrelevant and no TLC rerun is required - reviewer-verified abstract Identity()); the pre-fix fold hashed REVISION too and was removed at repair), so a byte-identical re-activation is never a
    no-op: revision churns 1->4, one immutable project_release document per
    click, both pointer rows churn. The AQL alreadyActive short-circuit needs
    the SAME releaseId (dataset/arango/release_store.go:162-163 alreadyActive), which
@@ -59,7 +59,7 @@ initDocId == "r0"
 NoId == "NONE"
 
 (* Identity constructor. Only SameContent is ever activated, so shipped shape
-   (pre-fix: releaseID folded REVISION too; current release.go:288-295), is faithfully modeled as
+   (pre-fix: releaseID folded REVISION too; current release.go:345 releaseID with length-prefixed framing at :356-365/:367-371, abstracted here by Identity() which never describes the byte fold so no rerun is needed), is faithfully modeled as
    an identity that varies with revision; the fix shape (content-addressed) is
    an identity that ignores revision. Both are plain strings. *)
 Identity(c, rev) ==
