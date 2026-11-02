@@ -109,7 +109,7 @@ import {
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
-import { catalogSourceOptions, type CatalogChoiceIntent } from './catalogItems';
+import { catalogSourceOptions, sanitizeReasonText, unavailableOperationReason, type CatalogChoiceIntent } from './catalogItems';
 
 import {
   ConstructionWorkspace,
@@ -3586,7 +3586,7 @@ const BuilderWorkspaceContent = ({
   const sourceAvailability = hasUnsupportedSavedSourceColumns
     ? { available: false, reason: 'Remove unsupported saved source fields before adding more fields.' }
     : constructionLifecycle.capabilities.status === 'error'
-    ? { available: false, reason: constructionLifecycle.capabilities.message }
+    ? { available: false, reason: sanitizeReasonText(constructionLifecycle.capabilities.message) }
     : sourceProjectionAvailability(sourceStageDescriptors, sourceProjectionSummary, selectedCapabilityStageId);
   const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.selectedStage
@@ -3600,29 +3600,35 @@ const BuilderWorkspaceContent = ({
   const relatedSourceReason = [
     relatedSourceCapability?.reasonCode,
     relatedSourceCapability?.reason,
-  ].filter((reason): reason is string => Boolean(reason?.trim())).join(': ');
+  ]
+    .map((part) => (part === undefined ? '' : sanitizeReasonText(part).trim()))
+    .filter((part) => part !== '')
+    .join(': ');
   const capabilityIsForAppendStage = constructionLifecycle.capabilities.status === 'ready' &&
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
       table?.document.rows,
     );
+  const capabilitiesErrorMessage = constructionLifecycle.capabilities.status === 'error'
+    ? constructionLifecycle.capabilities.message
+    : '';
   const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
     const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
     return capabilityIsForAppendStage && capability?.supported
       ? { supported: true }
       : {
           supported: false,
-          reason: constructionLifecycle.capabilities.status === 'error'
-            ? constructionLifecycle.capabilities.message
-            : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
-              ? 'Checking this table’s available row operations…'
-              : capability?.reasonCode === 'NO_NUMERIC_COLUMN'
-                ? 'Add a numeric field before creating a calculated value.'
-                : capability?.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS'
-                  ? 'Pivot needs fields for the row, category, and value. Add or select those fields first.'
-                  : capability?.reasonCode === 'DIRECT_SOURCE_STAGE_REQUIRED'
-                    ? 'This coded row operation applies to the starting records before other row changes.'
-                    : 'This row operation is unavailable for the current table.',
+          reason: unavailableOperationReason({
+            stage: constructionLifecycle.capabilities.status === 'error'
+              ? 'error'
+              : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
+                ? 'checking'
+                : 'ready',
+            errorMessage: capabilitiesErrorMessage,
+            checkingMessage: 'Checking this table’s available row operations…',
+            label: 'This row operation is unavailable for the current table.',
+            capability,
+          }),
         };
   };
   const codedGroupingAvailable = capabilityIsForAppendStage &&
@@ -3665,11 +3671,17 @@ const BuilderWorkspaceContent = ({
     ? { supported: true }
     : {
         supported: false,
-        reason: constructionLifecycle.capabilities.status === 'error'
-          ? constructionLifecycle.capabilities.message
-          : constructionLifecycle.capabilities.status !== 'ready'
-            ? 'Checking available related row paths…'
-            : relatedExpandCapability?.reason ?? 'This table has no executable related-record row path at the current stage.',
+        reason: unavailableOperationReason({
+          stage: constructionLifecycle.capabilities.status === 'error'
+            ? 'error'
+            : constructionLifecycle.capabilities.status !== 'ready'
+              ? 'checking'
+              : 'ready',
+          errorMessage: capabilitiesErrorMessage,
+          checkingMessage: 'Checking available related row paths…',
+          label: 'This table has no executable related-record row path at the current stage.',
+          capability: relatedExpandCapability,
+        }),
       };
   const relatedSourceUnavailableReason = hasUnsupportedSavedSourceColumns
     ? 'Remove unsupported saved source fields before adding related fields.'
@@ -3687,7 +3699,7 @@ const BuilderWorkspaceContent = ({
         supported: false,
         reason: relatedSourceUnavailableReason || relatedSourceReason || (
           constructionLifecycle.capabilities.status === 'error'
-            ? constructionLifecycle.capabilities.message
+            ? sanitizeReasonText(constructionLifecycle.capabilities.message)
             : constructionLifecycle.capabilities.status === 'ready'
               ? 'Loom has not proved that this stage retains a source row anchor.'
               : 'Loom is checking whether this stage supports related-source fields.'
@@ -3929,7 +3941,7 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'error' ? (
             <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {constructionLifecycle.capabilities.message}
+              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             activeOperation.family === 'KEEP_ROWS' ? (
@@ -3964,7 +3976,7 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'error' ? (
             <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {constructionLifecycle.capabilities.message}
+              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             <ConstructionReshapeEditor
@@ -4055,7 +4067,7 @@ const BuilderWorkspaceContent = ({
       {constructionLifecycle.capabilities.status === 'loading' ? (
         <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
       ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{constructionLifecycle.capabilities.message}</p>
+        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
       ) : constructionLifecycle.capabilities.status === 'ready' ? (
         <RelatedSourceStepEditor
           project={projectId}
@@ -4084,7 +4096,7 @@ const BuilderWorkspaceContent = ({
       {constructionLifecycle.capabilities.status === 'loading' ? (
         <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
       ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{constructionLifecycle.capabilities.message}</p>
+        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
       ) : constructionLifecycle.capabilities.status === 'ready' ? (
         <RelatedFieldEditor
           key={`${ownerKey}:${editingRelatedFieldStep.id}`}

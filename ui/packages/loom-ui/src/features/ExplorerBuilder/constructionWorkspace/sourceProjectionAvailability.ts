@@ -1,4 +1,5 @@
 import type { ConstructionCapabilitiesResponse, ConstructionStageDescriptor } from '../../../types';
+import { copyForReasonCode } from '../catalogItems';
 
 export type SourceProjectionAvailability = {
   readonly available: boolean;
@@ -33,7 +34,12 @@ export const sourceProjectionAvailability = (
     }
     return summary.supported
       ? { available: true, reason: 'The compiler confirms starting-record fields can be carried into these rows.' }
-      : { available: false, reason: 'Starting-record fields are not available for the current row shape.' };
+      : {
+          available: false,
+          reason: summary.reason?.trim() || summary.reasonCode?.trim()
+            ? copyForReasonCode(summary.reasonCode, summary.reason)
+            : 'Starting-record fields are not available for the current row shape.',
+        };
   }
   if (!source || !source.rowIdentityColumn || !selectedStage?.rowIdentityColumn) {
     return {
