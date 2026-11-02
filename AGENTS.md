@@ -3,6 +3,7 @@
 ## Working style
 
 - Start with the requested change. Read the relevant source and make the smallest coherent patch.
+- Prefer `rg` and `rg --files` for repository text and file searches; use another tool when ripgrep is unavailable or unsuitable.
 - Use skills when explicitly requested or when they solve a concrete problem. Do not stack workflows automatically.
 - For repository-wide cleanup, follow `docs/REPO_CLEANUP_GOAL.md`. Age is a screening signal, not deletion evidence.
 - Delegate useful independent work proactively; follow the Parallel work rules below. Handle trivial or inseparable work directly.
@@ -31,6 +32,21 @@
 - Serialize checks that mutate the same runtime or database. Do not change tested source during a browser run.
 - Distinguish focused checks from complete browser acceptance. State what remains unverified.
 - Measure performance before claiming a speedup. Preserve stale-source, evidence-integrity, and negative validation checks when changing test tooling.
+
+## Adversarial review
+
+- Before marking a nontrivial behavior-changing repair unit complete, apply `pstack:interrogate` to its exact source snapshot. Batch closely related edits; do not review every intermediate edit.
+- Reviewers inspect the actual diff, new files, affected callers, contracts, and raw evidence. Give them focused, non-overlapping briefs, including review of interactions across changed boundaries. Keep reproduction experiments isolated from the writer's checkout.
+- Retain findings only after the coordinator reruns their reproducer and confirms a contract violation. Repair confirmed findings and recheck affected guarantees. Record the reviewed source identity, coverage, unavailable checks, reviewer models, and unresolved findings. Same-model review must be labeled accurately.
+- Relevant changes invalidate affected review coverage. While review runs or is blocked, continue independent authorized work. Label the unit review-pending rather than claiming completion or stopping the entire program.
+
+## Local commits
+
+- Local Git commits are authorized for completed substantive Todos, or a tightly coupled set of Todos. Each commit should cover the whole task: implementation, regression tests, and relevant verification or documentation. Do not make microcommits per file, test run, probe, or progress update, or invent tiny Todos just to create commit boundaries.
+- Meet the verification and adversarial-review requirements before committing. A checked Todo alone is not evidence. Record the Todo or repair task and relevant validation in the commit message; keep the tested source identity and review receipt traceable to the committed contents.
+- The parent owns commits and serializes staging with worker integration. Stage only the task's explicit paths or coherent hunks; inspect the staged diff before committing. Preserve unrelated edits. Do not use blanket staging, reset, stash, clean, amend, rebase, or history rewriting to manufacture a clean tree.
+- Apply this policy to the existing uncommitted backlog by grouping completed Todos from its evidence records. Leave unfinished or review-pending work uncommitted and continue independent work. Keep runtime Goal state, caches, logs, credentials, and disposable evidence out of commits.
+- Stay on the agreed branch and use the existing repository author identity. Pushes and publication still require operator authorization; local commits do not authorize either.
 
 ## Verification scheduling
 

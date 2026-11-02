@@ -19,7 +19,7 @@ Follow repository instructions and installed skill compatibility guidance. Prese
 
 This objective authorizes scoped, reversible product-code fixes for defects reproduced by this program. It supersedes earlier verification-only restrictions for those fixes. It does not authorize unrelated features, speculative rewrites, destructive data changes or weakened contracts.
 
-Commits, pushes, publication, external messages and production deployment remain separately authorized. Preserve permission for the documented owned local Loom test-environment rebuild.
+Local Git commits for completed, verified and adversarially reviewed Todos are authorized under AGENTS.md. Pushes, publication, external messages and production deployment remain separately authorized. Preserve permission for the documented owned local Loom test-environment rebuild.
 
 ## Preserve the Builder checkpoint
 
@@ -67,7 +67,7 @@ Convert discovery probes into durable behavior assertions. Tests must naturally 
 
 Run focused checks while editing, affected suites after coherent fixes, and required integration/browser checks at appropriate checkpoints.
 
-Review the actual diff and raw evidence. Use available separate reviewer contexts where useful and disclose their model/capability. Same-model agreement is not cross-model assurance. Do not invent review results or claim an unavailable independent approval.
+Complete each repair unit under the adversarial-review rules in AGENTS.md. Preserve required regression, integration, browser, and formal-verification evidence. Continue independent work while reviews run.
 
 ### 5. Maintain verification
 
@@ -88,7 +88,7 @@ Recover relevant historical assertions and fixtures before rebuilding them. Keep
 
 Record the finding, root cause, changed files, source identity, reproduction, positive/fault/restored results, review status and remaining uncertainty. Reassess related findings after a shared root-cause repair.
 
-Keep changes organized into reviewable repair units even without permission to commit. Preserve evidence and checkpoint the next exact action.
+Commit completed, reviewed Todos under the local-commit rules in AGENTS.md. Preserve evidence and checkpoint the next exact action.
 
 Immediately continue to the next actionable finding or investigation. Do not require routine operator approval between authorized tasks.
 
