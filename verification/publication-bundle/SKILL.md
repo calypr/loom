@@ -177,3 +177,62 @@ reviewer kill-set m1/m2/m3/H1/H2/S1/S2). Model runs read with pstack
 `/statechart`. Not covered: multi-owner steps per lane kind, partial chain
 granularity below carry classes, request-failure HTTP surfaces, the reconcile
 receipt guard itself, database atomicity.
+
+## Projection-owner survival model (ConstructionProjectionOwnership.tla)
+
+Bounded quantifier for the FORMAL-62-U1 promise: "a construction source
+projection is kept in the shipped proposal iff its owner-step survived
+prune as an owner kind AND its column is consumed by a surviving step".
+Consumers of record: release/apply reviewers + projection-regression triage;
+this model is the only check quantifying per-owner
+{stepPresent, projPresent, consumed, crossUsed} jointly at prune and at the
+validate owner-kind branch. Properties: `KeepIffOwnerSurvived` — both
+directions of the kept rule (orphan-ship and legit-drop both fire);
+`ShippedRequiresConsumption` — nothing persisted survives validate with an
+unconsumed projection (the branch reject strings have zero Go assertions, so
+this is the reject-direction coverage).
+
+Covered code (sync commit `29d2c5b0`; advance ONLY after re-reading these
+exact regions): owners registry + kept rule `pruneConstructionSourceProjections`
+internal/explorer/authoringv2/construction_change.go:524-542 (callers
+:225/:374); consumption sets `Operation.inputColumnIDs` :839-885; validation
+switch validatePivotSourceProjection authoringv2/construction_validation.go:339-395
+(pivot/group :349-352, filter :353-356, derive :357-360, unpivot :361-371,
+default :372-374, owner-exists :343-346). Bounds: owners
+{pivot,filter,derive,unpivot,sort}; "group" shares the pivot/group label and
+the unowned-legacy path is out of bound; one projection per owner, distinct
+columns; owner at step index 0 so the carry-prefix loop :378-393 is unmodeled
+(probed by TestPivotEditCanDropOwnedRootProjectionAcrossPrefix in Go); nil
+payloads subsume into a false consumed bit.
+
+```
+TLC_WORKERS=4 TLC_HEAP_MB=2048 /sandbox/.local/bin/tlc-run \
+  -metadir /tmp/tla-<run-id> -config <cfg> ConstructionProjectionOwnership.tla
+```
+
+Do NOT add `-fp 21 -fpbits 6` (house flag for <10^4-state models): at 3.5M
+states it collapses the graph (observed 34 distinct states + fingerprint
+collision warning). Quantify choices at the action level; \E on an EXCEPT
+right-hand side does not branch under this build.
+
+| cfg | shape | expected |
+| --- | --- | --- |
+| `m-prj-clean` | shipped (all fault constants FALSE) | clean (3,517,009 distinct states recorded) |
+| `m-prj-f-drops` | prune drops a projection whose owner survived and is used | `KeepIffOwnerSurvived` VIOLATED |
+| `m-prj-f-orphan` | kept rule ignores owners[] registry | `KeepIffOwnerSurvived` VIOLATED |
+| `m-prj-f-noused` | kept rule ignores used[] set | `KeepIffOwnerSurvived` VIOLATED |
+| `m-prj-f-pivot` | pivot/group branch vacuous | `ShippedRequiresConsumption` VIOLATED |
+| `m-prj-f-filter` | filter branch vacuous | `ShippedRequiresConsumption` VIOLATED |
+| `m-prj-f-derive` | derive branch vacuous | `ShippedRequiresConsumption` VIOLATED |
+| `m-prj-f-unpivot` | unpivot branch vacuous | `ShippedRequiresConsumption` VIOLATED |
+| `m-prj-f-default-orphan` | default branch vacuous (defense-in-depth: needs registry fault to reach) | `ShippedRequiresConsumption` VIOLATED |
+
+Companion real-code lane (kept/drop directions):
+`go test -count=1 -run 'TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval|TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot|TestCompoundSourceGroupingOwnsAndPrunesItsInputs' ./internal/explorer/authoringv2/`
+Model counterexample classes map: f-orphan/f-drops ↔ those named tests
+(accept-side + removal-side assertions exist, RED-capable); the branch arms
+map to no Go test (zero assertions on the reject strings — reject direction
+is model-side only), and the used-only drop (owner alive, consumers gone)
+likewise has no standalone Go assertion. Not covered: legacy unowned
+group-source path, carry-prefix loop, cross-step same-column projections,
+multi-projection owners, HTTP/persist surfaces.
