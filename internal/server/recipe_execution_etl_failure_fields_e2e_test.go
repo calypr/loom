@@ -27,10 +27,13 @@ import (
 // failure fields the GraphQL twin publishes from the same durable record —
 // execution error/errorCode/errorRetryable/phase and per-output
 // errorCode/errorRetryable/phase, with output.error MIRRORING twin semantics
-// exactly (recipe_execution_reader.go:72 sets the output Error FROM
-// execution.Error). Durable writers: publication/clickhouse/bundle_store.go
-// failPhase:985-993 and the lease-lost reconciliation at :1207-1213 persist
-// these fields; the REST reader may not silently drop them.
+// exactly (recipe_execution_reader.go gates the execution.Error mirror: it
+// projects onto outputs that are not themselves healthy; durable
+// READY/PUBLISHED outputs publish no mirrored trio — REPAIR-20c closed the
+// lease-lost phantom-trio ledger entry on both twins). Durable writers:
+// publication/clickhouse/bundle_store.go failPhase:985-993 and the lease-lost
+// reconciliation at :1207-1213 persist these fields; the REST reader may not
+// silently drop them.
 //
 // REPAIR-20b (adversarial review ses_e65cad76effe REQUEST-CHANGES, F-1/F-2/
 // F-3/F-5): parity means the twin's FULL encoding chain, not a raw copy. The
@@ -274,7 +277,7 @@ func TestFR20EtlFailureFieldsPublishedForFailedExecution(t *testing.T) {
 		}
 	}
 	if len(outputMissing) > 0 {
-		t.Fatalf("F-R20 FIDELITY GAP CONFIRMED: the REST/ETL output document omits %s; the GraphQL twin publishes them with output.error mirroring execution.error through the sanitizer chain (recipe_execution_reader.go:72). body=%s",
+		t.Fatalf("F-R20 FIDELITY GAP CONFIRMED: the REST/ETL output document omits %s; the GraphQL twin publishes them for this FAILED output with output.error mirroring execution.error through the sanitizer chain (recipe_execution_reader.go gates that mirror by output health; a FAILED output keeps it). body=%s",
 			strings.Join(outputMissing, ", "), body)
 	}
 	fr20PointerValue(t, output, "error", *expectMessage)
@@ -599,6 +602,10 @@ func TestFR20bEtlFailureFieldsTwinParityMatrix(t *testing.T) {
 		}
 		observedOutput := fr20FailedOutput(t, observed)
 		controlOutput := fr20FailedOutput(t, control)
+		// REPAIR-20c positive pins on every shape, both transports (RED on
+		// the lease-lost phantom-trio baseline, shape 5).
+		fr20AssertHealthyOutputsPublishNoFailureTrio(t, name, "twin", execution, control)
+		fr20AssertHealthyOutputsPublishNoFailureTrio(t, name, "rest", execution, observed)
 		for _, field := range fr20ParityFields {
 			rows = append(rows, fr20VerdictRow(name, "exec", field, control, observed))
 			rows = append(rows, fr20VerdictRow(name, "out0", field, controlOutput, observedOutput))
@@ -621,4 +628,113 @@ func TestFR20bEtlFailureFieldsTwinParityMatrix(t *testing.T) {
 			len(diverging), len(rows), strings.Join(diverging, ", "))
 	}
 	t.Logf("R20B VERDICT | PASS | 64/64 comparisons MATCH the twin oracle")
+}
+
+// fr20AssertHealthyOutputsPublishNoFailureTrio is the REST twin of
+// r20AssertHealthyOutputsPublishNoFailureTrio (resolver harness): the promise
+// authority openapi_recipe_execution.go:95-97 — a durable output in a
+// successful state (READY/PUBLISHED) that persisted no own failure code
+// publishes no error/errorCode/errorRetryable, even when the execution page
+// is FAILED. Shape 5 (lease-lost reconciler bundle_store.go:1207-1214:
+// execution fields set, outputs untouched and READY) is the reaching case;
+// the phantom trio was the reviewer-recorded twin-side defect (REPAIR-20c).
+// Genuine per-output failures persist a own FailureCode (failPhase
+// bundle_store.go:989-995, sole per-output failure writer) or carry an
+// unhealthy state, and both keep projecting.
+func fr20AssertHealthyOutputsPublishNoFailureTrio(t *testing.T, shapeName, transport string, durable publication.BundleExecution, body map[string]any) {
+	t.Helper()
+	outputs, ok := body["outputs"].([]any)
+	if !ok || len(outputs) != len(durable.Outputs) {
+		t.Fatalf("%s/%s: body outputs do not mirror the durable set: %v", shapeName, transport, body["outputs"])
+	}
+	for i, output := range durable.Outputs {
+		healthy := output.State == publication.BundleReady || output.State == publication.BundlePublished
+		if !healthy || output.FailureCode != "" {
+			continue
+		}
+		wireOutput, isObject := outputs[i].(map[string]any)
+		if !isObject {
+			t.Fatalf("%s/%s: outputs[%d] is not an object: %v", shapeName, transport, i, outputs[i])
+		}
+		for _, key := range []string{"error", "errorCode", "errorRetryable"} {
+			if raw, present := wireOutput[key]; present {
+				t.Fatalf("F-R20 PHANTOM FAILURE | %s/%s: healthy outputs[%d] (durable state %s, no own persisted failure code) publishes %s=%v; the execution-level failure must not mirror onto a healthy output's own trio (REPAIR-20c: openapi_recipe_execution.go must gate the mirrored execution.Error exactly as recipe_execution_reader.go gates it; promise at openapi_recipe_execution.go:95-97)",
+					shapeName, transport, i, output.State, key, raw)
+			}
+		}
+	}
+}
+
+const (
+	fr20GenuineExecPrefix = "fr20-genuine-"
+	fr20GenuineCode       = "PUBLICATION_FAILED"
+	fr20GenuinePhase      = "VALIDATING"
+)
+
+// TestFR20GenuineOutputFailureProjectsDespiteHealthyExecution is the REST
+// twin of the resolver package's suppression-mutant guard for REPAIR-20c.
+// A genuine per-output failure stamped exactly as the sole production
+// per-output failure writer persists it (failPhase bundle_store.go:989-995:
+// the output's OWN state plus persisted FailureCode/FailureRetryable/
+// FailurePhase) must still project the full trio plus phase on the generated
+// strict-stack body even though the execution page itself is healthy: (a)
+// output FAILED while the execution is PUBLISHED with no execution-level
+// error, (b) a READY output carrying a own persisted failure code (shape-6
+// direction). A "suppress all errors on ready/healthy" fix fails this test.
+func TestFR20GenuineOutputFailureProjectsDespiteHealthyExecution(t *testing.T) {
+	records := []struct {
+		name        string
+		outputState publication.BundleState
+	}{
+		{name: "failed-output_healthy-execution", outputState: publication.BundleFailed},
+		{name: "ready-output_own-failure-code", outputState: publication.BundleReady},
+	}
+	for _, record := range records {
+		id := fr20GenuineExecPrefix + record.name
+		execution := publication.BundleExecution{
+			ID: id,
+			BundleIdentity: publication.BundleIdentity{
+				Name:              "fr20-recipe",
+				Project:           fr20Project,
+				DatasetGeneration: "gP",
+				RecipeDigest:      "sha256-fr20-recipe",
+				SchemaDigest:      "sha256-fr20-schema",
+				AuthResourcePaths: []string{"p1"},
+			},
+			State: publication.BundlePublished,
+			Outputs: []publication.BundleOutputRecord{{
+				Name: fr20OutputName, State: record.outputState, RowCount: 3,
+				FailureCode: fr20GenuineCode, FailureRetryable: true, FailurePhase: fr20GenuinePhase,
+			}},
+		}
+		store := &fr20Store{byID: map[string]publication.BundleExecution{id: execution}}
+		status, body, fields := fr20HTTPGet(t, store, id)
+		if status != http.StatusOK {
+			t.Fatalf("%s: authorized read of the healthy execution must be 200, got %d %s", record.name, status, body)
+		}
+		for _, key := range []string{"error", "errorCode", "errorRetryable"} {
+			if raw, present := fields[key]; present {
+				t.Fatalf("%s: healthy execution page must publish no exec-level trio, got %s=%v (%s)", record.name, key, raw, body)
+			}
+		}
+		output := fr20FailedOutput(t, fields)
+		wantMessage, wantCode, wantRetryable := dataframe.PersistedFailure("", fr20GenuineCode, true)
+		if wantMessage == nil || wantCode == nil || wantRetryable == nil {
+			t.Fatalf("%s: control broken: the twin chain must encode a persisted per-output failure code", record.name)
+		}
+		for key, want := range map[string]string{"error": *wantMessage, "errorCode": *wantCode} {
+			got, present := output[key]
+			if !present || got != want {
+				t.Fatalf("F-R20 SUPPRESSION MUTANT | %s: genuine per-output failure (own state %s + own persisted code) lost its REST trio field %s: got %v (present=%v), want %q (%s)",
+					record.name, record.outputState, key, got, present, want, body)
+			}
+		}
+		if retryable, isBool := output["errorRetryable"].(bool); !isBool || retryable != *wantRetryable {
+			t.Fatalf("F-R20 SUPPRESSION MUTANT | %s: genuine per-output failure errorRetryable = %#v, want explicit JSON true (%s)", record.name, output["errorRetryable"], body)
+		}
+		if phase, present := output["phase"]; !present || phase != fr20GenuinePhase {
+			t.Fatalf("F-R20 SUPPRESSION MUTANT | %s: genuine per-output failure phase = %v (present=%v), want %q (%s)", record.name, phase, present, fr20GenuinePhase, body)
+		}
+		t.Logf("F-R20 GENUINE PIN | %s | per-output failure projects despite a healthy execution page | %s", record.name, body)
+	}
 }

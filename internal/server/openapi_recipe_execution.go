@@ -78,11 +78,18 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 		// (internal/api/graphql/graph/dataframe/model.go:73-84) exactly as
 		// executionModel (recipe_control_graphql.go:319,334) consumes it, and
 		// the same non-empty Phase gate it applies (:329-331). The raw text
-		// given to the constructor for the message slot is execution.Error,
-		// preserving the reader-level mirror recipe_execution_reader.go:72
-		// (output.error MIRRORS execution.Error; review ratified this
-		// mirror-as-declared-parity). What that chain publishes — never a
-		// raw durable copy:
+		// given to the constructor for the message slot is the reader-level
+		// mirror of execution.Error, gated by output health (REPAIR-20c):
+		// recipe_execution_reader.go mirrors execution.Error only onto
+		// outputs that are not themselves healthy (durable READY/PUBLISHED
+		// publish no mirrored text), so the lease-lost reconciliation shape
+		// (bundle_store.go:1207-1214 fails the execution, leaving READY
+		// outputs untouched) no longer stamps a phantom per-output trio —
+		// the ledger entry REPAIR-20b recorded as deliberately unfixed on
+		// the twin side is now repaired on both twins. A genuine per-output
+		// failure (failPhase bundle_store.go:989-995 persists its own
+		// FailureCode/Phase, or leaves the output FAILED) still projects.
+		// What that chain publishes — never a raw durable copy:
 		//   - persisted code present -> the code's stable public message
 		//     (errors.PublicMessage substitution) with the persisted code and
 		//     retryable;
@@ -94,16 +101,15 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 		//   - no persisted code and no raw text -> all three nil, so the
 		//     omitempty generated keys stay absent (additive-optional
 		//     contract, matching the twin publishing nothing when healthy).
-		// Tracked twin-side follow-up (recorded, deliberately NOT fixed in
-		// this unit — scope): for the lease-lost reconciliation shape
-		// (bundle_store.go:1207-1213), the twin chain stamps healthy READY
-		// outputs with a phantom INTERNAL_ERROR trio, because the mirrored
-		// execution.Error is sanitized per output even though the outputs
-		// themselves never failed. The defect is twin-side (the mirror +
-		// per-output sanitizer gate); this unit's job is exact parity, so
-		// REST reproduces it verbatim until the twin-side ledger entry is
-		// repaired, and the parity matrix pins that reproduction.
-		message, code, retryable := dataframeapi.PersistedFailure(execution.Error, output.FailureCode, output.FailureRetryable)
+		mirroredError := ""
+		if item.State != string(publication.BundleReady) {
+			// recipeExecutionHTTPState renders both durable success states
+			// (READY and PUBLISHED) as READY; anything else (FAILED, in
+			// flight) keeps the execution.Error mirror, exactly as the
+			// GraphQL twin reader gates it.
+			mirroredError = execution.Error
+		}
+		message, code, retryable := dataframeapi.PersistedFailure(mirroredError, output.FailureCode, output.FailureRetryable)
 		item.Error, item.ErrorCode, item.ErrorRetryable = message, code, retryable
 		if output.FailurePhase != "" {
 			item.Phase = &output.FailurePhase
