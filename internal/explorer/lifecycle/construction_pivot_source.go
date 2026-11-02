@@ -34,6 +34,17 @@ func validateConstructionPivotSourceSelections(selections []ConstructionPivotSou
 	return nil
 }
 
+var pivotSourceReasons = rowSourceLaneReasons{
+	codeStem:       "PIVOT",
+	reachReason:    "the current construction prefix does not carry root scalar source fields to this stage, and no active related-record source field is offered either",
+	versionReason:  "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Pivot source fields",
+	routeReason:    "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that cannot be carried into Pivot",
+	typeReason:     "every root scalar field enumerated at this stage has a logical type that cannot be carried into Pivot",
+	observedReason: "every root scalar field enumerated for Pivot at this stage has no observed values in the current dataset snapshot",
+	genericCode:    "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS",
+	genericReason:  "the selected stage has no authorized populated scalar FHIR fields that can be carried into Pivot",
+}
+
 func (s *Service) constructionPivotSourceCapability(
 	ctx context.Context,
 	base constructionBase,
@@ -46,18 +57,28 @@ func (s *Service) constructionPivotSourceCapability(
 		result.Reason = "the selected stage is not present in the current compiled output"
 		return result, nil
 	}
-	if constructionRootProjectionCanReachStage(base.construction, stageID) && s.config.RowChoicePlanner != nil {
+	enumeration := rowSourceEnumeration{
+		rootReachable:     constructionRootProjectionCanReachStage(base.construction, stageID),
+		plannerConfigured: s.config.RowChoicePlanner != nil,
+	}
+	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
 			return result, fmt.Errorf("list authorized root Pivot source choices for output %q: %w", outputID, err)
 		}
 		for _, choice := range choices {
+			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
+				enumeration.skip(rowSourceSkipVersion)
+				continue
+			}
 			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
+				enumeration.skip(rowSourceSkipRoute)
 				continue
 			}
 			candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
 			if !ok {
+				enumeration.skip(rowSourceCandidateSkipClass(base.snapshot, choice))
 				continue
 			}
 			result.Choices = append(result.Choices, ConstructionPivotSourceChoice{
@@ -115,12 +136,141 @@ func (s *Service) constructionPivotSourceCapability(
 		return result.Choices[i].ChoiceID < result.Choices[j].ChoiceID
 	})
 	if len(result.Choices) == 0 {
-		result.ReasonCode = "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS"
-		result.Reason = "the selected stage has no authorized populated scalar FHIR fields that can be carried into Pivot"
+		result.ReasonCode, result.Reason = enumeration.decision(pivotSourceReasons)
 		return result, nil
 	}
 	result.Supported = true
 	return result, nil
+}
+
+// rowSourceSkipClass categorizes one root field a signed source lane skipped
+// during its enumeration pass. When nothing is advertised after the full
+// assembly, the lane-level reasonCode names the class if, and only if, every
+// recorded skip shares one class; mixed or unmappable skips keep the existing
+// generic NO_ELIGIBLE_POPULATED_* verdict (ROW-SOURCE-03 clause: "precise
+// reasons for unsupported version, type, route, or stage" plus "distinguish
+// empty data ... inventory errors").
+type rowSourceSkipClass int
+
+const (
+	rowSourceSkipObserved rowSourceSkipClass = iota
+	rowSourceSkipType
+	rowSourceSkipRoute
+	rowSourceSkipVersion
+	rowSourceSkipInventory
+)
+
+// rowSourceEnumeration carries the gate facts each lane already holds at the
+// moment it silently continues, so an empty verdict can name its real cause.
+type rowSourceEnumeration struct {
+	rootReachable     bool
+	plannerConfigured bool
+	skips             map[rowSourceSkipClass]int
+}
+
+func (e *rowSourceEnumeration) skip(class rowSourceSkipClass) {
+	if e.skips == nil {
+		e.skips = make(map[rowSourceSkipClass]int)
+	}
+	e.skips[class]++
+}
+
+// rowSourceLaneReasons is the per-lane wording bundle; the code strings are
+// derived from the stable lane stem so the four signed lanes stay parallel.
+type rowSourceLaneReasons struct {
+	codeStem       string
+	reachReason    string
+	versionReason  string
+	routeReason    string
+	typeReason     string
+	observedReason string
+	genericCode    string
+	genericReason  string
+}
+
+func (e rowSourceEnumeration) decision(reasons rowSourceLaneReasons) (string, string) {
+	if !e.rootReachable {
+		return "ROOT_SOURCE_PROJECTION_UNAVAILABLE", reasons.reachReason
+	}
+	if !e.plannerConfigured {
+		return "ROW_CHOICE_UNAVAILABLE", "authorized scalar source choices are not configured"
+	}
+	if class, single := e.onlySkipClass(); single {
+		switch class {
+		case rowSourceSkipVersion:
+			return "STALE_" + reasons.codeStem + "_SOURCE_SNAPSHOT", reasons.versionReason
+		case rowSourceSkipRoute:
+			return "NO_ROUTE_ELIGIBLE_" + reasons.codeStem + "_SOURCE_FIELDS", reasons.routeReason
+		case rowSourceSkipType:
+			return "NO_TYPE_ELIGIBLE_" + reasons.codeStem + "_SOURCE_FIELDS", reasons.typeReason
+		case rowSourceSkipObserved:
+			return "NO_OBSERVED_VALUES_" + reasons.codeStem + "_SOURCE_FIELDS", reasons.observedReason
+		}
+	}
+	return reasons.genericCode, reasons.genericReason
+}
+
+// onlySkipClass reports the single reason class when every recorded skip
+// shares it. The inventory class (the planner advertised a choice whose
+// snapshot candidate is missing or duplicated) is intentionally not mapped to
+// a new code: per-lane inventory-error state is the separate S-B slice, and
+// mixed causes stay on the honest generic fallback.
+func (e rowSourceEnumeration) onlySkipClass() (rowSourceSkipClass, bool) {
+	if len(e.skips) != 1 {
+		return 0, false
+	}
+	for class, count := range e.skips {
+		if count == 0 || class == rowSourceSkipInventory {
+			return 0, false
+		}
+		return class, true
+	}
+	return 0, false
+}
+
+// rowSourceCandidateSkipClass mirrors the fused gates of
+// constructionGroupSourceCandidate for diagnosis only: the lane still decides
+// its advertised set with the fused helper, so this never changes which
+// fields are offered — only which reason an empty lane reports.
+func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability.RowChoice) rowSourceSkipClass {
+	var found *capability.Candidate
+	for index := range snapshot.Candidates {
+		current := &snapshot.Candidates[index]
+		if current.NodeID != choice.NodeID || current.ResourceType != choice.ResourceType || canonicalRowPath(current.FieldPath) != choice.Path {
+			continue
+		}
+		if found != nil {
+			return rowSourceSkipInventory
+		}
+		found = current
+	}
+	switch {
+	case found == nil:
+		return rowSourceSkipInventory
+	case !found.Populated:
+		return rowSourceSkipObserved
+	case len(found.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(found.Cardinality):
+		return rowSourceSkipRoute
+	case !containsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
+		return rowSourceSkipInventory
+	case !capability.IsSupportedConstructionSourceType(found.LogicalType):
+		return rowSourceSkipType
+	default:
+		return rowSourceSkipInventory
+	}
+}
+
+// rowSourceChoiceIsStaleVersion reports a signed choice issued for a previous
+// dataset snapshot or schema digest. Undecodable ids are not flagged: the
+// advertised set must stay bit-identical to pre-S-A behavior for every other
+// input, and malformed ids remain refused at propose time by the
+// INVALID_{LANE}_SOURCE_CHOICE boundary.
+func rowSourceChoiceIsStaleVersion(choice capability.RowChoice, snapshot capability.Snapshot) bool {
+	identity, err := capability.DecodeRowChoiceID(choice.ChoiceID)
+	if err != nil {
+		return false
+	}
+	return identity.SnapshotToken != snapshot.Token || identity.SchemaDigest != snapshot.Identity.SchemaDigest
 }
 
 func constructionRootProjectionCanReachStage(construction authoringv2.Construction, stageID string) bool {

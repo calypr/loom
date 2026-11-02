@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const (
@@ -1193,4 +1194,144 @@ func decodeConstruction(construction authoringv2.Construction) (authoringv2.Cons
 		return authoringv2.Construction{}, err
 	}
 	return clone, nil
+}
+
+// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
+
+func TestConstructionUnpivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := newUnpivotSourceHarness(t)
+	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	patient := func(candidates ...capability.Candidate) capability.Snapshot {
+		snapshot := harness.snapshot
+		snapshot.Candidates = candidates
+		return snapshot
+	}
+	meltDate := func(id, path, logicalType string) capability.Candidate {
+		return rowSourceLaneCandidate("node-patient", "Patient", id, path, logicalType, "optional_one", true)
+	}
+	rows := []struct {
+		name     string
+		service  *Service
+		base     constructionBase
+		outputID string
+		stageID  string
+		wantCode string
+	}{
+		{
+			name:    "the only melt-kind field has no observed values",
+			service: deriveSourceService(t),
+			base: deriveSourcePatientBase(patient(capability.Candidate{
+				ID: "candidate-birth-count", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "multipleBirthInteger",
+				Label: "Birth count", LogicalType: "integer", Cardinality: "optional_one",
+				ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+				SupportedOperations: []capability.Operation{capability.OperationSelect},
+			}), empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_OBSERVED_VALUES_UNPIVOT_SOURCE_FIELDS",
+		},
+		{
+			name:    "every populated field is a refused date-family melt kind",
+			service: deriveSourceService(t),
+			base: deriveSourcePatientBase(patient(
+				meltDate("candidate-birth-date", "birthDate", "date"),
+				meltDate("candidate-deceased-date-time", "deceasedDateTime", "date_time")), empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_TYPE_ELIGIBLE_UNPIVOT_SOURCE_FIELDS",
+		},
+		{
+			name:    "every field is repeated at the row root",
+			service: deriveSourceService(t),
+			base: deriveSourcePatientBase(patient(rowSourceLaneCandidate("node-patient", "Patient",
+				"candidate-birth-count", "multipleBirthInteger", "integer", "many", true)), empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ROUTE_ELIGIBLE_UNPIVOT_SOURCE_FIELDS",
+		},
+		{
+			name:     "choices were issued for a previous dataset snapshot",
+			service:  rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{inner: resolver, issued: rowSourceSnapshotWithGeneration(harness.snapshot, "unpivot-source-precise-stale-issued")}),
+			base:     deriveSourcePatientBase(harness.snapshot, empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "STALE_UNPIVOT_SOURCE_SNAPSHOT",
+		},
+		{
+			name:    "the construction prefix cannot carry root fields to the stage",
+			service: deriveSourceService(t),
+			base: func() constructionBase {
+				base := deriveSourceBase(unpivotSourceBSSnapshot("unpivot-source-precise-reach"), rowChanging)
+				base.stages = append(base.stages, blockedStages...)
+				return base
+			}(),
+			outputID: deriveSourceOutput, stageID: "group-first",
+			wantCode: "ROOT_SOURCE_PROJECTION_UNAVAILABLE",
+		},
+		{
+			name:     "the authorized choice planner is not configured",
+			service:  rowSourceServiceWithPlanner(nil),
+			base:     deriveSourcePatientBase(harness.snapshot, empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "ROW_CHOICE_UNAVAILABLE",
+		},
+		{
+			name:     "the planner enumerates no fields at all",
+			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}),
+			base:     deriveSourcePatientBase(harness.snapshot, empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS",
+		},
+		{
+			name:    "distinct skipped classes stay on the generic fallback",
+			service: deriveSourceService(t),
+			base: deriveSourcePatientBase(patient(
+				capability.Candidate{
+					ID: "candidate-birth-count", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "multipleBirthInteger",
+					Label: "Birth count", LogicalType: "integer", Cardinality: "optional_one",
+					ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+					SupportedOperations: []capability.Operation{capability.OperationSelect},
+				},
+				meltDate("candidate-birth-date", "birthDate", "date")), empty),
+			outputID: "patients", stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS",
+		},
+	}
+	genericCode := "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS"
+	distinct := map[string]string{}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			result, err := row.service.constructionUnpivotSourceCapability(context.Background(), row.base, row.outputID, row.stageID)
+			if err != nil {
+				t.Fatalf("unpivot source capability: %v", err)
+			}
+			if result.Supported || len(result.Choices) != 0 {
+				t.Fatalf("capability = %#v, want unsupported with no advertised choices", result)
+			}
+			if result.ReasonCode != row.wantCode {
+				t.Fatalf("reasonCode = %q (reason %q), want %q", result.ReasonCode, result.Reason, row.wantCode)
+			}
+			if strings.TrimSpace(result.Reason) == "" {
+				t.Fatalf("reason is blank for %s", row.wantCode)
+			}
+			if previous, seen := distinct[result.ReasonCode]; seen && previous != row.name && result.ReasonCode != genericCode {
+				t.Fatalf("rows %q and %q share reasonCode %q", previous, row.name, result.ReasonCode)
+			}
+			if _, seen := distinct[result.ReasonCode]; !seen {
+				distinct[result.ReasonCode] = row.name
+			}
+			if result.StageID != row.stageID {
+				t.Fatalf("stageId = %q, want %q", result.StageID, row.stageID)
+			}
+		})
+	}
+	if len(distinct) != 7 {
+		t.Fatalf("expected seven distinct lane reason codes, got %#v", distinct)
+	}
 }

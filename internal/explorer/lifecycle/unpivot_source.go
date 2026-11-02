@@ -167,6 +167,17 @@ func unpivotInputColumnIDs(unpivot *authoringv2.ConstructionUnpivot) []string {
 	return ids
 }
 
+var unpivotSourceReasons = rowSourceLaneReasons{
+	codeStem:       "UNPIVOT",
+	reachReason:    "the current construction prefix does not carry root scalar source fields to this stage",
+	versionReason:  "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Unpivot source fields",
+	routeReason:    "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that the Unpivot step cannot reach",
+	typeReason:     "every root scalar field enumerated at this stage is not a string, integer, decimal, or boolean scalar that the Unpivot step can melt",
+	observedReason: "every root scalar field enumerated for the Unpivot step at this stage has no observed values in the current dataset snapshot",
+	genericCode:    "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS",
+	genericReason:  "the selected stage has no authorized populated string, integer, decimal, or boolean scalar FHIR fields that the Unpivot step can melt",
+}
+
 func (s *Service) constructionUnpivotSourceCapability(
 	ctx context.Context,
 	base constructionBase,
@@ -178,18 +189,32 @@ func (s *Service) constructionUnpivotSourceCapability(
 		result.Reason = "the selected stage is not present in the current compiled output"
 		return result, nil
 	}
-	if constructionRootProjectionCanReachStage(base.construction, stageID) && s.config.RowChoicePlanner != nil {
+	enumeration := rowSourceEnumeration{
+		rootReachable:     constructionRootProjectionCanReachStage(base.construction, stageID),
+		plannerConfigured: s.config.RowChoicePlanner != nil,
+	}
+	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
 			return result, fmt.Errorf("list authorized root unpivot source choices for output %q: %w", outputID, err)
 		}
 		for _, choice := range choices {
+			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
+				enumeration.skip(rowSourceSkipVersion)
+				continue
+			}
 			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
+				enumeration.skip(rowSourceSkipRoute)
 				continue
 			}
 			candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
-			if !ok || !unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
+			if !ok {
+				enumeration.skip(rowSourceCandidateSkipClass(base.snapshot, choice))
+				continue
+			}
+			if !unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
+				enumeration.skip(rowSourceSkipType)
 				continue
 			}
 			result.Choices = append(result.Choices, ConstructionUnpivotSourceChoice{
@@ -207,8 +232,7 @@ func (s *Service) constructionUnpivotSourceCapability(
 		return result.Choices[i].ChoiceID < result.Choices[j].ChoiceID
 	})
 	if len(result.Choices) == 0 {
-		result.ReasonCode = "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS"
-		result.Reason = "the selected stage has no authorized populated string, integer, decimal, or boolean scalar FHIR fields that the Unpivot step can melt"
+		result.ReasonCode, result.Reason = enumeration.decision(unpivotSourceReasons)
 		return result, nil
 	}
 	result.Supported = true

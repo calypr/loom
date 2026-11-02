@@ -1073,3 +1073,135 @@ func (h *deriveSourcePatientHarness) candidateDeriveConstruction() authoringv2.C
 	}}
 	return candidate
 }
+
+// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
+
+func TestConstructionDeriveSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	bs := func(id, path, logicalType, cardinality string, populated bool) capability.Candidate {
+		return rowSourceLaneCandidate(deriveSourceRootNode, deriveSourceRootType, id, path, logicalType, cardinality, populated)
+	}
+	candidatesSnapshot := func(token string, candidates ...capability.Candidate) capability.Snapshot {
+		snapshot := deriveSourceSnapshot(token)
+		snapshot.Candidates = candidates
+		return snapshot
+	}
+	rows := []struct {
+		name         string
+		snapshot     capability.Snapshot
+		service      *Service
+		construction authoringv2.Construction
+		stageID      string
+		stages       []explorer.ReceiptConstructionStage
+		wantCode     string
+	}{
+		{
+			name: "every numeric-eligible field has no observed values",
+			snapshot: candidatesSnapshot("derive-source-precise-empty",
+				bs("bs-id", "id", "string", "optional_one", false),
+				bs("bs-active", deriveSourceField, "boolean", "optional_one", false)),
+			service: deriveSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_OBSERVED_VALUES_DERIVE_SOURCE_FIELDS",
+		},
+		{
+			name: "every populated field is not numeric",
+			snapshot: candidatesSnapshot("derive-source-precise-type",
+				bs("bs-id", "id", "string", "optional_one", true),
+				bs("bs-active", deriveSourceField, "boolean", "optional_one", true)),
+			service: deriveSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_TYPE_ELIGIBLE_DERIVE_SOURCE_FIELDS",
+		},
+		{
+			name:     "every field is repeated at the row root",
+			snapshot: candidatesSnapshot("derive-source-precise-route", bs("bs-active", deriveSourceField, "boolean", "many", true)),
+			service:  deriveSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ROUTE_ELIGIBLE_DERIVE_SOURCE_FIELDS",
+		},
+		{
+			name:     "choices were issued for a previous dataset snapshot",
+			snapshot: deriveSourceSnapshot("derive-source-precise-stale"),
+			service: rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{
+				inner:  resolver,
+				issued: rowSourceSnapshotWithGeneration(deriveSourceSnapshot("derive-source-precise-stale"), "derive-source-precise-stale-issued"),
+			}),
+			construction: empty, stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "STALE_DERIVE_SOURCE_SNAPSHOT",
+		},
+		{
+			name:     "the construction prefix cannot carry root fields to the stage",
+			snapshot: deriveSourceSnapshot("derive-source-precise-reach"),
+			service:  deriveSourceService(t), construction: rowChanging, stageID: "group-first",
+			stages:   blockedStages,
+			wantCode: "ROOT_SOURCE_PROJECTION_UNAVAILABLE",
+		},
+		{
+			name:     "the authorized choice planner is not configured",
+			snapshot: deriveSourceSnapshot("derive-source-precise-planner"),
+			service:  rowSourceServiceWithPlanner(nil), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "ROW_CHOICE_UNAVAILABLE",
+		},
+		{
+			name:     "the planner enumerates no fields at all",
+			snapshot: deriveSourceSnapshot("derive-source-precise-none"),
+			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS",
+		},
+		{
+			name: "distinct skipped classes stay on the generic fallback",
+			snapshot: candidatesSnapshot("derive-source-precise-mixed",
+				bs("bs-id", "id", "string", "optional_one", false),
+				bs("bs-active", deriveSourceField, "boolean", "optional_one", true)),
+			service: deriveSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS",
+		},
+	}
+	genericCode := "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS"
+	distinct := map[string]string{}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			base := deriveSourceBase(row.snapshot, row.construction)
+			base.stages = append(base.stages, row.stages...)
+			result, err := row.service.constructionDeriveSourceCapability(context.Background(), base, deriveSourceOutput, row.stageID)
+			if err != nil {
+				t.Fatalf("derive source capability: %v", err)
+			}
+			if result.Supported || len(result.Choices) != 0 {
+				t.Fatalf("capability = %#v, want unsupported with no advertised choices", result)
+			}
+			if result.ReasonCode != row.wantCode {
+				t.Fatalf("reasonCode = %q (reason %q), want %q", result.ReasonCode, result.Reason, row.wantCode)
+			}
+			if strings.TrimSpace(result.Reason) == "" {
+				t.Fatalf("reason is blank for %s", row.wantCode)
+			}
+			if previous, seen := distinct[result.ReasonCode]; seen && previous != row.name && result.ReasonCode != genericCode {
+				t.Fatalf("rows %q and %q share reasonCode %q", previous, row.name, result.ReasonCode)
+			}
+			if _, seen := distinct[result.ReasonCode]; !seen {
+				distinct[result.ReasonCode] = row.name
+			}
+			if result.StageID != row.stageID {
+				t.Fatalf("stageId = %q, want %q", result.StageID, row.stageID)
+			}
+		})
+	}
+	if len(distinct) != 7 {
+		t.Fatalf("expected seven distinct lane reason codes, got %#v", distinct)
+	}
+}

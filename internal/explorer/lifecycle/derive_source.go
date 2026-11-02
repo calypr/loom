@@ -106,6 +106,17 @@ func deriveOperandColumnIDs(derive *authoringv2.ConstructionDerive) []string {
 	return ids
 }
 
+var deriveSourceReasons = rowSourceLaneReasons{
+	codeStem:       "DERIVE",
+	reachReason:    "the current construction prefix does not carry root scalar source fields to this stage",
+	versionReason:  "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Derive source fields",
+	routeReason:    "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that the Derive step cannot reach",
+	typeReason:     "every root scalar field enumerated at this stage is not an integer or decimal scalar that the Derive step can consume",
+	observedReason: "every root scalar field enumerated for the Derive step at this stage has no observed values in the current dataset snapshot",
+	genericCode:    "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS",
+	genericReason:  "the selected stage has no authorized populated integer or decimal scalar FHIR fields that the Derive step can consume",
+}
+
 func (s *Service) constructionDeriveSourceCapability(
 	ctx context.Context,
 	base constructionBase,
@@ -117,18 +128,32 @@ func (s *Service) constructionDeriveSourceCapability(
 		result.Reason = "the selected stage is not present in the current compiled output"
 		return result, nil
 	}
-	if constructionRootProjectionCanReachStage(base.construction, stageID) && s.config.RowChoicePlanner != nil {
+	enumeration := rowSourceEnumeration{
+		rootReachable:     constructionRootProjectionCanReachStage(base.construction, stageID),
+		plannerConfigured: s.config.RowChoicePlanner != nil,
+	}
+	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
 			return result, fmt.Errorf("list authorized root derive source choices for output %q: %w", outputID, err)
 		}
 		for _, choice := range choices {
+			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
+				enumeration.skip(rowSourceSkipVersion)
+				continue
+			}
 			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
+				enumeration.skip(rowSourceSkipRoute)
 				continue
 			}
 			candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
-			if !ok || !deriveSourceLogicalTypeIsNumeric(candidate.LogicalType) {
+			if !ok {
+				enumeration.skip(rowSourceCandidateSkipClass(base.snapshot, choice))
+				continue
+			}
+			if !deriveSourceLogicalTypeIsNumeric(candidate.LogicalType) {
+				enumeration.skip(rowSourceSkipType)
 				continue
 			}
 			result.Choices = append(result.Choices, ConstructionDeriveSourceChoice{
@@ -146,8 +171,7 @@ func (s *Service) constructionDeriveSourceCapability(
 		return result.Choices[i].ChoiceID < result.Choices[j].ChoiceID
 	})
 	if len(result.Choices) == 0 {
-		result.ReasonCode = "NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS"
-		result.Reason = "the selected stage has no authorized populated integer or decimal scalar FHIR fields that the Derive step can consume"
+		result.ReasonCode, result.Reason = enumeration.decision(deriveSourceReasons)
 		return result, nil
 	}
 	result.Supported = true

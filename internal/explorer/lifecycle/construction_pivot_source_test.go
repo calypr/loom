@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestRebuiltPivotSourceHelperDoesNotReusePresentationForChangedBinding(t *testing.T) {
@@ -187,5 +189,137 @@ func TestPivotSourcePresentationFailureIsPrefixScopeRejection(t *testing.T) {
 	_, _, err := document.AnalyzeConstructionCandidate(candidate, "pivot", nil)
 	if err == nil || !strings.Contains(err.Error(), "candidate changes step") || !strings.Contains(err.Error(), construction.Steps[0].ID) {
 		t.Fatalf("broken regenerated prefix error = %v, want prefix-scope rejection for %q", err, construction.Steps[0].ID)
+	}
+}
+
+// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
+
+func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	bs := func(id, path, logicalType, cardinality string, populated bool) capability.Candidate {
+		return rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, id, path, logicalType, cardinality, populated)
+	}
+	candidatesSnapshot := func(token string, candidates ...capability.Candidate) capability.Snapshot {
+		snapshot := filterSourceSnapshot(token)
+		snapshot.Candidates = candidates
+		return snapshot
+	}
+	rows := []struct {
+		name         string
+		snapshot     capability.Snapshot
+		service      *Service
+		construction authoringv2.Construction
+		stageID      string
+		stages       []explorer.ReceiptConstructionStage
+		wantCode     string
+	}{
+		{
+			name: "every eligible field has no observed values",
+			snapshot: candidatesSnapshot("pivot-source-precise-empty",
+				bs("bs-id", "id", "string", "optional_one", false),
+				bs("bs-active", filterSourceField, "boolean", "optional_one", false)),
+			service: filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_OBSERVED_VALUES_PIVOT_SOURCE_FIELDS",
+		},
+		{
+			name: "every field carries a logical type that cannot be carried into Pivot",
+			snapshot: candidatesSnapshot("pivot-source-precise-type",
+				bs("bs-id", "id", "quantity", "optional_one", true),
+				bs("bs-active", filterSourceField, "quantity", "optional_one", true)),
+			service: filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_TYPE_ELIGIBLE_PIVOT_SOURCE_FIELDS",
+		},
+		{
+			name:     "every field is repeated at the row root",
+			snapshot: candidatesSnapshot("pivot-source-precise-route", bs("bs-active", filterSourceField, "boolean", "many", true)),
+			service:  filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ROUTE_ELIGIBLE_PIVOT_SOURCE_FIELDS",
+		},
+		{
+			name:     "choices were issued for a previous dataset snapshot",
+			snapshot: filterSourceSnapshot("pivot-source-precise-stale"),
+			service: rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{
+				inner:  resolver,
+				issued: rowSourceSnapshotWithGeneration(filterSourceSnapshot("pivot-source-precise-stale"), "pivot-source-precise-stale-issued"),
+			}),
+			construction: empty, stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "STALE_PIVOT_SOURCE_SNAPSHOT",
+		},
+		{
+			name:     "the construction prefix cannot carry root fields to the stage",
+			snapshot: filterSourceSnapshot("pivot-source-precise-reach"),
+			service:  filterSourceService(t), construction: rowChanging, stageID: "group-first",
+			stages:   blockedStages,
+			wantCode: "ROOT_SOURCE_PROJECTION_UNAVAILABLE",
+		},
+		{
+			name:     "the authorized choice planner is not configured",
+			snapshot: filterSourceSnapshot("pivot-source-precise-planner"),
+			service:  rowSourceServiceWithPlanner(nil), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "ROW_CHOICE_UNAVAILABLE",
+		},
+		{
+			name:     "the planner enumerates no fields at all",
+			snapshot: filterSourceSnapshot("pivot-source-precise-none"),
+			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS",
+		},
+		{
+			name: "distinct skipped classes stay on the generic fallback",
+			snapshot: candidatesSnapshot("pivot-source-precise-mixed",
+				bs("bs-id", "id", "string", "optional_one", false),
+				bs("bs-active", filterSourceField, "quantity", "optional_one", true)),
+			service: filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS",
+		},
+	}
+	genericCode := "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS"
+	distinct := map[string]string{}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			base := filterSourceBase(row.snapshot, row.construction)
+			base.stages = append(base.stages, row.stages...)
+			result, err := row.service.constructionPivotSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
+			if err != nil {
+				t.Fatalf("pivot source capability: %v", err)
+			}
+			if result.Supported || len(result.Choices) != 0 {
+				t.Fatalf("capability = %#v, want unsupported with no advertised choices", result)
+			}
+			if result.ReasonCode != row.wantCode {
+				t.Fatalf("reasonCode = %q (reason %q), want %q", result.ReasonCode, result.Reason, row.wantCode)
+			}
+			if strings.TrimSpace(result.Reason) == "" {
+				t.Fatalf("reason is blank for %s", row.wantCode)
+			}
+			if previous, seen := distinct[result.ReasonCode]; seen && previous != row.name && result.ReasonCode != genericCode {
+				t.Fatalf("rows %q and %q share reasonCode %q", previous, row.name, result.ReasonCode)
+			}
+			if _, seen := distinct[result.ReasonCode]; !seen {
+				distinct[result.ReasonCode] = row.name
+			}
+			if result.StageID != row.stageID {
+				t.Fatalf("stageId = %q, want %q", result.StageID, row.stageID)
+			}
+		})
+	}
+	if len(distinct) != 7 {
+		t.Fatalf("expected seven distinct lane reason codes, got %#v", distinct)
 	}
 }

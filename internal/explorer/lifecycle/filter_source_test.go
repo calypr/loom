@@ -1124,3 +1124,170 @@ func (h *filterSourceHarness) unobserveBirthCount() {
 		}
 	}
 }
+
+// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
+
+// staleRowSourceChoicePlanner signs every enumerated choice against a
+// different snapshot, mimicking a planner hand-off race between two dataset
+// versions. The real SchemaRowChoiceResolver always pins the passed snapshot,
+// so this only exists to exercise the version skip class.
+type staleRowSourceChoicePlanner struct {
+	inner  *SchemaRowChoiceResolver
+	issued capability.Snapshot
+}
+
+func (p staleRowSourceChoicePlanner) ListRowChoices(ctx context.Context, _ capability.Snapshot, document authoringv2.Document) ([]capability.RowChoice, error) {
+	return p.inner.ListRowChoices(ctx, p.issued, document)
+}
+
+type emptyRowSourceChoicePlanner struct{}
+
+func (emptyRowSourceChoicePlanner) ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error) {
+	return nil, nil
+}
+
+func rowSourceServiceWithPlanner(planner RowChoicePlanner) *Service {
+	return &Service{config: Config{RowChoicePlanner: planner}}
+}
+
+func rowSourceSnapshotWithGeneration(snapshot capability.Snapshot, generation string) capability.Snapshot {
+	identity := snapshot.Identity
+	identity.Generation = generation
+	return capability.NewSnapshot(identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
+}
+
+func rowSourceLaneCandidate(node, resourceType, id, path, logicalType, cardinality string, populated bool) capability.Candidate {
+	candidate := capability.Candidate{
+		ID: id, NodeID: node, ResourceType: resourceType, FieldPath: path,
+		Label: path, LogicalType: logicalType, Cardinality: cardinality,
+		ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+		SupportedOperations: []capability.Operation{capability.OperationSelect},
+	}
+	if populated {
+		candidate.Observed, candidate.Populated, candidate.ObservedDocumentCount = true, true, 4
+	}
+	return candidate
+}
+
+func TestConstructionFilterSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
+	resolver := filterSourceResolver(t)
+	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	rowChanging := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{filterSourceGroupStep()}}
+	blockedStages := []explorer.ReceiptConstructionStage{{ID: "group-first", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP"}}
+	bs := func(id, path, logicalType, cardinality string, populated bool) capability.Candidate {
+		return rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, id, path, logicalType, cardinality, populated)
+	}
+	candidatesSnapshot := func(token string, candidates ...capability.Candidate) capability.Snapshot {
+		snapshot := filterSourceSnapshot(token)
+		snapshot.Candidates = candidates
+		return snapshot
+	}
+	rows := []struct {
+		name         string
+		snapshot     capability.Snapshot
+		service      *Service
+		construction authoringv2.Construction
+		stageID      string
+		stages       []explorer.ReceiptConstructionStage
+		wantCode     string
+	}{
+		{
+			name: "every eligible field has no observed values",
+			snapshot: candidatesSnapshot("filter-source-precise-empty",
+				bs("bs-id", "id", "string", "optional_one", false),
+				bs("bs-active", filterSourceField, "boolean", "optional_one", false)),
+			service: filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_OBSERVED_VALUES_FILTER_SOURCE_FIELDS",
+		},
+		{
+			name: "every field carries a logical type the Filter lane refuses",
+			snapshot: candidatesSnapshot("filter-source-precise-type",
+				bs("bs-id", "id", "quantity", "optional_one", true),
+				bs("bs-active", filterSourceField, "quantity", "optional_one", true)),
+			service: filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_TYPE_ELIGIBLE_FILTER_SOURCE_FIELDS",
+		},
+		{
+			name:     "every field is repeated at the row root",
+			snapshot: candidatesSnapshot("filter-source-precise-route", bs("bs-active", filterSourceField, "boolean", "many", true)),
+			service:  filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ROUTE_ELIGIBLE_FILTER_SOURCE_FIELDS",
+		},
+		{
+			name:     "choices were issued for a previous dataset snapshot",
+			snapshot: filterSourceSnapshot("filter-source-precise-stale"),
+			service: rowSourceServiceWithPlanner(staleRowSourceChoicePlanner{
+				inner:  resolver,
+				issued: rowSourceSnapshotWithGeneration(filterSourceSnapshot("filter-source-precise-stale"), "filter-source-precise-stale-issued"),
+			}),
+			construction: empty, stageID: recipe.ConstructionSourceProjectionID,
+			wantCode: "STALE_FILTER_SOURCE_SNAPSHOT",
+		},
+		{
+			name:     "the construction prefix cannot carry root fields to the stage",
+			snapshot: filterSourceSnapshot("filter-source-precise-reach"),
+			service:  filterSourceService(t), construction: rowChanging, stageID: "group-first",
+			stages:   blockedStages,
+			wantCode: "ROOT_SOURCE_PROJECTION_UNAVAILABLE",
+		},
+		{
+			name:     "the authorized choice planner is not configured",
+			snapshot: filterSourceSnapshot("filter-source-precise-planner"),
+			service:  rowSourceServiceWithPlanner(nil), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "ROW_CHOICE_UNAVAILABLE",
+		},
+		{
+			name:     "the planner enumerates no fields at all",
+			snapshot: filterSourceSnapshot("filter-source-precise-none"),
+			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS",
+		},
+		{
+			name: "distinct skipped classes stay on the generic fallback",
+			snapshot: candidatesSnapshot("filter-source-precise-mixed",
+				bs("bs-id", "id", "string", "optional_one", false),
+				bs("bs-active", filterSourceField, "quantity", "optional_one", true)),
+			service: filterSourceService(t), construction: empty,
+			stageID:  recipe.ConstructionSourceProjectionID,
+			wantCode: "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS",
+		},
+	}
+	genericCode := "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS"
+	distinct := map[string]string{}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			base := filterSourceBase(row.snapshot, row.construction)
+			base.stages = append(base.stages, row.stages...)
+			result, err := row.service.constructionFilterSourceCapability(context.Background(), base, filterSourceOutput, row.stageID)
+			if err != nil {
+				t.Fatalf("filter source capability: %v", err)
+			}
+			if result.Supported || len(result.Choices) != 0 {
+				t.Fatalf("capability = %#v, want unsupported with no advertised choices", result)
+			}
+			if result.ReasonCode != row.wantCode {
+				t.Fatalf("reasonCode = %q (reason %q), want %q", result.ReasonCode, result.Reason, row.wantCode)
+			}
+			if strings.TrimSpace(result.Reason) == "" {
+				t.Fatalf("reason is blank for %s", row.wantCode)
+			}
+			if previous, seen := distinct[result.ReasonCode]; seen && previous != row.name && result.ReasonCode != genericCode {
+				t.Fatalf("rows %q and %q share reasonCode %q", previous, row.name, result.ReasonCode)
+			}
+			if _, seen := distinct[result.ReasonCode]; !seen {
+				distinct[result.ReasonCode] = row.name
+			}
+			if result.StageID != row.stageID {
+				t.Fatalf("stageId = %q, want %q", result.StageID, row.stageID)
+			}
+		})
+	}
+	if len(distinct) != 7 {
+		t.Fatalf("expected seven distinct lane reason codes, got %#v", distinct)
+	}
+}

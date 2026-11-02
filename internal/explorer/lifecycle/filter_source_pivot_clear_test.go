@@ -132,7 +132,7 @@ func TestPivotSourceClearSurvivesFilterPreparation(t *testing.T) {
 	}
 	candidate := authoringv2.Construction{
 		Version: authoringv2.ConstructionVersion,
-		Steps:     []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity)},
+		Steps:   []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity)},
 	}
 	base := filterSourceBase(snapshot, baseConstruction)
 	request := ConstructionProposalRequest{
@@ -172,7 +172,7 @@ func TestPivotSourceReplaceSurvivesFilterPreparation(t *testing.T) {
 	}
 	candidate := authoringv2.Construction{
 		Version: authoringv2.ConstructionVersion,
-		Steps:     []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity, rs05NewColumn)},
+		Steps:   []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity, rs05NewColumn)},
 	}
 	base := filterSourceBase(snapshot, baseConstruction)
 	request := ConstructionProposalRequest{
@@ -216,7 +216,7 @@ func TestPivotSourceClearWithoutFilterPreparationUnaffected(t *testing.T) {
 	}
 	candidate := authoringv2.Construction{
 		Version: authoringv2.ConstructionVersion,
-		Steps:     []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity)},
+		Steps:   []authoringv2.ConstructionStep{rs05PivotStep(rs05PivotID, filterSourceIdentity)},
 	}
 	cleared, _, err := service.constructionCandidateWithPivotSources(context.Background(),
 		filterSourceBase(snapshot, baseConstruction),
