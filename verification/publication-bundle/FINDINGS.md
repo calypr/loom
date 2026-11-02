@@ -1717,3 +1717,65 @@ Both new product-commit bodies read in full. Ledger +**7** new live-byte records
 - Part-2 sole-writer scope: the same three publication-bundle record files + `docs/BUILDER_WORKLIST.tsv`; `docs/BUILDER_VERIFICATION.tsv` **file content** untouched by this writer (read-only pin @`7fcb640f`, parent-committed by the journey lane); backlog doc untouched; nothing staged, committed, pushed, amended, or removed.
 
 Record integrity tail (Round 64 part-2, written last): record-writer's ledger files at write time -- FINDINGS.md md5 `934365a2836a463110efe381974e3dec` **excluding this tail paragraph** (verify: truncate this file at chr(10)+'Record integrity tail (Round 64 part-2, written last):' and hash those exact bytes), OPERATOR_REVIEW_DIGEST.md md5 `fa0ca45f31d1c1501ec567b237bc151c` **excluding that file's Round-64-part-2 tail paragraph** (same truncation recipe), reviewed-sources.json sha256 `5ba1f4b6ff6d28bd84e0342d6791664cd6bc970f597248bf89c71d25441c1bb9` (full file, round=64, canonical roundtrip BYTE-IDENTICAL -- SELF-RUN). My-run evidence: /tmp/opencode/records-round64b.md receipt + r62_audit.py sweep **records=78 match=78 drift=0 annot=19 self=2** run against parent HEAD 3cfec1b7 (detached worktree /tmp/opencode/wt-r64b + these final four record files) by /tmp/opencode/build_r64b.py; all 7 new pins script-derived live==cited-blob==blob@HEAD==on-disk@HEAD. Honest labels: journey AUTHORED pending live window (JOURNEY_OK + WILL-FLIP re-asserts + row 279 STILL OWED; probe-kind coverage block status untested); the assignment's expected registry re-pin was verified NOT to exist in part-1 -- first standalone pin disclosed honestly; 403-masking CLOSED with REQUEST-CHANGES->PASS-after-repair arc (same-model disclosed); UI clause MET-BY-CODE with 2 EXPAND-family proposals to operator. Sole-writer respected; BUILDER_VERIFICATION.tsv content untouched (read-only pin); nothing staged, committed, pushed, amended, or git rm'd.
+
+## Round 65 -- discovery-pass C1-C5 disposition; C1 `8459f080` + C2 `87ee09c7` folds; formal re-sync `49d6999e`
+
+
+Three parent-committed product/formal commits folded; bodies read in full. All 11 touched ledger keys re-derived script-side: live sha256 == `git show <pin>:<path>` == blob@HEAD == on-disk@HEAD in a disposable detached worktree of `49d6999e` (`/tmp/opencode/wt-r65`; zero hand-typed digests).
+
+
+### 1. Discovery-pass disposition (`/tmp/opencode/sidefind-next3.md` ranked pass)
+
+
+| rank | candidate | disposition | evidence |
+
+|---|---|---|---|
+
+| C1 | DERIVE/UNPIVOT SET re-imports cleared foreign-owner inputs | **FIXED @`8459f080`** | RED-first x2 durables (`filter_source_pivot_clear_test.go` :1294/:1345); +2/-2 per lane mirroring pivot :591-592/filter :265-268; reviewer: "Worker mutation claims reproduced exactly, including the partial-chain pre/post disclosure." (`c1-review.md`; C1-C4 + T1/T2/T3 survive) |
+
+| C2 | lease-lost demotion stamps phantom failure trio on healthy outputs (both transports) | **FIXED @`87ee09c7`** | one reader hunk + two openapi hunks; gate only demotes `errors.Is(lease.ErrLeaseLost)` FAILED/MISSING_REVISION shape-6; reviewer direct oracle runs: R20 4/4 + "R20B VERDICT \| PASS \| 64/64 comparisons MATCH the twin oracle"; genuine-direction M1/M2 mutants each kill every cell (`c2-review.md`) |
+
+| C3 | signed sets on non-matching step kind silently dropped (200, undecorated) | **NEEDS-OPERATOR-DECISION** | Arms ALIVE (`c3-reachability.md` Probes A/C/D named 422s; Probe B measured err==nil, PREVIEW_PENDING, zero diagnostics) -> `/tmp/opencode/operator-decision-digest-draft.md` section (g) "Signed-set on non-matching step kind -- silent 200 vs named refusal". SideFinding `row-source-derive-D10-dead-code` REFUTED. |
+
+| C4 | isPopulated flags catalog-global? | **PREVENTED BY CODE, CLOSED from actionable queue** | builder.go:189-204 OR-merge = exact-resource-observation dedupe (input-scoped per AllGenerations semantics); per-generation isolation in the Arango bind (dc52ed0a precedent + durable all_generations fixture). Residual LOW: field-fact fan-out shares the resources.go family -- live two-generation witness optional. |
+
+| C5 | prepare-lanes C1-gating surface unmodelled | **RESOLVED-VIA-MODEL-UPDATE @`49d6999e`** | PrepareLanes mapping re-pinned to guarded SET loops; clean 61,456 distinct verbatim; persist falsifier violates ClearedStaysCleared @9,236 = C1-revert falsifier (`formal-resync65.md`) |
+
+
+
+**Second discovery pass — authoring-command idempotency/replay: NO BUG FOUND (PROTECTED-BY-CODE).** All 6 replay scenarios + batch atomicity protected; guards SELF-RUN spot-verified this round, not taken on report: replay arm `owner.LastAuthoringCommandID == request.CommandID` (internal/explorer/service.go:240, set :311, persisted arango/drafts.go:150), `ErrDraftConflict` version/digest guards (arango/drafts.go:52/:89/:96), SINGLE-CAS `WithTransaction` (arango/drafts.go:33) including the history-row insert (:49/:86), existing formal coverage internal/explorer/arango/draft_transaction_formal_replay_test.go. **Disclosed design note (not a defect):** ApplyCommandsRequest.Digest() excludes ExpectedDraftVersion (commands.go:591-597 marshals only semanticsVersion/snapshotToken/commands) — safe because the version-guard follows the replay arm. Evidence: /tmp/opencode/idem-probe-P1..P7 logs, 7/7 exit 0 at `87ee09c7` (disposable copy /tmp/opencode/idemprobe).
+
+### 2. Formal re-sync honesty finding (quoted)
+
+
+`/tmp/opencode/formal-resync65.md`: "The old (r64 / ebf97a40) CLEAN pass of ConstructionPrepareLanes was on a **stale description**: assumption A3 ... was false at the derive/unpivot sites pre-8459f080 -- the code persisted cleared foreign-owner re-imports, which is exactly the C1 defect". I.e. **the stale Clean pass described the C1 defect** -- a real-code bug fixed inside the window (introduced pre-`0dd7be44`, b72a1322-era lanes; repaired by `8459f080`), not verification drift; no bound weakened -- the model now describes BOTH shapes (clean = guarded, fault = unguarded). Parent arm re-derivations SELF-RUN: gated arm exit 0, "61456 distinct states found", own -metadir (`tlc-parent-gated.log` 22:37:48); falsifier arm exit 12 "Invariant ClearedStaysCleared is violated" @9,236 (`tlc-parent-persist.log` 22:37:49). 11/12 models IN SYNC; **C2 lease-lost promise remains unmodelled -- flagged, carried by the @`87ee09c7` durables**.
+
+
+### 3. 403 sibling sweep (carried fact, honest attribution)
+
+
+- **SELF-RUN spot-check (this round): correct polarity CONFIRMED at the cited sibling** -- `internal/server/construction_inputs_catalog.go` authorizedSnapshot 403 is gated by `errors.Is(err, authscope.ErrForbidden) || errors.Is(err, authscope.ErrUnauthenticated)` (:369-371) with backend-unavailable mapped earlier to `constructionInputsUnavailable` (503): no blind collapse.
+- The repo-wide "**no other literal-403 blind-collapse site**" census is recorded as the **f403-lane sweep fact from the round-64 receipts, attributed and not re-derived here** (this writer enumerated literal-403 sites only; auditing every gate is outside this round). Flag, no verdict.
+
+
+### 4. UI four-state + merged-tree validation carried in
+
+
+- Row-96 **UI four-state is MET-BY-CODE** (r64 audit); LIVE window run remains the journey lane's -- runbook `/tmp/opencode/live-window-runbook.md`.
+- Merged tree @`49d6999e`: 99-file offline Go suite ZERO failing files (`tests-sweep-failures.txt`, 0 bytes); UI vitest "Test Files 88 passed (88) / Tests 1166 passed (1166)" (22:35, `ui-vitest-merged.log`); openapi route-ownership + audit-http-500 checks green (`r20b-openapi-check.log`).
+
+
+### 5. Ledger delta + honest counts
+
+
+- **11 touched keys = +5 standalone NEW records, 6 re-pins/record-upgrades** (reviewRecords **78 -> 83**). The assignment's rough "+11 records" = touched keys; disclosed rather than inflated.
+- Re-pins marked **NOT-a-duplicate** with supersession reasons: derive/unpivot @`d3a1d12a`->`8459f080`; reader/openapi **md5-era -> sha256 convention** @`87ee09c7` (Repair-6-era entries superseded incl. the r58 rerun note); TLA+SKILL @`ea6df079`->`49d6999e`.
+- `filter_source_pivot_clear_test.go` standalone promotion disclosed (part-1 booked it inside the filter_source_test.go role; that file is byte-unchanged @`8459f080` and keeps its own record).
+- twin_golden.json pair is **byte-identical across transports** (single sha, one entry per boundary, cross-noted).
+- sideFindings **45 -> 48**: `twin-side-lease-lost-phantom` CLOSED @`87ee09c7`; `row-source-population-flags-catalog-global` CLOSED prevented-by-code (residual low recorded); `formals-U2-prepare-lanes-unmodeled` gap closed via `49d6999e`; +1 C1 found&fixed trace; +1 C3 operator-decision-pending pointing at digest section (g); +1 `authoring-command-idempotency-replay` **NO BUG FOUND closed-on-record** (second discovery pass: PROTECTED-BY-CODE + disclosed design note; guards SELF-RUN-verified).
+- Post-write audit SELF-RUN @parent HEAD `49d6999e`: publication-bundle ledger **83 records / 83 match / 0 drift** (19 annotation-only, 2 self pre-tail); canonical JSON roundtrip BYTE-IDENTICAL; 3-way agreement at 83 (audit == this §5 == digest Round-65 row).
+- Sole-writer respected: WORKLIST ONLY row 96 **evidence column** += formal-resync refs (journey column untouched); `docs/BUILDER_VERIFICATION.tsv` excluded (journey lane); nothing staged, committed, pushed, amended, or removed.
+
+
+
+Record integrity tail (Round 65, written last): record-writer's ledger files at write time -- FINDINGS.md md5 `4d8fc63fef84ed7add65557959509831` **excluding this tail paragraph** (verify: truncate this file at chr(10)+'Record integrity tail (Round 65, written last):' and hash those exact bytes), OPERATOR_REVIEW_DIGEST.md md5 `0b0bf2613fcda2476f8f21f7d28e8e62` **excluding that file's Round-65 tail paragraph** (same truncation recipe), reviewed-sources.json sha256 `e2760999bdc074482bcd6c7977b2c71dba15806b33aa163663dd74136657aab6` (full file, round=65, canonical roundtrip BYTE-IDENTICAL -- SELF-RUN). My-run evidence: /tmp/opencode/records-round65.md receipt + r62_audit.py sweep **records=83 match=83 drift=0 annot=19 self=2** run against parent HEAD 49d6999e (detached worktree /tmp/opencode/wt-r65 + these final four record files) by /tmp/opencode/build_r65.py; all 11 touched pins script-derived live==cited-blob==blob@HEAD==on-disk@HEAD. Honest labels: C1/C2 FIXED+CLOSED; C3 NEEDS-OPERATOR-DECISION (digest section (g)); C4 PREVENTED-BY-CODE (low residual, optional witness); C5 resolved-via-model-update; A3 stale-clean-pass finding quoted honestly; 403 census beyond the SELF-RUN-confirmed sibling is an attributed f403-lane sweep fact (flagged); the assignment rough "+11 records" booked honestly as 5 new + 6 re-pins/record-upgrades. Sole-writer respected; BUILDER_VERIFICATION.tsv excluded; nothing staged, committed, pushed, amended, or git rm'd.
