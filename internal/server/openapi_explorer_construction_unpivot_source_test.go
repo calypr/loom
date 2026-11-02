@@ -456,6 +456,11 @@ type unpivotMeltFirstEnv struct {
 
 func newUnpivotMeltFirstEnv(t *testing.T) *unpivotMeltFirstEnv {
 	t.Helper()
+	return newUnpivotMeltFirstEnvWithCandidates(t)
+}
+
+func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Candidate) *unpivotMeltFirstEnv {
+	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Candidates = append(snapshot.Candidates,
 		capability.Candidate{
@@ -466,6 +471,7 @@ func newUnpivotMeltFirstEnv(t *testing.T) *unpivotMeltFirstEnv {
 			Observed:            true, Populated: true, ObservedDocumentCount: 135,
 		},
 	)
+	snapshot.Candidates = append(snapshot.Candidates, extra...)
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
 	if err != nil {
 		t.Fatal(err)
@@ -680,5 +686,127 @@ func TestConstructionUnpivotSourceMeltFirstPublicOnlyStaysGreen(t *testing.T) {
 		bytes.Contains([]byte(resp.Body), []byte("NEEDS_REPAIR")) ||
 		bytes.Contains([]byte(resp.Body), []byte(`CONSTRUCTION_RECEIPT_CONTRACT_INVALID`)) {
 		t.Fatalf("melt-first PUBLIC-only UNPIVOT regressed (must stay a clean 200 preview): status=%d body=%s", resp.StatusCode, resp.Body)
+	}
+}
+
+// --- dated date-family melt refusal (operator decision #4) ---
+// A signed date or date_time melt through the shipped proposal handler must
+// return the named 422 refusal, discovery must hide the date-family choices,
+// and the permitted STRING class must stay a clean 200 preview. Pre-fix, the
+// signed effectiveDateTime melt reached a 200 decorated preview on the
+// accepted binary (authority /tmp/opencode/jrev/probe-date-melt-dp4.log).
+
+func unpivotDateRejectCandidates() []capability.Candidate {
+	return []capability.Candidate{
+		{
+			ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient",
+			FieldPath: "birthDate", Label: "Birth date", LogicalType: "date", Cardinality: "OPTIONAL_ONE",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect},
+			Observed:            true, Populated: true, ObservedDocumentCount: 12,
+		},
+		{
+			ID: "c_patient_deceased_date_time", NodeID: "n_patient", ResourceType: "Patient",
+			FieldPath: "deceasedDateTime", Label: "Deceased", LogicalType: "date_time", Cardinality: "OPTIONAL_ONE",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect},
+			Observed:            true, Populated: true, ObservedDocumentCount: 12,
+		},
+	}
+}
+
+// The date family is hidden from discovery by the refusal, so the request
+// token is minted through the RowChoicePlanner directly (same authority the
+// lifecycle boundary tests use), proving discovery and admission fail closed
+// together.
+func unpivotPlannerSignedChoice(t *testing.T, snapshot capability.Snapshot, path string) string {
+	t.Helper()
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := lifecycle.NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := authoringv2.Document{RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}}
+	choices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range choices {
+		if choice.Kind == capability.RowChoiceFieldGroupKey && choice.OccurrenceID == authoringv2.RootOccurrenceID && choice.Path == path {
+			return choice.ChoiceID
+		}
+	}
+	t.Fatalf("planner omitted the Patient.%s root field choice", path)
+	return ""
+}
+
+func TestConstructionUnpivotSourceDateFamilyMeltIsRefused(t *testing.T) {
+	for _, row := range []struct{ fieldPath, logicalType string }{
+		{"birthDate", "date"},
+		{"deceasedDateTime", "date_time"},
+	} {
+		env := newUnpivotMeltFirstEnvWithCandidates(t, unpivotDateRejectCandidates()...)
+		choiceID := unpivotPlannerSignedChoice(t, env.snapshot, row.fieldPath)
+		publicID := env.meltFirstCompiledColumnID(t, "c_patient")
+		stepID := "unpivot_date_first_" + row.logicalType
+		signedColumnID := "unpivot-input_first_" + row.fieldPath
+		candidate := unpivotMeltFirstConstruction(publicID, stepID, signedColumnID, true)
+		candidateJSON, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf(
+			`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s,"unpivotSources":[{"choiceId":%q,"columnId":%q}]}`,
+			env.snapshot.Token, env.draftVer, env.draftDgst, stepID, candidateJSON, choiceID, signedColumnID,
+		)
+		resp := requestJSON(t, env.app, http.MethodPost, env.basePath+"/construction-proposals", body)
+		t.Logf("signed %s melt status=%d body=%.600s", row.logicalType, resp.StatusCode, resp.Body)
+		if resp.StatusCode != http.StatusUnprocessableEntity || !bytes.Contains([]byte(resp.Body), []byte(`UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD`)) {
+			t.Fatalf("signed %s melt must be a named 422 refusal; got %d body=%.900s", row.logicalType, resp.StatusCode, resp.Body)
+		}
+	}
+
+	env := newUnpivotMeltFirstEnvWithCandidates(t, unpivotDateRejectCandidates()...)
+	capabilitiesBody := env.meltFirstCapabilities(t)
+	for _, hidden := range []string{"birthDate", "deceasedDateTime"} {
+		_, input := decodedUnpivotSourceInput(t, capabilitiesBody)
+		for _, choice := range input.Choices {
+			if choice.FieldPath != nil && *choice.FieldPath == hidden {
+				t.Fatalf("discovery still advertises refused date-family melt kind %q: %#v", hidden, choice)
+			}
+		}
+	}
+	{
+		_, input := decodedUnpivotSourceInput(t, capabilitiesBody)
+		genderOffered := false
+		for _, choice := range input.Choices {
+			if choice.FieldPath != nil && *choice.FieldPath == "gender" {
+				genderOffered = true
+			}
+		}
+		if !genderOffered {
+			t.Fatalf("discovery hid the permitted STRING melt kind beside the date family: %.900s", capabilitiesBody)
+		}
+	}
+	{
+		choiceID := env.meltFirstSignedChoice(t, "gender")
+		publicID := env.meltFirstCompiledColumnID(t, "c_patient")
+		const stepID = "unpivot_string_first"
+		candidate := unpivotMeltFirstConstruction(publicID, stepID, "unpivot-input_first_gender", true)
+		candidateJSON, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf(
+			`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s,"unpivotSources":[{"choiceId":%q,"columnId":%q}]}`,
+			env.snapshot.Token, env.draftVer, env.draftDgst, stepID, candidateJSON, choiceID, "unpivot-input_first_gender",
+		)
+		resp := requestJSON(t, env.app, http.MethodPost, env.basePath+"/construction-proposals", body)
+		if resp.StatusCode != http.StatusOK || !bytes.Contains([]byte(resp.Body), []byte(`"previewStatus"`)) {
+			t.Fatalf("signed STRING melt regressed beside the date refusal: status=%d body=%.900s", resp.StatusCode, resp.Body)
+		}
 	}
 }

@@ -161,6 +161,23 @@ func TestUnpivotSourceLogicalTypeIsTableScalarAdmitsOnlyCompilerKinds(t *testing
 	}
 }
 
+// The lane's own admission = compiler delegation minus the date family
+// (operator decision #4). The trim+lowercase canonicalization matches the
+// compiler's, so no alias reaches an eligible verdict, and every kind the
+// compiler refuses stays refused.
+func TestUnpivotSourceMeltEligibilityExcludesDateFamily(t *testing.T) {
+	for _, want := range []string{"string", "integer", "decimal", "boolean", "code", "uuid", " STRING", "Decimal ", "BOOLEAN"} {
+		if !unpivotSourceLogicalTypeIsMeltEligible(want) {
+			t.Fatalf("unpivotSourceLogicalTypeIsMeltEligible(%q) = false, want true", want)
+		}
+	}
+	for _, refuse := range []string{"date", "date_time", " Date ", " DATE_TIME ", "date_time ", "", "number", "object", "datetime", "date-time", "quantity", "url", "null"} {
+		if unpivotSourceLogicalTypeIsMeltEligible(refuse) {
+			t.Fatalf("unpivotSourceLogicalTypeIsMeltEligible(%q) = true, want false", refuse)
+		}
+	}
+}
+
 // Permanent whitelist-drift guard: the signed channel's melt gate is the
 // compiler decision itself. This set-equality table fails if anyone adds a
 // local kind set back to either side.
@@ -199,15 +216,17 @@ func TestUnpivotSourceWhitelistIsTheCompilerDecision(t *testing.T) {
 // The joint satisfiability rule is the compiler's own compatibility predicate
 // applied to the physical class each logical kind lowers to. An unsatisfiable
 // melt must be refused by class, never by silently dropping kinds the channel
-// has not yet classified (finding F-1: {integer,date} lowers to {INTEGER,
-// STRING} and the compiler refuses it).
+// has not yet classified. On top of that, the unpivot lane refuses the date
+// family outright (operator decision #4): the compiler maps date and
+// date_time to the STRING class, but compiler parity is not consent for this
+// channel, so any melt carrying a date-family kind is unsatisfiable.
 func TestUnpivotMeltKindsSatisfiableFollowsCompilerRule(t *testing.T) {
-	for _, ok := range [][]string{nil, {}, {"integer"}, {"decimal"}, {"integer", "decimal"}, {"decimal", "integer"}, {" string "}, {"boolean"}, {"BOOLEAN", "boolean"}, {"date"}, {"date", "code", "uuid", "date_time", "string"}, {" Date ", "STRING"}} {
+	for _, ok := range [][]string{nil, {}, {"integer"}, {"decimal"}, {"integer", "decimal"}, {"decimal", "integer"}, {" string "}, {"boolean"}, {"BOOLEAN", "boolean"}, {"code", "uuid", "string"}, {"Code", " STRING"}} {
 		if !unpivotMeltKindsSatisfiable(ok) {
 			t.Fatalf("unpivotMeltKindsSatisfiable(%v) = false, want true", ok)
 		}
 	}
-	for _, refuse := range [][]string{{"string", "integer"}, {"string", "decimal"}, {"boolean", "string"}, {"boolean", "decimal"}, {"integer", "boolean"}, {"integer", "date"}, {"decimal", "date_time"}, {"boolean", "code"}, {"string", "integer", "uuid"}} {
+	for _, refuse := range [][]string{{"string", "integer"}, {"string", "decimal"}, {"boolean", "string"}, {"boolean", "decimal"}, {"integer", "boolean"}, {"integer", "date"}, {"decimal", "date_time"}, {"boolean", "code"}, {"string", "integer", "uuid"}, {"date"}, {"date_time"}, {"date", "code", "uuid", "date_time", "string"}, {" Date ", "STRING"}, {"date", "date_time"}, {"string", "date"}} {
 		if unpivotMeltKindsSatisfiable(refuse) {
 			t.Fatalf("unpivotMeltKindsSatisfiable(%v) = true, want false", refuse)
 		}
@@ -284,55 +303,79 @@ func TestConstructionUnpivotSourceRejectsNonScalarKindOnAdmission(t *testing.T) 
 	}
 }
 
-// Finding F-1: a populated date root scalar is advertised by the recipe
-// source validator and compiled by the melt lowerer (date → STRING), so the
-// signed channel must admit it, not fabricate UNSUPPORTED_UNPIVOT_SOURCE_FIELD.
-func TestConstructionUnpivotSourceAdmitsCompilerMeltKindDate(t *testing.T) {
-	harness := newUnpivotSourceHarness(t)
-	snapshot := harness.snapshot
-	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
-		ID: "candidate-birth-date", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "birthDate",
-		Label: "Birth date", LogicalType: "date", Cardinality: "optional_one",
-		ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
-		SupportedOperations: []capability.Operation{capability.OperationSelect},
-		Observed:            true, Populated: true, ObservedDocumentCount: 12,
-	})
-	dateChoice := deriveSourceRowChoice(t, snapshot, "Patient", "birthDate")
-	projection, err := harness.service.resolveConstructionUnpivotSource(context.Background(),
-		deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
-		unpivotPatientProposalRequest(unpivotSourceStep, nil), recipe.ConstructionSourceProjectionID,
-		ConstructionUnpivotSourceSelection{ChoiceID: dateChoice.ChoiceID, ColumnID: unpivotPatientColumn})
-	if err != nil {
-		t.Fatalf("date root scalar refused on admission: %v", err)
-	}
-	if projection.FieldPath != "birthDate" || projection.LogicalType != "date" || projection.FHIRType != "date" {
-		t.Fatalf("date projection = %#v, want server-derived birthDate/date facts", projection)
+// Operator decision #4: the unpivot melt lane refuses the date family even
+// though the compiler maps it to the STRING class. The planner still issues
+// a signed token for a scalar date/date_time field, so admission must refuse
+// it by name rather than fabricate an accepted melt the compiler would then
+// build with silently lossy date-to-string semantics.
+func TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission(t *testing.T) {
+	for _, row := range []struct {
+		id, fieldPath, label, logicalType string
+	}{
+		{"candidate-birth-date", "birthDate", "Birth date", "date"},
+		{"candidate-deceased-date-time", "deceasedDateTime", "Deceased", "date_time"},
+	} {
+		harness := newUnpivotSourceHarness(t)
+		snapshot := harness.snapshot
+		snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+			ID: row.id, NodeID: "node-patient", ResourceType: "Patient", FieldPath: row.fieldPath,
+			Label: row.label, LogicalType: row.logicalType, Cardinality: "optional_one",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect},
+			Observed:            true, Populated: true, ObservedDocumentCount: 12,
+		})
+		dateChoice := deriveSourceRowChoice(t, snapshot, "Patient", row.fieldPath)
+		projection, err := harness.service.resolveConstructionUnpivotSource(context.Background(),
+			deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+			unpivotPatientProposalRequest(unpivotSourceStep, nil), recipe.ConstructionSourceProjectionID,
+			ConstructionUnpivotSourceSelection{ChoiceID: dateChoice.ChoiceID, ColumnID: unpivotPatientColumn})
+		if err == nil {
+			t.Fatalf("%s root scalar was admitted as an unpivot source projection: %#v", row.logicalType, projection)
+		}
+		if code := lifecycleErrorCode(err); code != "UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD" {
+			t.Fatalf("%s admission error = %v, want UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", row.logicalType, err)
+		}
 	}
 }
 
-// The discovery list must show the same compiler melt classes admission
-// accepts; a hidden-but-meltable date field contradicts the capability hint.
-func TestConstructionUnpivotSourceCapabilityIncludesDateMeltKind(t *testing.T) {
+// Operator decision #4: the discovery list must hide the date family, not
+// advertise a field that admission then refuses. Permitted melt kinds stay
+// advertised — the integer root scalar is the regression lock on this side.
+func TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
-	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
-		ID: "candidate-birth-date", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "birthDate",
-		Label: "Birth date", LogicalType: "date", Cardinality: "optional_one",
-		ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
-		SupportedOperations: []capability.Operation{capability.OperationSelect},
-		Observed:            true, Populated: true, ObservedDocumentCount: 12,
-	})
+	snapshot.Candidates = append(snapshot.Candidates,
+		capability.Candidate{
+			ID: "candidate-birth-date", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "birthDate",
+			Label: "Birth date", LogicalType: "date", Cardinality: "optional_one",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect},
+			Observed:            true, Populated: true, ObservedDocumentCount: 12,
+		},
+		capability.Candidate{
+			ID: "candidate-deceased-date-time", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "deceasedDateTime",
+			Label: "Deceased", LogicalType: "date_time", Cardinality: "optional_one",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect},
+			Observed:            true, Populated: true, ObservedDocumentCount: 12,
+		})
 	result, err := harness.service.constructionUnpivotSourceCapability(context.Background(),
 		deriveSourcePatientBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), "patients", recipe.ConstructionSourceProjectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	byPath := make(map[string]ConstructionUnpivotSourceChoice, len(result.Choices))
 	for _, choice := range result.Choices {
-		if choice.FieldPath == "birthDate" && choice.LogicalType == "date" && choice.IsPopulated {
-			return
+		byPath[choice.FieldPath] = choice
+	}
+	for _, hidden := range []string{"birthDate", "deceasedDateTime"} {
+		if choice, offered := byPath[hidden]; offered {
+			t.Fatalf("discovery advertised a refused date-family melt kind: %#v", choice)
 		}
 	}
-	t.Fatalf("discovery hid the admissible date melt kind: %#v", result.Choices)
+	if _, offered := byPath["multipleBirthInteger"]; !offered {
+		t.Fatalf("discovery hid a permitted melt kind alongside the date family: %#v", result.Choices)
+	}
 }
 
 // (b) A valid selection durably owns exactly one server-derived projection,
@@ -871,23 +914,92 @@ func unpivotSaveDraftPublicNote(t *testing.T, harness *unpivotSourceHarness, con
 	harness.store.created.DraftConfig, harness.store.created.DraftDigest = draft, digest
 }
 
-// Finding F-1 accept-side: a signed date root scalar melts through the real
-// physical-table compiler (date compiles as a STRING value column alongside a
-// public string input) instead of being refused at admission.
-func TestProposeConstructionUnpivotSourceMeltsDateFieldWithRealCompiler(t *testing.T) {
+// Operator decision #4 accept-side: the durable proposal path (real compiler
+// wiring) must refuse a signed date/date_time melt with the named code, not
+// preview it. Before the refusal shipped this reached PREVIEW_PENDING at 200
+// (authority /tmp/opencode/jrev/probe-date-melt-dp4.log; finding F-1's
+// accept-side lock was inverted by the operator ruling).
+func TestProposeConstructionUnpivotSourceRefusesDateFamilyWithRealCompiler(t *testing.T) {
+	for _, row := range []struct {
+		id, fieldPath, label, logicalType string
+	}{
+		{"candidate-birth-date", "birthDate", "Birth date", "date"},
+		{"candidate-deceased-date-time", "deceasedDateTime", "Deceased", "date_time"},
+	} {
+		harness := newUnpivotSourceHarness(t)
+		snapshot := harness.snapshot
+		snapshot.Candidates = append(snapshot.Candidates,
+			capability.Candidate{
+				ID: row.id, NodeID: "node-patient", ResourceType: "Patient", FieldPath: row.fieldPath,
+				Label: row.label, LogicalType: row.logicalType, Cardinality: "optional_one",
+				ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+				SupportedOperations: []capability.Operation{capability.OperationSelect},
+				Observed:            true, Populated: true, ObservedDocumentCount: 12,
+			},
+			capability.Candidate{
+				ID: "candidate-gender", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "gender",
+				Label: "Gender", LogicalType: "string", Cardinality: "optional_one",
+				ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+				SupportedOperations: []capability.Operation{capability.OperationSelect},
+				Observed:            true, Populated: true, ObservedDocumentCount: 12,
+			})
+		harness.snapshot = snapshot
+		carriers := append(deriveSourcePatientIdentityColumns(),
+			authoringv2.StageColumn{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+			authoringv2.StageColumn{ID: "note", Name: "note", Label: "Note", Type: "string"})
+		carrier := deriveSourceLiteralOnlyStep("derive-base", carriers)
+		carrier.Operation.Derive.OutputColumnID = "derived_total"
+		melt := unpivotMeltStep(unpivotSourceStep, []string{"note"}, []authoringv2.StageColumn{
+			{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
+			{ID: "derived_total", Name: "derived_total", Label: "Derived total", Type: "integer"},
+			{ID: unpivotMeltKeyColumn, Name: unpivotMeltKeyColumn, Label: "Melt key", Type: "string"},
+			{ID: unpivotMeltValueColumn, Name: unpivotMeltValueColumn, Label: "Melt value", Type: "string"},
+		})
+		melt.Inputs = []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive-base"}}
+		saved := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{carrier, melt}}
+		unpivotSaveDraftPublicNote(t, harness, saved)
+		version, digest := harness.store.created.DraftVersion, harness.store.created.DraftDigest
+
+		candidate, err := decodeConstruction(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
+			authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+
+		choice := deriveSourceRowChoice(t, snapshot, "Patient", row.fieldPath)
+		proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
+			Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
+			ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
+			ChangedStepID:         unpivotSourceStep,
+			CandidateConstruction: candidate,
+			UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
+		})
+		if err == nil {
+			t.Fatalf("%s melt reached a preview instead of a refusal: %#v", row.logicalType, proposal)
+		}
+		if code := lifecycleErrorCode(err); code != "UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD" {
+			t.Fatalf("%s melt proposal error = %v, want UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", row.logicalType, err)
+		}
+	}
+}
+
+// Operator decision #4 regression lock, same harness shape as the refusal
+// above: the permitted STRING class still melts through the real compiler.
+func TestProposeConstructionUnpivotSourceStillMeltsSignedStringWithRealCompiler(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
 	snapshot.Candidates = append(snapshot.Candidates,
 		capability.Candidate{
-			ID: "candidate-birth-date", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "birthDate",
-			Label: "Birth date", LogicalType: "date", Cardinality: "optional_one",
+			ID: "candidate-gender", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "gender",
+			Label: "Gender", LogicalType: "string", Cardinality: "optional_one",
 			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
 			SupportedOperations: []capability.Operation{capability.OperationSelect},
 			Observed:            true, Populated: true, ObservedDocumentCount: 12,
 		},
 		capability.Candidate{
-			ID: "candidate-gender", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "gender",
-			Label: "Gender", LogicalType: "string", Cardinality: "optional_one",
+			ID: "candidate-language", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "language",
+			Label: "Language", LogicalType: "string", Cardinality: "optional_one",
 			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
 			SupportedOperations: []capability.Operation{capability.OperationSelect},
 			Observed:            true, Populated: true, ObservedDocumentCount: 12,
@@ -914,9 +1026,9 @@ func TestProposeConstructionUnpivotSourceMeltsDateFieldWithRealCompiler(t *testi
 		t.Fatal(err)
 	}
 	candidate.Steps[1].Operation.Unpivot.Inputs = append(candidate.Steps[1].Operation.Unpivot.Inputs,
-		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-birth")})
+		authoringv2.ConstructionUnpivotInput{ColumnID: unpivotPatientColumn, Key: unpivotKey("variant-language")})
 
-	choice := deriveSourceRowChoice(t, snapshot, "Patient", "birthDate")
+	choice := deriveSourceRowChoice(t, snapshot, "Patient", "language")
 	proposal, err := harness.service.ProposeConstruction(context.Background(), ConstructionProposalRequest{
 		Project: harness.store.created.Project, ExplorerID: harness.store.created.ExplorerID, SnapshotToken: harness.snapshot.Token,
 		ExpectedDraftVersion: version, ExpectedDraftDigest: digest, OutputID: "patients",
@@ -925,39 +1037,24 @@ func TestProposeConstructionUnpivotSourceMeltsDateFieldWithRealCompiler(t *testi
 		UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
 	})
 	if err != nil {
-		t.Fatalf("ProposeConstruction melting a signed date field: %v", err)
+		t.Fatalf("ProposeConstruction melting a signed string field: %v", err)
 	}
 	if proposal.PreviewStatus != "PREVIEW_PENDING" {
-		t.Fatalf("date melt proposal = %#v, want a compiled preview proposal", proposal)
+		t.Fatalf("string melt proposal = %#v, want a compiled preview proposal", proposal)
 	}
 	if len(proposal.CandidateConstruction.SourceProjections) != 1 {
-		t.Fatalf("proposal projections = %#v, want the durable date projection", proposal.CandidateConstruction.SourceProjections)
+		t.Fatalf("proposal projections = %#v, want the durable string projection", proposal.CandidateConstruction.SourceProjections)
 	}
 	durable := proposal.CandidateConstruction.SourceProjections[0]
-	if durable.FieldPath != "birthDate" || durable.LogicalType != "date" || durable.FHIRType != "date" {
-		t.Fatalf("durable date projection = %#v, want server-derived birthDate/date facts", durable)
-	}
-	receipt := harness.store.receipt
-	if receipt == nil || len(receipt.Bundle.Outputs) != 1 {
-		t.Fatalf("compiled receipt omits the candidate bundle: %#v", receipt)
-	}
-	name := authoringv2.ConstructionSourceProjectionName(unpivotPatientColumn)
-	slotFound := false
-	for index := range receipt.Bundle.Outputs[0].Fields {
-		field := receipt.Bundle.Outputs[0].Fields[index]
-		if field.Name == name {
-			slotFound = field.FieldRef == "birthDate"
-		}
-	}
-	if !slotFound {
-		t.Fatalf("compiled slot for the signed date field missing: %#v", receipt.Bundle.Outputs[0].Fields)
+	if durable.FieldPath != "language" {
+		t.Fatalf("durable string-class projection = %#v, want server-derived language facts", durable)
 	}
 }
 
-// Finding F-1 joint gate: with date admitted by class, an integer+date melt
-// must be refused by the compiler compatibility rule (INTEGER vs STRING) with
-// UNPIVOT_SOURCE_TYPES_INCOMPATIBLE, not silently satisfied by dropping the
-// date kind.
+// Operator decision #4 joint gate: an integer+date melt must be refused by
+// name. The per-selection date admission refusal fires before the class
+// compatibility rule for the signed date field, so the honest code is the
+// date-family refusal, not the generic UNPIVOT_SOURCE_TYPES_INCOMPATIBLE.
 func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T) {
 	harness := newUnpivotSourceHarness(t)
 	snapshot := harness.snapshot
@@ -994,8 +1091,8 @@ func TestProposeConstructionUnpivotSourceRefusesIntegerWithDateMelt(t *testing.T
 		CandidateConstruction: candidate,
 		UnpivotSources:        []ConstructionUnpivotSourceSelection{{ChoiceID: choice.ChoiceID, ColumnID: unpivotPatientColumn}},
 	})
-	if err == nil || lifecycleErrorCode(err) != "UNPIVOT_SOURCE_TYPES_INCOMPATIBLE" {
-		t.Fatalf("integer+date melt error = %v, want UNPIVOT_SOURCE_TYPES_INCOMPATIBLE", err)
+	if err == nil || lifecycleErrorCode(err) != "UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD" {
+		t.Fatalf("integer+date melt error = %v, want UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", err)
 	}
 }
 

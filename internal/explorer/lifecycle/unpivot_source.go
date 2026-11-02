@@ -18,9 +18,11 @@ import (
 // scalar fields an UNPIVOT step can melt through signed source choices, beside
 // the existing Pivot, Group, Filter, and Derive source inputs. UNPIVOT melts
 // value columns into one key/value pair, so only logical kinds the physical
-// table compiler accepts as scalar melt inputs qualify — exactly the kinds
-// lower.TableReshapeScalarKind maps to a table scalar class (the STRING family
-// string/date/date_time/code/uuid plus integer, decimal, boolean).
+// table compiler accepts as scalar melt inputs qualify — the kinds
+// lower.TableReshapeScalarKind maps to a table scalar class, minus the date
+// family: the compiler melts date and date_time into the STRING class, but
+// that parity is not consent for this lane, which refuses date and date_time
+// outright.
 type ConstructionUnpivotSourceCapability struct {
 	Supported  bool                              `json:"supported"`
 	StageID    string                            `json:"stageId"`
@@ -77,31 +79,54 @@ func validateConstructionUnpivotSourceSelections(selections []ConstructionUnpivo
 }
 
 // unpivotSourceLogicalTypeIsTableScalar reports whether a root scalar field can
-// be melted by UNPIVOT. The decision is delegated verbatim to the compiler's
-// own melt gate, lower.TableReshapeScalarKind, which maps the STRING family
-// (string, date, date_time, code, uuid) plus integer, decimal, and boolean to
-// physical scalar classes and refuses everything else (number, object, and the
-// misspelled datetime/date-time aliases). Discovery, admission, fact
-// derivation, and melt satisfiability all share that one decision so no
-// local whitelist can drift from the compiler again.
+// be melted by UNPIVOT as far as the physical compiler is concerned. The
+// decision is delegated verbatim to the compiler's own melt gate,
+// lower.TableReshapeScalarKind, which maps the STRING family (string, date,
+// date_time, code, uuid) plus integer, decimal, and boolean to physical scalar
+// classes and refuses everything else (number, object, and the misspelled
+// datetime/date-time aliases). The lane's own admission is
+// unpivotSourceLogicalTypeIsMeltEligible, which layers the date-family refusal
+// on top of this single delegated decision so no local whitelist can drift
+// from the compiler again.
 func unpivotSourceLogicalTypeIsTableScalar(logicalType string) bool {
 	_, ok := lower.TableReshapeScalarKind(logicalType)
 	return ok
 }
 
+// unpivotSourceLogicalTypeIsMeltEligible is the unpivot lane's own admission
+// of a root scalar field as a signed melt value column. The compiler maps the
+// date family to the STRING class, but compiler parity is not consent for this
+// channel: a signed date/date_time melt silently loses date semantics into a
+// string value column, so the lane refuses it. The canonicalization matches
+// the compiler's (trim + lowercase) so no alias can smuggle the date family
+// past the exclusion; the delegation still rejects every kind the compiler
+// itself refuses.
+func unpivotSourceLogicalTypeIsMeltEligible(logicalType string) bool {
+	switch strings.ToLower(strings.TrimSpace(logicalType)) {
+	case "date", "date_time":
+		return false
+	}
+	return unpivotSourceLogicalTypeIsTableScalar(logicalType)
+}
+
 // unpivotMeltKindsSatisfiable reports whether the melt's value columns can
-// share one physical value type. Every kind is first mapped through the
-// compiler's authoritative melt gate, lower.TableReshapeScalarKind; a melt is
-// unsatisfiable if any input is one the compiler refuses as a value column,
-// never silently dropped. The remaining cross-class rule is taken verbatim
-// from the compiler's compatibility predicate
+// share one physical value type. The unpivot lane first refuses the date
+// family outright (compiler parity is not consent, see
+// unpivotSourceLogicalTypeIsMeltEligible). Every remaining kind is mapped
+// through the compiler's authoritative melt gate,
+// lower.TableReshapeScalarKind; a melt is unsatisfiable if any input is one
+// the compiler refuses as a value column, never silently dropped. The
+// remaining cross-class rule is taken verbatim from the compiler's
+// compatibility predicate
 // (ir.tableScalarKindsCompatible: output == input || (output == "DECIMAL" &&
 // input == "INTEGER")), which the lowerer applies to every unpivot input
-// against the single chosen value-column type. So a signed date field (STRING
-// class) is a valid partner for a string melt and never for an integer one.
+// against the single chosen value-column type.
 func unpivotMeltKindsSatisfiable(kinds []string) bool {
 	classes := make([]string, 0, len(kinds))
 	for _, kind := range kinds {
+		if !unpivotSourceLogicalTypeIsMeltEligible(kind) {
+			return false
+		}
 		class, ok := lower.TableReshapeScalarKind(kind)
 		if !ok {
 			return false
@@ -164,7 +189,7 @@ func (s *Service) constructionUnpivotSourceCapability(
 				continue
 			}
 			candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
-			if !ok || !unpivotSourceLogicalTypeIsTableScalar(candidate.LogicalType) {
+			if !ok || !unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
 				continue
 			}
 			result.Choices = append(result.Choices, ConstructionUnpivotSourceChoice{
@@ -231,6 +256,9 @@ func (s *Service) resolveConstructionUnpivotSource(
 	}
 	if !unpivotSourceLogicalTypeIsTableScalar(candidate.LogicalType) {
 		return authoringv2.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_UNPIVOT_SOURCE_FIELD", "the physical table compiler refuses this logical type as an unpivot melt value column", nil)
+	}
+	if !unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
+		return authoringv2.ConstructionSourceProjection{}, unprocessable("construction-proposal", "UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD", "the unpivot melt lane refuses date and date_time value columns; the physical compiler's acceptance of the date family is not consent for this channel", nil)
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
 	if err != nil {
@@ -509,7 +537,7 @@ func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceTy
 		if !ok || !candidate.Populated || len(candidate.RepeatedBoundaries) != 0 ||
 			!containsSourceProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
 			!capability.IsSupportedConstructionSourceType(candidate.LogicalType) ||
-			!unpivotSourceLogicalTypeIsTableScalar(candidate.LogicalType) {
+			!unpivotSourceLogicalTypeIsMeltEligible(candidate.LogicalType) {
 			continue
 		}
 		schemaIndex, err := fhirschema.GeneratedIndex()
