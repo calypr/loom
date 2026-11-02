@@ -4368,6 +4368,54 @@ describe('unpivot signed unselected-field melt inputs', () => {
     expect([...rowSelect.querySelectorAll('option')].map((option) => option.value)).not.toContain('source:choice-hidden');
   });
 
+  // F-B durable: the server's canonical string-family spelling is
+  // 'date_time' (lower.TableReshapeScalarKind / unpivot_source.go). The
+  // editor's scalar gate must accept it, or a date_time melt row — public or
+  // signed — silently falls to the incomplete form (pre-fix proof
+  // /tmp/opencode/upsrc-run-3/FAIL-melt_proposal_ready.html).
+  it('melts a signed date_time field to a proposal-ready candidate and lists a public date_time column', () => {
+    const stage = {
+      ...unpivotScalarStage,
+      columns: [...unpivotScalarStage.columns,
+        { id: 'effective-col', name: 'effective', label: 'Effective time', type: 'date_time', cardinality: 'optional_one' as const },
+      ],
+    };
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor([stage], stage),
+      unpivotSourceInput: {
+        supported: true,
+        stageId: stage.id,
+        choices: [
+          { choiceId: 'choice-effective', fieldPath: 'effective', label: 'Effective', logicalType: 'date_time', isPopulated: true },
+        ],
+      },
+    };
+    const parsed = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
+    expect(parsed.unpivotSourceInput?.choices?.[0]?.logicalType).toBe('date_time');
+    const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
+    renderEditor({ initialKind: 'unpivot', capabilities, onCandidateChange });
+
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    const rowSelect = screen.getByTestId('construction-reshape-unpivot-input-0-column');
+    expect([...rowSelect.querySelectorAll('option')].map((option) => option.value)).toContain('effective-col');
+
+    fireEvent.click(screen.getByTestId('construction-reshape-unpivot-add-source-field'));
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.unpivotSources).toEqual([{ choiceId: 'choice-effective', columnId: expect.stringMatching(/\S/) }]);
+    constructionSchema.parse(intent?.candidateConstruction);
+    constructionProposalRequestSchema.parse({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-digest-1',
+      outputId: 'table-1', changedStepId: intent?.changedStepId,
+      candidateConstruction: intent?.candidateConstruction, unpivotSources: intent?.unpivotSources,
+    });
+    const meltIds = (inputs: ReadonlyArray<{ readonly columnId: string }> | undefined): string[] => inputs?.map((input) => input.columnId) ?? [];
+    const melted = meltIds(intent?.candidateConstruction?.steps?.[0]?.operation?.kind === 'UNPIVOT'
+      ? (intent?.candidateConstruction?.steps?.[0]?.operation as { readonly unpivot?: { readonly inputs?: ReadonlyArray<{ readonly columnId: string }> } }).unpivot?.inputs
+      : undefined);
+    expect(melted).toContain('age-id');
+    expect(melted).toContain(intent?.unpivotSources?.[0]?.columnId);
+  });
+
   it('rebinds an existing public melt row to a signed field without dropping the other rows', () => {
     const capabilities = unpivotCapabilities({ supported: true, stageId: unpivotScalarStage.id, choices: unpivotWireChoices });
     const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();

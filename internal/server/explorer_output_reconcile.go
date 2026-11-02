@@ -1177,6 +1177,19 @@ func authoredConstructionOutputsWithCombineInputs(
 						break
 					}
 				}
+				if declared == nil && stepIndex == 0 && compiledUnpivotSourceSlotMatches(compiledOutput, projection) {
+					// Melt-first signed input: the compiler legitimately seeds the
+					// melt-owned projection into the SOURCE_PROJECTION stage, so no
+					// authored step can carry a column the melt itself consumes. Guard
+					// the compiler-materialized source slot instead of mislabelling it
+					// receipt corruption; genuine corruption still leaves declared nil.
+					for _, column := range compiledOutput.Stages[0].Columns {
+						if column.ID == projection.ColumnID && !column.Internal && !column.Identity {
+							declared = &authoringv2.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label}
+							break
+						}
+					}
+				}
 				if declared == nil || !requiredConstructionID(declared.ID) || strings.TrimSpace(declared.Name) == "" || strings.TrimSpace(declared.Label) == "" {
 					return fmt.Errorf("unpivot step %q source projection output %q is missing a declared stable ID, name, or label", step.ID, projection.ColumnID)
 				}

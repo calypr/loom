@@ -192,3 +192,106 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		}
 	})
 }
+
+// --- F-A durables: melt-first signed reconcile keeps its audits loaded ---
+// (Authority /tmp/opencode/fa-report.md §3-§4. With the melt as FIRST step the
+// compiler legitimately seeds the melt-owned projection into the
+// SOURCE_PROJECTION stage; no authored step can declare a column the melt
+// consumes. Reconcile must accept the compiler-materialized slot while every
+// downstream audit — slot equality, stable identity, authorized snapshot,
+// facts equality — stays loaded and keeps refusing genuine drift.)
+
+func unpivotMeltFirstReconcileFixture(t *testing.T) (authoringv2.Document, lower.CompiledRecipeOutput, capability.Snapshot) {
+	t.Helper()
+	base, _, snapshot, projection := unpivotSourceReconcileFixture(t)
+	projectionName := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
+	keyScalar := func(value string) authoringv2.TableScalar {
+		kind := authoringv2.TableScalarString
+		return authoringv2.TableScalar{Kind: kind, String: &value}
+	}
+	document := authoringv2.Document{
+		Output:           authoringv2.Output{ID: "patients"},
+		RootResourceType: "Patient",
+		Columns: []authoringv2.Column{
+			{ColumnID: "patient-col", Column: "patient_id"},
+			{ColumnID: "note-col", Column: "note"},
+		},
+		Construction: &authoringv2.Construction{
+			Version:           authoringv2.ConstructionVersion,
+			SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+			Steps: []authoringv2.ConstructionStep{{
+				ID:     "melt_step",
+				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+					ConstructionID:      "melt_step",
+					Inputs:              []authoringv2.ConstructionUnpivotInput{{ColumnID: projection.ColumnID, Key: keyScalar("variant-a")}, {ColumnID: "note-col", Key: keyScalar("variant-b")}},
+					KeyOutputColumnID:   "unpivot-key",
+					ValueOutputColumnID: "unpivot-value",
+					NullRowPolicy:       authoringv2.ConstructionUnpivotDrop,
+				}},
+				Outputs: []authoringv2.StageColumn{
+					{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Type: "string"},
+					{ID: "unpivot-key", Name: "unpivot_key", Label: "Variant", Type: "string"},
+					{ID: "unpivot-value", Name: "unpivot_value", Label: "Value", Type: "integer"},
+				},
+			}},
+		},
+	}
+	compiled := lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{{
+		ID: recipe.ConstructionSourceProjectionID,
+		Columns: []lower.CompiledOutputColumn{
+			{ID: "patient-col", Name: "patient_id", Label: "Patient ID", Kind: "string", Cardinality: "optional_one"},
+			{ID: "note-col", Name: "note", Label: "Note", Kind: "string", Cardinality: "optional_one"},
+			{ID: projection.ColumnID, Name: projectionName, Label: projection.Label, SemanticPath: projection.FieldPath, Kind: projection.LogicalType, Cardinality: "optional_one"},
+		},
+	}}}
+	_ = base
+	return document, compiled, snapshot
+}
+
+func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
+	t.Run("compiler-materialized first-step slot reconciles", func(t *testing.T) {
+		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
+		if err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot); err != nil {
+			t.Fatalf("legit melt-first signed state was refused (pre-fix this is the F-A catch-all): %v", err)
+		}
+	})
+
+	// Audit-loading mutations: each mutation of one seed path must still be
+	// caught by its named audit, proving the guard only guards the legit state.
+	t.Run("compiled slot identity drift still falls to the declaration refusal", func(t *testing.T) {
+		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
+		compiled.Stages[0].Columns[2].Label = "DRIFTED-COMPILED-LABEL"
+		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		if err == nil || !strings.Contains(err.Error(), "missing a declared stable ID, name, or label") {
+			t.Fatalf("drifted compiled slot label error = %v, want the slot-equality-gated declaration refusal", err)
+		}
+	})
+
+	t.Run("compiled slot marked identity stays unclaimable", func(t *testing.T) {
+		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
+		compiled.Stages[0].Columns[2].Identity = true
+		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		if err == nil || !strings.Contains(err.Error(), "missing a declared stable ID, name, or label") {
+			t.Fatalf("identity-flagged compiled slot error = %v, want the slot-equality-gated declaration refusal", err)
+		}
+	})
+
+	t.Run("claim label drift still dies on the facts predicate", func(t *testing.T) {
+		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
+		document.Construction.SourceProjections[0].Label = "TAMPERED-LABEL"
+		compiled.Stages[0].Columns[2].Label = document.Construction.SourceProjections[0].Label
+		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, snapshot)
+		if err == nil || !strings.Contains(err.Error(), "no longer matches the authorized unpivot source derivation") {
+			t.Fatalf("melt-first mirrored tampered label error = %v, want the facts-branch refusal", err)
+		}
+	})
+
+	t.Run("melt-first still requires an authorized capability snapshot", func(t *testing.T) {
+		document, compiled, _ := unpivotMeltFirstReconcileFixture(t)
+		err := authoredConstructionOutputsWithCombineInputs(document, make(map[string]authoredOutputColumn), compiled, nil, capability.Snapshot{})
+		if err == nil || !strings.Contains(err.Error(), "cannot be claimed without an authorized capability snapshot") {
+			t.Fatalf("melt-first unarmed snapshot error = %v, want the authorized-snapshot refusal", err)
+		}
+	})
+}

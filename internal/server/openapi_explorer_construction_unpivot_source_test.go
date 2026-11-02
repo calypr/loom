@@ -438,3 +438,247 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		t.Fatalf("unpivot-source proposals mutated the stored draft: before=%#v after=%#v", storedBefore, storedAfter)
 	}
 }
+
+// --- F-A durable: melt-first signed UNPIVOT at the shipped handler boundary ---
+// (Journaled defect F-A, authority /tmp/opencode/fa-report.md §1-§4; durable
+// port of the reviewer's /tmp/opencode/fa-repro/fa_melt_first_overlay_test.go,
+// renamed to the lane family. Same harness as the shipped contract test:
+// fiber + real compileExplorerReceipt + recipe engine.)
+
+type unpivotMeltFirstEnv struct {
+	t         *testing.T
+	app       *fiber.App
+	basePath  string
+	snapshot  capability.Snapshot
+	draftVer  int64
+	draftDgst string
+}
+
+func newUnpivotMeltFirstEnv(t *testing.T) *unpivotMeltFirstEnv {
+	t.Helper()
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Candidates = append(snapshot.Candidates,
+		capability.Candidate{
+			ID: "c_patient_gender", NodeID: "n_patient", ResourceType: "Patient",
+			FieldPath: "gender", Label: "Gender", LogicalType: "string", Cardinality: "OPTIONAL_ONE",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+			SupportedOperations: []capability.Operation{capability.OperationSelect},
+			Observed:            true, Populated: true, ObservedDocumentCount: 135,
+		},
+	)
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "custom", Title: "Patients",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowChoices, err := lifecycle.NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			Current: func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil },
+			Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+			return compileConstructionSourceStage(ctx, request, recipeEngine)
+		},
+		RowChoicePlanner:  rowChoices,
+		RowChoiceResolver: rowChoices,
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil, nil)
+		},
+		PreviewReceipt: func(previewCtx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, Complete: true, PartialValidation: true}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	return &unpivotMeltFirstEnv{t: t, app: app, basePath: "/api/v1/projects/project-a/explorers/custom/authoring/v2", snapshot: snapshot, draftVer: 1, draftDgst: digest}
+}
+
+func (e *unpivotMeltFirstEnv) meltFirstCapabilities(t *testing.T) string {
+	t.Helper()
+	resp := requestJSON(t, e.app, http.MethodPost, e.basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		e.snapshot.Token, e.draftVer, e.draftDgst,
+	))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("capabilities status=%d body=%s", resp.StatusCode, resp.Body)
+	}
+	return string(resp.Body)
+}
+
+func (e *unpivotMeltFirstEnv) meltFirstSignedChoice(t *testing.T, fieldPath string) string {
+	t.Helper()
+	_, input := decodedUnpivotSourceInput(t, e.meltFirstCapabilities(t))
+	for _, choice := range input.Choices {
+		if choice.FieldPath != nil && *choice.FieldPath == fieldPath && choice.ChoiceID != nil && *choice.ChoiceID != "" {
+			return *choice.ChoiceID
+		}
+	}
+	t.Fatalf("no signed unpivot choice for %q", fieldPath)
+	return ""
+}
+
+// meltFirstCompiledColumnID returns the COMPILED source_projection stage
+// column id for an authored name; the melt reads stage columns, not authored
+// column ids, and using an authored id short-circuits to NEEDS_REPAIR before
+// compile+reconcile, masking F-A.
+func (e *unpivotMeltFirstEnv) meltFirstCompiledColumnID(t *testing.T, authorName string) string {
+	t.Helper()
+	var envelope struct {
+		SelectedStage *struct {
+			Columns []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"columns"`
+		} `json:"selectedStage"`
+		Stages []struct {
+			ID      string `json:"id"`
+			Columns []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"columns"`
+		} `json:"stages"`
+	}
+	if err := json.Unmarshal([]byte(e.meltFirstCapabilities(t)), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	columns := []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}{}
+	if envelope.SelectedStage != nil {
+		columns = envelope.SelectedStage.Columns
+	} else if n := len(envelope.Stages); n > 0 {
+		columns = envelope.Stages[n-1].Columns
+	}
+	for _, column := range columns {
+		if column.Name == authorName {
+			return column.ID
+		}
+	}
+	t.Fatalf("no compiled stage column named %q in source_projection", authorName)
+	return ""
+}
+
+func unpivotMeltFirstConstruction(publicColumnID, stepID, signedColumnID string, includeSigned bool) authoringv2.Construction {
+	scalar := func(value string) authoringv2.TableScalar {
+		kind := authoringv2.TableScalarString
+		return authoringv2.TableScalar{Kind: kind, String: &value}
+	}
+	mkey, mval := stepID+"_key", stepID+"_value"
+	inputs := []authoringv2.ConstructionUnpivotInput{{ColumnID: publicColumnID, Key: scalar("public")}}
+	if includeSigned {
+		inputs = append(inputs, authoringv2.ConstructionUnpivotInput{ColumnID: signedColumnID, Key: scalar("signed")})
+	}
+	return authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID:     stepID,
+		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+			ConstructionID: stepID, Inputs: inputs, KeyOutputColumnID: mkey, ValueOutputColumnID: mval,
+			NullRowPolicy: authoringv2.ConstructionUnpivotDrop,
+		}},
+		Outputs: []authoringv2.StageColumn{
+			{ID: mkey, Name: mkey, Label: "Variable", Type: "string"},
+			{ID: mval, Name: mval, Label: "Value", Type: "string"},
+		},
+	}}}
+}
+
+// F-A regression: the compiler legitimately seeds the melt-signed projection
+// into SOURCE_PROJECTION (compilation/construction.go -> sourceColumns ->
+// lower/recipe_construction.go resolveConstructionSourceSchema), so the melt
+// as FIRST step is a legit compiled state with no possible authored carrier:
+// reconcile must never answer the catch-all 500
+// CONSTRUCTION_RECEIPT_CONTRACT_INVALID. RED pre-fix (500), GREEN post-fix
+// (honest 200 preview; reviewer cross-check /tmp/opencode/fa-repro).
+func TestConstructionUnpivotSourceMeltFirstSignedIsNotContractInvalid(t *testing.T) {
+	env := newUnpivotMeltFirstEnv(t)
+	choiceID := env.meltFirstSignedChoice(t, "gender")
+	publicID := env.meltFirstCompiledColumnID(t, "c_patient")
+	const stepID = "unpivot_first"
+	const signedColumnID = "unpivot-input_first_gender"
+	candidate := unpivotMeltFirstConstruction(publicID, stepID, signedColumnID, true)
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s,"unpivotSources":[{"choiceId":%q,"columnId":%q}]}`,
+		env.snapshot.Token, env.draftVer, env.draftDgst, stepID, candidateJSON, choiceID, signedColumnID,
+	)
+	resp := requestJSON(t, env.app, http.MethodPost, env.basePath+"/construction-proposals", body)
+	t.Logf("melt-first signed status=%d body=%.1200s", resp.StatusCode, resp.Body)
+	if resp.StatusCode == http.StatusInternalServerError && bytes.Contains([]byte(resp.Body), []byte(`CONSTRUCTION_RECEIPT_CONTRACT_INVALID`)) {
+		t.Fatalf("F-A reproduced: melt-first signed UNPIVOT returned the catch-all 500; the melt is first (stepIndex==0) so no strictly-before step declares the consumed melt-input column even though the compiler seeds it into the source stage. body=%s", resp.Body)
+	}
+	if resp.StatusCode != http.StatusOK || !bytes.Contains([]byte(resp.Body), []byte(`"previewStatus"`)) {
+		t.Fatalf("melt-first signed UNPIVOT must reach an honest 200 preview; got %d body=%s", resp.StatusCode, resp.Body)
+	}
+}
+
+// Control, isolating F-A to the signed-melt-first gap: the same first-step
+// melt without a signed binding stays a clean 200 preview pre- and post-fix.
+func TestConstructionUnpivotSourceMeltFirstPublicOnlyStaysGreen(t *testing.T) {
+	env := newUnpivotMeltFirstEnv(t)
+	const stepID = "unpivot_public_first"
+	publicID := env.meltFirstCompiledColumnID(t, "c_patient")
+	candidate := unpivotMeltFirstConstruction(publicID, stepID, "", false)
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s}`,
+		env.snapshot.Token, env.draftVer, env.draftDgst, stepID, candidateJSON,
+	)
+	resp := requestJSON(t, env.app, http.MethodPost, env.basePath+"/construction-proposals", body)
+	t.Logf("melt-first public-only control status=%d body=%.800s", resp.StatusCode, resp.Body)
+	if resp.StatusCode != http.StatusOK || !bytes.Contains([]byte(resp.Body), []byte(`"previewStatus"`)) ||
+		bytes.Contains([]byte(resp.Body), []byte("NEEDS_REPAIR")) ||
+		bytes.Contains([]byte(resp.Body), []byte(`CONSTRUCTION_RECEIPT_CONTRACT_INVALID`)) {
+		t.Fatalf("melt-first PUBLIC-only UNPIVOT regressed (must stay a clean 200 preview): status=%d body=%s", resp.StatusCode, resp.Body)
+	}
+}

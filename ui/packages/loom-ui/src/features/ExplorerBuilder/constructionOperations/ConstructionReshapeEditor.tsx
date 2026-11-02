@@ -445,7 +445,7 @@ const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   }
 };
 
-const reshapeScalarTypes = new Set(['string', 'date', 'datetime', 'code', 'uuid', 'integer', 'decimal', 'boolean']);
+const reshapeScalarTypes = new Set(['string', 'date', 'date_time', 'code', 'uuid', 'integer', 'decimal', 'boolean']);
 
 const isScalarValueType = (type: string | undefined): boolean => reshapeScalarTypes.has((type ?? '').trim().toLowerCase());
 
