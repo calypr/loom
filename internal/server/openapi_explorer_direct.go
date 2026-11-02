@@ -143,6 +143,9 @@ func (r *explorerHTTPHandlers) createExplorer(ctx context.Context, rawProject, a
 	project := projectid.Canonical(rawProject)
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
+		if isAuthorizerStorageFault(err) {
+			return result, legacyOperationFailure(http.StatusInternalServerError, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
+		}
 		return result, legacyOperationFailure(http.StatusForbidden, "FORBIDDEN", "forbidden", err)
 	}
 	if body == nil {
@@ -211,6 +214,9 @@ func (r *explorerHTTPHandlers) publishRepositoryExplorerConfig(ctx context.Conte
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := r.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
+		if isAuthorizerStorageFault(err) {
+			return result, legacyOperationFailure(http.StatusServiceUnavailable, authoringBackendUnavailableCode, authoringBackendUnavailableMessage, err)
+		}
 		return result, legacyStringFailure(http.StatusForbidden, "forbidden", err)
 	}
 	if request.Body == nil {

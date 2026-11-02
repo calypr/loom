@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -47,12 +49,83 @@ func authResourcePathFromParam(value *loomapi.AuthResourcePath) string {
 	return string(*value)
 }
 
+// Authorizer storage faults are reported with the repo's backend-unavailable
+// named fault rather than 403, so a store/client failure is never mistaken for
+// a permission decision. The name follows the shared taxonomy: authscope
+// authorizes the boundary with ErrAuthorizationBackendUnavailable and the
+// dataframe layer maps it to dataframeerrors.CodeBackendUnavailable (see
+// internal/api/http/errors.go:53-55 and internal/api/authpolicy/policy.go:36-37).
+const (
+	authoringBackendUnavailableCode    = "BACKEND_UNAVAILABLE"
+	authoringBackendUnavailableMessage = "authorization backend unavailable"
+)
+
+// isAuthorizerStorageFault classifies an AuthorizeWrite error as a storage or
+// transport fault (not a permission decision) by error TYPE and explicit
+// numeric response fields — there is no message-substring matching. It
+// extends the repo's authz taxonomy exactly as
+// internal/api/authpolicy/policy.go:36-37 groups context.DeadlineExceeded,
+// dataframeerrors.ErrBackendUnavailable and authscope.ErrAuthorizationBackendUnavailable
+// into the retryable backend-unavailable class (mirrored at
+// internal/api/http/errors.go:53-55), and recognises Arango client faults by
+// the driver error TYPE (errors.As on shared.ArangoError, read for value and
+// pointer form as in internal/server/server.go:237-243). A driver response
+// that carries the Arango permission-decision fields (HTTP 401/403 or
+// ErrorNum shared.ErrForbidden=11 — the fields the driver itself defines as
+// ErrHttpUnauthorized/ErrHttpForbidden/ErrForbidden) is a store-level
+// permission DENIAL, not a backend fault: it keeps the 403 arm. Query-fault
+// responses (Code 400 family, bind-parameter error numbers such as
+// shared.ErrQueryBindParameterUndeclared) remain storage faults. Genuine
+// permission denials from the ScopeResolver wrap
+// authscope.ErrForbidden/ErrUnauthenticated (scope_resolver.go) and are
+// checked first, so this predicate can only ever lift a non-permission
+// storage fault out of the 403 arm; it can never relabel a denial — sentinel
+// or store-native — as 5xx. An unclassified error stays in the 403 arm
+// (unchanged pre-repair posture) — fail closed.
+func isAuthorizerStorageFault(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, authscope.ErrForbidden) || errors.Is(err, authscope.ErrUnauthenticated) {
+		return false
+	}
+	if errors.Is(err, authscope.ErrAuthorizationBackendUnavailable) ||
+		errors.Is(err, dataframeerrors.ErrBackendUnavailable) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var arangoErr shared.ArangoError
+	if errors.As(err, &arangoErr) {
+		return !isArangoPermissionResponse(arangoErr)
+	}
+	var arangoErrPointer *shared.ArangoError
+	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
+		return !isArangoPermissionResponse(*arangoErrPointer)
+	}
+	return false
+}
+
+// isArangoPermissionResponse reports whether an Arango driver response is the
+// store's own permission decision (fail closed to 403) rather than a backend
+// fault (retryable 5xx). Matching is on the driver's numeric response fields
+// only: go-driver v2 shared/error.go defines ErrHttpUnauthorized=401,
+// ErrHttpForbidden=403 and ErrForbidden=11; those are Arango saying
+// "not authorized", which must never surface as retryable availability.
+func isArangoPermissionResponse(arangoErr shared.ArangoError) bool {
+	return arangoErr.Code == shared.ErrHttpUnauthorized ||
+		arangoErr.Code == shared.ErrHttpForbidden ||
+		arangoErr.ErrorNum == shared.ErrForbidden
+}
+
 func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project, authResourcePath string) error {
 	if h == nil || h.authorizer == nil {
 		return explorerUnavailable("authorization", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured")
 	}
 	principal, _ := authscope.PrincipalFromContext(ctx)
 	if err := h.authorizer.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
+		if isAuthorizerStorageFault(err) {
+			return &explorer.AuthoringError{Status: http.StatusServiceUnavailable, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: authoringBackendUnavailableCode, Message: authoringBackendUnavailableMessage}, Cause: err}
+		}
 		return &explorer.AuthoringError{Status: http.StatusForbidden, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "authorization", Code: "FORBIDDEN", Message: "forbidden"}, Cause: err}
 	}
 	return nil
