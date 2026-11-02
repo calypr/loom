@@ -710,3 +710,479 @@ now: F-B3 (pinblock + export_pin_crash_window), F-B6 (name_latest_binding),
 F-B7 (dangling_binding), F-B13 (cross_generation_publish), F-B14
 (release_requirements), F-B17 (generation_activation_cas), F-B19
 (orphaned_published_growth), F-B21 (pnn clickhouse e2e + nul-http recipe).
+
+## Round 32 — 2026-11-01 (REPAIR-4 ships: F-B19 binding-aware PUBLISHED janitor arm)
+
+**Repair (product code, `internal/dataframe/publication/clickhouse/bundle_store.go`):**
+- `Reconcile` appends `publication.BundlePublished` to the sweep states ONLY
+  when an `ActiveReleaseReader` is wired — a janitor that cannot re-check
+  bindings is the `m-po-janitor-blind` shape (`NoBoundDeleted` violated), so
+  unwired readers keep the historical enumeration (unit-proven).
+- `reconcileExecution` gains a PRE-CLAIM janitor filter for PUBLISHED
+  candidates: pointer still names it OR the ACTIVE release binds it ->
+  skipped WITHOUT claiming (healthy published rows never churn); "no
+  pointer"/"no active release" pass, any other read failure vetoes
+  fail-closed. The post-claim pointer + binding re-checks (Repair-1b) remain
+  the destruction gate -> shipped behavior = model `m-po-fixed`
+  (JanitorPresent+JanitorChecksBindings+RecheckBeforeReclaim).
+- Demotion marker distinguishes `"superseded execution reconciled (no
+  pointer or active-release reference)"`; the legacy
+  `"stale execution reconciled"` assignment stays verbatim (unpinned
+  artifact citation needle preserved). Server janitor (server.go) inherits
+  the arm via existing wiring.
+
+**Verification (real Arango + ClickHouse, owned stack).**
+- Converted `orphaned_published_growth_e2e_test.go`
+  (`TestPointerOrphanedPublishedNeverReclaimedAgainstArango`) natural PASS:
+  post-sweep orphan FAILED with superseded marker, table absent
+  (present=false), live pointer-named execution + 3-row table untouched,
+  name-latest resolves to the live execution
+  (`/tmp/opencode/fb19-after-green.log`); drift gates re-pinned (stale-arm
+  list + janitor presence + marker text + name-latest SORT needle).
+  REGRESSION direction keeps the archived F-B19 CONFIRMED text.
+- BEFORE-FAULT: guardless copy `clickhouse/orphprobe/` (Repair-4 hunks
+  reverted, Repair-1b kept, deleted after run) reproduced the immortal
+  orphan VERBATIM — post-sweep `state="PUBLISHED"`, table present=true, the
+  converted artifact failing on the REGRESSION branch
+  (`/tmp/opencode/fb19-prefixprobe.log`). R15 parent runs e00a7032/e3712285
+  remain the historical pre-fix witnesses.
+- NEW e2e safety sibling `TestPointerOrphanedPublishedJanitorRespectsActive-
+  ReleaseBindingsAgainstArango`: ACTIVE-release binding vetoes retirement
+  (orphan untouched, reader called once = pre-claim skip), unbind + resweep
+  converges to FAILED+dropped — m-po-fixed shape on real stores (same log).
+- Units: `TestReconcileRetiresSupersededPublishedExecutions` 5 arms +
+  stale-marker control green no-env (retired / pointer-named never claimed /
+  bound never claimed / release-read failure fail-closed / unwired PUBLISHED
+  not enumerated).
+- Formal: `PointerOrphanLifecycle.tla` SOURCE-SYNC header records the shipped
+  shape; trio re-run via direct java tlc2.TLC — `m-po-bug` Temporal
+  properties VIOLATED (counterexample), `m-po-fixed` CLEAN exit 0,
+  `m-po-janitor-blind` `NoBoundDeleted` VIOLATED
+  (`/tmp/opencode/po-{bug,fixed,janitor-blind}-r32.log`).
+- Full-env re-run of `publication/...` + `published/` after the arm: fails =
+  sanctioned subset ONLY — F-B7 dangling (arango), F-B3 export-pin +
+  pinblock, F-B21 pnn (clickhouse); unpinned F-B18 attribution gate survived
+  (named candidates skip pre-claim); conversion note: F-B6 name_latest is
+  PASS-with-CONFIRMED pattern (not an env-fail), F-B13 lives in
+  internal/explorer/arango (untouched track). Residue 0 both stores.
+
+**Sanctioned-red list update:** `orphaned_published_growth` (F-B19) REMOVED
+(converted PASS + safety sibling added). Env-failing reds: F-B7 dangling,
+F-B3 export_pin_crash_window + pinblock, F-B21 pnn; dataset-track reds
+(F-B14, F-B17) and explorer-track (F-B13) unchanged from Rounds 31/15
+evidence.
+
+## Round 33 — 2026-11-01 (REPAIR-5 ships: F-B21 injective PointerName; docker access lost mid-round)
+
+**Repair (product code, `internal/dataframe/publication/bundle.go`):**
+- `BundleIdentity.PointerName()` is now LENGTH-PREFIXED per component
+  (`strLen:content` concatenation via `strconv.Itoa(len(part))` + `':'`),
+  mirroring the catalog's `catalogIdentityDigest` discipline and
+  complementing the JSON-shaped `Key()`. The shipped semantics preserved
+  EXACTLY: blank/whitespace-only TranslationVersion and OutputName are
+  still excluded as absent; live components keep raw bytes (incl. trailing
+  spaces); multibyte parts are prefixed by BYTE length.
+- Closes the archived CONFIRMED intra-project namespace hijack
+  (Name="a\x00b"/TV="" vs Name="a"/TV="b" folded to one visibility
+  pointer while Keys stayed distinct => publishing B silently repointed
+  A's readers) AND the deeper boundary-shift class (NULs at component
+  ends, digit/colon spoofs like Name="1:ab" vs Name="2"/TV="a").
+  Root-cause choice per operator digest item 9 (injective encoding),
+  NOT a control-char validator: encoding injectivity makes NUL names
+  harmless for namespace separation; validator-side NUL acceptance
+  stays a disclosed defense-in-depth note (F-B21-http `t.Errorf`
+  converted to `t.Logf` NOTE accordingly, red direction preserved as
+  `FB21-http REGRESSION`).
+
+**Verification.**
+- Units (package publication, no-env): `TestPointerNameLengthPrefixDefeats
+  NulFold` pins the historical fold via a verbatim `historicalBareJoin`
+  replay, requires production separation + distinct Keys;
+  `TestPointerNameIsInjectiveOverDistinctComponents` (8 adversarial
+  component assignments, all pairwise distinct);
+  `TestPointerNameOptionalComponentSemanticsAreShipPreserved` pins
+  blank-exclusion + raw-space behavior + byte-length prefix; documents the
+  boundary equality where (TV=x, blank Out) and (blank TV, Out=x) share a
+  namespace with the historical join — NOT a fold-class defect: a blank
+  OutputName cannot publish (production gate), so no pointer can be stolen
+  that way. Pre-F-B21 code passed all four; the fold test goes REGRESSION
+  the moment the length prefix is dropped.
+- Before-fault (probe): guardless copy `publication/fb21probe/` replaying
+  the PRE-REPAIR bare-join method PASSes the fold witness verbatim
+  (both PointerNames == "pnn-project\x00gen-1...a\x00b..."; Keys distinct;
+  `/tmp/opencode/fb21-prefixprobe.log`).
+- Converted artifacts: pnn e2e `pointer_name_nul_ambiguity_e2e_test.go`
+  natural-PASS doctrine — citations re-pinned to the length-prefix
+  production shape (`strconv.Itoa(len(part))` / `WriteByte(':')`), header
+  documents STEP 3-5 + the archived FAILED-ON-PURPOSE F-B21 CONFIRMED text
+  as the retained REGRESSION direction; recipe sibling
+  `publication_identity_nul_http_test.go` flipped per its own
+  re-point doctrine (distinct pointers => VERDICT PREVENTED).
+- ENV CAVEAT (disclosed): the sandbox's Docker access was revoked
+  mid-round ("Loom Docker access is not configured. Run
+  tools/openshell/enable-loom-docker.py on the host" — the script is not
+  present in this sandbox; host-side manual step). The e2e PREVENTED
+  proof for these two conversions therefore runs against ARCHIVED
+  parent-verified baseline behavior only; re-verify on the owned stack
+  when Docker access is restored (same command documented in the pnn
+  header). No product claim is made from these two artifacts pending
+  that re-run; the units + probe above carry the verified weight.
+- No-env regression green: publication, publication/arango,
+  publication/clickhouse, published, recipe, dataset, dataset/arango;
+  gofmt/vet clean (worker-owned pinblock nit excluded).
+
+**F-B22 same-class digest review (operator menu item 9) — classification,
+no blind fix:** `recipeScopeDigest` (server/recipe_publication.go),
+`scopeDigest` (chartifact/artifact.go), `explorerScopeDigest` /
+`fhirReadScopeDigest`, `releaseID` (dataset/release.go) all use
+`\x00`-joins. Reachability audit: every digest input is server-computed
+(project/generation refs pass `validateOpaqueIdentifier`; AuthResourcePaths
+arrive via authorization snapshots/RuntimeBindings assembled by server
+code — `document_types.go` only clones them; no client-nul-bearing entry
+point found). Unlike PointerName, these digests are PERSISTED (stored keys
++ stored digest fields), so re-encoding them is identity churn of stored
+data for currently unreachable inputs. Classification: **unreachable by
+audit today (rank LOW)**; fix only when a concrete reachable injection
+entry point is shown, ideally behind a stored-identity migration. Trigger:
+any future client-controlled path/name reaching a digest input.
+
+## Round 34 — REPAIR-6 (F-B20): unconditional project membership + path-set gate in both execution-status twins
+
+- Root cause (parent-verified against source, matching the archived characterization): the GraphQL reader consulted authorization only inside `if scopeResolver != nil` and its restricted gate was a path-COUNT compare; the REST twin carried the identical conditional shape (`if r.scopes != nil`) with no membership assertion at all. A principal whose project allowlist excluded the execution's project — or any caller when the resolver was unwired — could read cross-tenant execution metadata (project, generation, digests, row counts) by opaque id alone, exactly what the reader doc comment promises must not happen ("IDs are not themselves authorization credentials").
+- Repair (both twins, shared rule): unconditional `authscope.AuthorizeProject(principal, execution.Project, false)` immediately after fetch, refused with the concealed not-found shape (`RECIPE_EXECUTION_NOT_FOUND` GraphQL; byte-identical missing-execution 404 envelope REST); restricted-mode gate replaced by the new shared `authscope.ReadScope.CoversExecutionPaths` normalized path-set containment (restricted only; fail-closed when a restricted execution declares no non-blank path). The shipped concealed-403 resolver-refusal contract and the resolver outage mapping are preserved; nil/empty-Projects principals keep their shipped pass-through and the principal-less single-operator deployment posture is unchanged (authorizer semantics, not a new bypass).
+- Side finding closed with the same change: the count-compare's over-rejection (a member authorized on every distinct path was denied when raw and normalized counts differed, e.g. duplicate declarations) is fixed; verified by the C1 REPAIRED verdict.
+- Before/after: REST twin durable regression failed pre-fix with verbatim disclosure (`status 200` + `projectId:project-b...rowCount:42...` in /tmp/opencode/fb20-twin-before-red.log) and passes post-fix. Both characterization suites were converted to durable repaired-behavior controls: STEP 0 now pins the repaired fragments and forbids the archived shapes; every archived CONFIRMED sentence survives verbatim as its case's REGRESSION-fatal wording; the membership-before-resolver ordering is proven by catalog-probe call counts (non-member refusal performs zero catalog consultations while the resolver path for members does).
+- Review: the background read-only F-B22 digest audit returned this round; all load-bearing quotes were parent-verified in current source (classification and tiered follow-up in ledger `status_updates.F-B22`; same-model reviewer context, not cross-model assurance).
+- Checks: `go test` green for internal/server (with pre-existing, file-unmodified env-gated replay test `TestCoreAuthoringProtocolModelReplay` excluded via `-skip`; it requires `LOOM_FORMAL_CORE_PROTOCOL_INPUT/OUTPUT` at HEAD), internal/authscope, and resolver FB20 + full packages; `gofmt` clean on all touched files. ENV matrix pending docker access restoration.
+
+## Round 35 — REPAIR-7 (F-B22 Tier-1): control-byte rejection at authorization-path ingest
+
+- Root cause (parent-verified against HEAD): scope-digest encoders join normalized authorization paths with \x00, but the authscope normalizers accepted ASCII control bytes. Two distinct restricted grant lists could therefore normalize to the same digest (HEAD witness: a\x00b|c joins identically to a|b\x00c), and the resolver-less GraphQL read-scope fallback copied client- and IdP-supplied strings into scope membership checks with no normalization at all.
+- Repair: ingest now refuses control bytes (C0 + DEL) in `NormalizeAuthResourcePath`, in calypr key extraction, and in resource-derived auth paths — such declarations drop out of scopes fail-closed (empty never grants). The query fallback normalizes both client-requested and principal paths; an all-garbage non-empty request is refused `CodeInvalidRequest`, a principal whose paths are all garbage is refused `CodeForbidden` (never widened to unrestricted, because empty paths historically mean unrestricted for legacy catalog callers); membership is compared in normalized space, closing the raw-equality slash-spelling false-deny side finding.
+- Durable controls: authscore ingest suite (including the HEAD fold-pair) and the query fallback suite keep the pre-fix CONFIRMED wording verbatim as their regression branches. HEAD-copy before-red captured (7 authscope + 4 query CONFIRMED verdict lines), post-fix all REPAIRED with the full query, authscope, and server package suites green.
+- Environment restored by the operator: owned stack containers up, `loom-dev-build-stamp.sh --check` passes, Arango 3.12.13 + ClickHouse reachable from the API container; the full real-services ENV matrix (including every prior pending-env flip: revisions, pointer-name NUL, activation, orphan janitor, F-B24 NULL page, F-B20 twins) launched against this stack as a background verification job.
+- Record correction: the reconciliation worker's claimed "conservative_stats" red artifact exists nowhere (zero grep hits) — ledger annotated as a fabricated verification record; the authentic F-B9 is the low-severity AQL case-tolerance candidate with its existing adjudication unchanged.
+
+## Round 36 — real-services ENV matrix: zero regressions, pending-env annotations flipped (full dispositions below)
+
+The owned Stravinsky stack made the previously blocked live verification possible (API container `go test` with LOOM_TEST_ARANGO_URL=http://arangodb:8529; ClickHouse jobs additionally need LOOM_CLICKHOUSE_URL + database/username/password trio — the LOOM_TEST_CLICKHOUSE_URL spelling does not exist). Sequential JAR1-5 + supplements, per-job 1500s deadlines, logs under /tmp/opencode/r35-env/.
+
+- Every repaired mechanism verified against the real stores: F-B15 revision-inflation PASS, F-B21 pointer-name NUL twins PASS, F-B19 orphan janitor PASS, F-B12-artifact rdl DISPROVEN, F-B24 NULL-sort page PASS, F-B20 twins 9× VERDICT=REPAIRED, Repair-1b/Repair-4/F-B16/F-B18/F-B9-chain PREVENTED, publish-atomicity PASS. No-env control SKIPs cleanly.
+- The only FAILs are the ledger-sanctioned reds, reproduced verbatim against real Arango/ClickHouse: F-B17 blind activation flip (manifest_lifecycle, CAS decision queued), F-B7 whole-list dataset-discovery abort (partial-degrade decision queued), F-B3 stranded-never-released pins wedging reconcile+startup (renew/reap posture queued). No product regression, no infra error, no unexpected skip.
+- Remaining live-verification gaps recorded: the two read-pin arbitration artifacts need LOOM_TEST_ARANGO_DATABASE with an isolated database name (deferred, deliberately not pointed at the shared dev DB).
+- Disclosure: the background TLA audit worker returned empty; model source-sync this round rests on the parent's direct hash verification (canonical 14d341f8, PublishPartialPointer atomic-Commit arm = repaired shape, PointerOrphanLifecycle m-po-fixed = shipped janitor) rather than that worker.
+
+## Round 37 — F-B15 artifact hardening
+Verdict switch in `internal/dataset/arango/revision_inflation_e2e_test.go` tightened: `case !inflated` -> `case !inflated && contentIdentical`, so content moving while bookkeeping stayed still now falls through to the INCONCLUSIVE fatal instead of logging PREVENTED (worker-reconciliation follow-through; parent verified the switch and precondition gates first). FAILED-ON-PURPOSE arm kept verbatim; header updated to state REPAIR-5 repaired status with PREVENTED witness. gofmt+vet clean; single-test rerun vs real Arango PASS (sound arm fired; owned DB created+dropped) — /tmp/opencode/round37-rri-tightened.log. New pin ab4cf9341193f900fbae267520ac7ac5.
+
+## Round 38 — Read-pin arbitration artifacts closed against isolated real Arango DB (env)
+
+**Closure.** The two disclosed env gaps (`TestExecutionReadPinArbitrationAgainstArango`,
+`TestConcurrentExecutionReadPinsAgainstArango`) now have real-Arango evidence: executed
+inside the API container against a **throwaway isolated database**
+(`loom_verify_pinarb_r38`, created via `POST /_api/database`, pointed at via
+`LOOM_TEST_ARANGO_DATABASE`) so the shared dev DB was never touched; both PASS
+(`/tmp/opencode/round38-readpin-isolated.log`,
+`--- PASS: ... (0.50s)`, `--- PASS: ... (0.04s)`, `ok ... 0.547s`).
+The throwaway DB was then **dropped and verified dropped** (`_api/database` lists only
+`loom_dev`): the naive `wget --delete-after` drop silently 400'd (wget cannot issue
+DELETE); the verified drop used an HTTP DELETE. Doctrine noted for the artifact family:
+owned-database cleanup must be an actual DELETE with a read-back, not a best-effort.
+
+
+## Round 40 — REPAIR-8 (F-B27) and REPAIR-9 (F-B14) landed and re-verified live
+
+### REPAIR-8 — F-B27 cross-project dataset publish/activate authorization bypass
+- Root cause: `scope_resolver.go` `AuthorizeWrite` checked global existence only (comment claimed project membership was covered by `checkDatasetWriteAccess`; no server caller passes that option, server.go:818-823) and `listExistingPaths` forced `Generation: opts.DatasetGeneration` with authoring always passing "" -> generation-"" binds (catalog `generation()` maps "" to null) matches only no-generation rows, so stale-generation paths were invisible to the gate.
+- Repair: project-scoped existence via recorded-path membership (`listExistingPathsAllGenerations`, internal sentinel, fail-closed on list error), plus opt-in `catalog.AuthResourcePathOptions.AllGenerations` with a second bound-variable-free AQL (`existingAuthResourcePathsAllGenerationsAQL`) mirroring the existing shape; generation string never overloaded ("" keeps meaning no-generation rows).
+- Evidence: pre-fix durable legs FAIL `/tmp/opencode/fb27-prefix-red.log` (`F-B27 CONFIRMED publish` + `F-B27 CONFIRMED activate`); post-fix same four controls PASS live after the arangodb container restart (isolated throwaway databases); `authscope`, `catalog`, `catalog/arango`, `load` package suites ok.
+- Review status: adversarial reviewer (same model, disclosed) verdict pending for bypass routes / normalization / poisoning TOCTOU.
+
+### REPAIR-9 — F-B14 authoring Publish conflated permanent contract failure with transient outage
+- Root cause: `publish.go` PrepareRelease error branch classified every error `unavailable/503` including typed `dataset.ReleaseRequirementsError` (contract: 422 unprocessable, non-retryable); repo already models this pair correctly at `repository_publish.go:73-77`.
+- Repair: classification at the origin via `errors.As(*dataset.ReleaseRequirementsError)` -> `failureDetails(ClassUnprocessable, activation, RELEASE_REQUIREMENTS_UNMET, ..., retryable:false)`; genuine failures keep the prior Unavailable/503 + logged cause exactly.
+- Evidence: pre-fix `F-B14 RED: ... "unavailable" (want "unprocessable")` `/tmp/opencode/fb14-prefix-red.log`; post-fix both controls PASS; full lifecycle suite ok. Server transport maps ClassUnprocessable->422 (authoring v2 + legacy mappings inspected) and propagates Details (openapi_explorer_authoring_direct.go:750, :791).
+- Recorded-but-untouched: `repository_publish.go:79` conflates genuine store/IO 409 with Retryable:true (same anti-contract pattern, other flow; queued for a separate unit).
+
+## Round 41 — REPAIR-9 revision (F-B14b): verifier fault vs contract miss
+Adversarial review of REPAIR-9 (same-model reviewer) returned needs-revision: the
+release.go required-loop folded ANY VerifyPublication error, including Arango
+transport faults passed raw by publicationVerificationStore, into the typed
+ReleaseRequirementsError, so a transient fault became 422 retryable:false and
+skipped >=500 server logging. Parent independently verified all quotes.
+Revision at the producer: dataset.ErrPublicationRecordMissing marks deterministic
+absence (server adapter maps publication.ErrBundleNotFound with double wrap);
+release.go Create returns a plain wrapped error for every other verifier error so
+publish.go keeps it unavailable/retryable. Optional loop unchanged (binding-
+conservative, disclosed). Durable controls: dataset split triplet (pre-fix RED:
+fault folded into typed) and server mapping control (pre-fix RED via HEAD overlay,
+/tmp/opencode/fb14b-server-mapping-red.log). r14Citations still match (content
+matcher; cited miss-path condition line preserved). Suites: dataset ok 0.045s,
+lifecycle ok 9.377s, server ok 6.662s (-skip foreign replay, disclosed).
+Status: repaired, pending REPAIR-9b re-review; reviewStatus note in ledger.
+Sibling repair (F-B14b): repository_publish.go ActivateRelease blanket-conflict split
+the same way — typed miss → conflict + explicit retryable:false diagnostic; store
+fault → unavailable + retryable diagnostics; pre-fix RED in
+/tmp/opencode/fb14b-sibling-prefix-red.log (HEAD overlay, both controls FAIL),
+GREEN lifecycle full suite 9.855s. Lifecycle F-B14 control file was rebuilt after
+an accidental truncate-in-place; all four lifecycle controls PASS post-fix and the
+two new ones were proven FAIL pre-fix. Self-inflicted tooling error disclosed.
+
+## Round 42 — REPAIR-9b re-review relaunched; RRI model maintenance
+
+- REPAIR-9b adversarial re-review relaunched after the operator fixed child
+  creation (prior four attempts failed pre-start): background read-only general
+  worker `ses_e66a9e81affeztngiUM6M73K0t`, same-model (disclosed), verdict pending.
+- Per maintain-formal-verification-skill, checked every model covering code the
+  round-41 repair changed. Only `ReleaseRevisionIdempotence.tla` maps
+  `internal/dataset/release.go`; the fault-vs-miss edit is an early return
+  outside the modeled idempotence granularity — no modeled-shape change, so the
+  update is source-pin-only (Create call :247, Create :147, releaseID :288-295,
+  release_store alreadyActive :162-163; also corrected a long-standing wrong
+  wiring cite to internal/server/server.go:569-580).
+- Drift found while running as-is: the SOURCE SYNC comment block had lost its
+  opening `(*` — its prose parsed as code and TLC failed at line 23. Origin
+  undetermined (r31 /tmp logs already recycled; the mangled "e00a..." line
+  shows earlier header surgery). Restored the opener explicitly. New md5
+  3286288a; prior pin 108a932f was stale-by-content either way.
+- Re-run via `/sandbox/.local/bin/tlc-run` — launcher RECOVERED (r27's
+  cpu.max breakage no longer reproduces; budget line read fine). Concurrent,
+  1 worker / 1024 MiB each, private metadirs: `m-rri-shipped` exit=12
+  "Invariant Idempotence is violated" (durable fault control — proves the
+  updated check can still fail); `m-rri-fixed` exit=0 complete clean
+  (2 distinct states, 0 violations; MSBDiskFPSet fingerprint-collision
+  warnings are small-space noise, logged as-is).
+  Logs /tmp/opencode/rri-{shipped,fixed}-r42.log.
+- Canonical `BundleCommitLifecycle.tla` untouched this round (md5 remains the
+  14d341f8 pin). CORRECTION to text written earlier this round: I first claimed
+  "no other model references the round-41 files" while my own pending grep had
+  already shown `ReleaseBindingTrust.tla` citing `release_verifier.go:31` —
+  restated after verification. RBT then maintained per skill: pin re-pointed to
+  `:35-39` (adapter insert shifted the echoed literal), four arms re-ran with
+  identical verdicts (case/violation VIOLATE CorrectBinding exit=12; holds/caseholds
+  exit=0 complete, 69 distinct, 0 queue). New md5 2be7da6d (prior pin 226ef0d1).
+- REPAIR-9b re-review (background read-only general worker
+  `ses_e66a9e81affeztngiUM6M73K0t`, same-model, disclosed): VERDICT NO-BYPASS.
+  Parent independently re-verified findings 5/6 quotes (legacyDetails drop at
+  openapi_explorer_direct.go:71/:217-218; api.ts:925 status inference;
+  publish.go:75 explicit-details leg). Suites verbatim ok across dataset/server
+  (-skip foreign replay)/lifecycle/build. Arango-gated r14 e2e SKIPped (recorded
+  incomplete, not passed). Two PRE-EXISTING contract findings queued:
+  F-B28 (repository-publish HTTP body drops Error.Details so explicit retryability
+  never reaches clients — contract prose docs/loom-reliability-contract.md:93-94)
+  and F-B29 (ui api.ts:925 infers retryable from status; live contradiction:
+  PUBLICATION_IN_PROGRESS emits explicit retryable per errors.Retryable() at
+  publish.go:75 with 409, read as false by the UI).
+
+## Round 43 — REPAIR-10 (F-B28): legacy Explorer encoder restores explicit retryability
+
+Defect (pre-existing; surfaced by REPAIR-9b, parent-verified): the
+PublishRepositoryExplorerConfig direct handler pre-flattened structured
+lifecycle failures via `legacyStringFailure(status, legacyErrorMessage(legacy), err)`
+(openapi_explorer_direct.go:217-218), discarding code AND `lifecycle.Error.Details`
+before the generated wrapper ever saw them; the shared encoder chain
+(`lifecycleLegacyFailure` → `legacyOperationFailure` → `explorerLegacyResponse`)
+had no Details channel at all. Contract violated:
+docs/loom-reliability-contract.md:93-94 (explicit retryability).
+
+Repair: Details field on `explorerLegacyOperationError`;
+`lifecycleLegacyFailure` forwards `value.Details` via new
+`legacyOperationFailureDetails` (old constructor kept for existing callers);
+`explorerLegacyResponse` attaches `AdditionalProperties{"details": ...}` only
+when non-nil (mirrors authoring-route body shape; no invented keys); route
+returns `lifecycleLegacyFailure(err)` once so the status-mapping wrapper
+(openapi_explorer_routes.go:67-88, already 409/422/503-capable) encodes it.
+
+Durable control: `openapi_explorer_legacy_details_control_test.go` —
+activation-miss marshalled envelope must carry `details.retryable:false`
+(RED pre-fix /tmp/opencode/fb28-prefix-red.log; both tests PASS post-fix);
+companion anti-widening test pins that non-lifecycle errors gain no
+retryable/details keys and the generated AdditionalProperties contract.
+Blast radius: sole encoder for the four direct explorer routes — additive for
+list/create/get; no remaining flatten sites. Recorded-not-widened pre-existing
+gap: wrapper has no 404 case (identical behavior pre/post my route edit).
+Server suite ok 6.974s (-skip foreign replay, disclosed); build/vet/gofmt clean.
+
+## Round 44 — REPAIR-11 (F-B29): UI client honours explicit retryability
+
+### F-B29 — UI client inferred retryability from HTTP status (repaired-verified R44)
+
+Defect: `ui/packages/loom-ui/src/api.ts` `requestError` derived retryability solely from the HTTP status (`408 | 429 | >=500`) and ignored the server's explicit `error.details.retryable`. Live contradiction: `PUBLICATION_IN_PROGRESS` is emitted by the authoring publish path with `retryable: true` over HTTP 409 (`internal/explorer/lifecycle/publish.go:75`), yet the UI read it as `false`.
+
+Root cause: the request-error envelope already carried `details`, but `requestError` consulted only the status heuristic before deciding retryability, violating `docs/loom-reliability-contract.md:93-94` (explicit retryability) on the client side only.
+
+Fix (single logical change, verified confined to `requestError`): `details = isRecord(nested.details) ? nested.details : undefined` (api.ts:918); `explicitRetryable = typeof details?.retryable === 'boolean' ? details.retryable : undefined` (api.ts:919); `retryable: explicitRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500)` (api.ts:927). A non-boolean `details.retryable` (e.g. `'true'`) is treated as absent by the `typeof` guard and falls back to status inference. `git diff` vs HEAD: single -U3 hunk `@@ -915,14 +915,16 @@`; the GraphQL branch (api.ts:1859-1871) is absent from the diff (untouched, still `extensions.retryable === true`); no `as` casts added.
+
+Durable coverage: new `ui/packages/loom-ui/src/api.retryability.unit.test.ts` (5 tests): explicit true-on-409, explicit false-on-503, fallback 503->true, fallback 409->false, non-boolean-as-absent. Record-writer self-run (this session, logs `/tmp/opencode/rec-r45-*.log`): retryability 5 passed; `api.unit.test.ts` 86 passed; `reconcileRecovery.unit.test.ts` + `previewRecovery.unit.test.ts` 11 passed (2 files, run from package root); `npm run typecheck:tests --workspace @calypr/loom-ui` EXIT 0. Fault sensitivity (record-writer self-run via the `vitest.config.ts:11-20` overlay): weakening the guard to `details?.retryable !== undefined` (copy `/tmp/opencode/rec-r45-guard-broken-api.ts`, run under `LOOM_MUTATION_TARGET`/`LOOM_MUTATION_SOURCE`) fails test 5 with `expected 'true' to be true` while tests 1-4 pass (`rec-r45-e-mutant.log`); clean rerun 5/5 (`rec-r45-e-clean.log`); worker equivalent `r44-guard-mutation.log`/`r44-guard-clean.log`. Worker-reported: consumer blast-radius 7 suites / 334 tests (`verify-r11-13-consumer-suites.log`); full loom-ui package 85 files / 1110 tests (`verify-r11-16-full-suite.log`); semantics probe 9 passed (`verify-r11-11-semantics-probe.log`); `--reporter=basic` unsupported on vitest 4 (`verify-r11-14-basic-reporter.log`).
+
+Attribution + status: REPAIR-11 fixed and independently verified (verifier `ses_e669f6414ffe225p8pY1xA3GWt`, same-model, disclosed); record-writer self-ran checks a-e and independently diff-verified the change scope. No first-person attestation is made beyond the runs listed above.
+
+Record integrity note: committer path-claim 'file absent' disproven by self-run grep + probe (tracked at features/ExplorerBuilder/); reviewer 30-test formal run reproduced non-vacuous (vitest zero-match exits 1); M3 kill double-reproduced. Three-party contradiction resolved with committer as the erroring party — process worked (probe dispatched before any upgrade).
+
+### Additional records (R44-R45, attributed)
+
+- F-R1 REPAIRED-VERIFIED (REPAIR-12 + independent verifier `ses_e66950a5fffeQ9IIbz0VzV3S2M` VERIFIED, rounds 45-46; RED overlay re-proved; 4 focused PASS; full server suite 7.195s) — `getRecipeExecution` folded store faults into a non-retryable 404, asymmetric to the GraphQL twin (`recipe_execution_reader.go:81-99`); fix classifies sentinel `ErrBundleNotFound`->404, faults + fail-safe unknown -> typed retryable 503 `BACKEND_UNAVAILABLE`, and nil-err `ID==""` stays 404. RED `fr1-prefix-red.log` / `verify-r12-red.log` (2 fault cases FAIL pre-fix; keep-404 guard PASS by design); GREEN focused 4 PASS ok 0.081s `verify-r12-focused.log` + 0.083s `fr1-green.log`; full `./internal/server` ok 7.195s `verify-r12-full.log` (logged value; operator brief said 7.307s); build/vet/gofmt logs empty (worker `ses_e6698e4e8ffe04OvmuBssQ3KVc`). Record-writer `go test -run TestGetRecipeExecution` 4 PASS ok 0.096s EXIT 0 `rec-r45-f-fr1-gotest.log` (supporting only). Independent verifier `ses_e66950a5fffeQ9IIbz0VzV3S2M` (same-model, disclosed) VERIFIED via go-test `-overlay` whole-file HEAD swap (verify-r12-overlay.json -> verify-r12-head.go), RED re-proved (verify-r12-red.log), diff classified (verify-r12-diff.log) — attributed to that verifier session; record-writer did not repeat the deep audit.
+- F-R2 (RECORDED, worker-reported): Reconcile is startup-only + first-error-wins: any error disables recipe publication process-wide (`server.go:551-563` `bundleTarget` nil, no retry); stale RUNNING rows only reclaimed at next boot; overlaps the open H2-a/F-B3 read-pin family (`pinblock_reconcile_e2e_test.go:254`, `export_pin_crash_window_e2e_test.go:556`). Operator-judgment follow-up; not duplicated against the F-B6 lineage.
+- F-R3 (RECORDED, low, worker-reported): ETL recipe-execution status omits the explicit failure code/retryable/phase that the GraphQL twin publishes (`openapi_recipe_execution.go:62-80` vs `recipe_execution_reader.go:59-75`); FAILED state still renders correctly, so it is a contract gap, not success-on-error. Candidate REPAIR-13 (additive fidelity).
+- F-B31 (CLOSED-vacuous, worker-reported `ses_e669a4c53ffeda7JR6AV1qkSht`): the generic-REST top-level `retryable` sibling (`internal/api/http/errors.go:27`) that the nested-details client never reads is provably disjoint on the ETL routes; explicit values live inside `details` (post REPAIR-10/11) and the GraphQL path uses `extensions.retryable`. Caveats recorded no-finding: panic-path zero-value false vs `api.ts:927` infer flip; contract-letter fallback note.
+- F-CLI1..6 (QUEUED; audit worker `ses_e669cdd3affeBrhvZq4NdGyMxx`, parent-triaged, UNVERIFIED by record-writer): (1) CLI silent CreateDatabase-on-typo false success (`internal/store/arango/client.go:138-150`; rank1; groundwork `ses_e66971baeffe65lBLSg9zs2CVE`); (2) documented `load` command absent from dispatch (`main.go:43-67` vs QUICKSTART.md:46 / README.md:134 / contract :76; capability lib-side `generation_orchestration.go:20-25`); (3) mutating cmds lack signal/ctx so Ctrl-C strands a LOADING manifest and re-run is blocked (`manifest_lifecycle.go:97-99`, `:249`; no adopt path); (4) `--mode` silent fallback to storage (`main.go:634`, `relationships.go:20-37`); (5) LATENT exit-0-on-partial `loadResource` (`resource_load.go:100-104` vs `:149`; twin generation path correct `:289-296`) - must land with (2); (6) low: exit-code split 2-vs-1.
+
+### Additional records (R46-R47, attributed)
+
+- F-B32 (REPAIRED-VERIFIED, repair-14; combined adversarial review `ses_e6681b2e8ffelZTJAzjW7wDD6P` NO-BYPASS, same-model/disclosed): REST `getRecipeExecution` `authscope.ErrForbidden`->403 leaked dataset existence vs the GraphQL twin + REST sibling 404 (authz existence oracle, `ses_e669350e2ffewAY9d7VXlW2kMK` confirmed-by-quote); single-arm flip `openapi_recipe_execution.go:132`->404 plus coordinator-authorized migration of the REPAIR-12 helper pins :49-50/:83-84 to 404. RED overlay A/B signatures: RED A (remove fault-branch call) -> exactly REPAIR-12's 2 fault tests FAIL exit 1, keep-404 + pre-existing-503 PASS; RED B (:143 flip) -> both migrated pins + T-B2 FAIL, fault tests PASS (orthogonal); byte-identical 503/UNAUTHORIZED_PROJECT envelopes; `fb32-*` logs; sole skip disclosed (full package 7.500s).
+- Commits landed (authorized): `1973b9ae` F-B14 family (7 files, +341/-1, 53->46); `8ac0fd9d` F-B28 / Explorer legacy Details (2 files, +89/-4, 46->44) - both hashes + `git show --stat` totals re-verified by record-writer. Commit wave 2 in flight: recipe-execution trio (unit C), CLI quintet (D, post-review), UI retryability suite (E, post-coverage).
+- F-B33 (RECORDED, operator-decision, worker-reported `ses_e6681b2e8ffelZTJAzjW7wDD6P`): getRecipeExecution OpenAPI drift post-F-B32 - 403 (`openapi.yaml:1250` LegacyForbidden) DECLARED-BUT-UNREACHABLE: handler is exhaustively {401,404,503} (no StatusForbidden arm); adapter 403 branch + `GetRecipeExecution403JSONResponse` (`openapi_data_routes.go:162-167`) are dead code. Deliberately NOT silently fixed (spec removal + regeneration blast radius); do not delete a declared capability without operator sign-off. status: recorded-operator-decision.
+
+## Round 49 — adversarial reviews land: repair-6 NO-BYPASS, repair-7 CORE-SOUND-REMEDIATION-OUT, repair-8 FAIL-REQUEST-CHANGES -> REPAIR-15; dispatch waves REPAIR-15..18
+
+Attribution: review verdicts and dispatch contents are attributed to the named reviewer/worker sessions (same-model where not otherwise disclosed); the record-writer did not re-run the deep audits. Where the record-writer quote-verified a saved log or source line this session, the row says so.
+
+- **repair-6 (F-B20) -> VERIFIED-REVIEWED-NO-BYPASS** (same-model reviewer `ses_e66757becffe8uCNimGXbEeIfc`). Twin decision table fully aligned post-F-B32: all authz rows MATCH, incl. restricted-missing-path concealed on both transports. The AllGenerations cross-generation hypothesis is REFUTED by probe: the read twin never enters the all-generations namespace; `ReadScope.Covers` is a normalized-string subset test only. Reviewer findings + dispositions:
+  - F-2: the covers-subset loop is uncovered by durable tests — mutant C survives (twins pass because they test requested==declared). Durable controls REQUIRED pre-commit: dispatched with the REPAIR-15 rework per one-writer (shared `scope_resolver.go`), with REPAIR-16 covering the REST-side behavioral twin case now. Record-writer quote-read `/tmp/opencode/review-fb20/mutantC_probe.log`: mutant C makes `CoversExecutionPaths([p1 p2])` with restricted scope `[p1]` return true (want false) on the missing-path probes.
+  - F-3: REST `Covers` arm is text-pin-only -> REPAIR-16.
+  - F-1: `context.Canceled` -> REST retryable 503 vs twin 499 — OWNER ACCEPTED AS DOCUMENTED DEVIATION: the client-cancel response is undeliverable anyway, and the REST adapter's declared valid-set lacks 499 for the route, so parity needs an OpenAPI spec change + regeneration; bundled under the F-B33-class operator question (declared-response drift).
+  - F-4: default-arm `INTERNAL_ERROR`/retryable=false vs the docstring and the GraphQL twin -> REPAIR-16 fixing.
+- **repair-7 (F-B22 Tier-1) -> CORE-SOUND-REMEDIATION-OUT** (reviewer `ses_e66724ac8ffe3EQq5KhztfChEM`). Consumer table normalized-consistent for ALL calypr consumers; CH/AQL byte-equal `IN` semantics verified; cursor fingerprint proven scope-independent (live predicate per request); fold-pair + control guards durable-killed (M1/M2). Findings:
+  - F-7R1: `==` sentinel cache-key collision — CONFIRMED INDEPENDENTLY by BOTH reviewers (bi-directional probes); same defect as repair-8 F-1, single fix under REPAIR-15 (type-level bool discriminator).
+  - F-7R2: `dataframe/service.go:85` raw-copy -> REPAIR-18 U1 (approved; latent).
+  - F-7R3: bulk/load NUL ingress has zero durable coverage and silently blanks paths under `AllowAll` -> REPAIR-18 U2.
+  - LEDGER CORRECTION (reviewer-verified; record-writer SELF-RUN `ls internal/api/bulk/load/` + `rg -l ingress internal/api/bulk/load/` corroborates — zero hits): repair-7's claimed "bulk/load ingress test" does NOT exist. The sole bulk/load control test file is `internal/api/bulk/load/cross_project_dataset_authorization_e2e_test.go`, FB27-labeled (repair-8's gate; record-writer quote-read its F-B27 CONFIRMED lines at :163-164/:188-189). The repair-7 evidence record is corrected accordingly; the authscope/query-suite claims are untouched.
+  - Out-of-line observation — HARDENING TICKET recorded, UNASSIGNED: `projectid.Canonical` percent-decodes project ids (`internal/projectid/projectid.go:20` `url.PathUnescape`; record-writer source quote-check), so `%00`-encoded tricks can reach prefix digests. No demonstrated collision and no named victim: hardening ticket only, no model without a named consumer.
+- **repair-8 (F-B27) -> FIXING**: adversarial review (previously IN FLIGHT `ses_e66755a0dffe5bc866wZ3sUDTT`) returned **FAIL-REQUEST-CHANGES**; recorded. REPAIR-15 dispatched (`ses_e666b08e0ffeYVsC86jYbVMQ2Q`): F-1 fix-first with the reviewer counterexample as the RED oracle — `/tmp/opencode/fb27-review/m2.log` `TestFB27RevSentinelCollisionPoisonsWriteBinding` FAIL: "F-B27 BYPASS CONFIRMED: sentinel cache collision let a projA-scoped principal write /projA/data into projB whose recorded path is projB/data" (record-writer quote-read, not re-run); durable poison probe promoted into the durable suite; F-2 dual-mode rejection; the acceptance re-review re-runs the probe before acceptance.
+- **Dispatch waves** (session ids as supplied in the operator brief; REPAIR-16/17/18 ids were given truncated):
+  - REPAIR-16 `ses_e6669312ff...` — REST default-arm alignment (repair-6 F-4) + Covers behavioral twin case (F-3/F-2 REST side), with overlay-mutant proof via /tmp copies only.
+  - REPAIR-17 `ses_e6667cd4cff...` — browser re-evidence (M5 journey-run7 / m2join DE-run6) with container-env bootstrap. Joined-path brief verdict recorded as evidence taxonomy: C08/C09 = "materially stale vs 9764eeda, now certified by api.retryability.unit.test.ts"; browser items ts-stale pending P1/P2; the server-side joined path is PROVEN live post-repair incl. the reconcile 400 seam + builder 503-no-gen (expected); probe residue `joinqa-1793578055` noted inert.
+  - REPAIR-18 `ses_e666787a0ff...` — U1 `dataframe/service.go:85` normalizer + U2 bulk/load durable ingress control, approved above.
+- **Commit gate**: repair-6's NO-BYPASS is not commit-clean (F-2 durable controls required pre-commit); repair-7 has remediation-out items (F-7R1 via REPAIR-15, U1/U2 via REPAIR-18); repair-8 is FIXING. The recipe-execution trio remains commit-BLOCKED until REPAIR-15 lands and its probe-rerun acceptance re-review passes.
+
+## Round 50 — REPAIR-18 CLOSED + 18b dispatched; REPAIR-16 CLOSED-PENDING-REVIEW (seam surface); REPAIR-17 CLOSED — browser recert GREEN
+
+Attribution: closures, run results, and dispatch contents are attributed to the named worker sessions; the record-writer this session SELF-VERIFIED the key cited artifacts — quote-read `/tmp/opencode/fb18-u1-red.log` (VERDICT=CONFIRMED pre-fix archived shape: CH `auth_resource_path IN` list `["a\x00b" "p1"]`; garbage-only `["a\x00b"]`; both tests FAIL pre-fix) and `/tmp/opencode/fb16-u1-red.log` (both arbitrary-authz-fault tests FAIL pre-fix demanding retryable BACKEND_UNAVAILABLE); confirmed on disk `fb22_principal_auth_path_control_test.go` (dataframe pkg), the REPAIR-18b ingress guard at `operations.go:53`, the seam var at `internal/server/openapi_recipe_execution.go:93` with sole test-file writer `recipe_execution_status_twin_e2e_test.go`, and grepped `joined-rerun.log` VERDICT lines + attempt history; HEAD confirmed `35bdc932` ("Correct the stale requestError citation beside the preview recovery stub"). Deep runs not re-executed by the record-writer; logs are the preserved record.
+
+- **REPAIR-18 CLOSED** (`ses_e666787a0ffe75Td6nHQXcm8dN`). **U1** landed: dataframe principal-paths boundary normalization at `internal/api/graphql/graph/dataframe/service.go:85` via `authscope.NormalizeAuthResourcePaths` (`fence_resource_access.go:405`), the same helper repair-7 applied at query/input_resolution.go. RED `/tmp/opencode/fb18-u1-red.log`: pre-fix IN-list `['a\x00b' 'p1']` → post `['p1']`; garbage-only principal fails closed (DatasetNotFound) instead of widening. **Path correction recorded (reviewer's citation was shorthand):** F-7R2's `internal/dataframe/service.go:85` == `internal/api/graphql/graph/dataframe/service.go:85` (source-quote-verified: normalization comment + helper call present at the cited lines). Durable coverage: new `internal/api/graphql/graph/dataframe/fb22_principal_auth_path_control_test.go` (`TestAuthorizeMaterializationDropsControlCharPrincipalPathBeforeClickHouseINList`, `TestAuthorizeMaterializationGarbageOnlyPrincipalPathFailsClosed`). **U2 observed + encoded, then STOPPED per ownership:** the `AllowAll` silent-blank path is reachable in bulk/load (pinned in-worktree `fb22_ingress_control_test.go` with `VERDICT=CONFIRMED-PENDING` + TODO, file-confirmed at :38/:234); the resolver-side fix is **provably insufficient** — `AllowAll` bypasses the resolver — and the repair-18 worker does not own `internal/api/bulk/load/*`, so no product edit landed there.
+- **REPAIR-18b DISPATCHED** (`ses_e665f927bffefBmaAkse7wLgr6`), bulk/load-owned: ingress reject guard in `internal/api/bulk/load/operations.go` (authResourcePath non-empty but normalizing to `""` → `CodeInvalidRequest` **before** `AuthorizeWrite` — guard present in-tree at :53) + upgrade the pinned `AllowAll` case RED-first + overlay kill. Evidence trail archived while the fixer runs: `/tmp/opencode/fb18b-red.log` / `fb18b-green.log` / `fb18b-kill.log` (present; content not re-run by the record-writer).
+- **REPAIR-16 CLOSED-PENDING-REVIEW** (`ses_e6669312fffedE7Th3C6xqVK7V`). U1 default-arm fail-safe wrap (RED `/tmp/opencode/fb16-u1-red.log`; sentinels byte-identical) + U2 case T-C = Covers-sole-disclosure-gate with its preconditions proven; the implementer's own MutantC overlay went RED (arm(b) serves 200-with-foreign-metadata) — the twin case is proven non-vacuous; artifacts under `/tmp/opencode/fb16/`. **NEW PRODUCTION SURFACE (disclosed):** `recipeExecutionReadScope` package-level seam var in `internal/server/openapi_recipe_execution.go:93` — default = the authentic resolver call; test-only writes claimed (sole writer file grep-confirmed: `recipe_execution_status_twin_e2e_test.go`). A mutable package-level seam in production code is precisely attack surface → adversarial review dispatched specifically against seam mutability + T-C reproducibility + wrap misuse: `ses_e665ed364ffeLjU0NDhHFvSs3o`. Full prior-wave diff context noted: the 35bdc932 base already carries the F-B32/Round-34 layers, so the reviewer must scope the diff accordingly.
+- **REPAIR-17 CLOSED — POST-REPAIR BROWSER RECERT GREEN** (`ses_e6667cd4cffeaN9Mu4CfPYWfNs`). **M5 journey-run7 attempt4 EXIT=0 25/25** (restoreAck 200/v12/`DRAFT_RESTORED` agreeing with persisted, restored head v12 > deleted v11 (restore-follows-head), receiptReExecuted rowCount=2). Attempts 1–3 recorded honestly: a tooling race (`core-protocol-browser.mjs:1246` ack assertion with NO deadline vs the driver :258–297 async `Network.responseReceived`→`getResponseBody` ack append) and a cleanup temp-dir recreation (chrome recreated the profile dir post-rm, cleanupError null) — both diagnosed **non-product from the archived artifact contents** (load-bearing persisted restore assertions had already passed). **M2joined witness-DE-run6 attempt1 EXIT=0 25/25** (21 names verified as a superset of DE-run5, witness D/E holds present, 27.8s). **Env bootstrap honesty:** old-registration ports dead → owned `:3182`/`:3182`; the driver is raw CDP (playwright irrelevant); `LOOM_CDA_*` bridged via `docker exec` after the runtime.env route was permission-blocked; fresh-registration seeded through the repo-owned `createFreshVerificationFixture` (project `loom_dev_verify_repair17`); probe residue noted for purge. **Evidence-taxonomy effect:** Builder core-protocol browser evidence is now post-repair fresh (C08/C09 + all journey items); the F-B28 legacy Explorer route remains **disclosed-adjacent, NOT covered**. **Build-stamp lineage caveat recorded:** an air-hot rebuild was in flight during the run — `expected_source==current` held but a byte pin was impossible ⇒ behavioral certification only. CHECKPOINT.md correctly untouched by the worker (git-status verified); `/tmp/opencode/joined-rerun.log` = the full record.
+
+**Remaining outstanding:** REPAIR-15 fixer in flight; CLI adversarial review in flight; repairs **13** + **16** re-reviews to schedule on settled snapshots; commit wave stays gated — F-B20+F-B22 Tier-1 NO-BYPASS'd, but the trio still needs the repair-8 re-accept (REPAIR-15 probe-rerun acceptance) plus these reviews.
+
+## Round 51 — two adversarial verdicts land: REPAIR-16 NO-BYPASS (seam ACCEPTED, T-C reviewer-REPRODUCED); REPAIR-18/18b NO-BYPASS (ingress soundness)
+
+Attribution: verdicts and reviewer findings are attributed to the named reviewer sessions (same-model, disclosed); the record-writer did not rerun the deep audits. Where the record-writer quote-read a saved log, ran `sha256sum`/`cmp`/`grep`, or read source lines at the cited positions this session, the row says **record-writer SELF-RUN** / **record-writer quote-read** / **record-writer cmp-verified**. Both reviewers wrote nothing under the repo; every scratch path is `/tmp/opencode/...`.
+
+- **REPAIR-16 `ses_e6669312fffedE7Th3C6xqVK7V` → VERIFIED-REVIEWED-NO-BYPASS.** Adversarial reviewer `ses_e665ed364ffeLjU0NDhHFvSs3o` (same-model, disclosed) reviewed the final snapshot (base 35bdc932 already carries the F-B32/Round-34 layers). **Seam ACCEPTED on 4 run-proofs** (`/tmp/opencode/fb16-review/probe-run.log`): (i) `TestReview16SeamDefaultIsByteIdenticalForward` PASS — the default `recipeExecutionReadScope` is byte-identical to the authentic resolver call under recorded catalog options; (ii) **writes are test-only-deferred repo-wide** — record-writer SELF-RUN `grep -rn "recipeExecutionReadScope" --include=*.go internal/ | grep -v _test.go` returned ONLY the `var recipeExecutionReadScope = func(...)` declaration at `internal/server/openapi_recipe_execution.go:93` and the single production consumer at `:36` (file-local sole consumer); no production assignment anywhere in the repo; (iii) no `t.Parallel` exposure introduced in `internal/server`; (iv) sole test writer file is `recipe_execution_status_twin_e2e_test.go` (grep-confirmed). **U1 wrap probes PASS (reviewer probes, PASS in probe-run.log):** `TestReview16SentinelOutageNotDoubleWrapped` — no double-wrap (`DeepEqual` on the sentinels preserved byte-identical); `TestReview16ArbitraryFaultWireRetryableInDecodedJSON` — retryable=true verified on the DECODED body, not on the wire substring; 401/404 arms diff-untouched by the fix. **nil-ctx panic is PRE-EXISTING shared-mapper behavior:** `probe-run.log` line "REVIEW16 nilctx | shared-mapper-panics=true twin-panics=true (parity holds; 401 arm ctx-free)" — the twin panic parity matches the shared mapper (`internal/dataframe/published/read.go:12` region); recorded here as a LATENT PRE-EXISTING NOTE, NOT a repair-16 defect. **T-C reviewer-REPRODUCED:** the reviewer independently reconstructed the MutantC overlay (`/tmp/opencode/fb16-review/mutantC-my-run.log`: `TestFB20RESTTwinCoversSubsetGateIsSoleDisclosureGate` **FAIL** with the two `FB20-TWIN HTTP status=200` arms serving foreign `projectId="Q"` + digests + rowCount, then "refused read must be indistinguishable from a missing execution... got status 200... foreign metadata"). The record-writer SELF-RUN `cmp -s /tmp/opencode/fb16-review/scope_resolver.mutantC.go /tmp/opencode/fb16/scope_resolver.mutantC.go` = **IDENTICAL** (both `a20343a4...`), and independently confirmed base `internal/authscope/scope_resolver.go` sha256 = `a618d82df86e75ff...`, matching `/tmp/opencode/fb16/scope_resolver.sha256.before`/`.after` — the reviewer and implementer mutated byte-identical sources. **Full server suite 260/0** (`/tmp/opencode/fb16-review/full-server-suite.log`): record-writer SELF-RUN tallied 260 col-0 `--- PASS` lines, 0 `--- FAIL` lines, `ok github.com/calypr/loom/internal/server 6.896s`; the two `FAIL` substrings in that log are `PREVIEW_FAILED` text inside recorded C19 core-authoring finding lines, not test failures. **Optional residual hardening (not a finding, recorded unassigned):** a lint forbidding package-level-var writes outside `_test.go` would make the seam-misuse class mechanically impossible.
+
+- **REPAIR-18 (`ses_e666787a0ffe75Td6nHQXcm8dN`) + REPAIR-18b (`ses_e665f927bffefBmaAkse7wLgr6`) → VERIFIED-REVIEWED-NO-BYPASS.** Adversarial reviewer `ses_e665ca205ffejBorU2uiZInJ6J` (same-model, disclosed) issued one joint verdict on the boundary fix + the ingress guard (reviewer scratch `/tmp/opencode/re18-scratch/`, plus b18b/fb18b logs in `/tmp/opencode`). **Oracle-asymmetry F-1 assessed INFORMATIONAL (not a finding):** the observed 400-before-403 is this endpoint's **pre-existing validation convention** — `internal/api/bulk/load/operations.go:43/:46/:49-51` reject malformed form / boundary / empty project|generation|file with `CodeInvalidRequest` before anything auth-shaped; the request is **unreachable pre-auth** anyway (`internal/api/http/middleware.go:127-130` wraps `Authenticate` errors as `CodeUnauthenticated` before the handler runs); the F-4-arm discriminator only echoes the caller's OWN bytes back; and the new guard **strictly improves posture** vs the RED `AllowAll`-ingests-blank shape (RED `/tmp/opencode/fb18b-red-ingress.log` — the pre-guard run serves the request with a blanked path, post-guard run refuses with `INVALID_REQUEST` before ingest). No bypass or oracle exposure recorded. **F-2 = no ingress bypass:** the only production `GenerationLoadRequest` **construction** is `internal/api/bulk/load/operations.go:79`, and it sits **post-guard** — record-writer SELF-RUN: at `:53` `if authResourcePath != "" && authscope.NormalizeAuthResourcePath(authResourcePath) == ""` returns `CodeInvalidRequest` **before** `h.authz.AuthorizeWrite(...)` at `:63`; the other `GenerationLoadRequest` hits (`:14` struct, `:57` func type, `:63`/`:134` `req GenerationLoadRequest` parameters) are definitions and consumers, not constructions. Single route chain: `generated/openapi/openapi_server.gen.go:14595` → `internal/server/openapi_data_routes.go:83` (reviewer-cited). **F-3 = input-class coverage:** `/tmp/opencode/fb18b-classes.log` `TestScratchInputClasses` PASS covers every class — `" \x00 "` (ws-flanked NUL) and `"a\x00b"` and all-control (`\x01\x02\x7f`) all refused `INVALID_REQUEST` in **both** `ALLOW` (`AllowAll`) and `SCOPED` postures; the whitespace class (`" \t\n\v\f\r "`) exercises the ` ' ' ` collapse semantics end-to-end (`ALLOW` accepts + stores "", `SCOPED` refuses `FORBIDDEN`); `"legit-ws '  p1  '"` and lone-slash and trail-NUL arms close the table. **F-4 = the dataframe branch list reaches ONLY parameterized `IN` binds** (`rows.go:69`, `export.go:52`, `aggregates.go:350` reviewer-cited; record-writer confirms the parameterized-binding discipline — caller path bytes never land in a query-fragment position); `cursor` and `aggregate-plan` keys EXCLUDE `AuthResourcePaths`; the "empty==unrestricted" trap reads the STORED exec list, not this request's caller-side list; and the garbage-only principal fails CLOSED at `internal/api/graphql/graph/dataframe/service.go:92-94` (record-writer SELF-RUN quote: `normalizedPaths := authscope.NormalizeAuthResourcePaths(principal.AuthResourcePaths); if len(normalizedPaths) == 0 { return projectAccess{}, ...CodeDatasetNotFound }` — never widened). **F-5 = tests non-vacuous in BOTH postures:** pre-fix RED (`fb18b-red-ingress.log`) FAILs the scoped control-byte arm (`VERDICT=UNEXPECTED`) and the AllowAll control-byte arm (`VERDICT=REGRESSION`, `got <nil>`); GREEN (`b18b-ingress-tests.log` + `b18b-df-tests.log`) flips both to `VERDICT=REPAIRED`; the genuine-empty `AllowAll` posture is deliberately `VERDICT=PINED` (single-operator posture) so the guard's non-vacuity is proven by the control-byte arm, not by that one. **Overlay kill:** `/tmp/opencode/fb18b-kill.log` shows reverting the guard makes BOTH control-byte tests FAIL again (`scoped` UNEXPECTED + `AllowAll` REGRESSION), which is the required kill signature. **Non-blocking observations (recorded, not committed to a product change by the record-writer):** (a) deliberate ordering asymmetry — bulk/load validates-BEFORE-authenticates because `auth_resource_path` is attacker-controlled, whereas dataframe authenticates-BEFORE-lists because the list is fence-sourced; reviewer nit suggests a one-line comment at each site to make the asymmetry explicit; product-code edit belongs to the repair owner, not the record-writer (sole writer of these three verification files); (b) cosmetic note: the helper-vs-helper assertion in `fb22_ingress_control_test.go:120` (`VERDICT=REPAIRED` line) is stylistic only.
+
+**Commit-gate line (Round 51).** REVIEWER-CLEARED COMMIT-READY UNITS now: **repair-16** (3 server files) + **repair-18/18b** (4 files: dataframe `service.go` + `fb22_principal_auth_path_control_test.go`, bulk/load `operations.go` + `fb22_ingress_control_test.go`) join the reviewer-cleared set. The earlier trio (recipe-execution — resolver/server openapi + twin controls) is reviewer-cleared only on its members already NO-BYPASS'd (repair-6, repair-12, repair-14) and the whole unit remains **PENDING** until (i) the **repair-8 re-accept** lands via REPAIR-15's probe-rerun acceptance, (ii) **repair-13 CLI review** returns, and (iii) **F-B20 / F-B22 Tier-1 durable controls** land from REPAIR-15 (the covers-subset controls + repair-8's F-1 single fix are riding REPAIR-15 per one-writer). Commit-authorization still per operator/AGENTS.md.
+
+**Reviewer-rotation disclosure.** The reviewer session handle used for this round's adversarial verdicts is `ses_e665d6b76ffelMII8fAjU0gm2N` (the prior-review handle rotated out at round-boundary); the adversarial context was fully re-established from the round-49/50 briefs by the record-writer before dispatch so continuity of the review questions is preserved (same finding taxonomy, same seam/target surfaces, same RED-oracle citations). Both reviewers touched only `/tmp/opencode/{fb16-review, re18-scratch}` and never the repo; HEAD remains `35bdc932` (record-writer SELF-RUN `git rev-parse --short HEAD` + `git log --oneline -1`).
+
+## Round 52 — REPAIR-15 ACCEPTED-REVIEWED (probe-rerun denial ratified); repair-8 family releasable; REPAIR-19 CLOSED (mutant C durable-killed); commit wave unblocked pending CLI review verdict
+
+Attribution: the acceptance verdict is attributed to the accept-reviewer session `ses_e65ff7648ffeK9RgdAlnEA0ax0` (same-model, disclosed); the REPAIR-19 closure is attributed to `ses_e65fc52bfffethBcvqtELZb0BX`. The record-writer this session SELF-RAN the decisive checks named **record-writer SELF-RUN** below and read every cited log/source line in place; nothing in this section is propagated on claim alone where a local check was possible.
+
+- **REPAIR-15 (`ses_e666b08e0ffeYVsC86jYbVMQ2Q`) → ACCEPTED-REVIEWED (accept reviewer `ses_e65ff7648ffeK9RgdAlnEA0ax0` ACCEPT).** Product fix: `scopeCacheKey` gains an **`allGenerations` bool discriminator** — record-writer SELF-RUN `rg`: field declared at `internal/authscope/scope_resolver.go:123`; the ONLY writer of an `allGenerations=true` key is `listExistingPathsAllGenerations` (`:410`, fail-closed on list error, structural-discriminator comment at `:395-404`); generation-scoped lookups build `allGenerations:false` keys (`:367`) and therefore **cannot address** the project-write-binding entry — the sentinel-collision class is eliminated structurally, not by string-filtering a reserved literal. `InvalidateGeneration` deletes `allGenerations:false` entries only (`:455-466`) → the mode=true project binding is **spared** (adv test PASS). **Poison probe re-run DENIED:** `/tmp/opencode/fb27rev-overlay/run.log` `TestFB27RevSentinelCollisionPoisonsWriteBinding` **FAIL** at `zz_fb27rev_probe_reviewer_copy_test.go:238` — `write decision must have been served from the poisoned cache entry: calls=3` (line number record-writer SELF-RUN grep). The poisoned entry no longer serves `AuthorizeWrite` — the decision re-lists — so the Round-49 `m2.log` "F-B27 BYPASS CONFIRMED" branch is unreachable; the FAIL-at-:238 is the post-repair **inverse** of the RED oracle. The reviewer's :238 vulnerable-serving assertion **and both supersessions** (durable promotion `TestFB27SentinelGenerationPoisonCannotReachAuthorizeWrite` + the overlay `FB27Adv` sentinel-denies control) were **independently RATIFIED** by the accept reviewer.
+- **Reviewer-authored adversarial controls PASS.** `/tmp/opencode/fb27rev-overlay/zz_fb27adv_test.go` (header: "Independent adversarial controls authored by the acceptance reviewer"): `TestFB27AdvInvalidateGenerationSparesModeTrueBinding`, `TestFB27AdvSentinelPoisonDeniesWithFreshBindingList`, `TestFB27AdvWrapChainIsSentinel`, `TestFB27AdvConcurrentSameProjectListers`. **Record-writer SELF-RUN:** `go test -overlay /tmp/opencode/fb27rev-overlay/overlay2.json -race -count=1 -v -run TestFB27Adv ./internal/authscope` → **4/4 PASS, ok 1.127s** (`/tmp/opencode/r52-adv-selfrun.log`), incl. the named `...WithFreshBindingList` PASS and the `64x4`-class concurrency control (`TestFB27AdvConcurrentSameProjectListers PASS (0.02s)`).
+- **Concurrent race-clean after test-double diagnosis (record-writer SELF-RUN).** The transient `-race` flake root-caused to the REPAIR-15 **shared-mutable `fb27ctlLister` test helper** (`all_generations_cache_key_test.go:26-36`: `calls` counter + `opts` slice accumulated across subtests through one instance), **not product code**; the reviewer's test double distinguished helper-state from product-state before any conclusion was drawn. Full-package confirmation: `go test -count=1 ./internal/authscope` ok 0.074s (`r52-authscope-full.log`) and `go test -overlay overlay2.json -race -count=1 ./internal/authscope` **ok 1.130s** (`r52-authscope-race-selfrun.log`) with zero race reports.
+- **Real-tree placement verified (path-drift lesson recorded).** The fixer once used a wrong `go -C` path variant; the parent independently verified the **REAL TREE** — `git status --porcelain internal/authscope/` + on-disk ls confirm the **3 new files present** (`all_generations_cache_key_test.go` md5 `e57dfdd042bf983e85d3e37bba6e67f8`, `auth_resource_path_options_conflict_test.go` `69bbbe193a470d1edd091a090e089c49`, `scope_cache_key_namespace_test.go` `dc7accfb0722ba99c628ba22976d8017`) **+ the `allGenerations` bool at `scope_resolver.go:123`**, on the **single volume `arc-loom-qwen-current-20261031`** (record-writer SELF-RUN `ls /var/lib/docker/volumes/` lists exactly one loom volume). **LESSON (recorded): dispatch briefs must quote the exact mount path**, not a paraphrase.
+- **repair-8 family → VERIFIED-REVIEWED-RELEASABLE — explicit status line for the chain F-B18 → F-B27 → REPAIR-15.** repair_unit[8] now reads `VERIFIED-REVIEWED-RELEASABLE (F-B27 chain: r40 landed -> r49 review FAIL-REQUEST-CHANGES -> FIXING -> REPAIR-15 ACCEPTED-REVIEWED ses_e65ff7648ffeK9RgdAlnEA0ax0 round 52)`. The three-file durable set + `scope_resolver.go` bool is the releasable F-B27 unit.
+- **REPAIR-19 (`ses_e65fc52bfffethBcvqtELZb0BX`) DISPATCHED + CLOSED — F-B20 reviewer's F-2 durable requirement SATISFIED.** New `internal/authscope/covers_execution_paths_control_test.go` (md5 `3f134a94fc06b201d1a469acdef53523`, 147 lines, record-writer SELF-RUN read). **Mutant C** (membership loop neutered, guards kept — the exact mutation that survived the shipped suite at Round 49 F-2) **is now killed by 13 durable scenario arms** — verbatim `/tmp/opencode/repair19/kill_run.log`: 19 `--- FAIL` sub-test lines across the 3 controls including the named witnesses `equal-count-disjoint-denies`, `mixed-generations-denied`, `sentinel-scope-denies-ordinary-declared` + `sentinel-scope-does-not-cover`, `restricted-empty-scope-denies-declaring`/`restricted-scope-empty-denies-declaring`, `prefix-not-conflated`, and the generation-bound `foreign-generation-path-denied` + `mixed-generations-denied` (the 13 count = unique discriminator scenarios; `restricted-nil-scope` and the two empty-scope arms overlap across controls, and 3 serving-side controls pass under mutant C by design, so 19 FAIL lines = 13 unique kills). Plus the **25-case truth table** (`TestCoversExecutionPathsSubsetTruthTableControl`, cases :66-90) and the **per-subtest resolver-driven generation-bound control** that builds its own resolver+lister per subtest (:118-127) — race-clean by construction. **F-B20 trio pre-commit coverage requirement: MET.**
+- **OPERATOR-NOTE (re-review non-blocking) — F-2 validator rationale corrected.** The earlier phrasing that `DiscoverExistingAuthResourcePaths` had "zero callers" is **WRONG**: it IS production-wired — `internal/server/server.go:439` passes `catalogStore.DiscoverExistingAuthResourcePaths` into `wireAuth`, consumed at `internal/server/auth_wiring.go:40` (calypr mode; both citations record-writer SELF-RUN source-read). The `AllGenerations`+`DatasetGeneration` conflict guard (`internal/catalog/arango/resources.go:180-184`, `ErrAllGenerationsWithGeneration`) **remains correct on its own terms**: the only TWO production `AuthResourcePathOptions` producers are `authscope/scope_resolver.go:378` (generation-scoped, `AllGenerations` false) and `:421` (all-generations, empty generation) and neither emits the conflicting shape (record-writer SELF-RUN construction-site census over non-test code).
+- **Test-hygiene items (non-blocking, recorded).** (a) REPAIR-15's `fb27ctlLister` shared-mutable helper caused the transient `-race`; product race-clean (see above); polish the helper to per-subtest state in the next idle wave — repair owner, not the record-writer. (b) The wrong `go -C` variant incident is recorded above with its path-drift lesson for brief authoring.
+- **Outstanding + commit-wave sequence.** **CLI adversarial review `ses_e668262b6ffeYAWS09jr7dvgXq` report still OUTSTANDING** at round close (record-writer SELF-RUN: no landing artifact in-tree or `/tmp/opencode`; repair-13 stays `verified, review-pending`). **Record-not-claim rule:** if the report is absent at the final gate, dispatch a FRESH CLI adversarial review before the commit wave depends on it. **Then the COMMIT WAVE unblocks** in sequence, each unit landing with tree-level build proofs per the commit worker's standard (build/vet/gofmt against the real tree, not per-file claims): (1) **prereq** — `scope_resolver.go` + catalog `types.go`/`arango/resources.go`; (2) **trio** (7 files — recipe-execution resolver/server + twin controls incl. the now-MET F-B20 durable controls); (3) **CLI wave** (5 files — `cmd/arango-fhir-proto/main.go`, `main_test.go`, `internal/ingest/resource_load.go`, `resource_load_test.go` + the CLI test file present set re-verified via `git status --porcelain cmd/arango-fhir-proto/ internal/ingest/`); (4) **ledger/models/docs wave**. Commit authorization remains per operator/AGENTS.md; the record-writer stages nothing itself.
+
+Record integrity: HEAD `35bdc932` (unchanged this round; the wave has not been dispatched yet); reviewer and fixer artifacts live under `/tmp/opencode/{fb27rev-overlay,repair19}` — the overlay reviewer test was run via `-overlay`, never written into the repo (repo hygiene preserved: `git status` shows no zz_* files). `reviewed-sources.json` parses and re-serializes byte-identically (record-writer SELF-RUN: `json.dumps(indent=1, ensure_ascii=False)` roundtrip == on-disk bytes).
+
+## Round 53 — COMMIT WAVE LANDED (A authz / B recipe-execution twin / C boundary guards); backlog triage of the uncommitted M/?? cluster; aggregate-flake disclosure + phantom fuzz-corpus retraction
+
+Attribution: the three commits and their tree proofs are attributed to the commit-worker sessions named in the operator round-53 brief (waveA-check / waveB-check / waveC-check disposable-worktree staged-patch proofs); the record-writer this session SELF-RAN the on-tree reconciliation named **record-writer SELF-RUN** below (`git show --stat` for each hash, full-SHA reads, blob-content fingerprint checks via `git show HEAD:<path>`, `sha256sum` vs the ledger artifact shas, `git status --porcelain` reconciliation, phantom-file `find`+`git log --all`+`rg`, wave patch grep, log tails in `/tmp/opencode`). Nothing was committed, staged, or edited outside the three verification-record files by this session.
+
+### Commit wave (HEAD `35bdc932` → `0e3b4c5b` → `eb9c9df0` → `68189b5f`)
+
+- **Wave A — `0e3b4c5b91c62f44a74d08755466dfbdd314df0b`** "fix(authz): F-B22 control-byte ingress normalization + F-B27/REPAIR-15 project-binding namespace integrity + F-B18 honest load faults" — **14 files, +1393/−9** (record-writer SELF-RUN `git show --stat`): `cross_project_dataset_authorization_e2e_test.go` (+276), `query/input_resolution.go` (+28), `read_scope_ingress_control_chars_e2e_test.go` (+92), `authscope/all_generations_cache_key_test.go` (+100), `authscope/auth_path_control_ingress_test.go` (+114), `auth_resource_path_options_conflict_test.go` (+158), `authscope/covers_execution_paths_control_test.go` (+147, REPAIR-19 mutant-C kill suite), `fence_resource_access.go` (+34), `scope_cache_key_namespace_test.go` (+199), `scope_resolver.go` (+109, `allGenerations` bool discriminator), `catalog/arango/resources.go` (+44), `catalog/types.go` (+6), `ingest/resource_load.go` (+42, F-B18 `LoadIncompleteError`), `ingest/resource_load_test.go` (+53). Receipts: repair-7 `ses_e66724ac8ffe3EQq5KhztfChEM` (CORE-SOUND-REMEDIATION-OUT — the F-7R1/F-7R3 remediation rode this wave), REPAIR-15 **ACCEPT** `ses_e65ff7648ffeK9RgdAlnEA0ax0`, repair-6 `ses_e66757becffe8uCNimGXbEeIfc` trio-adjacent (its F-2 durable requirement was MET by REPAIR-19 shipped here). Tree proof **waveA-check**: `go build`/`go vet` clean, 5 package suites `ok` + server `ok` (`/tmp/opencode/waveA-{build,vet,test}.log`; test log tails record-writer SELF-RUN: `PKGTEST_EXIT=0`, `SERVERTEST_EXIT=0`, catalog 104.756s incl. real-store suites).
+- **Wave B — `eb9c9df054405e7b275399e233d8d39ebb5f7a87`** "fix(api): recipe-execution twin authz (F-B20), retryable-outage twin classification (F-R1), denial concealment (F-B32), failure-path coverage (REPAIR-16)" — **6 files, +906/−456**: resolver `recipe_execution_reader.go` (+7/−), `recipe_execution_reader_authz_e2e_test.go` (576 churn), `internal/server/openapi_recipe_execution.go` (+82; carries the `recipeExecutionReadScope` seam + default = authentic resolver call), `openapi_recipe_execution_test.go` (+151), `recipe_execution_status_twin_e2e_test.go` (490 churn), `recipe_execution_twin_authz_repair_test.go` (new 56). The **seam is disclosed in the commit body** (ACCEPT-with-seam, 4 run-proofs from the adversarial review). Receipts: repair-6 `ses_e66757becffe8uCNimGXbEeIfc` VERIFIED-REVIEWED-NO-BYPASS, REPAIR-16 `ses_e665ed364ffeLjU0NDhHFvSs3o` VERIFIED-REVIEWED-NO-BYPASS. Tree proof **waveB-check**: build/vet clean; `resolver` + `server` `ok` (`waveB-{build,vet,test}.log`; resolver 0.078s, server 7.195s with the disclosed replay `−skip`).
+- **Wave C — `68189b5f9b3fbc0e075a5cecc142935686596007`** "fix(api): normalize principal auth paths at dataframe boundary; reject control-byte auth_resource_path at generation ingress" — **4 files, +324/−1**: `bulk/load/fb22_ingress_control_test.go` (new 236, F-B22-ingress), `bulk/load/operations.go` (+3, ingress guard), `dataframe/fb22_principal_auth_path_control_test.go` (new 74, F-7R2), `dataframe/service.go` (+12/−1, principal-paths normalization). Receipts: `ses_e665ca205ffe` adversarial NO-BYPASS (same-model, disclosed) + RED evidence `fb18-u1-red.log`/`fb18b-red.log` (present on disk, record-writer SELF-RUN). Tree proof **waveC-check: GATE_GREEN** (staged-patch vs clean HEAD, build/vet both packages, dataframe + bulk/load + server `−skip TestCoreAuthoringProtocolModelReplay` all green) **including the aggregate-flake investigation below**; `waveC.patch` present on disk (record-writer SELF-RUN ls).
+- All three waves used **disposable-worktree staged-as-only patches** against the settled prior-HEAD (per the commit-worker standard; wave A staged vs `35bdc932`, wave B vs `0e3b4c5b`, wave C vs `eb9c9df0`). Commit bodies carry the disclosure that verification/publication-bundle artifacts deliberately stayed out (operator-owned wave; air-hot CDA/Builder stack).
+
+### Commit-adjacent disclosures
+
+- **FUZZ-CORPUS PHANTOM RETRACTED.** `internal/authscope/resource_access_fuzz_seed_corpus_test.go` **never existed**: not on disk (record-writer SELF-RUN `ls` — no such file), zero hits across **all** git refs (`git log --all -- <path>` empty), and the `authscope` package contains **zero Fuzz symbols** (record-writer SELF-RUN `rg -c Fuzz` — no match). The digest records that claimed it are corrected; wave A shipped **14 real files**. The deviation was disclosed in the wave-A commit body (the file was excluded rather than fabricated; operator notified at commit time).
+- **AGGREGATE FLAKE (TEST TIMING FLAKE — pre-existing test-design weakness).** `TestAggregateSchedulerDispatchesExpectedConcurrentCallsOnce` batch-size failure occurred **ONCE** under cold-build CPU contention during wave C. Root cause (record-writer SELF-RUN source read): the test's own `aggregateFallbackDelay = 10ms` (`internal/api/graphql/graph/dataframe/aggregates.go:52`) can fire between the 158 enqueue goroutines, so the scheduler legitimately splits the batch while the test asserts exactly one batch of 158 (`aggregates_test.go:36`). It occurred in **72+ subsequent runs (patched + baseline): zero failures**; `aggregates.go` is **untouched by the patch** (record-writer SELF-RUN: zero `aggregates.go` hits in `/tmp/opencode/waveC.patch`) and untouched by every wave. Classified **TEST TIMING FLAKE, not product code**. Same class as the long-known **30s replay pattern** (the `context.WithTimeout(..., 30*time.Second)` gates at `core_authoring_protocol_formal_replay_test.go:304/:368/:377/:382` — the `-skip TestCoreAuthoringProtocolModelReplay` convention already disclosed in every server-suite proof since Round 34). **Both are recorded under one sideFinding `flaky-timing-tests`** in `reviewed-sources.json` (with the Round-52 `fb27ctlLister` -race helper flake named as the same class). Fix = event-driven barrier / load-scaled timeouts; repair-owner test-hygiene ticket, not commit-gating.
+- **Porcelain reconciliation.** The final `git status --porcelain` remainder beyond the three waves is **exactly** the backlog triage cluster below + the gated CLI wave-D files + the operator-owned model/doc artifacts + tooling dirs — **no unexplained remainder** (full list in `d['backlogTriage']['porcelainReconciliation']`).
+
+### Backlog triage — the uncommitted M/?? cluster (source archaeology; NOTHING committed)
+
+Each file was resolved to its claim record (`status_updates/repair-unit-*` + `confirmed[*]` + finding status), verified status, adversarial-review status, and the confirm-time artifact sha vs the **current on-disk byte** (record-writer SELF-RUN `sha256sum` vs the `confirmed[*].artifacts[*].sha256` values).
+
+- **F-B21 / Repair-5 cluster** — `bundle.go` (M), `bundle_test.go` (M, new +61), `pointer_name_encoding_test.go` (??, new 101 lines), `clickhouse/pointer_name_nul_ambiguity_e2e_test.go` (M), `recipe/publication_identity_nul_http_test.go` (M).
+  - Claim: `repair-unit-5` file list + `confirmed[12]` (F-B21 HIGH intra-project, parent `c80b84cb` + worker×2 + fb21http×2) + status `REPAIRED Round 33 … REAL-SERVICES VERIFIED round 36 JAR3`.
+  - Review status: **VERIFIED, NOT adversarially reviewed** — no repair-5 adversarial receipt exists anywhere (the `repair_units` ledger starts at repair-6; the `pstack:interrogate` regime postdates Round 33).
+  - Commit state (record-writer SELF-RUN blob checks): **not a byte of F-B21 is at HEAD** — `git show HEAD:…/bundle.go` still has the bare `\x00` join (zero length-prefix fingerprints), HEAD `bundle_test.go` lacks the injectivity unit, `pointer_name_encoding_test.go` absent at HEAD. The on-tree product code at HEAD still carries the F-B21 NUL-fold repoint hazard; committing this unit is the de-risking action.
+  - Drift: both confirmed-record shas are **stale vs on-disk** (pnn `499574cb…`→`7f32f0fe…`; http `19d396a2…`→`6341843c…`), and the drift **is the recorded conversion**: the red FAILED-ON-PURPOSE arms became natural-PASS + archived-red REGRESSION witnesses, with the `pnnRequiredQuotations` re-pin now requiring the length-prefix anchors (`strconv.Itoa`/`WriteByte(':')`). Consistent with the ledger's `conversions` description; re-pin shas at commit time.
+  - Ledger gap flagged: `bundle_test.go` `TestBundleIdentityPointerNameIsInjective` is **not listed** in `repair-unit-5`'s file list — post-claim unit addition (substance matches the recorded intent "units pin the historical fold + require separation"); add the name to the claim before commit.
+  - **Classification → REVIEW-QUEUE** (verified-not-reviewed). One adversarial review over the 5-file unit (injectivity, historical-fold pin, blank-component semantics, quotation re-pins, non-vacuity); cleared ⇒ COMMIT-READY-BACKLOG → land as **wave D-2** alongside/after the CLI files. The product file cannot ship without its two witness units (`historicalBareJoin` pin + regression witness are the non-vacuity).
+- **F-B19 / Repair-4** — `clickhouse/orphaned_published_growth_e2e_test.go` (M). Claim: `repair-unit-4` + `confirmed[11]` (dual parent runs `e00a7032`/`e3712285`) + status `REPAIRED Round 32 … REAL-SERVICES VERIFIED round 36 JAR3`. **Product janitor arm IS at HEAD** (record-writer SELF-RUN: reader-gated markers present in HEAD `bundle_store.go`). Verified-not-reviewed (Round 32 predates the regime). Sha stale (`da5d26c5…`→`e0c2ce7b…`); drift = the recorded r32 conversion (red → PREVENTED + reader-harness extraction `orphReleaseReader`). **→ REVIEW-QUEUE**; re-run the converted e2e + sibling vs **current** HEAD before dispatch (evidence is dc9016bc-era; waves A–C moved the tree under it).
+- **F-B15 / Repair-3** — `internal/dataset/arango/revision_inflation_e2e_test.go` (M). Claim: `repair-unit-3` + `confirmed[8]` (parents ×3, uuid `25b5af79`) + status `REPAIRED Round 31 … REAL-SERVICES VERIFIED round 36 JAR1 … Artifact hardened (round 37)`. **Product fix IS at HEAD** (record-writer SELF-RUN: `release_store.go` `alreadyActive` zero-write CAS + `releaseID` fingerprint shipped). Verified-not-reviewed (Round 31); **integrity-event-2 history on this unit** (fabricated worker report; evidence basis = parent-run outputs only) ⇒ parent-rerun discipline mandatory. Sha stale (`b01ab91e…`→`23576ecf…`); drift = the recorded round-37 hardening verbatim (PREVENTED arm now pins revision, release ID, doc count, both `_rev`s + `contentIdentical` gate). **→ REVIEW-QUEUE** (lowest risk — pure witness hardening); bundle with the publication-backlog reviewer; re-run PREVENTED vs real Arango at current HEAD.
+- **Governance docs** — `AGENTS.md` (M) + `docs/verification/CONTINUOUS_FIND_FIX_VERIFY_GOAL.md` (M). **No ledger record claims them** (record-writer SELF-RUN grep: zero claims). The diffs are the codification of the **Adversarial review** + **Local commits** governance sections (AGENTS.md +16) and the CONT doc's matching rewrites (local commits for verified+reviewed Todos authorized; adversarial review per AGENTS) — exactly the authority the three commit waves wrote "Commit authorization remains per operator/AGENTS.md" against, and de-facto active (loaded into agent instruction paths from the working tree). **→ FLAG FOR PARENT ADJUDICATION / owner: operator-parent only.** They belong to the planned ledger/models/docs wave (round-52 sequence item 4): land as an operator/parent commit with or before wave D so the on-tree rules match the rules cited in the commit messages. Not a repair unit — no verification/review pipeline applies; record-writer does not touch them (sole-writer boundary).
+- **CLI wave-D files** (`cmd/arango-fhir-proto/main.go` + `main_test.go` M, plus `ingest/resource_load.go`/`resource_load_test.go` — the latter two actually shipped inside wave A's F-B18 hunks) remain gated on **`ses_e668262b6ffeYAWS09jr7dvgXq`** (report re-requested this round, ALIVE per operator; still **no landing artifact** in-tree or `/tmp/opencode`, record-writer SELF-RUN). repair-13 stays `verified, review-pending`; record-not-claim: fresh CLI adversarial review before wave D depends on it.
+
+**Commit-wave state after Round 53.** Landed: prereq+authz (A) → recipe-execution twin (B) → boundary guards (C), each with its tree proof. Outstanding: **wave D (CLI quintet, gated on the CLI review)**, **wave D-2 (publication-bundle backlog: F-B21 unit + F-B19 + F-B15 witnesses — REVIEW-QUEUE above)**, **wave E (ledger/models/docs + governance docs — parent-owned)**. `verification/publication-bundle` stays operator-owned per the commit-body disclosures. Reviewer sessions cited are same-model where not otherwise disclosed.
+
+Record integrity: HEAD now `68189b5f` (record-writer SELF-RUN `git log --oneline -5` at the top of this session); every cited blob check, sha comparison, and log tail was read this session. `reviewed-sources.json` parses and re-serializes **byte-identically** (record-writer SELF-RUN `json.dumps(indent=1, ensure_ascii=False)+"\n"` roundtrip == on-disk bytes; round field 52 → 53). No repo file outside the three verification records was touched by the record-writer.
+
+## Round 54 — COMMIT WAVE COMPLETED (D governance docs + E publication identity land); repair-unit commit ledger; fuzz-corpus retraction instance 2; ROW-SOURCE-01..04 operator re-engagement
+
+Attribution: the two commits landing after the round-53 record are attributed to the operator's commit wave; every number and claim below was re-derived by the record-writer **this session** via `git log --oneline -6`, `git show --stat` per hash, `git show <hash>:<path>` blob reads, `git ls-tree`, `git diff HEAD --stat`, `git status --porcelain`, and `/tmp/opencode` greps — marked **record-writer SELF-RUN**. Operator-provided session handles follow record-not-claim: `ses_e65ea59c4ffe0pEzWbFIQ5qqcA` (publication-identity review receipt — self-verified via the 8c21eb64 commit-body text itself), `ses_e65e0cdffff` (fresh CLI review, in flight), `ses_e65e0e876ffe9SzztDKyGNJPVd` (ROW-SOURCE investigation worker). The record-writer committed/staged nothing and touched no repo file outside the three verification records.
+
+### Actual git log (pasted verbatim, record-writer SELF-RUN `git log --oneline -6`)
+
+```
+8c21eb64 fix(publication): injective length-prefixed PointerName (F-B21), janitor/orphan + revision-inflation durable witnesses (F-B19/F-B15)
+3874e49d docs(governance): codify adversarial-review and local-commit rules; align CONTINUOUS goal with AGENTS.md
+68189b5f fix(api): normalize principal auth paths at dataframe boundary; reject control-byte auth_resource_path at generation ingress
+eb9c9df0 fix(api): recipe-execution twin authz (F-B20), retryable-outage twin classification (F-R1), denial concealment (F-B32), failure-path coverage (REPAIR-16)
+0e3b4c5b fix(authz): F-B22 control-byte ingress normalization + F-B27/REPAIR-15 project-binding namespace integrity + F-B18 honest load faults
+35bdc932 Correct the stale requestError citation beside the preview recovery stub
+```
+
+HEAD = `8c21eb644cd3aa4aeab6df3d0ec8adc4084fae9a`. Waves A/B/C keep their full round-53 record (`status_updates.round53`); the two later commits are recorded in full here.
+
+### Commits landed after the Round-53 record
+
+- **D — governance `3874e49ddff6062f9528ef6257e033d390082007`** "docs(governance): codify adversarial-review and local-commit rules; align CONTINUOUS goal with AGENTS.md" — **2 files +19/−3** (SELF-RUN `git show --stat`): `AGENTS.md` +16 (the **Adversarial review** + **Local commits** governance sections; the same-batch **rg-preference working-style line ships inside** — SELF-RUN `git show 3874e49d:AGENTS.md`: "Prefer `rg` and `rg --files`…" at line 6) + `docs/verification/CONTINUOUS_FIND_FIX_VERIFY_GOAL.md` +6/−3. Commit body: "exactly the rules the wave A/B/C commit receipts cite and operator-approved program governance". This is the round-53 **FLAG-FOR-PARENT-ADJUDICATION** item landing — a **parent/operator decision, committed as-is**. FOLLOW-ON: further operator worktree edits remain uncommitted (SELF-RUN `git diff HEAD --stat`: `AGENTS.md` +11 "Factory work intake" section, CONT rewrites, `BUILDER_WORKLIST.tsv` +4 = the ROW-SOURCE rows) — operator-owned files, untouched by the record-writer.
+- **E — publication identity `8c21eb644cd3aa4aeab6df3d0ec8adc4084fae9a`** "fix(publication): injective length-prefixed PointerName (F-B21), janitor/orphan + revision-inflation durable witnesses (F-B19/F-B15)" — **7 files +386/−72** (SELF-RUN `git show --stat`): `publication/bundle.go` +20 (length-prefix `strconv` len:content — SELF-RUN blob: `strconv.Itoa` fingerprint at :110), `bundle_test.go` +61 (injectivity unit), `clickhouse/orphaned_published_growth_e2e_test.go` (196 churn, F-B19 witness), `clickhouse/pointer_name_nul_ambiguity_e2e_test.go` +16, `publication/pointer_name_encoding_test.go` **NEW 108**, `recipe/publication_identity_nul_http_test.go` +47, `dataset/arango/revision_inflation_e2e_test.go` +10. This is the round-53 backlog-triage cluster landing as **wave D-2** under its own adversarial review: **receipt `ses_e65ea59c4ffe0pEzWbFIQ5qqcA` — per-cluster RELEASABLE**, same-model (disclosed), **including an independent decoder attack over 36873 sequences** against the length-prefixed encoding (SELF-RUN read of the commit body).
+  - **F-1 atomicity gate HONORED**: `bundle.go` + `bundle_test.go` + `pointer_name_encoding_test.go` **co-committed** (SELF-RUN `git ls-tree 8c21eb64`: both witness blobs present alongside the length-prefix) — round-53's non-vacuity requirement ("the product file cannot ship without its two witness units") is satisfied; the round-53 **unlistedUnit** (`bundle_test.go` missing from `repair-unit-5`'s list) is resolved by landing with the unit; the stale confirm-shas (pnn `499574cb…`, http `19d396a2…`) re-pin at this commit (the recorded conversions landed with it).
+  - **F-3 comment correction** (comment-only, zero assertion changes): the fabricated "publish path rejects blank OutputName" justification was replaced with REAL gates — the record-writer **independently SELF-RUN verified both before recording**: `git show 8c21eb64:internal/dataframe/recipe/document_validation.go:39` → blank/whitespace `TranslationVersion` rejected as required (rules out the blank-TV twin); `git show 8c21eb64:internal/server/recipe_publication.go:214-218` → `incrementalPublicationOutput` returns `""` unless **exactly one** OutputNames binding **and one** stream (blank-Output identities arise only from multi-output publication, so 4-component multi-output names never collide with 5-component single-output names).
+  - Commit body carries **"Hazard is live at HEAD until this commit"** (SELF-RUN) — the F-B21 NUL-fold repoint-on-publish hazard was live on-tree through `3874e49d` and is de-risked by `8c21eb64`.
+
+### Repair-unit commit ledger + commit gate
+
+Every `repair_units[*]` entry now carries a `commitState` with hash (record-writer `git show --stat`/porcelain rechecks): repair-7/8/15/19 + F-B18 ingest arms → `0e3b4c5b`; repair-6/12/14/16 → `eb9c9df0`; repair-18/18b → `68189b5f`; governance → `3874e49d`; F-B21/F-B19/F-B15 witness cluster → `8c21eb64`; repair-9/10/11 were already committed at `1973b9ae`/`8ac0fd9d`/`9764eeda` (round-48 wave; SELF-RUN: objects exist, files porcelain-clean); **repair-13 PARTIAL** — the ingest-side `LoadIncompleteError` arm rode wave A at `0e3b4c5b` (SELF-RUN wave-A diff), `cmd/arango-fhir-proto/main.go` + `main_test.go` still uncommitted; repair-17 evidence-only (browser recert, no patch). **`commitGate` (new top-level key): CODE WAVES COMPLETE EXCEPT CLI WAVE D** — gated on the **FRESH CLI adversarial review `ses_e65e0cdffff` now in flight** (operator-provided; record-not-claim until a verdict lands); the prior review session `ses_e668262b6ffeYAWS09jr7dvgXq` **never delivered** across rounds 52–54 (no landing artifact tree//tmp, SELF-RUN).
+
+### Round-53 carry-ins now in the ledger
+
+- **FUZZ-CORPUS PHANTOM RETRACTED — instance 2 of 2** (per review `ses_e65ea59c4ffe` §4): the "REPAIR-10 25-seeds" commit-brief premise is a **conflation** and is retracted. REPAIR-10 is the F-B28 Explorer legacy-failure Details control — **zero fuzz/seed content** anywhere in its ledger record; SELF-RUN: `git ls-files` shows zero fuzz artifacts under `internal/authscope`/publication (only unrelated dataset `root_page_related_seed`/`repositoryseed` files); authscope has zero Fuzz symbols. The real "25": the REPAIR-19 **25-case covers truth table** (`covers_execution_paths_control_test.go` `TestCoversExecutionPathsSubsetTruthTableControl`). With instance 1 (round 53, `resource_access_fuzz_seed_corpus_test.go`): **no fuzz corpus ever existed for this program**; briefs must not cite either name.
+- **Flaky-timing pair (record-accurate note):** both instances were ALREADY recorded in round 53 under one sideFinding `flaky-timing-tests` — (1) `TestAggregateSchedulerDispatchesExpectedConcurrentCallsOnce`: the test's own 10ms `aggregateFallbackDelay` (`aggregates.go:52`) vs the 158 enqueue goroutines + exact-158 assertion (`aggregates_test.go:36`); (2) the 30s `TestCoreAuthoringProtocolModelReplay` timeout pattern (`core_authoring_protocol_formal_replay_test.go:304/:368/:377/:382`, the disclosed `-skip` convention). SELF-RUN confirms the sideFinding is present and classifies **both as TEST-DESIGN WEAKNESS open items** (repair-owner test-hygiene ticket; non-commit-gating). Recorded as existing, not as new.
+- **PROCESS LESSON (positive pattern):** the reviewer caught a **fabricated justification in comment text** (the non-existent blank-OutputName gate) with no assertion/test defect involved — reviewers verified claims in comments too. Standing rule reaffirmed: adversarial review keeps treating comments as falsifiable artifacts; briefs quoting comment prose inherit the verification duty (this record's F-3 gates were re-verified at the source before recording).
+
+### Operator re-engagement — ROW-SOURCE-01..04 (intake rules: task ID + scope + status + next boundary)
+
+SELF-RUN `docs/BUILDER_WORKLIST.tsv` rows 94–97 + contract `docs/ROW_OPERATION_SOURCE_INPUT_BACKLOG.md` (present, 4458 bytes). Acknowledged:
+
+| Task | Scope (worklist) | Status / next boundary |
+|---|---|---|
+| **ROW-SOURCE-01** | operator-approved-feature · row-operations/unselected-dataset-inputs · P0 "select and implement first non-Group source-input slice" | ready; **investigation worker `ses_e65e0e876ffe9SzztDKyGNJPVd` dispatched** for the 01 operator matrix + first-slice selection (operator-provided handle; worklist owner column still unassigned at record time); next boundary: focused-native-journey verifier chosen after tracing the operator; contract acceptance + adversarial review + coherent local commit |
+| **ROW-SOURCE-02** | P1 "extend remaining eligible non-Group operators" | **blocked** on ROW-SOURCE-01 (SELF-RUN dependency column); no action until 01 lands |
+| **ROW-SOURCE-03** | P1 "align source-input operation availability and explanations" | ready; worklist: "Independent investigation now; implementation after ROW-SOURCE-01 capability contract"; independent investigation dispatch to follow |
+| **ROW-SOURCE-04** | operator-approved-investigation · design-needed · "propose one related-route or post-transform coded-operation contract" | **proposal-only affirmed** (SELF-RUN: "Operator approval required before implementing extension") |
+
+Native Todos rebuilt for **revision 9** (operator-supplied harness state).
+
+### Program state
+
+Auth program closure **unchanged** (egress audit clean; combine+mint trace clean; minting infeasible; residual items are hardening notes without named consumers). Browser recert **unchanged**: repair-17 CLOSED (M5 25/25 + M2joined 25/25; behavioral-only certification caveat + F-B28 legacy-route disclosure stand). Outstanding operator-questions list **unchanged** (F-B17 activation CAS; F-B7 partial-degrade decision; F-B3 pin-wedge family; F-B33-class declared-response drift incl. the now-declared-but-unreachable 403 + `context.Canceled` 499 parity; F-B28/F-B29 contract-letter caveats; projectid percent-decode hardening ticket). **Defect queue — tracked sanctioned-reds: F-B17, F-B3 incl. the H2-a stale-pin arm** (`TestStalePinBlocksEntireReconcileAgainstArango`) — plus, per the round-36 real-services matrix which this record does not silently drop, the **F-B7 amplifier red** (`TestSingleDanglingBindingDemotesWholeDataset`) remains sanctioned pending its queued operator decision. All ledger-sanctioned, not CI noise.
+
+Porcelain (SELF-RUN): `cmd/arango-fhir-proto/{main.go,main_test.go}` M (gated wave D) · `AGENTS.md`/CONT doc/`docs/BUILDER_WORKLIST.tsv` M (post-commit operator edits) · `docs/ROW_OPERATION_SOURCE_INPUT_BACKLOG.md` ?? (operator contract) · 3× `verification/publication-bundle/*.tla` M (operator-owned models per commit-body disclosure) · the record-writer's 3 files · tooling dirs. **No unexplained remainder.**
+
+Record integrity: this section and the ledger updates were written after SELF-RUN verification of every cited stat, blob, and line number; nothing verified-by-quote only is presented as re-run. `reviewed-sources.json` parses and re-serializes **byte-identically** (`json.dumps(indent=1, ensure_ascii=False)+"\n"` roundtrip == on-disk bytes; round field 53 → 54; `commitGate` key added after `round`; `sideFindings` +3; `backlogTriage` clusters annotated `r54`). No repo file outside the three verification records was touched by the record-writer.

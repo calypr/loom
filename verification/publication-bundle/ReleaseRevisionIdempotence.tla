@@ -2,15 +2,15 @@
 (* Formal witness for confirmed bug F-B15 (dataset layer; dual e2e runs
    e00a... wait see FINDINGS rounds 10/13: uuids 22ffa92b + 25b5af79):
    the authoring server activates a release by reading the LIVE revision
-   (internal/explorer/lifecycle/server.go:565-581 pattern) and calling
+   (internal/server/server.go:569-580 activateExplorerRelease pattern) and calling
    ReleaseService.Activate, which ALWAYS re-enters Create
-   (internal/dataset/release.go:232). Create mints
+   (internal/dataset/release.go:247 Create call; Create at :147). Create mints
    release.ID = releaseID(release, currentRevision + 1) folding the revision
    into the sha over (project, generation, REVISION, publications)
-   (release.go:227, 273-280), so a byte-identical re-activation is never a
+   (release.go:288-295 releaseID at shipped shape; the pre-fix fold hashed REVISION too and was removed at repair), so a byte-identical re-activation is never a
    no-op: revision churns 1->4, one immutable project_release document per
    click, both pointer rows churn. The AQL alreadyActive short-circuit needs
-   the SAME releaseId (dataset/arango/release_store.go:158-159), which
+   the SAME releaseId (dataset/arango/release_store.go:162-163 alreadyActive), which
    Create-then-CAS callers never re-submit — structurally unreachable.
 
    Arms: ShippedNoopGuard=FALSE reproduces churn (identityOf folds revision;
@@ -18,7 +18,7 @@
    the fix shape: identity excludes revision, so the second identical
    activation hits alreadyActive and the store is unchanged. *)
 
-   SOURCE SYNC (round 31 repair SHIPPED): releaseID is content-addressed
+   (* SOURCE SYNC (round 31 repair SHIPPED): releaseID is content-addressed
    (revision excluded, internal/dataset/release.go) matching
    ContentHashIdentity=TRUE; the activation CAS now hits alreadyActive with
    ZERO pointer writes (release_store.go: alreadyActive drops the
@@ -59,7 +59,7 @@ initDocId == "r0"
 NoId == "NONE"
 
 (* Identity constructor. Only SameContent is ever activated, so shipped shape
-   (release.go:273-280, sha over content AND revision) is faithfully modeled as
+   (pre-fix: releaseID folded REVISION too; current release.go:288-295), is faithfully modeled as
    an identity that varies with revision; the fix shape (content-addressed) is
    an identity that ignores revision. Both are plain strings. *)
 Identity(c, rev) ==
@@ -75,13 +75,13 @@ TypeInit ==
   /\ clicks = 0
 
 (* Authoring click: server reads LIVE revision then activates the SAME byte
-   release (server.go:565-581 live-revision pattern). Always enters Create
-   (release.go:232) — the caller-side no-op short-circuit does not exist. *)
+   release (internal/server/server.go:569-580 live-revision pattern). Always enters Create
+   (release.go:247) — the caller-side no-op short-circuit does not exist. *)
 ActivateClick ==
   /\ clicks < 4
   /\ LET newRev == revision + 1
          newId  == Identity(SameContent, newRev)
-         alreadyActive == ShippedNoopGuard /\ newId = lastId   \* release_store.go:158-159 needs SAME id
+         alreadyActive == ShippedNoopGuard /\ newId = lastId   \* release_store.go:162-163 needs SAME id
      IN  IF alreadyActive
             THEN UNCHANGED <<revision, docs, lastContent, lastId, clicks>>
             ELSE /\ revision' = newRev

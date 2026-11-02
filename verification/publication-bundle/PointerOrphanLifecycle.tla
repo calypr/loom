@@ -1,11 +1,24 @@
 --------------------------- MODULE PointerOrphanLifecycle ---------------------------
 (* Formal witness for candidate F-B19: PUBLISHED executions orphaned by a newer
-   publish under the same pointer name are never garbage-collected, because the
-   reconcile sweep covers only {RUNNING, VALIDATING, FAILED}
-   (clickhouse/bundle_store.go:1043) and removal otherwise requires the owner
+   publish under the same pointer name were never garbage-collected, because the
+   pre-repair reconcile sweep covered only {RUNNING, VALIDATING, FAILED}
+   (pre-FIX clickhouse/bundle_store.go) and removal otherwise requires the owner
    lease (arango/bundle_registry.go REMOVE lease-only). Controls: a recurring
    janitor converges, and only a janitor that respects active-release bindings
-   is safe (else it re-creates the F-B12-shaped bound-data loss). *)
+   is safe (else it re-creates the F-B12-shaped bound-data loss).
+
+   SOURCE SYNC (Round 32, Repair-4 SHIPPED): clickhouse/bundle_store.go
+   Reconcile now appends BundlePublished to the sweep states ONLY when an
+   ActiveReleaseReader is wired (server.go production wiring); pre-claim
+   filter skips pointer-named / active-release-bound PUBLISHED rows WITHOUT
+   claiming; destruction still requires the post-claim pointer + binding
+   re-checks (RecheckBeforeReclaim = TRUE arm) with fail-closed reads, and a
+   cleanup-lease+pin claim. Shipped behavior = this model's m-po-fixed
+   constant set (JanitorPresent, JanitorChecksBindings, RecheckBeforeReclaim
+   all TRUE). m-po-bug (no janitor) remains the archived F-B19 witness and
+   the pre-fix e2e behavior; m-po-janitor-blind is why PUBLISHED is NOT
+   enumerated without a bound reader; m-po-reclaim-blind underpins the
+   Repair-1b drop-path veto. *)
 
 EXTENDS Naturals, FiniteSets
 

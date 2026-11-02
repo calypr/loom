@@ -2,7 +2,7 @@
 (*
 Models the F-B6 release-binding trust gap: the dataset release service binds a
 publication by name-latest lookup (FindExecutionBySelector, bundle_registry.go
-:174-182) echoed through the verifier (server/release_verifier.go:31) and written
+:174-182) echoed through the verifier (server/release_verifier.go:35-39) and written
 verbatim by release CAS (release_store.go:178), while the explorer revision
 records a distinct materialized execution. Recheck=TRUE models the proposed
 activation-time re-verification of the bound execution against the intended
@@ -55,7 +55,7 @@ Publish(e) ==
        /\ UNCHANGED <<bindings, activated>>
 
 \* PrepareRelease+Create: name-latest selection (bundle_registry.go:174-182)
-\* echoed verbatim (server/release_verifier.go:31) and bound (release_store.go:178).
+\* echoed verbatim (server/release_verifier.go:35-39) and bound (release_store.go:178).
 \* SORT reads ONLY lowercase publishedAt (bundle_registry.go:179); a doc whose
 \* publish time lives under a capitalised PublishedAt key sorts as absent, so
 \* the name-latest predicate here zeroes its ordering key.
