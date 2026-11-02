@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) {
@@ -86,7 +87,7 @@ func TestAuthoredConstructionOutputsResolveCompilerSourceChildren(t *testing.T) 
 				Columns: []lower.CompiledOutputColumn{{ID: childID, Name: "family_0", Label: "Family [0]", SourceChild: child}},
 			}}}
 			authored := make(map[string]authoredOutputColumn)
-			if err := authoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil); err != nil {
+			if err := authoredConstructionOutputsWithCombineInputs(document, authored, compiled, nil, capability.Snapshot{}); err != nil {
 				t.Fatalf("reconcile construction output: %v", err)
 			}
 			for _, outputID := range test.outputIDs {

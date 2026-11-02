@@ -11,7 +11,7 @@ import { constructionInputForStage } from '../constructionWorkspace/construction
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources'
 >;
 
 type FilterOperation = Extract<ConstructionOperation, { readonly kind: 'FILTER' }>;
@@ -27,6 +27,10 @@ type DerivedLiteral = Extract<DerivedOperand, { readonly kind: 'LITERAL' }>['lit
 type DerivedLiteralKind = DerivedLiteral['kind'];
 type DerivedOutput = ConstructionStep['outputs'][number];
 type DerivedOperation = DerivePayload['operation'];
+type FilterSourceInput = ConstructionCapabilitiesResponse['filterSourceInput'];
+type FilterSourceChoice = NonNullable<FilterSourceInput>['choices'][number];
+type FilterSourceSelection = NonNullable<ConstructionProposalRequest['filterSources']>[number];
+type FilterStageColumn = ConstructionStageDescriptor['columns'][number];
 
 interface ArithmeticExpressionDraft {
   readonly operation: DerivedOperation;
@@ -42,15 +46,22 @@ type ExpressionState =
   | { readonly kind: 'formula-invalid'; readonly lastDraft: ArithmeticExpressionDraft; readonly source: string; readonly error: string };
 
 type FilterForm =
-  | { readonly kind: 'exists'; readonly columnId: string }
-  | { readonly kind: 'missing'; readonly columnId: string }
+  | { readonly kind: 'exists'; readonly columnId: string; readonly filterSources?: ReadonlyArray<FilterSourceSelection> }
+  | { readonly kind: 'missing'; readonly columnId: string; readonly filterSources?: ReadonlyArray<FilterSourceSelection> }
   | {
       readonly kind: 'comparison';
       readonly operator: ScalarFilterOperator;
       readonly columnId: string;
       readonly value: FilterValueDraft;
+      readonly filterSources?: ReadonlyArray<FilterSourceSelection>;
     }
-  | { readonly kind: 'membership'; readonly operator: 'IN'; readonly columnId: string; readonly values: ReadonlyArray<FilterValueDraft> }
+  | {
+      readonly kind: 'membership';
+      readonly operator: 'IN';
+      readonly columnId: string;
+      readonly values: ReadonlyArray<FilterValueDraft>;
+      readonly filterSources?: ReadonlyArray<FilterSourceSelection>;
+    }
   | { readonly kind: 'unsupported'; readonly message: string };
 
 type FilterValueDraft =
@@ -124,6 +135,92 @@ const filterValueKindFor = (type: string | undefined): FilterValueKind | undefin
 const isNumericColumn = (column: ConstructionStageDescriptor['columns'][number]): boolean => {
   const type = normalizedLogicalType(column.type);
   return type === 'integer' || type === 'decimal' || type === 'number';
+};
+
+const normalizedName = (value: string): string => {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
+  return /^[0-9]/.test(normalized) ? `column_${normalized}` : normalized;
+};
+
+const uniqueFilterSourceName = (base: string, used: ReadonlySet<string>): string => {
+  const normalized = normalizedName(base);
+  if (!used.has(normalized)) return normalized;
+  let suffix = 2;
+  while (used.has(`${normalized}_${suffix}`)) suffix += 1;
+  return `${normalized}_${suffix}`;
+};
+
+const filterSourceFieldPathLabel = (path: string): string => {
+  const words: string[] = [];
+  for (const segment of path.replace(/^root\./, '').split('.')) {
+    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+    if (!readable) continue;
+    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
+  }
+  return words.join(' ');
+};
+
+const filterSourceLabel = (choice: FilterSourceChoice): string => {
+  const rawPath = choice.fieldPath.replace(/^root\./, '');
+  const label = choice.label.trim().replace(/^root\./, '');
+  const prefixedPath = label.endsWith(`.${rawPath}`) ? label.slice(0, -rawPath.length - 1) : undefined;
+  const rawSegments = rawPath.split('.');
+  const rawPathResource = rawSegments.length > 1 && /^[A-Z]/.test(rawSegments[0] ?? '') ? rawSegments[0] : undefined;
+  const context = prefixedPath ?? (label === rawPath ? rawPathResource : undefined);
+  const fieldPath = rawPathResource && context === rawPathResource ? rawSegments.slice(1).join('.') : rawPath;
+  const labelIsPath = label === rawPath || Boolean(prefixedPath) || label === choice.fieldPath;
+  const field = labelIsPath ? filterSourceFieldPathLabel(fieldPath) : label;
+  return context ? `${context} · ${field}` : field;
+};
+
+const filterSourceColumn = (
+  choice: FilterSourceChoice,
+  columnId: string,
+  stage: ConstructionStageDescriptor,
+): FilterStageColumn => {
+  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
+  return {
+    id: columnId,
+    name: uniqueFilterSourceName(choice.fieldPath, usedNames),
+    label: choice.label,
+    type: choice.logicalType,
+    cardinality: 'optional_one',
+  };
+};
+
+const liveFilterSources = (form: FilterForm): ReadonlyArray<FilterSourceSelection> =>
+  form.kind === 'unsupported' || !form.filterSources?.length
+    ? []
+    : form.filterSources.filter((binding) => binding.columnId === form.columnId);
+
+// A signed dataset-field source is not a stage column, so the same derived column
+// Loom will materialize for it has to be visible in step outputs and lookups.
+const filterInputStage = (
+  stage: ConstructionStageDescriptor,
+  sourceInput: FilterSourceInput,
+  filterSources: ReadonlyArray<FilterSourceSelection>,
+): ConstructionStageDescriptor => {
+  const choices = sourceInput?.choices ?? [];
+  const inputs = filterSources.flatMap((selection) => {
+    if (selection.columnId.trim() === '') return [];
+    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
+    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
+    return choice ? [filterSourceColumn(choice, selection.columnId, stage)] : [];
+  });
+  return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
+};
+
+const materializedChoiceColumnId = (choice: FilterSourceChoice): string | undefined => {
+  const columnId = choice.columnId ?? '';
+  return columnId.trim() === '' ? undefined : choice.columnId;
+};
+
+const filterSourceChoiceForColumn = (
+  choices: ReadonlyArray<FilterSourceChoice>,
+  columnId: string,
+): FilterSourceChoice | undefined => {
+  if (columnId.trim() === '') return undefined;
+  return choices.find((choice) => materializedChoiceColumnId(choice) === columnId);
 };
 
 const operationSupport = (
@@ -252,14 +349,16 @@ const filterFormForOperator = (
   operator: FilterOperator,
   columnId: string,
   drafts: ReadonlyArray<FilterValueDraft>,
+  filterSources?: ReadonlyArray<FilterSourceSelection>,
 ): FilterForm => {
-  if (operator === 'EXISTS') return { kind: 'exists', columnId };
-  if (operator === 'MISSING') return { kind: 'missing', columnId };
+  const binding = filterSources?.length ? { filterSources } : {};
+  if (operator === 'EXISTS') return { kind: 'exists', columnId, ...binding };
+  if (operator === 'MISSING') return { kind: 'missing', columnId, ...binding };
   const blank: FilterValueDraft = { kind: 'blank', text: '' };
   const first = drafts[0] ?? blank;
   const values = drafts.length > 0 ? drafts : [blank];
-  if (operator === 'IN') return { kind: 'membership', operator, columnId, values };
-  return { kind: 'comparison', operator, columnId, value: first };
+  if (operator === 'IN') return { kind: 'membership', operator, columnId, values, ...binding };
+  return { kind: 'comparison', operator, columnId, value: first, ...binding };
 };
 
 const filterValueFromDraft = (kind: FilterValueKind, draft: FilterValueDraft): FilterValue | undefined => {
@@ -351,23 +450,33 @@ const filterFormFromStep = (
   step: ConstructionStep | undefined,
   stage: ConstructionStageDescriptor,
   selectedColumns: ReadonlyArray<string>,
+  filterSourceChoices: ReadonlyArray<FilterSourceChoice> = [],
 ): FilterForm => {
+  const savedSourceBinding = (columnId: string): ReadonlyArray<FilterSourceSelection> | undefined => {
+    const choice = filterSourceChoiceForColumn(filterSourceChoices, columnId);
+    const signedColumnId = choice ? materializedChoiceColumnId(choice) : undefined;
+    return choice && signedColumnId ? [{ choiceId: choice.choiceId, columnId: signedColumnId }] : undefined;
+  };
+  const columnFor = (columnId: string): FilterStageColumn | undefined => {
+    const column = stage.columns.find((candidate) => candidate.id === columnId);
+    if (column) return column;
+    const choice = filterSourceChoiceForColumn(filterSourceChoices, columnId);
+    return choice ? filterSourceColumn(choice, columnId, stage) : undefined;
+  };
+
   if (step) {
     if (step.operation.kind !== 'FILTER') {
       return { kind: 'unsupported', message: 'Only saved row filter steps can be edited here.' };
     }
     const filter = step.operation.filter;
-    if (filter.operator === 'EXISTS') {
-      return stage.columns.some((candidate) => candidate.id === filter.columnId)
-        ? { kind: 'exists', columnId: filter.columnId }
-        : { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
+    if (filter.operator === 'EXISTS' || filter.operator === 'MISSING') {
+      if (!columnFor(filter.columnId)) {
+        return { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
+      }
+      const filterSources = savedSourceBinding(filter.columnId);
+      return { kind: filter.operator === 'EXISTS' ? 'exists' : 'missing', columnId: filter.columnId, ...(filterSources ? { filterSources } : {}) };
     }
-    if (filter.operator === 'MISSING') {
-      return stage.columns.some((candidate) => candidate.id === filter.columnId)
-        ? { kind: 'missing', columnId: filter.columnId }
-        : { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
-    }
-    const column = stage.columns.find((candidate) => candidate.id === filter.columnId);
+    const column = columnFor(filter.columnId);
     if (!column) {
       return { kind: 'unsupported', message: 'The saved condition column is no longer present in Loom’s predecessor stage.' };
     }
@@ -383,7 +492,8 @@ const filterFormFromStep = (
     const drafts = values.map((value): FilterValueDraft => ({
       kind: 'saved', text: filterValueInputText(value), value,
     }));
-    return filterFormForOperator(filter.operator, filter.columnId, drafts);
+    const filterSources = savedSourceBinding(filter.columnId);
+    return filterFormForOperator(filter.operator, filter.columnId, drafts, filterSources);
   }
 
   const column = stage.columns.find((candidate) => selectedColumns.includes(candidate.id)) ?? stage.columns[0];
@@ -396,13 +506,16 @@ const filterFormFromStep = (
 const buildFilterCandidate = (args: {
   readonly construction: Construction;
   readonly stage: ConstructionStageDescriptor;
+  readonly filterSourceInput?: FilterSourceInput;
   readonly editingStep?: ConstructionStep;
   readonly stepId: string;
   readonly form: FilterForm;
 }): CandidateIntent | undefined => {
-  const { construction, stage, editingStep, stepId, form } = args;
+  const { construction, stage, filterSourceInput, editingStep, stepId, form } = args;
   if (form.kind === 'unsupported') return undefined;
-  const column = stage.columns.find((candidate) => candidate.id === form.columnId);
+  const filterSources = liveFilterSources(form);
+  const inputStage = filterInputStage(stage, filterSourceInput, filterSources);
+  const column = inputStage.columns.find((candidate) => candidate.id === form.columnId);
   if (!column) return undefined;
 
   let filter: FilterPayload;
@@ -425,15 +538,16 @@ const buildFilterCandidate = (args: {
 
   const step = {
     id: editingStep?.id ?? stepId,
-    inputs: [constructionInputForStage(stage)],
+    inputs: [constructionInputForStage(inputStage)],
     operation: { kind: 'FILTER', filter },
-    outputs: constructionOutputsForStage(stage),
+    outputs: constructionOutputsForStage(inputStage),
   } satisfies ConstructionStep;
   const candidateConstruction = replaceOrAppendStep(construction, editingStep, step);
   if (!candidateConstruction) return undefined;
   return {
     candidateConstruction,
     changedStepId: step.id,
+    ...(filterSources.length ? { filterSources: [...filterSources] } : {}),
   };
 };
 
@@ -772,30 +886,84 @@ const FilterValueInput = (props: {
 const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   const { construction, capabilities, editingStep, selectedColumns = [], disabled } = props;
   const stage = capabilities.selectedStage;
+  const sourceInput = capabilities.filterSourceInput;
+  const sourceChoices = sourceInput?.choices ?? [];
   const [stepId, setStepId] = useState(() => createOpaqueId('filter'));
-  const [form, setForm] = useState(() => filterFormFromStep(editingStep, stage, selectedColumns));
+  const [form, setForm] = useState(() => filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
   const contextKey = editorContextKey(capabilities, editingStep);
   useEffect(() => {
     setStepId(createOpaqueId('filter'));
-    setForm(filterFormFromStep(editingStep, stage, selectedColumns));
+    setForm(filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
     props.onCandidateChange(undefined);
   }, [contextKey]);
 
   const support = operationSupport(stage, 'FILTER');
   const supportedSavedSteps = filterSteps(construction);
+  const filterSources = liveFilterSources(form);
+  const inputStage = filterInputStage(stage, sourceInput, filterSources);
+  const boundBinding = filterSources[0];
+  const boundChoice = boundBinding
+    ? sourceChoices.find((choice) => choice.choiceId === boundBinding.choiceId)
+    : undefined;
+  const boundSourceVisible = Boolean(boundBinding && boundChoice
+    && !stage.columns.some((column) => column.id === boundBinding.columnId));
+  const sourceOptions = sourceInput?.supported
+    ? sourceChoices.filter((choice) => choice.isPopulated
+      && !filterSources.some((binding) => binding.choiceId === choice.choiceId))
+    : [];
+  const columnOptionsAvailable = stage.columns.length > 0 || boundSourceVisible || sourceOptions.length > 0;
+  const sourceUnavailableReason = sourceInput && !sourceInput.supported
+    ? [sourceInput.reasonCode, sourceInput.reason]
+      .map((part) => part?.trim() ?? '')
+      .filter((part) => part !== '')
+      .join(' · ')
+    : undefined;
   const valueKind = form.kind === 'comparison' || form.kind === 'membership'
-    ? filterValueKindFor(stage.columns.find((column) => column.id === form.columnId)?.type)
+    ? filterValueKindFor(inputStage.columns.find((column) => column.id === form.columnId)?.type)
     : undefined;
   const conditionColumn = form.kind === 'unsupported'
     ? undefined
-    : stage.columns.find((column) => column.id === form.columnId);
+    : inputStage.columns.find((column) => column.id === form.columnId);
   const conditionOperators = conditionColumn ? filterOperatorsForColumn(conditionColumn) : [];
 
   const updateForm = (next: FilterForm) => {
-    setForm(next);
+    const live = liveFilterSources(next);
+    const normalized: FilterForm = next.kind === 'unsupported' || live.length === 0
+      ? (next.kind === 'unsupported' ? next : { ...next, filterSources: undefined })
+      : { ...next, filterSources: live };
+    setForm(normalized);
     props.onCandidateChange(support.supported
-      ? buildFilterCandidate({ construction, stage, editingStep, stepId, form: next })
+      ? buildFilterCandidate({ construction, stage, filterSourceInput: sourceInput, editingStep, stepId, form: normalized })
       : undefined);
+  };
+
+  const selectColumn = (column: FilterStageColumn, nextFilterSources?: ReadonlyArray<FilterSourceSelection>) => {
+    if (form.kind === 'unsupported') return;
+    const currentOperator = form.kind === 'exists' ? 'EXISTS' : form.kind === 'missing' ? 'MISSING' : form.operator;
+    const availableOperators = filterOperatorsForColumn(column);
+    const nextOperator = availableOperators.includes(currentOperator)
+      ? currentOperator
+      : filterValueKindFor(column.type) ? 'EQUALS' : 'MISSING';
+    updateForm(filterFormForOperator(nextOperator, column.id, [], nextFilterSources));
+  };
+
+  const chooseColumn = (selected: string) => {
+    if (form.kind === 'unsupported') return;
+    if (!selected.startsWith('source:')) {
+      const column = inputStage.columns.find((candidate) => candidate.id === selected);
+      if (!column) return;
+      selectColumn(column, form.filterSources);
+      return;
+    }
+    const choice = sourceChoices.find((candidate) => `source:${candidate.choiceId}` === selected);
+    if (!choice) return;
+    const existing = form.filterSources?.find((binding) => binding.choiceId === choice.choiceId);
+    const columnId = materializedChoiceColumnId(choice) ?? existing?.columnId ?? createOpaqueId('filter-input');
+    const nextFilterSources = [
+      ...(form.filterSources ?? []).filter((binding) => binding.choiceId !== choice.choiceId),
+      { choiceId: choice.choiceId, columnId },
+    ];
+    selectColumn(filterSourceColumn(choice, columnId, stage), nextFilterSources);
   };
 
   if (!support.supported) {
@@ -836,7 +1004,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
       ) : (
         <div className="grid gap-3 rounded-lg border border-slate-200 p-3">
           <p className="text-sm font-medium text-slate-800">{editingStep ? 'Edit this saved condition' : 'New condition'}</p>
-          {stage.columns.length === 0 ? (
+          {!columnOptionsAvailable ? (
             <p role="status" className="text-sm text-slate-600">Loom returned no columns for this stage.</p>
           ) : (
             <>
@@ -846,21 +1014,26 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                   aria-label="Column"
                   value={form.columnId}
                   disabled={disabled}
-                  onChange={(event) => {
-                    const column = stage.columns.find((candidate) => candidate.id === event.currentTarget.value);
-                    if (!column) return;
-                    const currentOperator = form.kind === 'exists' ? 'EXISTS' : form.kind === 'missing' ? 'MISSING' : form.operator;
-                    const availableOperators = filterOperatorsForColumn(column);
-                    const nextOperator = availableOperators.includes(currentOperator)
-                      ? currentOperator
-                      : filterValueKindFor(column.type) ? 'EQUALS' : 'MISSING';
-                    updateForm(filterFormForOperator(nextOperator, column.id, []));
-                  }}
+                  onChange={(event) => chooseColumn(event.currentTarget.value)}
                   className="rounded border border-slate-300 bg-white px-2 py-1.5"
                 >
                   {stage.columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
+                  {boundSourceVisible && boundBinding && boundChoice
+                    ? <option value={boundBinding.columnId} title={boundChoice.fieldPath}>{filterSourceLabel(boundChoice)} ({boundChoice.logicalType})</option>
+                    : null}
+                  {sourceOptions.length > 0 ? <optgroup label="Dataset fields (not in output)">
+                    {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{filterSourceLabel(choice)} ({choice.logicalType})</option>)}
+                  </optgroup> : null}
                 </select>
               </label>
+
+              {sourceInput && !sourceInput.supported ? (
+                <p role="status" data-testid="construction-filter-source-unavailable" className="text-sm text-amber-900">
+                  {sourceUnavailableReason && sourceUnavailableReason !== ''
+                    ? sourceUnavailableReason
+                    : 'Loom did not report why filtering on dataset fields is unavailable at this stage.'}
+                </p>
+              ) : null}
 
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Condition
@@ -869,11 +1042,11 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                   value={form.kind === 'missing' ? 'MISSING' : form.kind === 'exists' ? 'EXISTS' : form.operator}
                   disabled={disabled}
                   onChange={(event) => {
-                    const column = stage.columns.find((candidate) => candidate.id === form.columnId);
+                    const column = inputStage.columns.find((candidate) => candidate.id === form.columnId);
                     if (!column) return;
                     const operator = filterOperatorFromInput(event.currentTarget.value);
                     if (!operator || !filterOperatorsForColumn(column).includes(operator)) return;
-                    updateForm(filterFormForOperator(operator, column.id, filterValueDraftsFor(form)));
+                    updateForm(filterFormForOperator(operator, column.id, filterValueDraftsFor(form), liveFilterSources(form)));
                   }}
                   className="rounded border border-slate-300 bg-white px-2 py-1.5"
                 >

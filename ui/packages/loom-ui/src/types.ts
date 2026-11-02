@@ -1983,6 +1983,24 @@ const constructionScalarSourceInputSchema = z.object({
   }).strict()),
 }).strict();
 
+const constructionFilterSourceChoiceSchema = z.object({
+  choiceId: z.string().min(1),
+  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
+  columnId: z.string().optional(),
+  fieldPath: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  isPopulated: z.boolean(),
+}).strict();
+
+const constructionFilterSourceInputSchema = z.object({
+  supported: z.boolean(),
+  stageId: opaqueIdSchema,
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+  choices: z.array(constructionFilterSourceChoiceSchema),
+}).strict();
+
 export const constructionSourceProjectionAvailabilitySchema = z.object({
   stageId: opaqueIdSchema,
   supported: z.boolean(),
@@ -1995,6 +2013,12 @@ export const constructionPivotSourceSelectionSchema = z.object({
   columnId: opaqueIdSchema,
 }).strict();
 export type ConstructionPivotSourceSelection = z.infer<typeof constructionPivotSourceSelectionSchema>;
+
+export const constructionFilterSourceSelectionSchema = z.object({
+  choiceId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+export type ConstructionFilterSourceSelection = z.infer<typeof constructionFilterSourceSelectionSchema>;
 
 export const constructionCapabilitiesResponseSchema = z.object({
   snapshotToken: opaqueIdSchema,
@@ -2013,6 +2037,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   sourceProjectionAvailability: constructionSourceProjectionAvailabilitySchema.optional(),
   sourceInput: constructionScalarSourceInputSchema.optional(),
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
+  filterSourceInput: constructionFilterSourceInputSchema.optional(),
   workspaceInputs: z.array(constructionWorkspaceInputSchema),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
@@ -2085,6 +2110,7 @@ export const constructionProposalRequestSchema = z.object({
   }).strict().optional(),
   limit: z.number().int().min(1).max(1000).optional(),
   pivotSources: z.array(constructionPivotSourceSelectionSchema).optional(),
+  filterSources: z.array(constructionFilterSourceSelectionSchema).optional(),
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
 
