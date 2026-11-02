@@ -20,8 +20,10 @@ sha256sum internal/dataframe/publication/clickhouse/bundle_store.go \
           internal/dataframe/publication/arango/bundle_registry.go
 ```
 
-Last verified: `2f5c0fda...5d6a2` / `1f0a6cde...de138` at HEAD `dc9016bc`
-(recorded in `reviewed-sources.json`).
+Last verified: `a5db5f55...69254` / `c0da93a2...ffd7b` at HEAD `218edabb`
+(maintenance pass 2026-11-02; prior pins `2f5c0fda...`/`1f0a6cde...` were the
+pre-`8160bb97` shape — the Repair-1b/4 wave changed both files and the pins
+were refreshed in this pass).
 
 ## Model checks (TLA+)
 
@@ -53,6 +55,34 @@ Model-editing rules (learned the hard way — see FINDINGS.md postmortem):
 - deep EXCEPT must be `[rec.x EXCEPT !.y = [rec.x.y EXCEPT ![t] = v]]`;
 - reconciler snapshot fields live in one `rec` record (`cur`, `cand`, `ptr`,
   `rd`); claim requires `rec.rd[t]` (read-before-claim order per `:1068`→`:1076`).
+
+## TLC-bound trio entry points (last synced 218edabb)
+
+`PointerOrphanLifecycle`, `ReleaseBindingTrust`, `ReleaseRevisionIdempotence`
+have no harness entry point; run them directly from this directory, one
+`-metadir` per run. Wave F (218edabb) shipped these models comment-maintained
+but NEVER TLC-run; this pass ran every arm — all verdicts below matched
+verbatim. Bounds are the cfg constants (MaxExecs=3, MaxStamps=4, Exec={e1,e2});
+do not enlarge silently.
+
+```
+TLC_WORKERS=2 TLC_HEAP_MB=1024 /sandbox/.local/bin/tlc-run -fp 21 \
+  -metadir /tmp/tla-<run-id> -config <cfg> <Model>
+```
+
+| Model | cfg | Expected |
+| --- | --- | --- |
+| PointerOrphanLifecycle | `m-po-fixed` (= shipped shape: janitor present, checks bindings, post-claim recheck) | clean |
+| PointerOrphanLifecycle | `m-po-bug` | OrphanGC temporal **VIOLATED** (archived F-B19 witness) |
+| PointerOrphanLifecycle | `m-po-janitor-blind` | NoBoundDeleted **VIOLATED** |
+| ReleaseBindingTrust | `m-rebind-holds`, `m-rebind-caseholds` (Recheck=TRUE) | clean |
+| ReleaseBindingTrust | `m-rebind-violation`, `m-rebind-case` (Recheck=FALSE) | CorrectBinding **VIOLATED** (F-B6-class witness pair) |
+| ReleaseRevisionIdempotence | `m-rri-fixed` (content-addressed ID = shipped shape) | clean |
+| ReleaseRevisionIdempotence | `m-rri-shipped` (revision-folding ID) | Idempotence **VIOLATED** (archived F-B15 churn control) |
+
+The violated archived arms are the falsifiability control for each clean arm:
+if a clean arm ever passes while its counterpart also passes, the checked
+broke.
 
 ## Component + real-DB reproductions
 

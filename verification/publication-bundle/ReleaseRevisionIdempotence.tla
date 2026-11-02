@@ -91,7 +91,7 @@ ActivateClick ==
                  /\ clicks' = clicks + 1
 
 (* pointer churn witness is implicit: revision changes => both pointer rows
-   re-patched (release_store.go:163-170); docs size is the durable-growth harm *)
+   re-patched (release_store.go:163,175-178; alreadyActive arms skip writes); docs size is the durable-growth harm *)
 
 Next == ActivateClick
 
