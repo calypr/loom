@@ -9609,6 +9609,61 @@ const registryRows = [
       }
     ],
   }),
+  Object.freeze({
+    id: 'row96-row-source-four-state',
+    workflow: 'row96-row-source-four-state-native-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+    ],
+    requiredTransitions: [
+      'seed a table-shape on an eligible row root and fetch selectedStage capabilities with a healthy supported lane',
+      'field/concept options render catalog-path labels per label-journey-coupling.md (titles stay fieldPath; only construction-lane humanized text flips)',
+      'per-field and lane-level refusals carry the precise server reasonCode classes (construction_pivot_source.go rowSourceLaneReasons)',
+      'inventory-blocked reload is named *_SOURCE_INVENTORY_UNAVAILABLE and is disjoint from the empty-data NO_OBSERVED_VALUES_/NO_ELIGIBLE_POPULATED_ verdicts (S-B)',
+    ],
+    gateReasons: [
+      'requires the owned loom-dev stack at the current stamp-proven build identity; pre- and post-run stamp comparison is wired and fails closed',
+      'JOURNEY AUTHORED PENDING LIVE WINDOW (2026-11-02): ports down at authoring time; static self-validation and offline tests green, no browser execution yet',
+      'the UI reason consumer (RelatedSourceStepEditor disabledReason join, :79-80 to :444) is asserted from the DOM when a refusal control exists, else via the authoritative API payload with a recorded row96-ui-gap-reason-control side-Finding, never a faked tooltip assert',
+    ],
+    script: 'verify-explorer-row-source-four-state.mjs',
+    cases: {
+      fourState: {
+        requiredChecks: [
+          'row96-lane-support-healthy',
+          'row96-field-options-catalog-path-labels',
+          'row96-per-field-refusal-reasoncodes',
+          'row96-ui-control-consumes-reason',
+          'row96-inventory-fault-names-unavailable',
+          'row96-empty-data-distinguished',
+        ],
+        focusedChecks: [
+          {
+            id: 'row96-row-source-four-state-static-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs',
+              'internal/explorer/lifecycle/construction_pivot_source.go',
+            ],
+          },
+        ],
+        reason: 'RS03-03 four-state focused-native journey for docs/BUILDER_VERIFICATION.tsv row 96, authored offline 2026-11-02 at HEAD d3a1d12a (ports down, no live runs per coordinator). Directly-run raw-CDP workflow following the row-source journey convention; label authority /tmp/opencode/label-journey-coupling.md; reason-class authority internal/explorer/lifecycle/construction_pivot_source.go (S-B inventory/empty split). Live acceptance (JOURNEY_OK, checks=6) pending the next live window; until then TSV row 96 records journey-authored, pending live window.',
+      },
+    },
+    coverage: [
+      {
+        feature: 'Four-state dataset-field source evidence on signed-source lanes: healthy supported lane, catalog-path field labels, precise refusal reasonCodes consumed visibly, named inventory fault distinct from empty data',
+        acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'fourState' },
+        status: 'untested',
+        reason: 'Journey authored offline 2026-11-02 at HEAD d3a1d12a with no browser execution (host ports unavailable per operator block). Offline node-test 4/4 pass and --dry-run DRY_RUN_OK checks=6 establish structure and registry identity only, not product behavior: live acceptance JOURNEY_OK with checks=6 plus pre/post stamp fail-closed comparison is required before status may move to implemented, in the next live window together with the label WILL-FLIP re-assertions and the filter row-279 flip.',
+      },
+    ],
+  }),
 ];
 
 import { fileURLToPath } from 'node:url';
