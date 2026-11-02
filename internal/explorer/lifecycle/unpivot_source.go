@@ -168,14 +168,15 @@ func unpivotInputColumnIDs(unpivot *authoringv2.ConstructionUnpivot) []string {
 }
 
 var unpivotSourceReasons = rowSourceLaneReasons{
-	codeStem:       "UNPIVOT",
-	reachReason:    "the current construction prefix does not carry root scalar source fields to this stage",
-	versionReason:  "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Unpivot source fields",
-	routeReason:    "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that the Unpivot step cannot reach",
-	typeReason:     "every root scalar field enumerated at this stage is not a string, integer, decimal, or boolean scalar that the Unpivot step can melt",
-	observedReason: "every root scalar field enumerated for the Unpivot step at this stage has no observed values in the current dataset snapshot",
-	genericCode:    "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS",
-	genericReason:  "the selected stage has no authorized populated string, integer, decimal, or boolean scalar FHIR fields that the Unpivot step can melt",
+	codeStem:        "UNPIVOT",
+	reachReason:     "the current construction prefix does not carry root scalar source fields to this stage",
+	versionReason:   "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Unpivot source fields",
+	routeReason:     "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that the Unpivot step cannot reach",
+	typeReason:      "every root scalar field enumerated at this stage is not a string, integer, decimal, or boolean scalar that the Unpivot step can melt",
+	observedReason:  "every root scalar field enumerated for the Unpivot step at this stage has no observed values in the current dataset snapshot",
+	genericCode:     "NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS",
+	genericReason:   "the selected stage has no authorized populated string, integer, decimal, or boolean scalar FHIR fields that the Unpivot step can melt",
+	inventoryReason: "the row-choice inventory backing root Unpivot melt source fields is unavailable for the current dataset snapshot",
 }
 
 func (s *Service) constructionUnpivotSourceCapability(
@@ -196,7 +197,9 @@ func (s *Service) constructionUnpivotSourceCapability(
 	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
-			return result, fmt.Errorf("list authorized root unpivot source choices for output %q: %w", outputID, err)
+			result.ReasonCode, result.Reason = rowSourceInventoryFailure(unpivotSourceReasons)
+			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
+				fmt.Errorf("list authorized root unpivot source choices for output %q: %w", outputID, err))
 		}
 		for _, choice := range choices {
 			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {

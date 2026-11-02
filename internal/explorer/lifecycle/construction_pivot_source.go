@@ -36,14 +36,15 @@ func validateConstructionPivotSourceSelections(selections []ConstructionPivotSou
 }
 
 var pivotSourceReasons = rowSourceLaneReasons{
-	codeStem:       "PIVOT",
-	reachReason:    "the current construction prefix does not carry root scalar source fields to this stage, and no active related-record source field is offered either",
-	versionReason:  "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Pivot source fields",
-	routeReason:    "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that cannot be carried into Pivot",
-	typeReason:     "every root scalar field enumerated at this stage has a logical type that cannot be carried into Pivot",
-	observedReason: "every root scalar field enumerated for Pivot at this stage has no observed values in the current dataset snapshot",
-	genericCode:    "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS",
-	genericReason:  "the selected stage has no authorized populated scalar FHIR fields that can be carried into Pivot",
+	codeStem:        "PIVOT",
+	reachReason:     "the current construction prefix does not carry root scalar source fields to this stage, and no active related-record source field is offered either",
+	versionReason:   "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Pivot source fields",
+	routeReason:     "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that cannot be carried into Pivot",
+	typeReason:      "every root scalar field enumerated at this stage has a logical type that cannot be carried into Pivot",
+	observedReason:  "every root scalar field enumerated for Pivot at this stage has no observed values in the current dataset snapshot",
+	genericCode:     "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS",
+	genericReason:   "the selected stage has no authorized populated scalar FHIR fields that can be carried into Pivot",
+	inventoryReason: "the row-choice inventory backing root Pivot source fields is unavailable for the current dataset snapshot",
 }
 
 func (s *Service) constructionPivotSourceCapability(
@@ -65,7 +66,9 @@ func (s *Service) constructionPivotSourceCapability(
 	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
-			return result, fmt.Errorf("list authorized root Pivot source choices for output %q: %w", outputID, err)
+			result.ReasonCode, result.Reason = rowSourceInventoryFailure(pivotSourceReasons)
+			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
+				fmt.Errorf("list authorized root Pivot source choices for output %q: %w", outputID, err))
 		}
 		for _, choice := range choices {
 			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
@@ -179,14 +182,28 @@ func (e *rowSourceEnumeration) skip(class rowSourceSkipClass) {
 // rowSourceLaneReasons is the per-lane wording bundle; the code strings are
 // derived from the stable lane stem so the four signed lanes stay parallel.
 type rowSourceLaneReasons struct {
-	codeStem       string
-	reachReason    string
-	versionReason  string
-	routeReason    string
-	typeReason     string
-	observedReason string
-	genericCode    string
-	genericReason  string
+	codeStem        string
+	inventoryReason string
+	reachReason     string
+	versionReason   string
+	routeReason     string
+	typeReason      string
+	observedReason  string
+	genericCode     string
+	genericReason   string
+}
+
+// rowSourceInventoryFailure names the payload-distinguishable inventory-error
+// verdict when a lane's row-choice enumeration aborts because the planner
+// itself failed — the S-B split of the "distinguish ... inventory errors"
+// clause, so an unavailable inventory is never confused with the healthy
+// empty-data verdicts (NO_OBSERVED_VALUES_*/NO_ELIGIBLE_POPULATED_*). The
+// advertised text is static: planner error strings can carry internal detail
+// and must not cross into the payload (sanitizer boundary at the API edge).
+// Fail-CLOSED is preserved — callers still receive a non-nil typed error that
+// wraps the real cause for server-side logs and consumers.
+func rowSourceInventoryFailure(reasons rowSourceLaneReasons) (string, string) {
+	return reasons.codeStem + "_SOURCE_INVENTORY_UNAVAILABLE", reasons.inventoryReason
 }
 
 func (e rowSourceEnumeration) decision(reasons rowSourceLaneReasons) (string, string) {

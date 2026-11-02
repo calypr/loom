@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -388,5 +389,70 @@ func TestConstructionFieldDisplayLabelRefusesControlBytes(t *testing.T) {
 	}
 	if got := constructionFieldDisplayLabel("Observation", "status", "bad\x00", "also\x01bad"); got != "Observation.status" {
 		t.Fatalf("all-control candidates must fall back to Type.path, got %q", got)
+	}
+}
+
+func TestConstructionPivotSourceCapabilityNamesInventoryFailureDistinctly(t *testing.T) {
+	const internalDetail = "capability-store-dsn=secret-token"
+	inventoryErr := errors.New("row-choice inventory store unreachable: " + internalDetail)
+	empty := authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	observedSnapshot := filterSourceSnapshot("pivot-source-inventory-observed")
+	observedSnapshot.Candidates = []capability.Candidate{
+		rowSourceLaneCandidate(filterSourceRootNode, filterSourceRootType, "bs-active", filterSourceField, "boolean", "optional_one", false),
+	}
+	rows := []struct {
+		name     string
+		service  *Service
+		snapshot capability.Snapshot
+		wantCode string
+		wantFail bool
+	}{
+		{name: "planner enumeration failure names the inventory class",
+			service:  rowSourceServiceWithPlanner(failingRowSourcePlanner{err: inventoryErr}),
+			snapshot: filterSourceSnapshot("pivot-source-inventory-failure"),
+			wantCode: "PIVOT_SOURCE_INVENTORY_UNAVAILABLE", wantFail: true},
+		{name: "a planner that enumerates nothing stays generic",
+			service:  rowSourceServiceWithPlanner(emptyRowSourceChoicePlanner{}),
+			snapshot: filterSourceSnapshot("pivot-source-inventory-empty"),
+			wantCode: "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS"},
+		{name: "truly empty data names the observed class, not the inventory class",
+			service: filterSourceService(t), snapshot: observedSnapshot,
+			wantCode: "NO_OBSERVED_VALUES_PIVOT_SOURCE_FIELDS"},
+	}
+	distinct := map[string]bool{}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			result, err := row.service.constructionPivotSourceCapability(context.Background(),
+				filterSourceBase(row.snapshot, empty), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+			if row.wantFail {
+				if err == nil {
+					t.Fatal("a failed enumeration was swallowed: the capability must still return the wrapped error")
+				}
+				if !errors.Is(err, inventoryErr) {
+					t.Fatalf("the planner cause was not wrapped through the typed error: %v", err)
+				}
+				if code := lifecycleErrorCode(err); code != row.wantCode {
+					t.Fatalf("typed error code = %q, want %q", code, row.wantCode)
+				}
+				if strings.Contains(result.Reason, internalDetail) || strings.Contains(result.ReasonCode, internalDetail) {
+					t.Fatalf("planner error detail %q crossed into advertised payload: %#v", internalDetail, result)
+				}
+			} else if err != nil {
+				t.Fatalf("soft empty verdict must not surface as an error: %v", err)
+			}
+			if result.Supported || len(result.Choices) != 0 {
+				t.Fatalf("capability = %#v, want fail-closed unsupported with no advertised choices", result)
+			}
+			if result.ReasonCode != row.wantCode || strings.TrimSpace(result.Reason) == "" {
+				t.Fatalf("reasonCode = %q (reason %q), want %q with a non-blank reason", result.ReasonCode, result.Reason, row.wantCode)
+			}
+			if result.StageID != recipe.ConstructionSourceProjectionID {
+				t.Fatalf("stageId = %q, want the requested stage even inside the failure class", result.StageID)
+			}
+			distinct[result.ReasonCode] = true
+		})
+	}
+	if len(distinct) != 3 {
+		t.Fatalf("inventory-error and empty-data verdicts collapsed: %#v", distinct)
 	}
 }

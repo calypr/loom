@@ -64,14 +64,15 @@ func validateConstructionFilterSourceSelections(selections []ConstructionFilterS
 }
 
 var filterSourceReasons = rowSourceLaneReasons{
-	codeStem:       "FILTER",
-	reachReason:    "the current construction prefix does not carry root scalar source fields to this stage",
-	versionReason:  "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Filter source fields",
-	routeReason:    "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that the Filter step cannot reach",
-	typeReason:     "every root scalar field enumerated at this stage has a logical type that the Filter step cannot consume",
-	observedReason: "every root scalar field enumerated for the Filter step at this stage has no observed values in the current dataset snapshot",
-	genericCode:    "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS",
-	genericReason:  "the selected stage has no authorized populated scalar FHIR fields that the Filter step can consume",
+	codeStem:        "FILTER",
+	reachReason:     "the current construction prefix does not carry root scalar source fields to this stage",
+	versionReason:   "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Filter source fields",
+	routeReason:     "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that the Filter step cannot reach",
+	typeReason:      "every root scalar field enumerated at this stage has a logical type that the Filter step cannot consume",
+	observedReason:  "every root scalar field enumerated for the Filter step at this stage has no observed values in the current dataset snapshot",
+	genericCode:     "NO_ELIGIBLE_POPULATED_FILTER_SOURCE_FIELDS",
+	genericReason:   "the selected stage has no authorized populated scalar FHIR fields that the Filter step can consume",
+	inventoryReason: "the row-choice inventory backing root Filter scalar source fields is unavailable for the current dataset snapshot",
 }
 
 func (s *Service) constructionFilterSourceCapability(
@@ -92,7 +93,9 @@ func (s *Service) constructionFilterSourceCapability(
 	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
-			return result, fmt.Errorf("list authorized root filter source choices for output %q: %w", outputID, err)
+			result.ReasonCode, result.Reason = rowSourceInventoryFailure(filterSourceReasons)
+			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
+				fmt.Errorf("list authorized root filter source choices for output %q: %w", outputID, err))
 		}
 		for _, choice := range choices {
 			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
