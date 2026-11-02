@@ -25,10 +25,19 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 	}
 	result := make([]string, 0, 16)
 	query := existingAuthResourcePathsAQL
+	bindVars := map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration)}
 	if opts.AllGenerations {
+		// The union query deliberately omits the dataset_generation filter (see
+		// existingAuthResourcePathsAllGenerationsAQL), so it declares only
+		// @project. Passing @dataset_generation here would make Arango reject
+		// the undeclared bind; declaring and using it instead would turn the
+		// union into a null filter (AllGenerations keeps the generation empty)
+		// and silently re-open the F-B27 cross-project bypass via the
+		// zero-path bootstrap branch. Drop the bind with the filter.
 		query = existingAuthResourcePathsAllGenerationsAQL
+		delete(bindVars, "dataset_generation")
 	}
-	err := s.client.QueryRows(ctx, query, opts.CursorBatch, map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration)}, func(row map[string]any) error {
+	err := s.client.QueryRows(ctx, query, opts.CursorBatch, bindVars, func(row map[string]any) error {
 		if value := stringValue(row["auth_resource_path"]); value != "" {
 			result = append(result, value)
 		}
