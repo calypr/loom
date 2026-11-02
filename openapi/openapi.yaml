@@ -1818,6 +1818,10 @@ components:
         schemaDigest: {type: string}
         resolvedSchemaDigest: {type: string}
         state: {type: string}
+        error: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        errorRetryable: {type: boolean, nullable: true}
+        phase: {type: string, nullable: true}
         outputs:
           type: array
           items: {$ref: '#/components/schemas/RecipeExecutionOutput'}
@@ -1829,6 +1833,10 @@ components:
         name: {type: string}
         state: {type: string}
         rowCount: {type: integer, format: int64}
+        error: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        errorRetryable: {type: boolean, nullable: true}
+        phase: {type: string, nullable: true}
         columns:
           type: array
           items: {$ref: '#/components/schemas/RecipeExecutionColumn'}

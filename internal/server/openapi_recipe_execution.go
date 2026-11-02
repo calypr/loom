@@ -9,6 +9,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/api/authpolicy"
 	"github.com/calypr/loom/internal/api/columncapabilities"
+	dataframeapi "github.com/calypr/loom/internal/api/graphql/graph/dataframe"
 	"github.com/calypr/loom/internal/authscope"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -64,14 +65,52 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 				Aggregatable:   !repeated && logical != "json",
 			})
 		}
-		outputs = append(outputs, loomapi.RecipeExecutionOutput{
+		item := loomapi.RecipeExecutionOutput{
 			Name:     output.Name,
 			State:    recipeExecutionHTTPState(output.State),
 			RowCount: output.RowCount,
 			Columns:  columns,
-		})
+		}
+		// F-R3 twin parity (REPAIR-20b, adversarial review
+		// ses_e65cad76effe F-1/F-2/F-3): the output failure fields are built
+		// through the SAME encoding chain the GraphQL twin uses — the twin's
+		// own constructor dataframeapi.PersistedFailure
+		// (internal/api/graphql/graph/dataframe/model.go:73-84) exactly as
+		// executionModel (recipe_control_graphql.go:319,334) consumes it, and
+		// the same non-empty Phase gate it applies (:329-331). The raw text
+		// given to the constructor for the message slot is execution.Error,
+		// preserving the reader-level mirror recipe_execution_reader.go:72
+		// (output.error MIRRORS execution.Error; review ratified this
+		// mirror-as-declared-parity). What that chain publishes — never a
+		// raw durable copy:
+		//   - persisted code present -> the code's stable public message
+		//     (errors.PublicMessage substitution) with the persisted code and
+		//     retryable;
+		//   - code-less failure text -> errors.SanitizePersistedFailure
+		//     (internal/dataframe/errors/errors.go:271-277): unknown text is
+		//     Normalize-inferred to a public message/INTERNAL_ERROR code/
+		//     inferred retryable and is never echoed to clients;
+		//     whitespace-only text becomes present-but-empty "", "", false;
+		//   - no persisted code and no raw text -> all three nil, so the
+		//     omitempty generated keys stay absent (additive-optional
+		//     contract, matching the twin publishing nothing when healthy).
+		// Tracked twin-side follow-up (recorded, deliberately NOT fixed in
+		// this unit — scope): for the lease-lost reconciliation shape
+		// (bundle_store.go:1207-1213), the twin chain stamps healthy READY
+		// outputs with a phantom INTERNAL_ERROR trio, because the mirrored
+		// execution.Error is sanitized per output even though the outputs
+		// themselves never failed. The defect is twin-side (the mirror +
+		// per-output sanitizer gate); this unit's job is exact parity, so
+		// REST reproduces it verbatim until the twin-side ledger entry is
+		// repaired, and the parity matrix pins that reproduction.
+		message, code, retryable := dataframeapi.PersistedFailure(execution.Error, output.FailureCode, output.FailureRetryable)
+		item.Error, item.ErrorCode, item.ErrorRetryable = message, code, retryable
+		if output.FailurePhase != "" {
+			item.Phase = &output.FailurePhase
+		}
+		outputs = append(outputs, item)
 	}
-	return loomapi.RecipeExecutionResponse{
+	response := loomapi.RecipeExecutionResponse{
 		Id:                   execution.ID,
 		ProjectId:            execution.Project,
 		DatasetGeneration:    execution.DatasetGeneration,
@@ -80,7 +119,22 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 		ResolvedSchemaDigest: execution.SchemaDigest,
 		State:                recipeExecutionHTTPState(execution.State),
 		Outputs:              outputs,
-	}, http.StatusOK
+	}
+	// F-R3 twin parity: the execution-level failure trio is built through the
+	// same twin constructor+sanitizer chain as the outputs above
+	// (PersistedFailure over execution.Error/FailureCode/FailureRetryable,
+	// plus the non-empty FailurePhase gate at recipe_control_graphql.go:
+	// 339-341), so both transports publish identical bytes for the same
+	// durable record (bundle_store.go failPhase:985-988, lease-lost :1207-
+	// 1213): public-message substitution for persisted codes, never echoing
+	// unknown durable text, explicit true/false errorRetryable on failure
+	// (docs/loom-reliability-contract.md "Retryability is explicit"), and
+	// total absence (nil -> omitempty) when no failure is persisted.
+	response.Error, response.ErrorCode, response.ErrorRetryable = dataframeapi.PersistedFailure(execution.Error, execution.FailureCode, execution.FailureRetryable)
+	if execution.FailurePhase != "" {
+		response.Phase = &execution.FailurePhase
+	}
+	return response, http.StatusOK
 }
 
 // recipeExecutionReadScope consults the wired resolver for the auth paths an

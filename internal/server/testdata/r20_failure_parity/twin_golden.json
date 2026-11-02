@@ -1,0 +1,176 @@
+{
+  "1_fail_retry_true": {
+    "id": "shape-1",
+    "name": "1_fail_retry_true",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "FAILED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "columns": [],
+        "error": "dataframe publication failed",
+        "errorCode": "PUBLICATION_FAILED",
+        "errorRetryable": true,
+        "phase": "PUBLICATION"
+      }
+    ],
+    "error": "dataframe publication failed",
+    "errorCode": "PUBLICATION_FAILED",
+    "errorRetryable": true,
+    "phase": "PUBLICATION"
+  },
+  "2_fail_retry_false": {
+    "id": "shape-2",
+    "name": "2_fail_retry_false",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "FAILED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "columns": [],
+        "error": "dataframe publication failed",
+        "errorCode": "PUBLICATION_FAILED",
+        "errorRetryable": false,
+        "phase": "PUBLICATION"
+      }
+    ],
+    "error": "dataframe publication failed",
+    "errorCode": "PUBLICATION_FAILED",
+    "errorRetryable": false,
+    "phase": "PUBLICATION"
+  },
+  "3_code_empty": {
+    "id": "shape-3",
+    "name": "3_code_empty",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "FAILED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "columns": [],
+        "error": "an unexpected internal error occurred while processing the data request",
+        "errorCode": "INTERNAL_ERROR",
+        "errorRetryable": false,
+        "phase": "PUBLICATION"
+      }
+    ],
+    "error": "an unexpected internal error occurred while processing the data request",
+    "errorCode": "INTERNAL_ERROR",
+    "errorRetryable": false,
+    "phase": "PUBLICATION"
+  },
+  "4_phase_empty": {
+    "id": "shape-4",
+    "name": "4_phase_empty",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "FAILED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "columns": [],
+        "error": "the dataframe backend is temporarily unavailable",
+        "errorCode": "BACKEND_UNAVAILABLE",
+        "errorRetryable": true
+      }
+    ],
+    "error": "the dataframe backend is temporarily unavailable",
+    "errorCode": "BACKEND_UNAVAILABLE",
+    "errorRetryable": true
+  },
+  "5_lease_lost": {
+    "id": "shape-5",
+    "name": "5_lease_lost",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "FAILED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "READY",
+        "rowCount": 10,
+        "columns": [],
+        "error": "an unexpected internal error occurred while processing the data request",
+        "errorCode": "INTERNAL_ERROR",
+        "errorRetryable": false
+      }
+    ],
+    "error": "publication ownership was lost",
+    "errorCode": "PUBLICATION_LEASE_LOST",
+    "errorRetryable": true
+  },
+  "6_output_fault_only": {
+    "id": "shape-6",
+    "name": "6_output_fault_only",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "PUBLISHED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "READY",
+        "rowCount": 7,
+        "columns": [],
+        "error": "dataframe publication failed",
+        "errorCode": "PUBLICATION_FAILED",
+        "errorRetryable": false,
+        "phase": "VALIDATING"
+      }
+    ]
+  },
+  "7_success_nil": {
+    "id": "shape-7",
+    "name": "7_success_nil",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "PUBLISHED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "READY",
+        "rowCount": 41,
+        "columns": []
+      }
+    ]
+  },
+  "8_whitespace_error": {
+    "id": "shape-8",
+    "name": "8_whitespace_error",
+    "recipeDigest": "sha256-recipe",
+    "resolvedSchemaDigest": "sha256-schema",
+    "sourceGeneration": "gP",
+    "state": "FAILED",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "columns": [],
+        "error": "",
+        "errorCode": "",
+        "errorRetryable": false
+      }
+    ],
+    "error": "",
+    "errorCode": "",
+    "errorRetryable": false
+  }
+}
