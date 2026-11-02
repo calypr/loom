@@ -139,17 +139,21 @@ ordered; `NoFalseRestore` — only a client Replaced create owns a lane;
 `UntouchedOwnerSurvival` — the fix never eats preservation (partial carries
 are repaired); `OwnerIsolation` — clearing A never writes B.
 
-Covered code (sync commit `ebf97a40`, re-synced from `0dd7be44` — all seven
-regions verified byte-identical, shift-only, via full-slice hash match; the
-`cd39eeaf`+`ebf97a40` edits sit entirely above line ~286 in each file: S-A
-per-class discovery/admission emission and the unpivot date-family refusal,
-neither touched by this model):
+Covered code (sync commit `8459f080`, re-synced from `ebf97a40` — five of the
+seven regions verified byte-identical shift-only via full-slice hash match; the
+two frozen-copy loops DRIFTED at `8459f080` (C1 SET-repair): each gained the
+`!constructionOwnerInputsClearedFromCandidate(...)` clause, so they are now
+guarded, not unguarded. The `d3a1d12a`/`29d63f6f` (S-B/S-C) edits are confined
+to the capability/discovery + resolve paths — `rowSourceInventoryFailure`
+(construction_pivot_source.go:205) and `constructionFieldDisplayLabel`
+(construction_pivot_source.go:474) — outside every region below):
 `preserveConstructionOwnedInputs` internal/explorer/lifecycle/
-construction_pivot_source.go:716-746 (call sites pivot :463, derive :254,
-unpivot :322); `constructionOwnerInputsClearedFromCandidate` :757-783;
-guarded set-branch imports construction_pivot_source.go:533-537 and
-filter_source.go:263-267; frozen SET copies derive_source.go:320-323 and
-unpivot_source.go:388-391 (SET reattribution derive_source.go:298-311);
+construction_pivot_source.go:763-793 (call sites pivot :510, derive :257,
+unpivot :325); `constructionOwnerInputsClearedFromCandidate` :804-830;
+guarded set-branch imports construction_pivot_source.go:580-584 and
+filter_source.go:266-270; frozen SET copies derive_source.go:323-328 and
+unpivot_source.go:391-396, both guarded on the cleared predicate since
+`8459f080` (SET reattribution derive_source.go:301-314);
 consumption validation authoringv2/
 construction_validation.go:348-376; cascade prune authoringv2/
 construction_change.go:525-530. Bounds: 4 lanes x 4 carries, at most one
@@ -157,7 +161,11 @@ propose per lane; client-carried items are client intent (A1); candidate
 build per request is atomic at the durable layer (A2); assumption A3 — frozen
 copies persist only consumed imports (reviewer evidence, sideFinding
 row-source-derive-SET-bulkcopy-unmatched-guard), falsifiable by the
-m-prep-persist-unconsumed arm.
+m-prep-persist-unconsumed arm, which is now the pre-`8459f080` C1 shape
+(frozen copies ignore the cleared clause and the foreign re-import persists —
+durables filter_source_pivot_clear_test.go @`8459f080`). Before `8459f080` the
+clean arm passed on a description the code did not match: A3 was false at the
+frozen sites, so the r64 IN SYNC for this model was a stale pass.
 
 ```
 TLC_WORKERS=2 TLC_HEAP_MB=1024 /sandbox/.local/bin/tlc-run -fp 21 \
@@ -169,7 +177,7 @@ TLC_WORKERS=2 TLC_HEAP_MB=1024 /sandbox/.local/bin/tlc-run -fp 21 \
 | `m-prep-gated` | shipped (all fault constants FALSE) | clean (61,456 states recorded) |
 | `m-prep-helper-ungated` | pre-b72a1322 helper (unconditional restore) | `ClearedStaysCleared` VIOLATED — archived P0 arm (clear blocked by consumption-validation error = user cannot clear) |
 | `m-prep-setbranch-ungated` | pivot/filter set imports un-gated | `ClearedStaysCleared` VIOLATED (rs05 removed shape) |
-| `m-prep-persist-unconsumed` | A3 dropped on frozen copies | `ClearedStaysCleared` VIOLATED (persisted resurrection) |
+| `m-prep-persist-unconsumed` | pre-`8459f080` C1 shape: derive/unpivot frozen copies ignore the cleared clause and the foreign re-import persists | `ClearedStaysCleared` VIOLATED (persisted resurrection; the C1-revert falsifier) |
 | `m-prep-shared-gate` | global cleared flag (over-gated wrong-fix) | `UntouchedOwnerSurvival` VIOLATED; `OwnerIsolation` independently violated (probed) |
 
 A clean arm passing while its counterpart also passes means the check broke
@@ -192,10 +200,20 @@ TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission (422
 TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind in
 unpivot_source_test.go; api_explorer_construction_unpivot_source_test.go)
 plus the accepted 30-check unpivot row-source journey date leg
-(docs/BUILDER_VERIFICATION.tsv registry row explorer-unpivot-row-source,
-runs upr17/upr18: discovery-hides-date-family, awaited signed date_time melt
-422, date-column-survives-string-melt). Revisit only if a model gains an
-admission-set property.
+ (docs/BUILDER_VERIFICATION.tsv registry row explorer-unpivot-row-source,
+ runs upr17/upr18: discovery-hides-date-family, awaited signed date_time melt
+ 422, date-column-survives-string-melt). Also unmodeled: the `d3a1d12a` S-B
+ row-choice-inventory verdict (`rowSourceInventoryFailure`,
+ construction_pivot_source.go:205 — payload `*_SOURCE_INVENTORY_UNAVAILABLE`
+ + fail-closed typed error) and the `29d63f6f` S-C label builder
+ (`constructionFieldDisplayLabel`, construction_pivot_source.go:474 —
+ first non-blank control-free display candidate, else legacy
+ `ResourceType.path`). Both sit on the capability/advertisement and resolve
+ surfaces, not on the durable server-owned-input state this model quantifies;
+ no model enumerates reason codes or label bytes. They are covered by the
+ lane durables in derive/filter/pivot/unpivot_source_test.go @`d3a1d12a`/
+ `29d63f6f` and the openapi HTTP twins. Revisit only if a model gains an
+ admission-set or property-payload predicate.
 
 ## Projection-owner survival model (ConstructionProjectionOwnership.tla)
 
