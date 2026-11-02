@@ -7,18 +7,20 @@
    filter_source_pivot_clear_test.go, 20 named tests) sample base x carry x
    order; this model quantifies over ALL of it.
 
-   SOURCE SYNC (authored at 0dd7be44; prepare lanes byte-stable since b72a1322/
-   9c79307b — 0dd7be44 touched only reconcile ledger + UI gate, verified):
-     shared helper          construction_pivot_source.go:566-596 (call sites
-                            :313 pivot w/ skipOwner, :230 derive """, :270
-                            unpivot """)
-     cleared predicate      construction_pivot_source.go:607-633 (base inputs>0
-                            /\ candidate carries none of the owner -> clear;
-                            >0 carried -> omission -> repair; base empty -> no-op)
-     pivot set-branch loop  construction_pivot_source.go:383-387 (guarded :385)
-     filter set-branch loop filter_source.go:243-247 (guarded :245)
-     derive frozen copy     derive_source.go:296-299   (unguarded; SET reattribution
-     unpivot frozen copy    unpivot_source.go:336-339   :274-287 + cascade prune +
+   SOURCE SYNC (authored at 0dd7be44; re-synced at ebf97a40 portfolio pass —
+   all cited regions verified byte-identical, shift-only, via full-slice hash
+   match; cd39eeaf+ebf97a40 edits (date-family refusal, S-A reason classes)
+   live above line ~286 in each file, outside every region below):
+      shared helper          construction_pivot_source.go:716-746 (call sites
+                             :463 pivot w/ skipOwner, derive_source.go:254
+                             """, unpivot_source.go:322 """)
+      cleared predicate      construction_pivot_source.go:757-783 (base inputs>0
+                             /\ candidate carries none of the owner -> clear;
+                             >0 carried -> omission -> repair; base empty -> no-op)
+      pivot set-branch loop  construction_pivot_source.go:533-537 (guarded :535)
+      filter set-branch loop filter_source.go:263-267 (guarded :265)
+      derive frozen copy     derive_source.go:320-323   (unguarded; SET reattribution
+      unpivot frozen copy    unpivot_source.go:388-391   :298-311 + cascade prune +
                             consumption validation keep unconsumed re-imports
                             out of durable state — assumption A3, falsifiable by
                             arm m-prep-persist-unconsumed)

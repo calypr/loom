@@ -139,14 +139,18 @@ ordered; `NoFalseRestore` — only a client Replaced create owns a lane;
 `UntouchedOwnerSurvival` — the fix never eats preservation (partial carries
 are repaired); `OwnerIsolation` — clearing A never writes B.
 
-Covered code (sync commit `0dd7be44`; advance ONLY after re-reading these
-exact regions — prepare lanes byte-stable since b72a1322/9c79307b):
+Covered code (sync commit `ebf97a40`, re-synced from `0dd7be44` — all seven
+regions verified byte-identical, shift-only, via full-slice hash match; the
+`cd39eeaf`+`ebf97a40` edits sit entirely above line ~286 in each file: S-A
+per-class discovery/admission emission and the unpivot date-family refusal,
+neither touched by this model):
 `preserveConstructionOwnedInputs` internal/explorer/lifecycle/
-construction_pivot_source.go:566-596 (call sites :313/:230/:270);
-`constructionOwnerInputsClearedFromCandidate` :607-633; guarded set-branch
-imports construction_pivot_source.go:383-387 and filter_source.go:243-247;
-frozen SET copies derive_source.go:296-299 and unpivot_source.go:336-339
-(SET reattribution :274-287); consumption validation authoringv2/
+construction_pivot_source.go:716-746 (call sites pivot :463, derive :254,
+unpivot :322); `constructionOwnerInputsClearedFromCandidate` :757-783;
+guarded set-branch imports construction_pivot_source.go:533-537 and
+filter_source.go:263-267; frozen SET copies derive_source.go:320-323 and
+unpivot_source.go:388-391 (SET reattribution derive_source.go:298-311);
+consumption validation authoringv2/
 construction_validation.go:348-376; cascade prune authoringv2/
 construction_change.go:525-530. Bounds: 4 lanes x 4 carries, at most one
 propose per lane; client-carried items are client intent (A1); candidate
@@ -176,7 +180,22 @@ proven RED-on-pre-fix/GREEN-after shapes (b72a1322 commit evidence: 11 RED +
 reviewer kill-set m1/m2/m3/H1/H2/S1/S2). Model runs read with pstack
 `/statechart`. Not covered: multi-owner steps per lane kind, partial chain
 granularity below carry classes, request-failure HTTP surfaces, the reconcile
-receipt guard itself, database atomicity.
+receipt guard itself, database atomicity, and the unpivot melt admission set —
+the cd39eeaf date-family refusal (`unpivotSourceLogicalTypeIsMeltEligible`
+table-scalar-minus-date, internal/explorer/lifecycle/unpivot_source.go:82-130)
+is deliberately unmodeled: no model enumerates admitted logical types
+(`unpivotSourceLogicalTypeIsTableScalar` and family bits appear in no .tla),
+and the refusal is covered by durable Go tests (cd39eeaf:
+TestUnpivotSourceMeltEligibilityExcludesDateFamily,
+TestConstructionUnpivotSourceRefusesDateFamilyOnAdmission (422
+`UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD`),
+TestConstructionUnpivotSourceCapabilityExcludesDateMeltKind in
+unpivot_source_test.go; api_explorer_construction_unpivot_source_test.go)
+plus the accepted 30-check unpivot row-source journey date leg
+(docs/BUILDER_VERIFICATION.tsv registry row explorer-unpivot-row-source,
+runs upr17/upr18: discovery-hides-date-family, awaited signed date_time melt
+422, date-column-survives-string-melt). Revisit only if a model gains an
+admission-set property.
 
 ## Projection-owner survival model (ConstructionProjectionOwnership.tla)
 
