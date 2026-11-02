@@ -184,7 +184,9 @@ func (r *Runner) Run(ctx context.Context) (report Report, runErr error) {
 	defer func() {
 		report.FinishedAt = time.Now().UTC()
 		if runErr != nil {
-			report.Status = "FAILED"
+			if report.Status == "" {
+				report.Status = "FAILED"
+			}
 		} else if report.Status == "" {
 			report.Status = "PASSED"
 		}
@@ -193,8 +195,14 @@ func (r *Runner) Run(ctx context.Context) (report Report, runErr error) {
 		}
 		if closeErr := lease.Close(context.WithoutCancel(ctx)); closeErr != nil {
 			runErr = errors.Join(runErr, closeErr)
-			report.Status = "FAILED"
-			report.Error = closeErr.Error()
+			if report.Status == "PASSED" {
+				report.Status = "FAILED"
+			}
+			if report.Error == "" {
+				report.Error = "lease close: " + closeErr.Error()
+			} else {
+				report.Error = report.Error + "; lease close: " + closeErr.Error()
+			}
 			_ = r.writeEvidence(report)
 		}
 	}()
