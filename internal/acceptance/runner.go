@@ -74,7 +74,7 @@ func (l staticLease) Close(context.Context) error { return nil }
 
 type Config struct {
 	Target          Target
-	Fixture         Fetcher
+	Fixture         *Fetcher
 	Run             RunSpec
 	ArtifactDir     string
 	WorkspacePath   string
@@ -110,7 +110,7 @@ func New(cfg Config) (*Runner, error) {
 	if cfg.Target == nil {
 		return nil, errors.New("acceptance target is required")
 	}
-	if cfg.Fixture.CacheDir == "" {
+	if cfg.Fixture == nil || cfg.Fixture.CacheDir == "" {
 		return nil, errors.New("fixture cache directory is required")
 	}
 	if strings.TrimSpace(cfg.WorkspacePath) == "" {
