@@ -31,13 +31,16 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 		if err != nil {
 			return nil, recipeExecutionLookupError(err)
 		}
+		principal, _ := authscope.PrincipalFromContext(ctx)
+		if err := authscope.AuthorizeProject(principal, execution.Project, false); err != nil {
+			return nil, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
+		}
 		if scopeResolver != nil {
-			principal, _ := authscope.PrincipalFromContext(ctx)
 			scope, scopeErr := scopeResolver.ResolveReadScopeForGeneration(ctx, principal, execution.Project, execution.DatasetGeneration, execution.AuthResourcePaths)
 			if scopeErr != nil {
 				return nil, recipeExecutionLookupError(scopeErr)
 			}
-			if scope.Mode == authscope.ReadScopeRestricted && len(scope.AuthResourcePaths) != len(execution.AuthResourcePaths) {
+			if scope.Mode == authscope.ReadScopeRestricted && !scope.CoversExecutionPaths(execution.AuthResourcePaths) {
 				return nil, dataframeerrors.NewError(dataframeerrors.CodeRecipeExecutionNotFound, "")
 			}
 		}
