@@ -248,6 +248,13 @@ func (s *Service) constructionCandidateWithFilterSources(
 	}
 	projections = append(projections, resolved...)
 
+	for _, projection := range resolved {
+		if constructionRootFieldAlreadyProjected(base.document, candidate.Steps, projections, projection.ColumnID, projection.FieldPath) {
+			return authoringv2.Construction{}, unprocessable("construction-proposal", "FILTER_SOURCE_FIELD_ALREADY_PROJECTED",
+				fmt.Sprintf("root field %q is already projected as a column of this table; remove that column or choose a different field for this filter source", projection.FieldPath), nil)
+		}
+	}
+
 	steps := make([]authoringv2.ConstructionStep, len(candidate.Steps))
 	copy(steps, candidate.Steps)
 	for index := 0; index <= changedIndex; index++ {

@@ -632,6 +632,72 @@ func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, 
 	return true
 }
 
+// constructionRootFieldAlreadyProjected reports whether materializing this
+// signed slot column would collide, in the compiler's per-output duplicate
+// semantic-path pass (lower/recipe_schema.go:205-224 suffixes BOTH columns
+// with #<name>), with another public column that carries the same compiled
+// semantic path. The receipt contract guard compares strings.TrimSpace of the
+// compiled column's SemanticPath against the authored projection FieldPath
+// verbatim (explorer_output_reconcile.go:497-512), so it fires exactly when a
+// second public column shares the slot's verbatim path string. Carriers are
+// therefore precisely the columns whose compiled SemanticPath is an authored
+// bare field-path string on the root occurrence: user-authored SourceField
+// columns (compilation/semantic_compile.go:220 emits FieldRef verbatim, and
+// lower.recipeSemanticPath keeps a non-empty fieldRef verbatim) and every
+// merged construction source projection — base-persisted, candidate-carried,
+// or request-resolved (compilation/semantic_compile.go:522-529 emits
+// FieldRef=projection.FieldPath verbatim into the same root node). A
+// root.-prefixed authored path is verbatim-distinct and never collides; a
+// projection under the slot's own ColumnID is the slot's re-bind entry, not a
+// second carrier. Columns whose compiled name is internal (_key/__loom_*) are
+// excluded together with the duplicate counter that skips internal columns.
+// Only projections owned by a Derive or Filter step are slot carriers: those
+// are the entries the receipt contract guard actually compares at
+// :1022/:1156, and shipped lifecycle contracts establish that a slot sharing
+// its field with a Pivot-owned source input is legitimate state.
+func constructionRootFieldAlreadyProjected(document authoringv2.Document, steps []authoringv2.ConstructionStep, projections []authoringv2.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
+	slot := strings.TrimSpace(fieldPath)
+	if slot == "" {
+		return false
+	}
+	for _, column := range document.Columns {
+		if column.ColumnID == "" || column.ColumnID == slotColumnID ||
+			column.OccurrenceID != authoringv2.RootOccurrenceID ||
+			column.Source.Kind != authoringv2.SourceField || column.Source.Field == nil {
+			continue
+		}
+		if column.Column == "_key" || strings.HasPrefix(column.Column, "__loom_") {
+			continue
+		}
+		if strings.TrimSpace(column.Source.Field.Path) == slot {
+			return true
+		}
+	}
+	for _, projection := range projections {
+		if projection.ColumnID == slotColumnID || !constructionStepCarriesSourceLane(steps, projection.OwnerStepID) {
+			continue
+		}
+		if strings.TrimSpace(projection.FieldPath) == slot {
+			return true
+		}
+	}
+	return false
+}
+
+func constructionStepCarriesSourceLane(steps []authoringv2.ConstructionStep, stepID string) bool {
+	if stepID == "" {
+		return false
+	}
+	for _, step := range steps {
+		if step.ID != stepID {
+			continue
+		}
+		return step.Operation.Kind == authoringv2.ConstructionOperationDerive ||
+			step.Operation.Kind == authoringv2.ConstructionOperationFilter
+	}
+	return false
+}
+
 func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivotID string) (authoringv2.Construction, error) {
 	pivotIndex := constructionStepIndex(candidate.Steps, pivotID)
 	if pivotIndex < 0 {
