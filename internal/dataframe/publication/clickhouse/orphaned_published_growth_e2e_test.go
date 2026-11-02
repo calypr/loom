@@ -37,6 +37,7 @@ import (
 
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
 	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
+	"github.com/calypr/loom/internal/dataset"
 	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
@@ -242,13 +243,95 @@ func orphProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p 
 	return pubpublication.Publish(ctx, store, p.identity, p.outputs, pubpublication.Limits{})
 }
 
+// orphReleaseReader mirrors the production wiring (server.go calls
+// bundleStore.SetActiveReleaseReader(lifecycleStore)); the harness controls
+// what the janitor sees as the ACTIVE release.
+type orphReleaseReader struct {
+	active dataset.ActiveRelease
+	err    error
+	calls  int
+}
+
+func (r *orphReleaseReader) ReadActiveRelease(context.Context, string) (dataset.ActiveRelease, error) {
+	r.calls++
+	return r.active, r.err
+}
+
+// orphPublishRecipeEdit drives two production publications that share one
+// PointerName: edit 1 then the recipe edit (new Key). Returns the observed
+// executions, tables and identity strings for assertions.
+func orphPublishRecipeEdit(t *testing.T, h *orphHarness, store *ClickHouseBundleStore) (firstExec, secondExec pubpublication.BundleExecution, firstTable, secondTable, firstKey, secondKey, firstPointer string) {
+	t.Helper()
+	first := orphNewPublication("sha256:orph-recipe-v1", "sha256:orph-schema-v1", "orph-receipt-1")
+	firstResult, err := orphProductionPublish(h.ctx, store, first)
+	if err != nil {
+		t.Fatalf("edit-1 publication failed: %v", err)
+	}
+	firstBundle := orphBundleIdentity(first.identity)
+	firstKey = firstBundle.Key()
+	firstPointer = firstBundle.PointerName()
+	firstExec, err = h.registry.FindExecutionByKey(h.ctx, firstKey)
+	if err != nil {
+		t.Fatalf("edit-1 FindExecutionByKey(%s): %v", firstKey, err)
+	}
+	if firstExec.State.Canonical() != pubpublication.BundlePublished {
+		t.Fatalf("edit-1 precondition: state %q, want PUBLISHED", firstExec.State)
+	}
+	firstTable = firstResult.Outputs[0].PhysicalName
+	h.trackTable(firstTable)
+	pointer, err := h.registry.GetPointer(h.ctx, firstPointer)
+	if err != nil || pointer.ExecutionID != firstExec.ID {
+		t.Fatalf("edit-1 precondition: pointer %q does not name edit-1 exec %q (pointer=%+v err=%v)", firstPointer, firstExec.ID, pointer, err)
+	}
+	t.Logf("ORPH_OBSERVED edit-1: key=%s state=%q pointer names it; table %s present=%v", firstKey, firstExec.State, firstTable, orphTablePresent(t, h, h.ctx, firstTable))
+
+	second := first
+	second.identity.RecipeDigest = "sha256:orph-recipe-v2"
+	second.identity.SchemaDigest = "sha256:orph-schema-v2"
+	second.identity.ReceiptID = "orph-receipt-2"
+	secondBundle := orphBundleIdentity(second.identity)
+	secondKey = secondBundle.Key()
+	if secondKey == firstKey {
+		t.Fatalf("precondition: recipe edit must mint a new Key (first==second==%s)", firstKey)
+	}
+	if secondBundle.PointerName() != firstPointer {
+		t.Fatalf("precondition: recipe edit must KEEP the PointerName (first=%q second=%q)", firstPointer, secondBundle.PointerName())
+	}
+	secondResult, err := orphProductionPublish(h.ctx, store, second)
+	if err != nil {
+		t.Fatalf("edit-2 publication failed: %v", err)
+	}
+	secondTable = secondResult.Outputs[0].PhysicalName
+	h.trackTable(secondTable)
+	secondExec, err = h.registry.FindExecutionByKey(h.ctx, secondKey)
+	if err != nil {
+		t.Fatalf("edit-2 FindExecutionByKey(%s): %v", secondKey, err)
+	}
+	pointer, err = h.registry.GetPointer(h.ctx, firstPointer)
+	if err != nil || pointer.ExecutionID != secondExec.ID {
+		t.Fatalf("edit-2 precondition: pointer does not name edit-2 exec %q (pointer=%+v err=%v)", secondExec.ID, pointer, err)
+	}
+	t.Logf("ORPH_OBSERVED edit-2 (recipe edit): new key=%s now pointer-named; edit-1 key %s superseded => orphaned", secondKey, firstKey)
+	return
+}
+
 func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
-	// Drift gate: shipped sweep-state list must exclude PUBLISHED and the
-	// name-latest selector must have no state/pointer filter — verified live
-	// from the compiled-package sources, per the program's quote-first rule.
+	// Drift gates (quote-first). The legacy three-state declaration must
+	// survive (stale arm); the Repair-4 janitor arm, pre-claim live filter and
+	// superseded marker must be PRESENT — removal re-opens F-B19 and the
+	// REGRESSION direction below must then fire.
 	sweepSrc := orphReadFile(t, "internal/dataframe/publication/clickhouse/bundle_store.go")
 	if !strings.Contains(sweepSrc, "states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}") {
-		t.Fatalf("drift gate: shipped sweep exclude PUBLISHED (bundle_store.go:1041) — F-B19 claim source changed, reassess before ruling")
+		t.Fatalf("drift gate: stale-arm sweep state list changed — reassess the {RUNNING,VALIDATING,FAILED} baseline before ruling")
+	}
+	for _, needle := range []string{
+		"states = append(states, publication.BundlePublished)",
+		"superseded := execution.State.Canonical() == publication.BundlePublished",
+		`"superseded execution reconciled (no pointer or active-release reference)"`,
+	} {
+		if !strings.Contains(sweepSrc, needle) {
+			t.Fatalf("REGRESSION drift: Repair-4 janitor text %q no longer present in bundle_store.go — F-B19 growth returns; the REGRESSION arm below must fire against product behavior too", needle)
+		}
 	}
 	registrySrc := orphReadFile(t, "internal/dataframe/publication/arango/bundle_registry.go")
 	if !strings.Contains(registrySrc, "SORT doc.publishedAt DESC") {
@@ -262,71 +345,14 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
+	// Production wiring mirror: server.go wires the lifecycle store; here no
+	// release is active, so the janitor must retire the superseded orphan.
+	store.SetActiveReleaseReader(&orphReleaseReader{err: dataset.ErrNoActiveRelease})
 
-	// EDIT 1 — publish recipe revision 1 through production publication.Publish.
-	first := orphNewPublication("sha256:orph-recipe-v1", "sha256:orph-schema-v1", "orph-receipt-1")
-	firstResult, err := orphProductionPublish(ctx, store, first)
-	if err != nil {
-		t.Fatalf("edit-1 publication failed: %v", err)
-	}
-	firstBundle := orphBundleIdentity(first.identity)
-	firstKey := firstBundle.Key()
-	firstPointer := firstBundle.PointerName()
-	firstExec, err := h.registry.FindExecutionByKey(ctx, firstKey)
-	if err != nil {
-		t.Fatalf("edit-1 FindExecutionByKey(%s): %v", firstKey, err)
-	}
-	if firstExec.State.Canonical() != pubpublication.BundlePublished {
-		t.Fatalf("edit-1 precondition: state %q, want PUBLISHED", firstExec.State)
-	}
-	firstTable := firstResult.Outputs[0].PhysicalName
-	h.trackTable(firstTable)
-	pointer, err := h.registry.GetPointer(ctx, firstPointer)
-	if err != nil || pointer.ExecutionID != firstExec.ID {
-		t.Fatalf("edit-1 precondition: pointer %q does not name edit-1 exec %q (pointer=%+v err=%v)", firstPointer, firstExec.ID, pointer, err)
-	}
-	t.Logf("ORPH_OBSERVED edit-1: key=%s state=%q pointer names it; orphan table %s present=%v", firstKey, firstExec.State, firstTable, orphTablePresent(t, h, ctx, firstTable))
+	_, secondExec, firstTable, secondTable, firstKey, secondKey, _ := orphPublishRecipeEdit(t, h, store)
 
-	// EDIT 2 — the recipe edit: same PointerName, new digests => new Key.
-	second := first
-	second.identity.RecipeDigest = "sha256:orph-recipe-v2"
-	second.identity.SchemaDigest = "sha256:orph-schema-v2"
-	second.identity.ReceiptID = "orph-receipt-2"
-	secondBundle := orphBundleIdentity(second.identity)
-	secondKey := secondBundle.Key()
-	if secondKey == firstKey {
-		t.Fatalf("precondition: recipe edit must mint a new Key (first==second==%s)", firstKey)
-	}
-	if secondBundle.PointerName() != firstPointer {
-		t.Fatalf("precondition: recipe edit must KEEP the PointerName (first=%q second=%q)", firstPointer, secondBundle.PointerName())
-	}
-	secondResult, err := orphProductionPublish(ctx, store, second)
-	if err != nil {
-		t.Fatalf("edit-2 publication failed: %v", err)
-	}
-	secondTable := secondResult.Outputs[0].PhysicalName
-	h.trackTable(secondTable)
-	secondExec, err := h.registry.FindExecutionByKey(ctx, secondKey)
-	if err != nil {
-		t.Fatalf("edit-2 FindExecutionByKey(%s): %v", secondKey, err)
-	}
-	pointer, err = h.registry.GetPointer(ctx, firstPointer)
-	if err != nil || pointer.ExecutionID != secondExec.ID {
-		t.Fatalf("edit-2 precondition: pointer does not name edit-2 exec %q (pointer=%+v err=%v)", secondExec.ID, pointer, err)
-	}
-	t.Logf("ORPH_OBSERVED edit-2 (recipe edit): new key=%s now pointer-named; edit-1 key %s superseded => orphaned", secondKey, firstKey)
+	selector := pubpublication.DataframeSelector{Recipe: "orph-recipe", TranslationVersion: "v1", Output: "orph_out"}
 
-	// Selector eligibility of the ORPHAN (mis-bind surface, pre-supersession
-	// evidence re-checked post-supersession below): name-latest resolution
-	// with no pointer/state filter.
-	selector := pubpublication.DataframeSelector{Recipe: first.identity.Name, TranslationVersion: first.identity.TranslationVersion, Output: first.identity.OutputName}
-	selExec, selOutput, err := h.registry.FindExecutionBySelector(ctx, first.identity.Project, first.identity.DatasetGeneration, selector)
-	if err != nil {
-		t.Fatalf("name-latest selector resolution: %v", err)
-	}
-	t.Logf("ORPH_OBSERVED name-latest selector resolves to key=%q state=%q physical=%q rows=%d (publishedAt DESC => edit-2 expected)", selExec.ID, selExec.State, selOutput.PhysicalTable, selOutput.RowCount)
-
-	// PRODUCTION SWEEP — one full Reconcile with a far-future cutoff.
 	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {
 		t.Fatalf("production Reconcile returned error: %v", err)
 	}
@@ -337,12 +363,90 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 		t.Fatalf("post-sweep FindExecutionByKey(orphan %s): %v", firstKey, err)
 	}
 	orphanTablePresent := orphTablePresent(t, h, ctx, firstTable)
-	t.Logf("ORPH_OBSERVED post-sweep: orphan state=%q, orphan table %s present=%v, pointer still names edit-2=%v", orphanExec.State, firstTable, orphanTablePresent, pointer.ExecutionID)
+	t.Logf("ORPH_OBSERVED post-sweep: orphan state=%q error=%q, orphan table %s present=%v", orphanExec.State, orphanExec.Error, firstTable, orphanTablePresent)
 
 	if orphanExec.State.Canonical() == pubpublication.BundlePublished && orphanTablePresent {
-		t.Fatalf("FAILED-ON-PURPOSE F-B19 CONFIRMED: recipe edit #1 left key %q as PUBLISHED but no pointer names it; after one FULL production reconcile sweep it remains state=%q with ClickHouse table %q still present. The sweep cannot reach it (shipped states list excludes PUBLISHED — bundle_store.go:1041) and no janitor reclaims pointer-orphaned PUBLISHED rows or their tables => one permanently retained bundle+table per recipe edit (unbounded ClickHouse/Arango growth, widening name-latest mis-bind surface per FindExecutionBySelector publishedAt DESC at bundle_registry.go:174-182). Formal arms: PointerOrphanLifecycle m-po-bug violates, m-po-fixed (recurring binding-aware janitor) complete-clean.", firstKey, orphanExec.State, firstTable)
+		t.Fatalf("REGRESSION (F-B19 growth returns; archived CONFIRMED text): recipe edit #1 left key %q as PUBLISHED but no pointer names it; after one FULL production reconcile sweep it remains state=%q with ClickHouse table %q still present. The sweep cannot reach it and no janitor reclaims pointer-orphaned PUBLISHED rows or their tables => one permanently retained bundle+table per recipe edit (unbounded ClickHouse/Arango growth, widening name-latest mis-bind surface per FindExecutionBySelector publishedAt DESC at bundle_registry.go). Formal arms: PointerOrphanLifecycle m-po-bug violates, m-po-fixed complete-clean.", firstKey, orphanExec.State, firstTable)
 	}
-	// If we get here the orphan WAS reclaimed — the growth bug is fixed; this
-	// artifact must not pass silently.
-	t.Fatalf("unexpected: orphan %q reclaimed (state=%q tablePresent=%v) — shipped sweep was supposed to be unable to reach PUBLISHED; investigate what changed before trusting this result", firstKey, orphanExec.State, orphanTablePresent)
+	if orphanExec.State.Canonical() != pubpublication.BundleFailed {
+		t.Fatalf("unexpected: orphan %q post-sweep state=%q, want FAILED via the janitor arm", firstKey, orphanExec.State)
+	}
+	if orphanTablePresent {
+		t.Fatalf("unexpected: orphan %q demoted but ClickHouse table %s SURVIVED — janitor must drop superseded outputs too", firstKey, firstTable)
+	}
+	if !strings.Contains(orphanExec.Error, "superseded execution reconciled") {
+		t.Fatalf("unexpected: orphan marker %q lacks the superseded janitor marker", orphanExec.Error)
+	}
+
+	// The live (pointer-named) execution and its table must be untouched by
+	// the janitor arm, and name-latest must resolve to it.
+	live, err := h.registry.FindExecutionByKey(ctx, secondKey)
+	if err != nil || live.State.Canonical() != pubpublication.BundlePublished {
+		t.Fatalf("janitor arm harmed the live execution %s: state=%+v err=%v", secondKey, live, err)
+	}
+	if !orphTablePresent(t, h, ctx, secondTable) {
+		t.Fatalf("janitor arm dropped the LIVE table %s", secondTable)
+	}
+	selExec2, selOutput2, err := h.registry.FindExecutionBySelector(ctx, "orph-project", secondExec.BundleIdentity.DatasetGeneration, selector)
+	if err != nil {
+		t.Fatalf("post-sweep name-latest resolution: %v", err)
+	}
+	if selExec2.ID != secondExec.ID {
+		t.Fatalf("name-latest serves %q, want the pointer-named edit-2 %q", selExec2.ID, secondExec.ID)
+	}
+	t.Logf("VERDICT PREVENTED (Repair-4): pointer-orphaned PUBLISHED execution %q retired by the binding-aware janitor arm (FAILED, marker %q, table dropped) while the pointer-named live execution %s (rows=%d) and its table survived; name-latest resolves to the live execution.", firstKey, orphanExec.Error, secondKey, selOutput2.RowCount)
+}
+
+// TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango
+// is the e2e safety sibling: an ACTIVE-release binding on the orphan vetoes
+// retirement; after removing the binding, the next sweep converges — the
+// m-po-fixed shape on real stores.
+func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango(t *testing.T) {
+	h := orphOpen(t)
+	ctx := h.ctx
+	store, err := NewBundleStore(h.ch, struct{ *pubarango.Registry }{h.registry})
+	if err != nil {
+		t.Fatalf("NewBundleStore: %v", err)
+	}
+	reader := &orphReleaseReader{err: dataset.ErrNoActiveRelease}
+	store.SetActiveReleaseReader(reader)
+
+	firstExec, _, firstTable, _, firstKey, _, _ := orphPublishRecipeEdit(t, h, store)
+
+	// Bind the ACTIVE release to the orphan: the janitor must not claim or
+	// drop it (m-po-janitor-blind would).
+	reader.active = dataset.ActiveRelease{
+		Release: dataset.ProjectRelease{
+			Project:      "orph-project",
+			Publications: []dataset.ReleasePublication{{ExecutionID: firstExec.ID, Generation: firstExec.BundleIdentity.DatasetGeneration}},
+		},
+		Revision: 1,
+	}
+	reader.err = nil
+	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("sweep with binding: %v", err)
+	}
+	bound, err := h.registry.FindExecutionByKey(ctx, firstKey)
+	if err != nil || bound.State.Canonical() != pubpublication.BundlePublished {
+		t.Fatalf("REGRESSION (bound data loss): janitor touched the ACTIVE-release-bound orphan %s: state=%+v err=%v", firstKey, bound, err)
+	}
+	if !orphTablePresent(t, h, ctx, firstTable) {
+		t.Fatalf("REGRESSION (bound data loss): janitor dropped the ACTIVE-release-bound orphan table %s", firstTable)
+	}
+	t.Logf("ORPH_OBSERVED bound sweep: orphan %s untouched (binding veto, pre-claim filter), reader calls=%d", firstKey, reader.calls)
+
+	// Remove the binding: the next sweep must converge (recurring janitor).
+	reader.active = dataset.ActiveRelease{}
+	reader.err = dataset.ErrNoActiveRelease
+	if err := store.Reconcile(ctx, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("sweep without binding: %v", err)
+	}
+	retired, err := h.registry.FindExecutionByKey(ctx, firstKey)
+	if err != nil {
+		t.Fatalf("post-unbind FindExecutionByKey: %v", err)
+	}
+	if retired.State.Canonical() != pubpublication.BundleFailed || orphTablePresent(t, h, ctx, firstTable) {
+		t.Fatalf("non-convergence: after unbinding, orphan %s stayed state=%q tablePresent=%v — recurring janitor must converge", firstKey, retired.State, orphTablePresent(t, h, ctx, firstTable))
+	}
+	t.Logf("VERDICT PREVENTED (Repair-4 safety): binding veto held (no claim/drop), unbinding converged to FAILED+dropped on the next sweep — binding-aware recurring janitor on real stores.")
 }

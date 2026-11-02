@@ -20,8 +20,12 @@ package clickhouse
 //
 // This test drives real Arango + real ClickHouse through production entries
 // (publication.Publish -> ClickHouseBundleStore -> arango.Registry, and the
-// pointer-gated published.Reader) and is FAILED-ON-PURPOSE: it FAILS when the
-// second publish silently repoints the first dataset's visibility pointer.
+// pointer-gated published.Reader). Repair-5 (length-prefix PointerName)
+// converted it to a natural PASS: the STEP-2 identity comparison now reports
+// VERDICT PREVENTED before any store is touched. The full STEP 3-5 hijack
+// choreography with its archived FAILED-ON-PURPOSE F-B21 CONFIRMED message
+// stays wired as the REGRESSION direction: if the PointerName encoding ever
+// folds the two identities again, the test fails with the original red text.
 //
 // Fixture necessity (honest): publication.ValidateOutputs requires a non-blank
 // output name and the physical table suffix is the output name
@@ -97,12 +101,18 @@ var pnnRequiredQuotations = []struct {
 	needles []string
 }{
 	{
+		// Repair-5 re-pin: the pointer encoding must stay length-prefixed.
+		// Removal of these anchors re-opens F-B21 and the STEP-2 identity
+		// comparison below then falls through to the archived CONFIRMED
+		// hijack assertions (the REGRESSION direction).
 		file: "internal/dataframe/publication/bundle.go",
 		needles: []string{
 			`parts := []string{i.Project, i.DatasetGeneration, i.Name}`,
 			`if strings.TrimSpace(i.TranslationVersion) != "" {`,
 			`if strings.TrimSpace(i.OutputName) != "" {`,
-			`return strings.Join(parts, "\x00")`,
+			"name.WriteString(strconv.Itoa(len(part)))",
+			`name.WriteByte(':')`,
+			"name.WriteString(part)",
 		},
 	},
 	{

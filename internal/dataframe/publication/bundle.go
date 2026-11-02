@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,6 +86,17 @@ func (i BundleIdentity) Canonical() BundleIdentity {
 // PointerName is the visibility namespace for a published logical dataset.
 // Project and generation are part of the key so two tenants can publish the
 // same recipe/output name without racing a shared pointer.
+//
+// Repair-5 (F-B21): components are length-prefixed, mirroring the discipline
+// the catalog already uses for identity digests (internal/catalog/helpers.go
+// catalogIdentityDigest) and Key() below. The previous bare "\x00"-join let
+// (Name="a\x00b", TranslationVersion="") and (Name="a", TranslationVersion=
+// "b") fold to one visibility pointer while their Keys stayed distinct, so
+// publishing the second identity silently repointed the first dataset's
+// readers. The encoding is injective without needing input validation: no
+// component content — including embedded NULs or digits/colons — can shift a
+// component boundary, because each component is written as len:content.
+// Blank TranslationVersion/OutputName remain "absent" exactly as shipped.
 func (i BundleIdentity) PointerName() string {
 	parts := []string{i.Project, i.DatasetGeneration, i.Name}
 	if strings.TrimSpace(i.TranslationVersion) != "" {
@@ -93,7 +105,13 @@ func (i BundleIdentity) PointerName() string {
 	if strings.TrimSpace(i.OutputName) != "" {
 		parts = append(parts, i.OutputName)
 	}
-	return strings.Join(parts, "\x00")
+	var name strings.Builder
+	for _, part := range parts {
+		name.WriteString(strconv.Itoa(len(part)))
+		name.WriteByte(':')
+		name.WriteString(part)
+	}
+	return name.String()
 }
 
 func (i BundleIdentity) Key() string {
