@@ -639,3 +639,23 @@ The full-scope Patient → inbound Specimen `type.coding[]` `COUNT_ROWS` preview
 Separate baseline failure: `TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP` still fails on pre-reconciliation base `d9b7253a2` because the CURRENT_ITEM Coding key requires exact source-projection expansion identity and compiler source-shape binding. The connected RELATED_OCCURRENCE lifecycle does not cover or claim to fix that path.
 
 UI follow-up: the applied screenshot shows both Patient.id and Specimen.id as “Logical id of this artifact.” Add a resource/route prefix so the two available identities are distinguishable. This is a label-clarity follow-up; it did not block or alter the passing lifecycle.
+
+## ROW-SOURCE-02 slice-2 UI review carry-over (2026-11-02)
+
+Zod↔openapi leniency on the construction capability choice shape is a family convention, not a
+slice-2 defect; deliberately NOT changed here (filter and derive lanes share it; a lane-consistent
+change should tighten all three together):
+
+- loom-ui `constructionUnpivotSourceChoiceSchema.columnId` is `z.string().optional()` while
+  openapi `ConstructionUnpivotSourceChoice` requires `columnId` (`openapi.yaml:4540-4549`; the same
+  optional pattern exists for the filter/derive choices at `openapi.yaml:4480/4510` and their zod
+  schemas in `ui/packages/loom-ui/src/types.ts`). A server regression omitting `columnId` would not
+  be caught client-side. Every consumer guards on a truthy `columnId`. Backlog: make these zod
+  fields required strings (min length 0 preserves the honest empty-string case) across filter,
+  derive, and unpivot choices in one lane-consistent change. Source:
+  `/tmp/opencode/rs02-slice2-ui-review.md` finding F-2.
+- `label: z.string().min(1)` in the UI capability schemas is stricter than openapi, which permits an
+  empty label; a contract-legal empty label would throw the client capability parse. Same
+  filter/derive family convention; server label builders are path-derived, so this has not been
+  observed. Backlog: either relax the zod to match the contract or tighten the contract, family-wide.
+  Source: same receipt, finding F-3.

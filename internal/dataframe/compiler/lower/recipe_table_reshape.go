@@ -116,11 +116,11 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	if err != nil {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("value column: %w", err)
 	}
-	categoryType, ok := tableReshapeScalarKind(categoryColumn.Kind)
+	categoryType, ok := TableReshapeScalarKind(categoryColumn.Kind)
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category column %q has unsupported scalar type %q", pivot.CategoryColumn, categoryColumn.Kind)
 	}
-	valueType, ok := tableReshapeScalarKind(valueColumn.Kind)
+	valueType, ok := TableReshapeScalarKind(valueColumn.Kind)
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("value column %q has unsupported scalar type %q", pivot.ValueColumn, valueColumn.Kind)
 	}
@@ -170,7 +170,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		if err != nil {
 			return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("group key %q: %w", name, err)
 		}
-		kind, _ := tableReshapeScalarKind(column.Kind)
+		kind, _ := TableReshapeScalarKind(column.Kind)
 		physical.GroupKeys = append(physical.GroupKeys, ir.PhysicalGroupedPivotKey{Column: name, Variable: allocateRecipeReshapeVariable(usedVariables, "pivot_group"), Kind: kind})
 	}
 	for index, category := range pivot.Categories {
@@ -269,7 +269,7 @@ func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot,
 		} else if keyKind != keyType {
 			return ir.PhysicalUnpivot{}, nil, nil, fmt.Errorf("unpivot input keys must have one canonical scalar type")
 		}
-		inputType, ok := tableReshapeScalarKind(column.Kind)
+		inputType, ok := TableReshapeScalarKind(column.Kind)
 		if !ok {
 			return ir.PhysicalUnpivot{}, nil, nil, fmt.Errorf("input %q has unsupported scalar type %q", input.Column, column.Kind)
 		}
@@ -356,13 +356,19 @@ func requireTableScalarColumn(name string, schema map[string]CompiledOutputColum
 	if column.Cardinality == string(expression.Many) {
 		return CompiledOutputColumn{}, fmt.Errorf("column %q is repeated", name)
 	}
-	if _, ok := tableReshapeScalarKind(column.Kind); !ok {
+	if _, ok := TableReshapeScalarKind(column.Kind); !ok {
 		return CompiledOutputColumn{}, fmt.Errorf("column %q has unsupported scalar type %q", name, column.Kind)
 	}
 	return column, nil
 }
 
-func tableReshapeScalarKind(kind string) (string, bool) {
+// TableReshapeScalarKind is the authoritative melt/reshape value-column gate:
+// it maps a logical column kind to its physical table scalar class and refuses
+// every kind the reshape lowerers cannot compile. Explorer source channels
+// (for example the UNPIVOT signed-input lane) admit kinds through this single
+// decision so an advertised channel can never drift from what the compiler
+// actually melts.
+func TableReshapeScalarKind(kind string) (string, bool) {
 	switch expression.ValueKind(strings.ToLower(strings.TrimSpace(kind))) {
 	case expression.KindString, expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
 		return string(recipe.TableScalarString), true

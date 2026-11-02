@@ -26,7 +26,7 @@ import {
 
 export type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'unpivotSources'
 >;
 
 type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
@@ -214,6 +214,7 @@ type UnpivotForm = {
   readonly kind: 'unpivot';
   readonly stepId: string;
   readonly inputs: ReadonlyArray<UnpivotInputForm>;
+  readonly unpivotSources?: ConstructionProposalRequest['unpivotSources'];
   readonly keyOutputColumnId: string;
   readonly keyOutputName: string;
   readonly keyOutputLabel: string;
@@ -901,9 +902,10 @@ const candidateIntentFor = (args: {
   readonly groupSource?: CandidateIntent['groupSource'];
   readonly groupSources?: CandidateIntent['groupSources'];
   readonly pivotSources?: CandidateIntent['pivotSources'];
+  readonly unpivotSources?: CandidateIntent['unpivotSources'];
   readonly ownedSteps?: ReadonlyArray<ConstructionStep>;
 }): CandidateEvaluation => {
-  const { construction, editingStep, groupSource, groupSources, pivotSources, ownedSteps = [] } = args;
+  const { construction, editingStep, groupSource, groupSources, pivotSources, unpivotSources, ownedSteps = [] } = args;
   const rowValues = args.step.rowValues ?? editingStep?.rowValues;
   const valueIds = new Set(rowValues?.map((value) => value.outputColumnId));
   const step = rowValues?.length ? {
@@ -935,6 +937,7 @@ const candidateIntentFor = (args: {
       ...(groupSource ? { groupSource } : {}),
       ...(groupSources ? { groupSources } : {}),
       ...(pivotSources !== undefined ? { pivotSources } : {}),
+      ...(unpivotSources !== undefined ? { unpivotSources } : {}),
     },
   };
 };
@@ -1712,7 +1715,14 @@ const formForStep = (
     return { ...form, ...(pivotSources.length ? { pivotSources } : {}) };
   }
   if (editingStep.operation.kind === 'CODED_PIVOT') return { kind: 'coded-pivot' };
-  if (editingStep.operation.kind === 'UNPIVOT') return initialUnpivotForm(stage, [], editingStep);
+  if (editingStep.operation.kind === 'UNPIVOT') {
+    const form = initialUnpivotForm(stage, [], editingStep);
+    const melted = new Set(form.inputs.map((input) => input.columnId));
+    const unpivotSources = (capabilities.unpivotSourceInput?.choices ?? []).flatMap((choice) =>
+      choice.columnId && melted.has(choice.columnId) ? [{ choiceId: choice.choiceId, columnId: choice.columnId }] : [],
+    );
+    return { ...form, ...(unpivotSources.length ? { unpivotSources } : {}) };
+  }
   return { kind: 'unsupported', message: 'This saved reshape is not supported by this editor.' };
 };
 
@@ -2019,8 +2029,8 @@ const candidateFor = (args: {
     return step ? candidateIntentFor({ construction, editingStep, step, pivotSources: form.pivotSources }) : { kind: 'incomplete' };
   }
   if (form.kind === 'unpivot') {
-    const step = unpivotStepFromForm({ stage, editingStep, form });
-    return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
+    const step = unpivotStepFromForm({ stage: unpivotInputStage(stage, form, capabilities.unpivotSourceInput?.choices ?? []), editingStep, form });
+    return step ? candidateIntentFor({ construction, editingStep, step, unpivotSources: form.unpivotSources }) : { kind: 'incomplete' };
   }
   return { kind: 'incomplete' };
 };
@@ -2637,7 +2647,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <UnpivotEditor
           key={`${id}:unpivot:${contextKey}`}
           form={form}
-          stage={stage}
+          stage={unpivotInputStage(stage, form, capabilities.unpivotSourceInput?.choices ?? [])}
+          sourceInput={capabilities.unpivotSourceInput}
           supported={unpivotSupport.supported}
           reason={unpivotSupport.reason}
           disabled={disabled}
@@ -4300,6 +4311,19 @@ const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: Readonly
   return { ...stage, columns: [...stage.columns, ...inputs] };
 };
 
+const unpivotInputStage = (stage: ReshapeStage, form: UnpivotForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage => {
+  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
+  const inputs = (form.unpivotSources ?? []).flatMap((selection) => {
+    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
+    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
+    if (!choice) return [];
+    const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
+    usedNames.add(name.toLowerCase());
+    return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
+  });
+  return { ...stage, columns: [...stage.columns, ...inputs] };
+};
+
 const PivotEditor = (props: {
   readonly sourceChoices: ReadonlyArray<SourceInputChoice>;
   readonly form: PivotForm;
@@ -4715,6 +4739,7 @@ const PivotCategoryOutput = (props: {
 const UnpivotEditor = (props: {
   readonly form: UnpivotForm;
   readonly stage: ReshapeStage;
+  readonly sourceInput?: ReshapeCapabilities['unpivotSourceInput'];
   readonly supported: boolean;
   readonly reason: string;
   readonly disabled: boolean;
@@ -4732,7 +4757,51 @@ const UnpivotEditor = (props: {
     const inputs = checked
       ? [...props.form.inputs, { columnId: column.id, key: defaultKeyForColumn(column, props.form.inputs) }]
       : props.form.inputs.filter((input) => input.columnId !== column.id);
-    props.onChange({ ...props.form, inputs });
+    const kept = (props.form.unpivotSources ?? []).filter((binding) => inputs.some((input) => input.columnId === binding.columnId));
+    props.onChange({ ...props.form, inputs, ...(kept.length ? { unpivotSources: kept } : { unpivotSources: undefined }) });
+  };
+  const boundChoiceIds = new Set((props.form.unpivotSources ?? []).map((binding) => binding.choiceId));
+  const availableSourceChoices = (props.sourceInput?.supported ?? false)
+    ? (props.sourceInput?.choices ?? []).filter((choice) => choice.isPopulated && !boundChoiceIds.has(choice.choiceId))
+    : [];
+  const sourceUnavailableReason = props.sourceInput && !props.sourceInput.supported
+    ? [props.sourceInput.reasonCode, props.sourceInput.reason]
+      .map((part) => part?.trim() ?? '')
+      .filter((part) => part !== '')
+      .join(' · ')
+    : undefined;
+  const addSourceField = () => {
+    const choice = availableSourceChoices[0];
+    if (!choice) return;
+    const columnId = choice.columnId || createOpaqueId('unpivot-input');
+    if (props.form.inputs.some((input) => input.columnId === columnId)) return;
+    const virtualColumn: ReshapeColumn = { id: columnId, name: columnId, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' };
+    props.onChange({
+      ...props.form,
+      inputs: [...props.form.inputs, { columnId, key: defaultKeyForColumn(virtualColumn, props.form.inputs) }],
+      unpivotSources: [...(props.form.unpivotSources ?? []), { choiceId: choice.choiceId, columnId }],
+    });
+  };
+  const rebindInput = (index: number, value: string) => {
+    const current = props.form.inputs[index];
+    if (!current) return;
+    const withoutCurrent = (props.form.unpivotSources ?? []).filter((binding) => binding.columnId !== current.columnId);
+    if (value.startsWith('source:')) {
+      const choice = (props.sourceInput?.choices ?? []).find((candidate) => candidate.choiceId === value.slice('source:'.length));
+      if (!choice) return;
+      const columnId = choice.columnId || createOpaqueId('unpivot-input');
+      props.onChange({
+        ...props.form,
+        inputs: props.form.inputs.map((input, position) => position === index ? { ...input, columnId } : input),
+        unpivotSources: [...withoutCurrent, { choiceId: choice.choiceId, columnId }],
+      });
+      return;
+    }
+    props.onChange({
+      ...props.form,
+      inputs: props.form.inputs.map((input, position) => position === index ? { ...input, columnId: value } : input),
+      ...(withoutCurrent.length ? { unpivotSources: withoutCurrent } : { unpivotSources: undefined }),
+    });
   };
   const inputCount = props.form.inputs.length;
   const rowEffect = inputCount === 0
@@ -4771,13 +4840,58 @@ const UnpivotEditor = (props: {
       <p data-testid="construction-unpivot-effect" className="m-0 text-sm text-slate-600">
         {rowEffect}
       </p>
+      {sourceUnavailableReason ? (
+        <p role="status" data-testid="construction-reshape-unpivot-source-unavailable" className="m-0 text-sm text-amber-900">{sourceUnavailableReason}</p>
+      ) : null}
+      {props.sourceInput?.supported && availableSourceChoices.length > 0 ? (
+        <button
+          type="button"
+          data-testid="construction-reshape-unpivot-add-source-field"
+          disabled={props.disabled || !props.supported}
+          onClick={addSourceField}
+          className="justify-self-start rounded border border-blue-300 bg-white px-3 py-1.5 text-sm font-medium text-blue-800 disabled:opacity-50"
+        >
+          Add a field that is not in the table
+        </button>
+      ) : null}
+      {props.form.inputs.length > 0 ? (
+        <p data-testid="construction-reshape-unpivot-source-kind-note" className="m-0 text-xs text-slate-500">
+          Melted value columns must share one type: text, integer, decimal, or boolean. Integer and decimal may mix.
+        </p>
+      ) : null}
       <details data-testid="construction-unpivot-advanced" className="rounded border border-slate-200 p-3">
         <summary className="cursor-pointer text-sm font-medium text-blue-800">Advanced options: field names and missing values</summary>
         <div className="mt-3 grid gap-3">
-          {props.form.inputs.map((input) => {
+          {props.form.inputs.map((input, index) => {
             const column = props.stage.columns.find((candidate) => candidate.id === input.columnId);
-            return <div key={input.columnId} className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-              <span className="text-sm font-medium text-slate-800">{column?.label ?? 'Selected field'}</span>
+            return <div key={`${input.columnId}-${index}`} className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <label className="grid gap-1 text-sm font-medium text-slate-800">
+                <span>{column?.label ?? 'Selected field'}</span>
+                <select
+                  aria-label={`Unpivot input ${index + 1} field`}
+                  data-testid={`construction-reshape-unpivot-input-${index}-column`}
+                  value={input.columnId}
+                  disabled={props.disabled || !props.supported}
+                  onChange={(event) => rebindInput(index, event.currentTarget.value)}
+                  className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                >
+                  {!column ? (
+                    <option value={input.columnId}>{props.form.unpivotSources?.some((binding) => binding.columnId === input.columnId) ? 'Selected field (from your data)' : 'Missing column'}</option>
+                  ) : null}
+                  <optgroup label="Fields in this table">
+                    {props.stage.columns
+                      .filter((candidate) => !(props.form.unpivotSources ?? []).some((binding) => binding.columnId === candidate.id) || candidate.id === input.columnId)
+                      .map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+                  </optgroup>
+                  <optgroup label="Fields from your data">
+                    {availableSourceChoices.map((choice) => (
+                      <option key={choice.choiceId} data-testid={`construction-reshape-unpivot-input-${index}-source-option`} value={`source:${choice.choiceId}`} title={choice.fieldPath}>
+                        {choice.label} ({choice.logicalType})
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </label>
               <ScalarKeyEditor input={input} disabled={props.disabled || !props.supported} onChange={(key) => updateInputKey(input.columnId, key)} />
             </div>;
           })}

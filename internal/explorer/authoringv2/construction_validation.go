@@ -358,6 +358,20 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 		if owner.Operation.Derive == nil || !containsConstructionColumnID(owner.inputColumnIDs(), projection.ColumnID) {
 			return fmt.Errorf("source projection columnId %q is not a COLUMN operand of its owner DERIVE step", projection.ColumnID)
 		}
+	case ConstructionOperationUnpivot:
+		if owner.Operation.Unpivot == nil {
+			return fmt.Errorf("source projection owner step %q has no unpivot payload", projection.OwnerStepID)
+		}
+		melted := false
+		for _, input := range owner.Operation.Unpivot.Inputs {
+			if input.ColumnID == projection.ColumnID {
+				melted = true
+				break
+			}
+		}
+		if !melted {
+			return fmt.Errorf("source projection columnId %q is not a melt input of its owner UNPIVOT step", projection.ColumnID)
+		}
 	default:
 		return fmt.Errorf("source projection must be consumed by its owner PIVOT step")
 	}

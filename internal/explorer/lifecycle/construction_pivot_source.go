@@ -651,8 +651,8 @@ func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, 
 // projection under the slot's own ColumnID is the slot's re-bind entry, not a
 // second carrier. Columns whose compiled name is internal (_key/__loom_*) are
 // excluded together with the duplicate counter that skips internal columns.
-// Only projections owned by a Derive or Filter step are slot carriers: those
-// are the entries the receipt contract guard actually compares at
+// Only projections owned by a Derive, Filter, or Unpivot step are slot
+// carriers: those are the entries the receipt contract guard actually compares at
 // :1022/:1156, and shipped lifecycle contracts establish that a slot sharing
 // its field with a Pivot-owned source input is legitimate state.
 func constructionRootFieldAlreadyProjected(document authoringv2.Document, steps []authoringv2.ConstructionStep, projections []authoringv2.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
@@ -693,7 +693,8 @@ func constructionStepCarriesSourceLane(steps []authoringv2.ConstructionStep, ste
 			continue
 		}
 		return step.Operation.Kind == authoringv2.ConstructionOperationDerive ||
-			step.Operation.Kind == authoringv2.ConstructionOperationFilter
+			step.Operation.Kind == authoringv2.ConstructionOperationFilter ||
+			step.Operation.Kind == authoringv2.ConstructionOperationUnpivot
 	}
 	return false
 }

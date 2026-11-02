@@ -2044,6 +2044,30 @@ export const constructionDeriveSourceSelectionSchema = z.object({
 }).strict();
 export type ConstructionDeriveSourceSelection = z.infer<typeof constructionDeriveSourceSelectionSchema>;
 
+const constructionUnpivotSourceChoiceSchema = z.object({
+  choiceId: z.string().min(1),
+  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
+  columnId: z.string().optional(),
+  fieldPath: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  isPopulated: z.boolean(),
+}).strict();
+
+const constructionUnpivotSourceInputSchema = z.object({
+  supported: z.boolean(),
+  stageId: opaqueIdSchema,
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+  choices: z.array(constructionUnpivotSourceChoiceSchema),
+}).strict();
+
+export const constructionUnpivotSourceSelectionSchema = z.object({
+  choiceId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+export type ConstructionUnpivotSourceSelection = z.infer<typeof constructionUnpivotSourceSelectionSchema>;
+
 export const constructionCapabilitiesResponseSchema = z.object({
   snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(),
@@ -2063,6 +2087,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   pivotSourceInput: constructionScalarSourceInputSchema.optional(),
   filterSourceInput: constructionFilterSourceInputSchema.optional(),
   deriveSourceInput: constructionDeriveSourceInputSchema.optional(),
+  unpivotSourceInput: constructionUnpivotSourceInputSchema.optional(),
   workspaceInputs: z.array(constructionWorkspaceInputSchema),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
@@ -2137,6 +2162,7 @@ export const constructionProposalRequestSchema = z.object({
   pivotSources: z.array(constructionPivotSourceSelectionSchema).optional(),
   filterSources: z.array(constructionFilterSourceSelectionSchema).optional(),
   deriveSources: z.array(constructionDeriveSourceSelectionSchema).optional(),
+  unpivotSources: z.array(constructionUnpivotSourceSelectionSchema).optional(),
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
 

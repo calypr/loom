@@ -109,6 +109,14 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 			})
 		}
 	}
+	if body.UnpivotSources != nil {
+		request.UnpivotSources = make([]lifecycle.ConstructionUnpivotSourceSelection, 0, len(*body.UnpivotSources))
+		for _, selection := range *body.UnpivotSources {
+			request.UnpivotSources = append(request.UnpivotSources, lifecycle.ConstructionUnpivotSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
 	if body.GroupSources != nil {
 		request.GroupSources = make([]lifecycle.ConstructionGroupSourceSelection, 0, len(*body.GroupSources))
 		for _, selection := range *body.GroupSources {

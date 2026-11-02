@@ -522,6 +522,15 @@ func compiledDeriveSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, 
 	return compiledFilterSourceSlotMatches(compiledOutput, projection)
 }
 
+// compiledUnpivotSourceSlotMatches ties a durable unpivot-owned projection to
+// the compiled source-stage column the accepted plan materialized: same ID,
+// derived public name, claimed FHIR path, logical kind, and label. A signed
+// melt input compiles through the same source-stage slot contract as a filter
+// or derive source, so the channel shares the one slot predicate.
+func compiledUnpivotSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+	return compiledFilterSourceSlotMatches(compiledOutput, projection)
+}
+
 func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
 	return authoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
 }
@@ -1128,10 +1137,71 @@ func authoredConstructionOutputsWithCombineInputs(
 			if err != nil {
 				return fmt.Errorf("unpivot step %q: %w", step.ID, err)
 			}
+			for _, projection := range document.Construction.SourceProjections {
+				if projection.OwnerStepID != step.ID {
+					continue
+				}
+				audited := make([]string, 0, len(quality.LossReasons)+1)
+				audited = append(audited, quality.LossReasons...)
+				audited = append(audited, "CONSTRUCTION_UNPIVOT_SOURCE_ROWS_UNPIVOTED_FROM_UNSELECTED_FIELD")
+				quality.LossReasons = audited
+				break
+			}
 			for _, columnID := range []string{unpivot.KeyOutputColumnID, unpivot.ValueOutputColumnID} {
 				if err := addOutput(columnID, unpivot.ConstructionID, dependencies, quality); err != nil {
 					return err
 				}
+			}
+			for _, projection := range document.Construction.SourceProjections {
+				if projection.OwnerStepID != step.ID {
+					continue
+				}
+				consumed := false
+				for _, input := range unpivot.Inputs {
+					if input.ColumnID == projection.ColumnID {
+						consumed = true
+					}
+				}
+				if !consumed {
+					return fmt.Errorf("unpivot step %q carries source projection column %q it does not melt as an input", step.ID, projection.ColumnID)
+				}
+				var declared *authoringv2.StageColumn
+				for carrierIndex := 0; carrierIndex < stepIndex; carrierIndex++ {
+					for outputIndex := range document.Construction.Steps[carrierIndex].Outputs {
+						if document.Construction.Steps[carrierIndex].Outputs[outputIndex].ID == projection.ColumnID {
+							declared = &document.Construction.Steps[carrierIndex].Outputs[outputIndex]
+							break
+						}
+					}
+					if declared != nil {
+						break
+					}
+				}
+				if declared == nil || !requiredConstructionID(declared.ID) || strings.TrimSpace(declared.Name) == "" || strings.TrimSpace(declared.Label) == "" {
+					return fmt.Errorf("unpivot step %q source projection output %q is missing a declared stable ID, name, or label", step.ID, projection.ColumnID)
+				}
+				if prior[declared.ID] != declared.Name {
+					return fmt.Errorf("unpivot step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if !compiledUnpivotSourceSlotMatches(compiledOutput, projection) {
+					return fmt.Errorf("unpivot step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
+					return fmt.Errorf("unpivot step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
+				}
+				derived, ok := lifecycle.ConstructionUnpivotSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+				expected := authoringv2.ConstructionSourceProjection{
+					ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
+					OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
+					FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
+				}
+				if !ok || expected != projection {
+					return fmt.Errorf("unpivot step %q source projection output %q no longer matches the authorized unpivot source derivation for field %q", step.ID, declared.ID, projection.FieldPath)
+				}
+				// Unlike Filter and Derive sources, an UNPIVOT melt input is
+				// consumed and never surfaces in the final table schema, so
+				// this channel validates identity and authorization but does
+				// not claim the slot as an authored table-shape output.
 			}
 		case authoringv2.ConstructionOperationFilter:
 			if step.Operation.Filter == nil {
