@@ -245,6 +245,7 @@ try {
   assert.equal(stampBefore.checkExit, 0, `serving build identity must be current before the journey runs: ${JSON.stringify(stampBefore)}`);
   assert.ok(stampBefore.runningBinary && stampBefore.liveSource && stampBefore.expectedSource && stampBefore.gitHead,
     `build identity must be fully recorded (runningBinary/liveSource/expectedSource/gitHead non-null): ${JSON.stringify(stampBefore)}`);
+  requireRecordedIdentity(stampBefore, 'pre-run:');
   report.buildIdentity = { before: stampBefore, after: null };
   save('build-identity.before.json', stampBefore);
 
@@ -302,11 +303,39 @@ try {
     const setBack = await setInput('[data-testid="construction-filter-editor"] input[aria-label="Value"]', value);
     assert.equal(setBack, value, 'value input set failed');
     await until(() => mounted('[data-testid="construction-proposal-ready"]'), 'proposal ready', 30000);
+    // Post-selection read-back (the silent-vacuous half of this helper): every read above happens in
+    // the same turn as our own write, so an app-side reset or an option that never bound could satisfy
+    // the whole helper. Re-read what the picker actually holds once it announces READY; zero matches
+    // (no selected option) is a failure, not a pass.
+    const bound = await evaluate(`(()=>{
+      const s=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]');
+      const c=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]');
+      const v=document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]');
+      if(!s||!c||!v)return null;
+      const opt=s.selectedIndex>=0&&s.options?s.options[s.selectedIndex]:null;
+      const copt=c.selectedIndex>=0&&c.options?c.options[c.selectedIndex]:null;
+      return opt?{colTitle:opt.getAttribute('title'),colValue:s.value,condValue:copt?copt.value:null,condLabel:copt?copt.textContent.trim():null,inputValue:v.value}:null;
+    })()`);
+    assert.ok(bound && bound.colTitle, `${fieldPath} picker read-back: no column option is selected after the editor announced READY (zero matches = the pick never bound): ${JSON.stringify(bound)}`);
+    assert.equal(bound.colTitle, fieldPath, `picker: the selected column option is not ${fieldPath} after the app settled: ${JSON.stringify(bound)}`);
+    assert.equal(bound.colValue, info.value, `picker: the column select drifted from the picked token ${info.value}: ${JSON.stringify(bound)}`);
+    assert.ok(bound.condValue && /(equal|equals)/i.test(`${bound.condValue} ${bound.condLabel || ''}`), `picker: no equality condition is actually selected after the app settled: ${JSON.stringify(bound)}`);
+    assert.equal(bound.inputValue, value, `picker: the value input no longer holds ${value} after the app settled: ${JSON.stringify(bound)}`);
+    picked.boundReadBack = bound;
     picked.proposalReady = true;
     report.steps.push({ step: 'picker', ...picked });
     await wait(400);
   };
-  const builderDoc = async () => (await mainCtx.call('builder')).value?.workspace?.documents?.[0]?.construction || {};
+  // Server-truth doc read. It deliberately does NOT default the construction object to {}: an absent
+  // construction turned every `(doc.steps || []).filter(...)` census below into an empty scan that
+  // its own `length === 0` assert then certified as success (the mut-H2 silent-vacuous channel).
+  const builderDoc = async () => {
+    const builder = (await mainCtx.call('builder')).value;
+    const doc = builder?.workspace?.documents?.[0]?.construction;
+    assert.ok(doc && typeof doc === 'object' && !Array.isArray(doc),
+      `server-truth read returned no construction object for document 0; a census over it would pass vacuously: keys=${JSON.stringify(Object.keys(builder?.workspace?.documents?.[0] ?? {}))} doc=${JSON.stringify(builder?.workspace?.documents?.[0] ?? null).slice(0, 300)}`);
+    return doc;
+  };
 
   // STEP 0 behavior: capabilities expose the filterSourceInput gender choice.
   await navigate();
@@ -384,12 +413,14 @@ try {
     await openKeepRowsEditorAndPick('gender', 'female');
     await until(() => mounted('[data-testid="construction-apply-proposal"]'), 'apply visible', 20000);
     await realClick('[data-testid="construction-apply-proposal"]');
+    let applyObserved = false;
     for (let i = 0; i < 25; i += 1) {
       const builder = (await mainCtx.call('builder')).value;
       const steps = builder.workspace.documents[0].construction?.steps || [];
-      if (steps.some((step) => step.operation?.kind === 'FILTER')) break;
+      if (steps.some((step) => step.operation?.kind === 'FILTER')) { applyObserved = true; break; }
       await wait(300);
     }
+    assert.ok(applyObserved, `step4 APPLY: the persisted doc never showed a FILTER step within ${25 * 300}ms; falling through an unobserved persistence is a failure`);
     await wait(400);
     const doc = await builderDoc();
     save('step4-doc-after-apply.json', { steps: doc.steps, sourceProjections: doc.sourceProjections });
@@ -400,6 +431,9 @@ try {
       sourceProjections: (doc.sourceProjections || []).map((p) => ({ col: p.columnId, owner: p.ownerStepId, path: p.fieldPath, fhir: p.fhirType })), previewDOM: main });
     assertNonEmpty(identity, 'step4 post-apply preview');
     assert.deepEqual(identity, oracle.equalFemale, `step4 post-apply preview identity: ${JSON.stringify(identity)}`);
+    const appliedGenderProjection = (doc.sourceProjections || []).find((projection) => projection.fieldPath === 'gender');
+    assert.ok(appliedGenderProjection && appliedGenderProjection.columnId && appliedGenderProjection.columnId.length > 1 && appliedGenderProjection.ownerStepId,
+      `step4 APPLY: zero matches for a filter-owned gender source projection over ${(doc.sourceProjections || []).length} projection(s); an empty census must fail, not certify the materialization claim: ${JSON.stringify(doc.sourceProjections || [])}`);
     await screenshot('step4-preview-post-apply');
     if (await mounted('[data-testid="construction-close-operation-editor"]')) await realClick('[data-testid="construction-close-operation-editor"]');
     record('step-4-apply-exact-rows', { identity, sourceProjections: (doc.sourceProjections || []).map((p) => ({ col: p.columnId, path: p.fieldPath })) });
@@ -508,6 +542,15 @@ try {
   {
     if (await mounted('[data-testid="construction-close-operation-editor"]')) { await realClick('[data-testid="construction-close-operation-editor"]'); await wait(200); }
     await navigate(); await wait(300);
+    // Zero-match discipline: both post-removal asserts below are `length === 0` claims over a filter
+    // predicate, so they are only meaningful when the pre-removal census really contained the FILTER
+    // step and its filter-owned gender projection. Observing the pre-state first turns "went to zero"
+    // into a witnessed transition instead of an empty scan that certifies itself.
+    const preRemoveDoc = await builderDoc();
+    assert.ok((preRemoveDoc.steps || []).some((step) => step.operation?.kind === 'FILTER'),
+      `REMOVE pre-remove census: no FILTER step in the persisted doc (${(preRemoveDoc.steps || []).length} step(s)); the post-removal zero asserts below would be vacuous: ${JSON.stringify((preRemoveDoc.steps || []).map((step) => step.operation?.kind))}`);
+    assert.ok((preRemoveDoc.sourceProjections || []).some((projection) => projection.fieldPath === 'gender' && projection.ownerStepId),
+      `REMOVE pre-remove census: no filter-owned gender projection in the persisted doc; "no leftover owned projection" must never be certified from a census that was empty to begin with: ${JSON.stringify((preRemoveDoc.sourceProjections || []).map((projection) => ({ path: projection.fieldPath, owner: projection.ownerStepId })))}`);
     const historyIds = await evaluate(`(()=>[...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(e=>e.getAttribute('data-testid').replace('construction-history-step-','')))()`);
     assert.ok(historyIds.length >= 1, `remove: no history step present; ids=${JSON.stringify(historyIds)}`);
     const editStepId = historyIds[0];
@@ -517,12 +560,14 @@ try {
     await until(() => mounted('[data-testid="construction-proposal-ready"]'), 'removal proposal ready', 30000);
     await screenshot('step4-remove-proposal');
     await realClick('[data-testid="construction-apply-proposal"]');
+    let removalObserved = false;
     for (let i = 0; i < 25; i += 1) {
       const builder = (await mainCtx.call('builder')).value;
       const hasFilter = (builder.workspace.documents[0].construction?.steps || []).some((s) => s.operation?.kind === 'FILTER');
-      if (!hasFilter) break;
+      if (!hasFilter) { removalObserved = true; break; }
       await wait(300);
     }
+    assert.ok(removalObserved, `REMOVE: the persisted doc never showed the FILTER step gone within ${25 * 300}ms; falling through an unobserved removal is a failure`);
     const afterDoc = await builderDoc();
     await wait(400);
     const mainAfter = await evaluate(`(()=>{const t=document.querySelector('[data-testid="preview-table-content"]');if(!t)return null;return [...t.querySelectorAll('[role=row]')].map(r=>[...r.querySelectorAll('[role=cell]')].map(c=>c.textContent.trim()));})()`);
@@ -542,12 +587,14 @@ try {
     await navigate(); await wait(200);
     await openKeepRowsEditorAndPick('gender', 'female');
     await realClick('[data-testid="construction-apply-proposal"]');
+    let reAddObserved = false;
     for (let i = 0; i < 25; i += 1) {
       const builder = (await mainCtx.call('builder')).value;
       const value = (builder.workspace.documents[0].construction?.steps || []).find((s) => s.operation?.kind === 'FILTER')?.operation?.filter?.values?.[0]?.string;
-      if (value === 'female') break;
+      if (value === 'female') { reAddObserved = true; break; }
       await wait(300);
     }
+    assert.ok(reAddObserved, `RE-ADD: the persisted FILTER value never became 'female' within ${25 * 300}ms; falling through an unobserved re-apply is a failure`);
     await wait(400);
     const dom = await readDomPreview() || await evaluate(`(()=>{const t=document.querySelector('[data-testid="preview-table-content"]');if(!t)return null;return{rows:[...t.querySelectorAll('[role=row]')].map(r=>[...r.querySelectorAll('[role=cell]')].map(c=>c.textContent.trim()))};})()`);
     const ids = (dom?.rows || []).flat().filter((cell) => /^dev-p/.test(cell)).sort();
@@ -579,6 +626,7 @@ try {
 
   // Post-run build identity: source and running binary must be unchanged across the run.
   const stampAfter = collectBuildIdentity();
+  requireRecordedIdentity(stampAfter, 'post-run:');
   report.buildIdentity.after = stampAfter;
   save('build-identity.after.json', stampAfter);
   assert.equal(stampAfter.gitHead, stampBefore.gitHead, `git HEAD moved during run (${stampBefore.gitHead} -> ${stampAfter.gitHead})`);
@@ -625,6 +673,20 @@ function assertNonEmpty(values, label) {
   assert.ok(Array.isArray(values) && values.length > 0, `${label}: zero rows matched, expected at least one oracle row`);
 }
 
+// Zero-match discipline for the build-stamp barrier: the stamp script only compares the recorded
+// identity when its own --check runs, so a failed or truncated `cat` of the recorded stamp leaves
+// recordedBinary/recordedSource null and the checkExit gate alone never notices. An empty identity
+// census must FAIL the run rather than certify it (same discipline as assertNonEmpty above and the
+// unpivot twin's "no empty running column" gate). Every floor that existed before stays in place.
+function requireRecordedIdentity(stamp, when) {
+  assert.ok(stamp.recordedBinary && stamp.recordedSource,
+    `${when} recorded build identity is unreadable or empty (recordedBinary/recordedSource must be non-null): ${JSON.stringify(stamp)}`);
+  assert.equal(stamp.recordedBinary, stamp.runningBinary,
+    `${when} recorded binary ${stamp.recordedBinary} must equal the serving binary ${stamp.runningBinary}`);
+  assert.equal(stamp.recordedSource, stamp.expectedSource,
+    `${when} recorded source ${stamp.recordedSource} must equal the expected source digest ${stamp.expectedSource}`);
+}
+
 async function runApiNegatives(host, staleCtx) {
   const swapSignature = (token) => {
     const segments = token.split('.');
@@ -642,6 +704,12 @@ async function runApiNegatives(host, staleCtx) {
   const embeddedSnapshot = (token) => {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).snapshotToken ?? null; } catch { return null; }
   };
+  // Decodes the `rc1.<payload>.<digest>` row-choice token (see capability/row_choice.go:257-278).
+  // Without it, a token that fails to decode makes embeddedSnapshot() null, and `null !== hostToken`
+  // would satisfy the staleness check by accident — the zero-match twin of the vacuous-pass class.
+  const decodedPayload = (token) => {
+    try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; }
+  };
   const capabilities = async (ctx) => {
     const builder = (await ctx.call('builder')).value;
     const stepCount = (builder.workspace?.documents?.[0]?.construction?.steps || []).length;
@@ -656,6 +724,9 @@ async function runApiNegatives(host, staleCtx) {
   const hostCaps = await capabilities(host);
   const genderChoice = hostCaps.choices.find((choice) => choice.fieldPath === 'gender');
   assert.ok(genderChoice, 'gender choice must exist on the negatives host');
+  assert.ok(decodedPayload(genderChoice.choiceId), `the host gender choiceId must decode as a signed row-choice token, or every token-level negative below is unverifiable: ${String(genderChoice.choiceId).slice(0, 24)}`);
+  assert.equal(embeddedSnapshot(genderChoice.choiceId), hostCaps.builder.catalog.snapshotToken,
+    `the host gender choiceId must embed the host catalog snapshot (capability/row_choice.go:131 sets it from the minting snapshot); a null snapshot would satisfy the staleness comparison by accident: ${JSON.stringify({ embedded: embeddedSnapshot(genderChoice.choiceId), host: hostCaps.builder.catalog.snapshotToken })}`);
   const activeInCaps = hostCaps.choices.some((choice) => choice.fieldPath === 'active');
 
   // Provably-stale choiceId: a valid signed token whose embedded snapshot comes from another
@@ -664,6 +735,7 @@ async function runApiNegatives(host, staleCtx) {
   const staleGender = staleCaps.choices.find((choice) => choice.fieldPath === 'gender');
   assert.ok(staleGender, 'gender choice must exist on the cross-snapshot fixture');
   const staleCandidate = staleGender.choiceId;
+  assert.ok(decodedPayload(staleCandidate), `the cross-fixture gender choiceId must decode as a signed row-choice token: ${String(staleCandidate).slice(0, 24)}`);
   assert.notEqual(embeddedSnapshot(staleCandidate), hostCaps.builder.catalog.snapshotToken,
     'cross-fixture choiceId must embed a snapshot distinct from the proposal host (provably stale)');
 
@@ -694,7 +766,9 @@ async function runApiNegatives(host, staleCtx) {
   await expectCase('N0-control-valid-choice', await proposalRequest(genderChoice.choiceId), '200');
   await expectCase('N1-forged-signature', await proposalRequest(swapSignature(genderChoice.choiceId)), '409');
   await expectCase('N2-stale-choiceId', await proposalRequest(staleCandidate), '409');
-  await expectCase('N3-tampered-payload-path', await proposalRequest(tamperPayload(genderChoice.choiceId, (obj) => { obj.path = 'manually_tampered_path'; })), '409');
+  const tamperedPathToken = tamperPayload(genderChoice.choiceId, (obj) => { obj.path = 'manually_tampered_path'; });
+  assert.equal(decodedPayload(tamperedPathToken)?.path, 'manually_tampered_path', 'N3: the payload tamper must actually land in the re-encoded token; a silent no-op would still answer 409 for the wrong reason');
+  await expectCase('N3-tampered-payload-path', await proposalRequest(tamperedPathToken), '409');
   await expectCase('N4-empty-choiceId', await proposalRequest(''), '400');
   {
     const body = await proposalRequest(genderChoice.choiceId);
@@ -703,6 +777,7 @@ async function runApiNegatives(host, staleCtx) {
   }
   {
     const forgedActive = tamperPayload(genderChoice.choiceId, (obj) => { obj.path = 'active'; });
+    assert.equal(decodedPayload(forgedActive)?.path, 'active', 'N6: the forged unpopulated-field path must actually land in the re-encoded token');
     const response = await host.call('construction-proposals', await proposalRequest(forgedActive));
     report.negatives.push({ name: 'N6-unpopulated-field-refusal', expected: 'absent+refused', activeInCaps, status: response.status });
     assert.ok(!activeInCaps, 'active must never be offered in capabilities choices');

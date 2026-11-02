@@ -330,7 +330,21 @@ try {
     const opt=[...og.querySelectorAll('option')].find(o=>o.getAttribute('title')==='valueQuantity.value' && o.getAttribute('data-testid')==='construction-calculate-left-source-option');
     return opt?{value:opt.value,label:opt.textContent.trim(),title:opt.getAttribute('title')}:null;
   })()`);
-  const builderDoc = async () => (await mainCtx.call('builder')).value?.workspace?.documents?.[0]?.construction || {};
+  // Server-truth doc read (bs-62-2 twin fix from verify-explorer-filter-row-source.mjs:329-338).
+  // It deliberately does NOT default the construction object to {}: an absent construction turned
+  // every `(doc.steps || []).filter(...)` census below into an empty scan that its own
+  // `length === 0` claim then certified as success. Callers only reach this after at least one
+  // construction proposal has been applied (authoringv2/commands.go:1447 sets Document.Construction
+  // on APPLY_CONSTRUCTION_PROPOSAL; live-pinned: a seeded doc carries no construction key yet, so
+  // every pre-first-proposal poll in this file keeps a tolerant read instead); swallowing its
+  // absence into {} after that point could only mask a broken read.
+  const builderDoc = async () => {
+    const builder = (await mainCtx.call('builder')).value;
+    const doc = builder?.workspace?.documents?.[0]?.construction;
+    assert.ok(doc && typeof doc === 'object' && !Array.isArray(doc),
+      `server-truth read returned no construction object for document 0; a census over it would pass vacuously: keys=${JSON.stringify(Object.keys(builder?.workspace?.documents?.[0] ?? {}))} doc=${JSON.stringify(builder?.workspace?.documents?.[0] ?? null).slice(0, 300)}`);
+    return doc;
+  };
   const previewRowsByLabel = (preview) => (preview?.rows || [])
     .map((row) => ({ id: (row.find((cell) => /^dev-/.test(cell)) ?? '').trim(), derived: ((preview?.headers || []).findIndex((header) => header.includes('Derived')) >= 0 ? row[(preview.headers).findIndex((header) => header.includes('Derived'))] : '') ?? '' }))
     .filter((entry) => entry.id !== '');
@@ -423,6 +437,9 @@ try {
   report.buildIdentity = { before: stampBefore, after: null };
   save('build-identity.before.json', stampBefore);
   assert.equal(stampBefore.checkExit, 0, `serving build identity must be current before the journey runs: ${JSON.stringify(stampBefore)}`);
+  assert.ok(stampBefore.runningBinary && stampBefore.liveSource && stampBefore.expectedSource && stampBefore.gitHead,
+    `build identity must be fully recorded (runningBinary/liveSource/expectedSource/gitHead non-null): ${JSON.stringify(stampBefore)}`);
+  requireRecordedIdentity(stampBefore, 'pre-run:');
 
   // Independent oracle.
   const oracle = computeOracle();
@@ -486,13 +503,18 @@ try {
     await setInput('[data-testid="construction-filter-editor"] input[aria-label="Value"]', 'final');
     await until(() => mounted('[data-testid="construction-proposal-ready"]'), 'prelude proposal ready', 30000);
     await realClick('[data-testid="construction-apply-proposal"]');
+    // Pre-first-persistence window: construction is legitimately nil until the first
+    // APPLY_CONSTRUCTION_PROPOSAL (live-pinned: a seeded doc carries no construction key;
+    // authoringv2/commands.go:1447 sets it on proposal apply). This poll therefore keeps the
+    // filter lane's tolerant read shape; the post-loop presence assert below is the
+    // observed-transition floor — a never-persisted FILTER stays loudly red.
     for (let i = 0; i < 25; i += 1) {
-      const doc = await builderDoc();
-      if ((doc.steps || []).some((s) => s.operation?.kind === 'FILTER')) break;
+      const builder = (await mainCtx.call('builder')).value;
+      if ((builder.workspace.documents[0].construction?.steps || []).some((s) => s.operation?.kind === 'FILTER')) break;
       await wait(300);
     }
     await wait(400);
-    const doc = await builderDoc();
+    const doc = (await mainCtx.call('builder')).value?.workspace?.documents?.[0]?.construction || {};
     assert.ok((doc.steps || []).some((s) => s.operation?.kind === 'FILTER'), 'PRELUDE: FILTER step was not persisted');
     const preludeRows = await evaluate(`(()=>{const t=document.querySelector('[data-testid="preview-table-content"]');if(!t)return null;return [...t.querySelectorAll('[role=row]')].map(r=>[...r.querySelectorAll('[role=cell]')].map(c=>c.textContent.trim()));})()`);
     const preludeIds = (preludeRows || []).flat().filter((cell) => /^dev-/.test(cell));
@@ -698,6 +720,12 @@ try {
     const docBefore = await builderDoc();
     const step = (docBefore.steps || []).find((s) => s.operation?.kind === 'DERIVE');
     assert.ok(step, 'REMOVE: no DERIVE step to remove');
+    // Zero-match discipline (filter-lane twin): the post-removal `length === 0` asserts below are
+    // only meaningful when the pre-removal census really contained the DERIVE step together with its
+    // derive-owned valueQuantity.value projection; observing the pre-state turns "went to zero" into
+    // a witnessed transition instead of an empty scan that certifies itself.
+    assert.ok((docBefore.sourceProjections || []).some((projection) => projection.fieldPath === 'valueQuantity.value' && projection.ownerStepId),
+      `REMOVE pre-remove census: no derive-owned valueQuantity.value projection in the persisted doc; "no leftover owned projection" must never be certified from a census that was empty to begin with: ${JSON.stringify((docBefore.sourceProjections || []).map((projection) => ({ path: projection.fieldPath, owner: projection.ownerStepId })))}`);
     const historyIds = await evaluate(`(()=>[...document.querySelectorAll('[data-testid^="construction-history-step-"]')].map(e=>e.getAttribute('data-testid').replace('construction-history-step-','')))()`);
     const target = historyIds.includes(step.id) ? step.id : historyIds[0];
     await clickHistoryStep(target);
@@ -748,7 +776,7 @@ try {
     const dom = await readDomPreview().catch(() => null) || await evaluate(`(()=>{const t=document.querySelector('[data-testid="preview-table-content"]');if(!t)return null;return{headers:[...t.querySelectorAll('[role=columnheader]')].map(c=>c.textContent.trim()),rows:[...t.querySelectorAll('[role=row]')].map(r=>[...r.querySelectorAll('[role=cell]')].map(c=>c.textContent.trim()))};})()`);
     await screenshot('step4-re-add');
     const seen = checkPreviewAgainstOracle(dom, 3, 'RE-ADD');
-    const construction = (await mainCtx.call('builder')).value.workspace.documents[0].construction;
+    const construction = await builderDoc();
     const step = (construction.steps || []).find((s) => s.operation?.kind === 'DERIVE');
     const projection = (construction.sourceProjections || []).find((p) => p.fieldPath === 'valueQuantity.value');
     assert.ok(step, 'RE-ADD: no DERIVE step persisted after re-add');
@@ -787,6 +815,11 @@ try {
       if (filters.some((s) => s.operation?.filter?.values?.[0]?.string === 'cm')) break;
       await wait(300);
     }
+    // Observed-transition discipline (bs-62-2 class): an exhausted poll must not fall through into
+    // the exact-scope asserts below, which would otherwise certify a scoped grid nobody persisted.
+    const scopedDoc = await builderDoc();
+    assert.ok((scopedDoc.steps || []).some((s) => s.operation?.kind === 'FILTER' && s.operation?.filter?.values?.[0]?.string === 'cm'),
+      `STEP 5 SCOPED-cm: the persisted doc never showed the cm FILTER step within ${25 * 300}ms; falling through an unobserved apply would leave the exact-row asserts below scanning an unscoped table`);
     await wait(400);
     const table = await evaluate(`(()=>{const t=document.querySelector('[data-testid="preview-table-content"]');if(!t)return null;const h=[...t.querySelectorAll('[role=columnheader]')].map(c=>c.textContent.trim());const rs=[...t.querySelectorAll('[role=row]')].map(r=>[...r.querySelectorAll('[role=cell]')].map(c=>c.textContent.trim()));return{h,rs};})()`);
     const cmTableSeen = checkPreviewAgainstOracle({ headers: table?.h || [], rows: table?.rs || [] }, 3, 'STEP 5 SCOPED-cm-table', oracle.cmRows.map((row) => row.id));
@@ -813,6 +846,7 @@ try {
 
   // Post-run build identity: source and running binary must be unchanged across the run.
   const stampAfter = collectBuildIdentity();
+  requireRecordedIdentity(stampAfter, 'post-run:');
   report.buildIdentity.after = stampAfter;
   save('build-identity.after.json', stampAfter);
   assert.equal(stampAfter.gitHead, stampBefore.gitHead, `git HEAD moved during run (${stampBefore.gitHead} -> ${stampAfter.gitHead})`);
@@ -861,6 +895,22 @@ function assertNonEmpty(values, label) {
   assert.ok(Array.isArray(values) && values.length > 0, `${label}: zero rows matched, expected at least one oracle row`);
 }
 
+// Zero-match discipline for the build-stamp barrier (bs-62-2 twin fix from
+// verify-explorer-filter-row-source.mjs:676-688): the stamp script compares the recorded identity
+// internally but a failed or truncated `cat` of the recorded stamp leaves
+// recordedBinary/recordedSource null in OUR hands, and the checkExit gate alone never notices.
+// Safety: loom-dev-build-stamp.sh --check exits 0 only when expected_source == source_digest &&
+// running_binary == expected_binary read from the same recorded file, so on every legitimate green
+// these equalities already hold and this floor cannot false-fail a real run.
+function requireRecordedIdentity(stamp, when) {
+  assert.ok(stamp.recordedBinary && stamp.recordedSource,
+    `${when} recorded build identity is unreadable or empty (recordedBinary/recordedSource must be non-null): ${JSON.stringify(stamp)}`);
+  assert.equal(stamp.recordedBinary, stamp.runningBinary,
+    `${when} recorded binary ${stamp.recordedBinary} must equal the serving binary ${stamp.runningBinary}`);
+  assert.equal(stamp.recordedSource, stamp.expectedSource,
+    `${when} recorded source ${stamp.recordedSource} must equal the expected source digest ${stamp.expectedSource}`);
+}
+
 async function runApiNegatives(host, staleCtx) {
   const swapSignature = (token) => {
     const segments = token.split('.');
@@ -878,8 +928,23 @@ async function runApiNegatives(host, staleCtx) {
   const embeddedSnapshot = (token) => {
     try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).snapshotToken ?? null; } catch { return null; }
   };
+  // Decodes the `rc1.<payload>.<digest>` row-choice token (see capability/row_choice.go:257-278).
+  // Without it, a token that fails to decode makes embeddedSnapshot() null, and `null !== hostToken`
+  // would satisfy the staleness check by accident — the zero-match twin of the vacuous-pass class
+  // (bs-62-2 N2 analog, mirrored from verify-explorer-filter-row-source.mjs:707-712).
+  const decodedPayload = (token) => {
+    try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; }
+  };
   const capabilities = async (ctx) => {
     const builder = (await ctx.call('builder')).value;
+    // Report-only (bs-62-2 class, same disposition as the filter lane): the pristine host is a
+    // zero-step claim over an optionally-missing census. A seeded doc legitimately carries NO
+    // construction object until the first construction proposal is applied (live-pinned 2026-11-02:
+    // seeded builder payload has no construction key; authoringv2/commands.go:1447 sets it on
+    // APPLY_CONSTRUCTION_PROPOSAL), so a construction-present assert could not gate this read
+    // without false-failing. The vacuity window is closed only by the caps.status === 200 plus the
+    // choice asserts below; closing it properly needs a proposal-persisted sentinel read, which is
+    // out of this lane's proven-safe scope.
     const stepCount = (builder.workspace?.documents?.[0]?.construction?.steps || []).length;
     assert.equal(stepCount, 0, 'the negatives host must be a pristine proposal host so candidateConstruction references only its new step');
     const caps = await ctx.call('construction-capabilities', {
@@ -892,6 +957,14 @@ async function runApiNegatives(host, staleCtx) {
   const hostCaps = await capabilities(host);
   const numericChoice = hostCaps.choices.find((choice) => choice.fieldPath === 'valueQuantity.value');
   assert.ok(numericChoice, 'valueQuantity.value choice must exist on the negatives host');
+  // The host token is the reference for every token-level negative below: it must actually decode
+  // and must embed the host catalog snapshot (row_choice.go sets SnapshotToken from the minting
+  // snapshot), otherwise a null-embedded undecodable token could satisfy staleness comparisons by
+  // accident (bs-62-2 N2 class; shape from the filter lane :727-729).
+  assert.ok(decodedPayload(numericChoice.choiceId),
+    `the host valueQuantity.value choiceId must decode as a signed row-choice token, or every token-level negative below is unverifiable: ${String(numericChoice.choiceId).slice(0, 24)}`);
+  assert.equal(embeddedSnapshot(numericChoice.choiceId), hostCaps.builder.catalog.snapshotToken,
+    `the host valueQuantity.value choiceId must embed the host catalog snapshot; a null/foreign snapshot would satisfy the staleness comparison by accident: ${JSON.stringify({ embedded: embeddedSnapshot(numericChoice.choiceId), host: hostCaps.builder.catalog.snapshotToken })}`);
 
   // Provably-stale choiceId: a valid signed token whose embedded snapshot comes from another
   // fixture, so it is stale relative to the proposal host (the cross-snapshot 409 negative).
@@ -899,6 +972,8 @@ async function runApiNegatives(host, staleCtx) {
   const staleNumeric = staleCaps.choices.find((choice) => choice.fieldPath === 'valueQuantity.value');
   assert.ok(staleNumeric, 'valueQuantity.value choice must exist on the cross-snapshot fixture');
   const staleCandidate = staleNumeric.choiceId;
+  assert.ok(decodedPayload(staleCandidate),
+    `the cross-fixture valueQuantity.value choiceId must decode as a signed row-choice token: ${String(staleCandidate).slice(0, 24)}`);
   assert.notEqual(embeddedSnapshot(staleCandidate), hostCaps.builder.catalog.snapshotToken,
     'cross-fixture choiceId must embed a snapshot distinct from the proposal host (provably stale)');
 
@@ -950,7 +1025,9 @@ async function runApiNegatives(host, staleCtx) {
 
   await expectCase('D1-forged-signature', proposalRequest([swapSignature(numericChoice.choiceId)]), '409', { diagnosticCode: 'INVALID_DERIVE_SOURCE_CHOICE' });
   await expectCase('D2-stale-choiceId', proposalRequest([staleCandidate]), '409');
-  await expectCase('D3-tampered-payload-path', proposalRequest([tamperPayload(numericChoice.choiceId, (obj) => { obj.path = 'manually_tampered_path'; })]), '409');
+  const tamperedPathToken = tamperPayload(numericChoice.choiceId, (obj) => { obj.path = 'manually_tampered_path'; });
+  assert.equal(decodedPayload(tamperedPathToken)?.path, 'manually_tampered_path', 'D3: the payload tamper must actually land in the re-encoded token; a silent no-op would still answer 409 for the wrong reason');
+  await expectCase('D3-tampered-payload-path', proposalRequest([tamperedPathToken]), '409');
   await expectCase('D4-empty-choiceId', proposalRequest(['']), '400', { diagnosticCode: 'MALFORMED_REQUEST' });
   {
     const body = proposalRequest([numericChoice.choiceId]);
