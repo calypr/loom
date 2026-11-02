@@ -7,43 +7,129 @@ import (
 	"time"
 )
 
-func TestAggregateSchedulerDispatchesExpectedConcurrentCallsOnce(t *testing.T) {
-	batches := make(chan int, 2)
-	state := &aggregateOperationState{operationCtx: context.Background(), expectedCalls: 158}
-	state.dispatchCalls = func(_ context.Context, calls []*aggregateCall) {
-		batches <- len(calls)
-		for _, call := range calls {
-			call.result <- aggregateCallResult{}
+type aggregateDispatchRecorder struct {
+	t       *testing.T
+	batches chan int
+	mu      sync.Mutex
+	seen    map[*aggregateCall]int
+}
+
+func newAggregateSchedulerHarness(t *testing.T, expectedCalls int) (*aggregateOperationState, *aggregateDispatchRecorder) {
+	recorder := &aggregateDispatchRecorder{
+		t:       t,
+		batches: make(chan int, expectedCalls),
+		seen:    make(map[*aggregateCall]int),
+	}
+	state := &aggregateOperationState{operationCtx: context.Background(), expectedCalls: expectedCalls}
+	state.dispatchCalls = recorder.dispatch
+	return state, recorder
+}
+
+func (r *aggregateDispatchRecorder) dispatch(_ context.Context, calls []*aggregateCall) {
+	r.mu.Lock()
+	for _, call := range calls {
+		r.seen[call]++
+		if count := r.seen[call]; count > 1 {
+			r.t.Errorf("aggregate call dispatched %d times, want exactly once", count)
 		}
 	}
-	var wait sync.WaitGroup
-	for range 158 {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			call := &aggregateCall{result: make(chan aggregateCallResult, 1)}
-			state.enqueue(call)
-			select {
-			case <-call.result:
-			case <-time.After(time.Second):
-				t.Error("aggregate call timed out")
+	r.mu.Unlock()
+	r.batches <- len(calls)
+	for _, call := range calls {
+		select {
+		case call.result <- aggregateCallResult{}:
+		default:
+		}
+	}
+}
+
+func (r *aggregateDispatchRecorder) nextBatch(timeout time.Duration) int {
+	r.t.Helper()
+	select {
+	case size := <-r.batches:
+		if size <= 0 {
+			r.t.Fatalf("dispatcher delivered batch of %d calls", size)
+		}
+		return size
+	case <-time.After(timeout):
+		r.t.Fatal("scheduler did not dispatch within timeout")
+		return 0
+	}
+}
+
+func (r *aggregateDispatchRecorder) assertContract(preDrained []int, wantCalls int) {
+	r.t.Helper()
+	total := 0
+	for _, size := range preDrained {
+		total += size
+	}
+drain:
+	for {
+		select {
+		case size := <-r.batches:
+			if size <= 0 {
+				r.t.Fatalf("dispatcher delivered batch of %d calls", size)
 			}
-		}()
+			total += size
+		default:
+			break drain
+		}
+	}
+	if total != wantCalls {
+		r.t.Fatalf("scheduler dispatched %d calls across all batches, want %d", total, wantCalls)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if distinct := len(r.seen); distinct != wantCalls {
+		r.t.Errorf("dispatcher handled %d distinct calls, want %d", distinct, wantCalls)
+	}
+}
+
+func newResolvedAggregateCall() *aggregateCall {
+	return &aggregateCall{result: make(chan aggregateCallResult, 1)}
+}
+
+func enqueueAndAwait(t *testing.T, wait *sync.WaitGroup, state *aggregateOperationState, call *aggregateCall) {
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		state.enqueue(call)
+		select {
+		case <-call.result:
+		case <-time.After(time.Second):
+			t.Error("aggregate call timed out")
+		}
+	}()
+}
+
+// The 10ms fallback debounce may legitimately split the burst under
+// preemption; wall-clock single-batch behavior is not a product guarantee.
+// Synchronize on completion and pin the observable contract: every call
+// resolves and each call is dispatched exactly once across all batches.
+func TestAggregateSchedulerDispatchesExpectedConcurrentCallsOnce(t *testing.T) {
+	const burstCalls = 158
+	state, recorder := newAggregateSchedulerHarness(t, burstCalls)
+	var wait sync.WaitGroup
+	for range burstCalls {
+		enqueueAndAwait(t, &wait, state, newResolvedAggregateCall())
 	}
 	wait.Wait()
-	select {
-	case size := <-batches:
-		if size != 158 {
-			t.Fatalf("batch size = %d, want 158", size)
-		}
-	default:
-		t.Fatal("scheduler did not dispatch")
+	recorder.assertContract(nil, burstCalls)
+}
+
+func TestAggregateSchedulerBurstSplitsAtFallbackAndRemainderDispatchesAtExpectedCount(t *testing.T) {
+	const burstCalls = 158
+	state, recorder := newAggregateSchedulerHarness(t, burstCalls)
+	var wait sync.WaitGroup
+	for range burstCalls - 8 {
+		enqueueAndAwait(t, &wait, state, newResolvedAggregateCall())
 	}
-	select {
-	case size := <-batches:
-		t.Fatalf("unexpected second batch of %d calls", size)
-	default:
+	firstBatch := recorder.nextBatch(time.Second)
+	for range 8 {
+		enqueueAndAwait(t, &wait, state, newResolvedAggregateCall())
 	}
+	wait.Wait()
+	recorder.assertContract([]int{firstBatch}, burstCalls)
 }
 
 func TestAggregateSchedulerFallbackAndLateCallUseSeparateBatches(t *testing.T) {
