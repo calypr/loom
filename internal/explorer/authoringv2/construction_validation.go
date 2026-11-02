@@ -354,6 +354,10 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 		if owner.Operation.Filter == nil || owner.Operation.Filter.ColumnID != projection.ColumnID {
 			return fmt.Errorf("source projection columnId %q is not the column filtered by its owner FILTER step", projection.ColumnID)
 		}
+	case ConstructionOperationDerive:
+		if owner.Operation.Derive == nil || !containsConstructionColumnID(owner.inputColumnIDs(), projection.ColumnID) {
+			return fmt.Errorf("source projection columnId %q is not a COLUMN operand of its owner DERIVE step", projection.ColumnID)
+		}
 	default:
 		return fmt.Errorf("source projection must be consumed by its owner PIVOT step")
 	}

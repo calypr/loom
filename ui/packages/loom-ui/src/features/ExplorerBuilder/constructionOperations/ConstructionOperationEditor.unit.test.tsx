@@ -22,11 +22,13 @@ import { ConstructionOperationEditor } from './ConstructionOperationEditor';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources' | 'deriveSources'
 >;
 
 type FilterSourceInput = NonNullable<ConstructionCapabilitiesResponse['filterSourceInput']>;
 type FilterSourceChoice = FilterSourceInput['choices'][number];
+type DeriveSourceInput = NonNullable<ConstructionCapabilitiesResponse['deriveSourceInput']>;
+type DeriveSourceChoice = DeriveSourceInput['choices'][number];
 
 const columns: ConstructionStageDescriptor['columns'] = [
   { id: 'age-id', name: 'age', label: 'Age', type: 'integer' },
@@ -52,6 +54,7 @@ const capabilitiesFor = (
   stages: ReadonlyArray<ConstructionStageDescriptor> = [sourceStage],
   selectedStage: ConstructionStageDescriptor = sourceStage,
   filterSourceInput?: FilterSourceInput,
+  deriveSourceInput?: DeriveSourceInput,
 ): ConstructionCapabilitiesResponse => ({
   snapshotToken: 'snapshot-1',
   draftVersion: 1,
@@ -65,6 +68,7 @@ const capabilitiesFor = (
   groupRowValueChoices: [],
   workspaceInputs: [],
   ...(filterSourceInput ? { filterSourceInput } : {}),
+  ...(deriveSourceInput ? { deriveSourceInput } : {}),
 });
 
 const renderEditor = (args: {
@@ -75,6 +79,7 @@ const renderEditor = (args: {
   readonly editingStep?: ConstructionStep;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly filterSourceInput?: FilterSourceInput;
+  readonly deriveSourceInput?: DeriveSourceInput;
   readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
   readonly onEditStep?: (stepId: string) => void;
 }) => {
@@ -84,7 +89,7 @@ const renderEditor = (args: {
     <ConstructionOperationEditor
       family={args.family}
       construction={args.construction ?? { version: 1, steps: [] }}
-      capabilities={capabilitiesFor(args.construction, args.stages, args.selectedStage, args.filterSourceInput)}
+      capabilities={capabilitiesFor(args.construction, args.stages, args.selectedStage, args.filterSourceInput, args.deriveSourceInput)}
       editingStep={args.editingStep}
       selectedColumns={args.selectedColumns}
       disabled={false}
@@ -892,6 +897,185 @@ describe('ConstructionOperationEditor', () => {
       });
       expect(screen.getByText('The saved condition column is no longer present in Loom’s predecessor stage.')).toBeInTheDocument();
       expect(savedOnCandidateChange).toHaveBeenLastCalledWith(undefined);
+    });
+  });
+
+  describe('calculate with unselected dataset fields', () => {
+    const birthChoice: DeriveSourceChoice = {
+      choiceId: 'derive-choice-birth',
+      fieldPath: 'multipleBirthInteger',
+      label: 'Patient.multipleBirthInteger',
+      logicalType: 'integer',
+      isPopulated: true,
+      columnId: '',
+    };
+    const weightChoice: DeriveSourceChoice = {
+      choiceId: 'derive-choice-weight',
+      fieldPath: 'bodyWeight',
+      label: 'Patient.bodyWeight',
+      logicalType: 'decimal',
+      isPopulated: true,
+      columnId: '',
+    };
+    const unpopulatedChoice: DeriveSourceChoice = {
+      choiceId: 'derive-choice-unpopulated',
+      fieldPath: 'multipleBirthBoolean',
+      label: 'Patient.multipleBirthBoolean',
+      logicalType: 'integer',
+      isPopulated: false,
+      columnId: '',
+    };
+    const supported = (choices: DeriveSourceInput['choices']): DeriveSourceInput => ({
+      supported: true,
+      stageId: 'source_projection',
+      choices,
+    });
+
+    const operandColumn = (which: 'First' | 'Second'): HTMLSelectElement =>
+      screen.getByRole<HTMLSelectElement>('combobox', { name: `${which} value column` });
+
+    const setRightLiteral = (text: string) => {
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'literal' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value number type' }), { target: { value: 'INTEGER' } });
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: text } });
+    };
+
+    it('offers an unmaterialised dataset field as an arithmetic operand and signs the selection', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange, deriveSourceInput: supported([birthChoice, unpopulatedChoice]) });
+
+      setRightLiteral('2');
+      const first = operandColumn('First');
+      const group = sourceOptgroup(first);
+      expect(group).not.toBeNull();
+      expect(Array.from(group!.querySelectorAll('option')).map((option) => option.value)).toEqual([`source:${birthChoice.choiceId}`]);
+
+      fireEvent.change(first, { target: { value: `source:${birthChoice.choiceId}` } });
+      const columnId = operandColumn('First').value;
+      expect(columnId).toMatch(/^derive-input_/);
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toEqual([{ choiceId: birthChoice.choiceId, columnId }]);
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        kind: 'DERIVE',
+        derive: { left: { kind: 'COLUMN', columnId }, right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 2 } } },
+      });
+      expect(candidate?.candidateConstruction.steps[0]?.outputs).toContainEqual(
+        expect.objectContaining({ id: columnId, label: 'Patient.multipleBirthInteger', type: 'integer' }),
+      );
+    });
+
+    it('binds both operand slots to distinct dataset fields', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange, deriveSourceInput: supported([birthChoice, weightChoice]) });
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      fireEvent.change(operandColumn('First'), { target: { value: `source:${birthChoice.choiceId}` } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'column' } });
+      const second = operandColumn('Second');
+      const group = sourceOptgroup(second);
+      expect(group).not.toBeNull();
+      expect(Array.from(group!.querySelectorAll('option')).map((option) => option.value)).toEqual([`source:${weightChoice.choiceId}`]);
+      fireEvent.change(second, { target: { value: `source:${weightChoice.choiceId}` } });
+
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      const leftId = operandColumn('First').value;
+      const rightId = operandColumn('Second').value;
+      expect(candidate?.deriveSources).toEqual([
+        { choiceId: birthChoice.choiceId, columnId: leftId },
+        { choiceId: weightChoice.choiceId, columnId: rightId },
+      ]);
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        derive: {
+          left: { kind: 'COLUMN', columnId: leftId },
+          right: { kind: 'COLUMN', columnId: rightId },
+        },
+      });
+    });
+
+    it('drops the signed selection when the operand returns to a stage column', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange, deriveSourceInput: supported([birthChoice]) });
+
+      setRightLiteral('2');
+      fireEvent.change(operandColumn('First'), { target: { value: `source:${birthChoice.choiceId}` } });
+      expect(onCandidateChange.mock.lastCall?.[0]?.deriveSources).toHaveLength(1);
+
+      fireEvent.change(operandColumn('First'), { target: { value: 'weight-id' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toBeUndefined();
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        derive: { left: { kind: 'COLUMN', columnId: 'weight-id' } },
+      });
+      const group = sourceOptgroup(operandColumn('First'));
+      expect(Array.from(group!.querySelectorAll('option')).map((option) => option.value)).toEqual([`source:${birthChoice.choiceId}`]);
+    });
+
+    it('restores a saved operand that is backed by a materialised choice', () => {
+      const saved: ConstructionStep = {
+        id: 'derive-source-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'DERIVE',
+          derive: {
+            constructionId: 'derive-source-saved',
+            outputColumnId: 'calculated-id',
+            operation: 'ADD',
+            left: { kind: 'COLUMN', columnId: 'derive-input_saved' },
+            right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 2 } },
+            missingInputPolicy: 'PROPAGATE_NULL',
+          },
+        },
+        outputs: [...columns, { id: 'calculated-id', name: 'birth_plus_two', label: 'Birth plus two', type: 'integer' }],
+      };
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        construction: { version: 1, steps: [saved] },
+        editingStep: saved,
+        deriveSourceInput: supported([{ ...birthChoice, columnId: 'derive-input_saved' }]),
+        onCandidateChange,
+      });
+
+      expect(operandColumn('First').value).toBe('derive-input_saved');
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: '3' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toEqual([{ choiceId: birthChoice.choiceId, columnId: 'derive-input_saved' }]);
+      expect(candidate?.changedStepId).toBe('derive-source-saved');
+    });
+
+    it('keeps plain selected-column calculations unchanged when no deriveSourceInput is returned', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange });
+
+      setRightLiteral('5');
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toBeUndefined();
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        derive: {
+          left: { kind: 'COLUMN', columnId: 'age-id' },
+          right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 5 } },
+        },
+      });
+      expect(sourceOptgroup(operandColumn('First'))).toBeNull();
+    });
+
+    it('explains why dataset-field operands are unavailable at the stage', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        deriveSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS',
+          reason: 'No populated numeric root scalar is available.',
+          choices: [],
+        },
+      });
+
+      expect(screen.getByTestId('construction-calculate-left-source-unavailable'))
+        .toHaveTextContent('NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS · No populated numeric root scalar is available.');
+      expect(sourceOptgroup(operandColumn('First'))).toBeNull();
     });
   });
 });

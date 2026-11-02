@@ -101,6 +101,14 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 			})
 		}
 	}
+	if body.DeriveSources != nil {
+		request.DeriveSources = make([]lifecycle.ConstructionDeriveSourceSelection, 0, len(*body.DeriveSources))
+		for _, selection := range *body.DeriveSources {
+			request.DeriveSources = append(request.DeriveSources, lifecycle.ConstructionDeriveSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
 	if body.GroupSources != nil {
 		request.GroupSources = make([]lifecycle.ConstructionGroupSourceSelection, 0, len(*body.GroupSources))
 		for _, selection := range *body.GroupSources {

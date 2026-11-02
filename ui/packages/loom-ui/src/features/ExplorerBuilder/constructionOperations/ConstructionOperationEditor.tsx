@@ -11,7 +11,7 @@ import { constructionInputForStage } from '../constructionWorkspace/construction
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources' | 'deriveSources'
 >;
 
 type FilterOperation = Extract<ConstructionOperation, { readonly kind: 'FILTER' }>;
@@ -30,6 +30,11 @@ type DerivedOperation = DerivePayload['operation'];
 type FilterSourceInput = ConstructionCapabilitiesResponse['filterSourceInput'];
 type FilterSourceChoice = NonNullable<FilterSourceInput>['choices'][number];
 type FilterSourceSelection = NonNullable<ConstructionProposalRequest['filterSources']>[number];
+type DeriveSourceInput = ConstructionCapabilitiesResponse['deriveSourceInput'];
+type DeriveSourceChoice = NonNullable<DeriveSourceInput>['choices'][number];
+type DeriveSourceSelection = NonNullable<ConstructionProposalRequest['deriveSources']>[number];
+type SourceChoiceLike = FilterSourceChoice | DeriveSourceChoice;
+type SourceSelectionLike = { readonly choiceId: string; readonly columnId: string };
 type FilterStageColumn = ConstructionStageDescriptor['columns'][number];
 
 interface ArithmeticExpressionDraft {
@@ -84,6 +89,7 @@ interface CalculationForm {
   readonly divisionByZeroPolicy: NonNullable<DerivePayload['divisionByZeroPolicy']>;
   readonly outputName: string;
   readonly outputLabel: string;
+  readonly deriveSources?: ReadonlyArray<DeriveSourceSelection>;
 }
 
 export interface ConstructionOperationEditorProps {
@@ -160,7 +166,7 @@ const filterSourceFieldPathLabel = (path: string): string => {
   return words.join(' ');
 };
 
-const filterSourceLabel = (choice: FilterSourceChoice): string => {
+const filterSourceLabel = (choice: SourceChoiceLike): string => {
   const rawPath = choice.fieldPath.replace(/^root\./, '');
   const label = choice.label.trim().replace(/^root\./, '');
   const prefixedPath = label.endsWith(`.${rawPath}`) ? label.slice(0, -rawPath.length - 1) : undefined;
@@ -174,7 +180,7 @@ const filterSourceLabel = (choice: FilterSourceChoice): string => {
 };
 
 const filterSourceColumn = (
-  choice: FilterSourceChoice,
+  choice: SourceChoiceLike,
   columnId: string,
   stage: ConstructionStageDescriptor,
 ): FilterStageColumn => {
@@ -193,6 +199,42 @@ const liveFilterSources = (form: FilterForm): ReadonlyArray<FilterSourceSelectio
     ? []
     : form.filterSources.filter((binding) => binding.columnId === form.columnId);
 
+// A DERIVE step consumes its two operands as a list, so a live binding is one
+// whose column is actually referenced by either arithmetic operand.
+const liveDeriveSources = (form: CalculationForm): ReadonlyArray<DeriveSourceSelection> => {
+  if (!form.deriveSources?.length) return [];
+  const draft = expressionDraftFor(form.expression);
+  const consumed = new Set(
+    [draft.left, draft.right]
+      .filter((operand): operand is Extract<OperandDraft, { readonly kind: 'column' }> => operand.kind === 'column')
+      .map((operand) => operand.columnId),
+  );
+  return form.deriveSources.filter((binding) => binding.columnId.trim() !== '' && consumed.has(binding.columnId));
+};
+
+const deriveSourceStage = (
+  stage: ConstructionStageDescriptor,
+  sourceInput: DeriveSourceInput | undefined,
+  deriveSources: ReadonlyArray<DeriveSourceSelection>,
+): ConstructionStageDescriptor => {
+  const choices = sourceInput?.choices ?? [];
+  const inputs = deriveSources.flatMap((selection) => {
+    if (selection.columnId.trim() === '') return [];
+    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
+    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
+    return choice ? [filterSourceColumn(choice, selection.columnId, stage)] : [];
+  });
+  return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
+};
+
+const deriveSourceChoiceForColumn = (
+  choices: ReadonlyArray<DeriveSourceChoice>,
+  columnId: string,
+): DeriveSourceChoice | undefined => {
+  if (columnId.trim() === '') return undefined;
+  return choices.find((choice) => materializedChoiceColumnId(choice) === columnId);
+};
+
 // A signed dataset-field source is not a stage column, so the same derived column
 // Loom will materialize for it has to be visible in step outputs and lookups.
 const filterInputStage = (
@@ -210,7 +252,7 @@ const filterInputStage = (
   return inputs.length ? { ...stage, columns: [...stage.columns, ...inputs] } : stage;
 };
 
-const materializedChoiceColumnId = (choice: FilterSourceChoice): string | undefined => {
+const materializedChoiceColumnId = (choice: SourceChoiceLike): string | undefined => {
   const columnId = choice.columnId ?? '';
   return columnId.trim() === '' ? undefined : choice.columnId;
 };
@@ -572,10 +614,20 @@ const operandDraftFromWire = (operand: DerivedOperand): OperandDraft => {
 const calculationFormFromStep = (
   step: ConstructionStep | undefined,
   stage: ConstructionStageDescriptor,
+  deriveSourceChoices: ReadonlyArray<DeriveSourceChoice> = [],
 ): CalculationForm => {
   if (step?.operation.kind === 'DERIVE') {
     const derive = step.operation.derive;
     const output = step.outputs.find((column) => column.id === derive.outputColumnId);
+    const bindings: DeriveSourceSelection[] = [];
+    for (const operand of [derive.left, derive.right]) {
+      if (operand.kind !== 'COLUMN') continue;
+      const choice = deriveSourceChoiceForColumn(deriveSourceChoices, operand.columnId);
+      const signedColumnId = choice ? materializedChoiceColumnId(choice) : undefined;
+      if (choice && signedColumnId && !bindings.some((binding) => binding.choiceId === choice.choiceId)) {
+        bindings.push({ choiceId: choice.choiceId, columnId: signedColumnId });
+      }
+    }
     return {
       expression: {
         kind: 'guided',
@@ -589,6 +641,7 @@ const calculationFormFromStep = (
       divisionByZeroPolicy: derive.divisionByZeroPolicy ?? 'NULL',
       outputName: output?.name ?? calculationOutputName(stage.columns),
       outputLabel: output?.label ?? 'Calculated value',
+      ...(bindings.length ? { deriveSources: bindings } : {}),
     };
   }
   const numericColumns = stage.columns.filter(isNumericColumn);
@@ -741,24 +794,27 @@ const parseFormula = (
 const buildDeriveCandidate = (args: {
   readonly construction: Construction;
   readonly stage: ConstructionStageDescriptor;
+  readonly deriveSourceInput?: DeriveSourceInput;
   readonly editingStep?: ConstructionStep;
   readonly stepId: string;
   readonly outputColumnId: string;
   readonly form: CalculationForm;
   readonly expression: ArithmeticExpression;
 }): CandidateIntent | undefined => {
-  const { construction, stage, editingStep, stepId, outputColumnId, form, expression } = args;
+  const { construction, stage, deriveSourceInput, editingStep, stepId, outputColumnId, form, expression } = args;
   if (editingStep && editingStep.operation.kind !== 'DERIVE') return undefined;
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(form.outputName) || !form.outputLabel.trim()) return undefined;
+  const deriveSources = liveDeriveSources(form);
+  const inputStage = deriveSourceStage(stage, deriveSourceInput, deriveSources);
   const replacedOutputID = editingStep?.operation.kind === 'DERIVE'
     ? editingStep.operation.derive.outputColumnId
     : undefined;
-  const nameConflict = stage.columns.some((column) =>
+  const nameConflict = inputStage.columns.some((column) =>
     column.name === form.outputName && column.id !== replacedOutputID,
   );
   if (nameConflict) return undefined;
 
-  const numericColumnIDs = new Set(stage.columns.filter(isNumericColumn).map((column) => column.id));
+  const numericColumnIDs = new Set(inputStage.columns.filter(isNumericColumn).map((column) => column.id));
   const { left, right } = expression;
   if (left.kind === 'COLUMN' && !numericColumnIDs.has(left.columnId)) return undefined;
   if (right.kind === 'COLUMN' && !numericColumnIDs.has(right.columnId)) return undefined;
@@ -789,15 +845,16 @@ const buildDeriveCandidate = (args: {
   };
   const step = {
     id: editingStep?.id ?? stepId,
-    inputs: [constructionInputForStage(stage)],
+    inputs: [constructionInputForStage(inputStage)],
     operation: { kind: 'DERIVE', derive },
-    outputs: [...constructionOutputsForStage(stage), output],
+    outputs: [...constructionOutputsForStage(inputStage), output],
   } satisfies ConstructionStep;
   const candidateConstruction = replaceOrAppendStep(construction, editingStep, step);
   if (!candidateConstruction) return undefined;
   return {
     candidateConstruction,
     changedStepId: step.id,
+    ...(deriveSources.length ? { deriveSources: [...deriveSources] } : {}),
   };
 };
 
@@ -1128,12 +1185,27 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
 
 const FormulaOperand = (props: {
   readonly label: string;
+  readonly slot: 'left' | 'right';
   readonly value: OperandDraft;
   readonly columns: ConstructionStageDescriptor['columns'];
   readonly disabled: boolean;
+  readonly sourceInput?: DeriveSourceInput;
+  readonly boundSources?: ReadonlyArray<DeriveSourceSelection>;
   readonly onChange: (value: OperandDraft) => void;
+  readonly onSourceSelected: (choice: DeriveSourceChoice, columnId: string) => void;
 }) => {
   const firstNumeric = props.columns.find(isNumericColumn);
+  const boundChoiceIds = new Set((props.boundSources ?? []).map((binding) => binding.choiceId));
+  const sourceChoices = props.sourceInput?.choices ?? [];
+  const sourceOptions = props.sourceInput?.supported
+    ? sourceChoices.filter((choice) => choice.isPopulated && !boundChoiceIds.has(choice.choiceId))
+    : [];
+  const sourceUnavailableReason = props.sourceInput && !props.sourceInput.supported
+    ? [props.sourceInput.reasonCode, props.sourceInput.reason]
+      .map((part) => part?.trim() ?? '')
+      .filter((part) => part !== '')
+      .join(' · ')
+    : undefined;
   return (
     <fieldset className="grid gap-2 rounded-lg border border-slate-200 p-3">
       <legend className="px-1 text-sm font-semibold text-slate-800">{props.label}</legend>
@@ -1146,7 +1218,16 @@ const FormulaOperand = (props: {
           onChange={(event) => {
             switch (event.currentTarget.value) {
               case 'column':
-                props.onChange(firstNumeric ? { kind: 'column', columnId: firstNumeric.id } : { kind: 'unset' });
+                if (firstNumeric) {
+                  props.onChange({ kind: 'column', columnId: firstNumeric.id });
+                } else {
+                  const choice = sourceOptions[0];
+                  if (!choice) {
+                    props.onChange({ kind: 'unset' });
+                    break;
+                  }
+                  props.onSourceSelected(choice, materializedChoiceColumnId(choice) ?? createOpaqueId('derive-input'));
+                }
                 break;
               case 'literal':
                 props.onChange({ kind: 'literal', literalKind: 'DECIMAL', text: '', edited: false });
@@ -1158,7 +1239,7 @@ const FormulaOperand = (props: {
           className="rounded border border-slate-300 bg-white px-2 py-1.5"
         >
           <option value="unset">Choose a value</option>
-          <option value="column" disabled={!firstNumeric}>Numeric column</option>
+          <option value="column" disabled={!firstNumeric && sourceOptions.length === 0}>Numeric column</option>
           <option value="literal">Number</option>
         </select>
       </label>
@@ -1169,13 +1250,32 @@ const FormulaOperand = (props: {
           <select
             aria-label={`${props.label} column`}
             value={props.value.columnId}
+            data-testid={`construction-calculate-${props.slot}-column`}
             disabled={props.disabled}
-            onChange={(event) => props.onChange({ kind: 'column', columnId: event.currentTarget.value })}
+            onChange={(event) => {
+              const selected = event.currentTarget.value;
+              if (!selected.startsWith('source:')) {
+                props.onChange({ kind: 'column', columnId: selected });
+                return;
+              }
+              const choice = sourceChoices.find((candidate) => `source:${candidate.choiceId}` === selected);
+              if (!choice) return;
+              const existing = props.boundSources?.find((binding) => binding.choiceId === choice.choiceId);
+              const columnId = materializedChoiceColumnId(choice) ?? existing?.columnId ?? createOpaqueId('derive-input');
+              props.onSourceSelected(choice, columnId);
+            }}
             className="rounded border border-slate-300 bg-white px-2 py-1.5"
           >
             {props.columns.filter(isNumericColumn).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type})</option>)}
+            {sourceOptions.length > 0 ? <optgroup label="Dataset fields (not in output)">
+              {sourceOptions.map((choice) => <option key={choice.choiceId} data-testid={`construction-calculate-${props.slot}-source-option`} value={`source:${choice.choiceId}`} title={choice.fieldPath}>{filterSourceLabel(choice)} ({choice.logicalType})</option>)}
+            </optgroup> : null}
           </select>
         </label>
+      ) : null}
+
+      {sourceUnavailableReason && sourceUnavailableReason !== '' ? (
+        <p role="status" data-testid={`construction-calculate-${props.slot}-source-unavailable`} className="text-xs text-amber-900">{sourceUnavailableReason}</p>
       ) : null}
 
       {props.value.kind === 'literal' ? (
@@ -1225,13 +1325,15 @@ const FormulaOperand = (props: {
 const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const { construction, capabilities, editingStep, selectedColumns = [], disabled } = props;
   const stage = capabilities.selectedStage;
+  const deriveSourceInput = capabilities.deriveSourceInput;
+  const deriveSourceChoices = deriveSourceInput?.choices ?? [];
   const [stepId, setStepId] = useState(() => createOpaqueId('derive'));
   const [outputColumnId, setOutputColumnId] = useState(() => createOpaqueId('column'));
-  const [form, setForm] = useState(() => calculationFormFromStep(editingStep, stage));
+  const [form, setForm] = useState(() => calculationFormFromStep(editingStep, stage, deriveSourceChoices));
   const contextKey = editorContextKey(capabilities, editingStep);
   useEffect(() => {
     const numericSelected = stage.columns.find((column) => selectedColumns.includes(column.id) && isNumericColumn(column));
-    const initial = calculationFormFromStep(editingStep, stage);
+    const initial = calculationFormFromStep(editingStep, stage, deriveSourceChoices);
     setForm(numericSelected && !editingStep
       ? {
           ...initial,
@@ -1253,32 +1355,52 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const output = expressionStep?.outputs.find((column) => column.id === outputColumnID);
 
   const updateForm = (next: CalculationForm) => {
-    setForm(next);
-    const expression = completeExpressionFor(next.expression);
+    const live = liveDeriveSources(next);
+    const normalized: CalculationForm = { ...next, deriveSources: live.length ? live : undefined };
+    setForm(normalized);
+    const expression = completeExpressionFor(normalized.expression);
     props.onCandidateChange(support.supported && expression
-      ? buildDeriveCandidate({ construction, stage, editingStep, stepId, outputColumnId, form: next, expression })
+      ? buildDeriveCandidate({ construction, stage, deriveSourceInput, editingStep, stepId, outputColumnId, form: normalized, expression })
       : undefined);
   };
 
   const expressionDraft = expressionDraftFor(form.expression);
+  const inputStage = deriveSourceStage(stage, deriveSourceInput, liveDeriveSources(form));
   const formulaText = form.expression.kind === 'formula-invalid' || form.expression.kind === 'formula-valid'
     ? form.expression.source
-    : formulaTextFor(expressionDraft, stage.columns);
+    : formulaTextFor(expressionDraft, inputStage.columns);
+
+  const updateOperandDraft = (slot: 'left' | 'right', draft: OperandDraft) => {
+    updateForm({
+      ...form,
+      expression: { kind: 'guided', draft: { ...expressionDraft, [slot]: draft } },
+    });
+  };
+
+  const chooseSourceOperand = (slot: 'left' | 'right', choice: DeriveSourceChoice, columnId: string) => {
+    const previousId = expressionDraft[slot].kind === 'column' ? expressionDraft[slot].columnId : undefined;
+    const kept = (form.deriveSources ?? []).filter((binding) => binding.columnId !== previousId && binding.columnId !== columnId);
+    updateForm({
+      ...form,
+      expression: { kind: 'guided', draft: { ...expressionDraft, [slot]: { kind: 'column', columnId } } },
+      deriveSources: [...kept, { choiceId: choice.choiceId, columnId }],
+    });
+  };
 
   const switchExpressionView = (view: 'guided' | 'formula') => {
     if (view === 'guided') {
       updateForm({ ...form, expression: { kind: 'guided', draft: expressionDraft } });
       return;
     }
-    const source = formulaTextFor(expressionDraft, stage.columns);
-    const parsed = parseFormula(source, stage.columns);
+    const source = formulaTextFor(expressionDraft, inputStage.columns);
+    const parsed = parseFormula(source, inputStage.columns);
     updateForm(parsed.kind === 'valid'
       ? { ...form, expression: { kind: 'formula-valid', expression: parsed.expression, source } }
       : { ...form, expression: { kind: 'formula-invalid', lastDraft: expressionDraft, source, error: parsed.message } });
   };
 
   const changeFormula = (source: string) => {
-    const parsed = parseFormula(source, stage.columns);
+    const parsed = parseFormula(source, inputStage.columns);
     updateForm(parsed.kind === 'valid'
       ? { ...form, expression: { kind: 'formula-valid', expression: parsed.expression, source } }
       : {
@@ -1388,23 +1510,25 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
           <div className="grid gap-3 md:grid-cols-2">
             <FormulaOperand
               label="First value"
+              slot="left"
               value={expressionDraft.left}
-              columns={stage.columns}
+              columns={inputStage.columns}
               disabled={disabled}
-              onChange={(left) => updateForm({
-                ...form,
-                expression: { kind: 'guided', draft: { ...expressionDraft, left } },
-              })}
+              sourceInput={deriveSourceInput}
+              boundSources={form.deriveSources}
+              onChange={(left) => updateOperandDraft('left', left)}
+              onSourceSelected={(choice, columnId) => chooseSourceOperand('left', choice, columnId)}
             />
             <FormulaOperand
               label="Second value"
+              slot="right"
               value={expressionDraft.right}
-              columns={stage.columns}
+              columns={inputStage.columns}
               disabled={disabled}
-              onChange={(right) => updateForm({
-                ...form,
-                expression: { kind: 'guided', draft: { ...expressionDraft, right } },
-              })}
+              sourceInput={deriveSourceInput}
+              boundSources={form.deriveSources}
+              onChange={(right) => updateOperandDraft('right', right)}
+              onSourceSelected={(choice, columnId) => chooseSourceOperand('right', choice, columnId)}
             />
           </div>
         </>
