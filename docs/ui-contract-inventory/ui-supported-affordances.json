@@ -18,7 +18,7 @@
       "sha256": "22a47c5f101a3c59621513f5b31489d3e651916149f01d547049ffeffafa7bc8"
     }
   ],
-  "expandedSha256": "66f91f2f28977158b1e3544bb72482d370b1f7610c378c7ddf9ff953bf96f09e",
+  "expandedSha256": "a785484dcedf3941c70eb178d581b95e11012b252d25a21f2657eada0e371f91",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -88,11 +88,11 @@
         },
         {
           "path": "ui/packages/loom-ui/src/api.ts",
-          "sha256": "98a5d042e995010b550fd3974c607713dc8797a2a891ea674340aac9bd219abb"
+          "sha256": "223cf519f9df2b356582107bf7c9bfa9240bc413e51677d06762d51d7e3cdb79"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "sha256": "61bf6c569b40cf6e99e782d235c687a5637b795930cd6cc93ac9159f11c20804"
+          "sha256": "d67597c72ca680871c8a651aa16d74ea63a56ab531e130d9af9c3ad9fd9d1d7a"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",
@@ -148,7 +148,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/catalogItems.ts",
-          "sha256": "c3c9efc77e87c4b0b041a979655e4b4dcb836991cbba1ff29e938dd17070e909"
+          "sha256": "b60122c97493755a01dc26164f0cc2e8da84a8461a419531cdefbebd35416bbd"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx",
@@ -304,15 +304,15 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
-          "sha256": "ad57842efbec92ac342e0bcfdf48ab4da8370315ee66fc43dc48afb4e5089470"
+          "sha256": "eb4c2e98ae817b5720ca7e9fddeb4bab1b64d1935adf3750d9be2e2a618f36ed"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationsPanel.tsx",
-          "sha256": "36c65ec8bdfeae04be838ba093f22057fff6f862f74657e3c692bc8d68a216cf"
+          "sha256": "cd5dccd61bbd2860e907f9c491e1049520589d7c5d4cec6e631a0290dc4ddf26"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-          "sha256": "c50c4f9c7210d70be7760d282659264690eb6f9073b70152efff74520906380e"
+          "sha256": "215d2189555bf039258aa269a040de34124cb606cf07893dffce6e1be553d9fa"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
@@ -416,11 +416,11 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/sourceProjectionAvailability.ts",
-          "sha256": "bf8b3ea1b6a61317c19d9ed2dc479ba72eb1eef959728595c897714c488cd051"
+          "sha256": "b926e23216b18a61fae19a6fcf9155ef10a7601f09204c0c71526a82b4f95284"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-          "sha256": "89f7d081fb7f45ed3492128f1035ad1562434e196c9f5f62a685454612047c38"
+          "sha256": "a94611180b1b3e9d5502e1346d2f19f3849e3694398b41c5fb2713d68810a482"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/discovery/ObservedCodeEvidence.tsx",
@@ -472,7 +472,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/types.ts",
-          "sha256": "539e5afd2ce61af249bab74eb203b68f53a06e964cc817933edc159483574bc8"
+          "sha256": "49fd41d86330d4d9c43374b872994d4e76d439d8979d89144b252022495ee9dd"
         }
       ],
       "mountedOperationSources": [
