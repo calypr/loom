@@ -219,7 +219,7 @@ func (s *Service) constructionUnpivotSourceCapability(
 			}
 			result.Choices = append(result.Choices, ConstructionUnpivotSourceChoice{
 				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
-				Label:       constructionFHIRPathLabel(base.document.RootResourceType, choice.Path),
+				Label:       constructionFieldDisplayLabel(base.document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
 				ColumnID: constructionOwnedUnpivotSourceColumnID(base.construction, stageID, choice.Path),
 			})
@@ -293,7 +293,7 @@ func (s *Service) resolveConstructionUnpivotSource(
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_UNPIVOT_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 	}
-	label := constructionFHIRPathLabel(base.document.RootResourceType, facts.CanonicalPath)
+	label := constructionFieldDisplayLabel(base.document.RootResourceType, facts.CanonicalPath, candidate.Label)
 	return authoringv2.ConstructionSourceProjection{
 		ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 		FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
@@ -576,7 +576,7 @@ func ConstructionUnpivotSourceFacts(snapshot capability.Snapshot, rootResourceTy
 		return authoringv2.ConstructionSourceProjection{
 			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
 			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
-			Label: constructionFHIRPathLabel(rootResourceType, facts.CanonicalPath),
+			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
 		}, true
 	}
 	return authoringv2.ConstructionSourceProjection{}, false

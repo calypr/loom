@@ -421,7 +421,7 @@ func TestConstructionCandidateWithUnpivotSourcesMaterializesAndCarriesPrefix(t *
 	projection := prepared.SourceProjections[0]
 	if projection.ColumnID != unpivotPatientColumn || projection.OwnerStepID != unpivotSourceStep ||
 		projection.OccurrenceID != authoringv2.RootOccurrenceID || projection.FieldPath != "multipleBirthInteger" ||
-		projection.FHIRType != "integer" || projection.LogicalType != "integer" || projection.Label != "Patient.multipleBirthInteger" {
+		projection.FHIRType != "integer" || projection.LogicalType != "integer" || projection.Label != "Birth count" {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", projection)
 	}
 	carried := false
@@ -783,7 +783,7 @@ func TestGetConstructionCapabilitiesAssemblesUnpivotSourceInputBesideDeriveSourc
 	if !found {
 		t.Fatalf("populated unselected root scalar missing from capabilities: %#v", result.Choices)
 	}
-	if !birth.IsPopulated || birth.LogicalType != "integer" || birth.Label != "Patient.multipleBirthInteger" || birth.ColumnID != "" {
+	if !birth.IsPopulated || birth.LogicalType != "integer" || birth.Label != "Birth count" || birth.ColumnID != "" {
 		t.Fatalf("birth count choice = %#v, want populated integer with the generated label and no durable column", birth)
 	}
 	identity, err := capability.DecodeRowChoiceID(birth.ChoiceID)

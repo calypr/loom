@@ -52,9 +52,9 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 	}
 	construction.Steps[0].Operation.RelatedField.ChoiceID = anchorChoice.ChoiceID
 	construction.Steps[0].Operation.RelatedField.Source = source
-	construction.Steps[0].Outputs[len(construction.Steps[0].Outputs)-1].Label = "Observation.status"
+	construction.Steps[0].Outputs[len(construction.Steps[0].Outputs)-1].Label = "Status"
 	construction.Steps[0].Outputs[len(construction.Steps[0].Outputs)-1].Table = &authoringv2.TablePresentation{Visible: pivotPresentationBool(true), Order: pivotPresentationInt(4)}
-	construction.Steps[1].Outputs[1].Label = "Observation.status"
+	construction.Steps[1].Outputs[1].Label = "Status"
 	document.Construction = &construction
 
 	active := &explorer.ReceiptConstructionActiveRelatedRecord{
@@ -71,7 +71,7 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 			{ID: "specimen", Name: "specimen_id", Label: "Specimen", Type: "string"},
 			{ID: "category", Name: "category", Label: "Category", Type: "string"},
 			{ID: "value", Name: "value", Label: "Value", Type: "string"},
-			{ID: "pivot-input", Name: constructionPivotSourceOutputName("pivot-input"), Label: "Observation.status", Type: "string"},
+			{ID: "pivot-input", Name: constructionPivotSourceOutputName("pivot-input"), Label: "Status", Type: "string"},
 		}, ActiveRelatedRecord: active},
 	}
 	base := constructionBase{
@@ -109,8 +109,52 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 		t.Fatalf("mutating prepared presentation changed accepted prefix order to %d", *savedOutput.Table.Order)
 	}
 	*gotOutput.Table.Order = 4
+	regeneratedLabel := ""
+	for _, step := range prepared.Steps {
+		if step.OwnerStepID != "pivot" || step.Operation.RelatedField == nil {
+			continue
+		}
+		for _, column := range step.Outputs {
+			if column.ID == "pivot-input" {
+				regeneratedLabel = column.Label
+			}
+		}
+	}
+	if regeneratedLabel != "Status" {
+		t.Fatalf("regenerated Pivot source column label = %q, want the snapshot candidate Title %q", regeneratedLabel, "Status")
+	}
 	if _, _, err := document.AnalyzeConstructionCandidate(prepared, "pivot", nil); err != nil {
 		t.Fatalf("analyze prepared Pivot label edit after source-helper regeneration: %v", err)
+	}
+}
+
+// ROW-SOURCE-03 S-C: the single display-label builder returns the first
+// non-blank TrimSpace'd server-truth display candidate and only then falls
+// back to the legacy 'ResourceType.path'. Snapshot candidates must never be
+// client input; the pinned empty-Title shape mirrors builder.go:296, where
+// the capability snapshot collapses a missing Title to the raw field path.
+func TestConstructionFieldDisplayLabelChainAndFallbacks(t *testing.T) {
+	rows := []struct {
+		name         string
+		resourceType string
+		path         string
+		candidates   []string
+		want         string
+	}{
+		{name: "title wins over later display candidates", resourceType: "Patient", path: "active", candidates: []string{"Birth count", "Active"}, want: "Birth count"},
+		{name: "candidates are trimmed", resourceType: "Patient", path: "active", candidates: []string{"  Birth count  "}, want: "Birth count"},
+		{name: "blank title falls through to display", resourceType: "Patient", path: "active", candidates: []string{"   ", " Active "}, want: "Active"},
+		{name: "all blank falls back to Type.path", resourceType: "Patient", path: "active", candidates: []string{"", " \t "}, want: "Patient.active"},
+		{name: "no candidates falls back to Type.path", resourceType: "Patient", path: "active", want: "Patient.active"},
+		{name: "snapshot empty-Title collapse yields raw path", resourceType: "Patient", path: "active", candidates: []string{"active"}, want: "active"},
+		{name: "prefixed and padded path normalizes", resourceType: "Patient", path: "  Patient.active ", candidates: []string{""}, want: "Patient.active"},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			if got := constructionFieldDisplayLabel(row.resourceType, row.path, row.candidates...); got != row.want {
+				t.Fatalf("constructionFieldDisplayLabel(%q, %q, %q) = %q, want %q", row.resourceType, row.path, row.candidates, got, row.want)
+			}
+		})
 	}
 }
 
@@ -321,5 +365,28 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 	}
 	if len(distinct) != 7 {
 		t.Fatalf("expected seven distinct lane reason codes, got %#v", distinct)
+	}
+}
+
+// TestConstructionFieldDisplayLabelRefusesControlBytes locks the reviewer
+// witness: a display candidate carrying NUL/ESC/other Unicode control
+// characters must never ride the advertised/durable label; the builder falls
+// through to the next candidate and ultimately to the legacy Type.path form.
+func TestConstructionFieldDisplayLabelRefusesControlBytes(t *testing.T) {
+	cases := []struct{ name, candidate, fallback, want string }{
+		{"nul-esc-in-title-falls-to-next", "Active\x00flag\x1b[31mred", "Clean Title", "Clean Title"},
+		{"control-then-blank-fallback-all", "red\x7fbow", "   ", "Observation.status"},
+		{"newline-is-control-too", "line1\nline2", "Next", "Next"},
+		{"clean-candidate-still-first", "  Nice Title  ", "unused", "Nice Title"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := constructionFieldDisplayLabel("Observation", "status", tc.candidate, tc.fallback); got != tc.want {
+				t.Fatalf("label = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := constructionFieldDisplayLabel("Observation", "status", "bad\x00", "also\x01bad"); got != "Observation.status" {
+		t.Fatalf("all-control candidates must fall back to Type.path, got %q", got)
 	}
 }

@@ -158,7 +158,7 @@ func (s *Service) constructionDeriveSourceCapability(
 			}
 			result.Choices = append(result.Choices, ConstructionDeriveSourceChoice{
 				ChoiceID: choice.ChoiceID, FieldPath: choice.Path,
-				Label:       constructionFHIRPathLabel(base.document.RootResourceType, choice.Path),
+				Label:       constructionFieldDisplayLabel(base.document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				LogicalType: candidate.LogicalType, IsPopulated: candidate.Populated,
 				ColumnID: constructionOwnedDeriveSourceColumnID(base.construction, stageID, choice.Path),
 			})
@@ -229,7 +229,7 @@ func (s *Service) resolveConstructionDeriveSource(
 		facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
 		return authoringv2.ConstructionSourceProjection{}, conflict("construction-proposal", "STALE_DERIVE_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 	}
-	label := constructionFHIRPathLabel(base.document.RootResourceType, facts.CanonicalPath)
+	label := constructionFieldDisplayLabel(base.document.RootResourceType, facts.CanonicalPath, candidate.Label)
 	return authoringv2.ConstructionSourceProjection{
 		ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 		FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
@@ -485,7 +485,7 @@ func ConstructionDeriveSourceFacts(snapshot capability.Snapshot, rootResourceTyp
 		return authoringv2.ConstructionSourceProjection{
 			OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: facts.CanonicalPath,
 			FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType,
-			Label: constructionFHIRPathLabel(rootResourceType, facts.CanonicalPath),
+			Label: constructionFieldDisplayLabel(rootResourceType, facts.CanonicalPath, candidate.Label),
 		}, true
 	}
 	return authoringv2.ConstructionSourceProjection{}, false

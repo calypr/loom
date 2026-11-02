@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -83,7 +84,7 @@ func (s *Service) constructionPivotSourceCapability(
 			}
 			result.Choices = append(result.Choices, ConstructionPivotSourceChoice{
 				ChoiceID: choice.ChoiceID, ColumnID: constructionOwnedRootProjectionColumnID(base.construction, stageID, choice.Path),
-				OccurrenceID: choice.OccurrenceID, FieldPath: choice.Path, Label: constructionFHIRPathLabel(base.document.RootResourceType, choice.Path),
+				OccurrenceID: choice.OccurrenceID, FieldPath: choice.Path, Label: constructionFieldDisplayLabel(base.document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				FHIRType: choice.FHIRType, LogicalType: candidate.LogicalType, ValueType: choice.ValueType,
 				IsIdentifier: fhirIdentifierPath(choice.Path), IsPopulated: candidate.Populated,
 			})
@@ -120,7 +121,7 @@ func (s *Service) constructionPivotSourceCapability(
 			result.Choices = append(result.Choices, ConstructionPivotSourceChoice{
 				ChoiceID: choice.ChoiceID, ColumnID: constructionOwnedRelatedFieldColumnID(base.construction, stageID, proved),
 				OccurrenceID: "activeRelatedRecord", FieldPath: proved.FieldPath,
-				Label:    constructionFHIRPathLabel(active.TargetResourceType, proved.FieldPath),
+				Label:    constructionFieldDisplayLabel(active.TargetResourceType, proved.FieldPath, proved.Label),
 				FHIRType: fhirType, LogicalType: proved.LogicalType, ValueType: proved.LogicalType,
 				IsIdentifier: fhirIdentifierPath(proved.FieldPath), IsPopulated: proved.Populated,
 			})
@@ -435,6 +436,35 @@ func constructionFHIRPathLabel(resourceType, path string) string {
 	return resourceType + "." + path
 }
 
+// constructionFieldDisplayLabel is the single construction-lane label builder
+// shared by every signed source lane (Filter, Derive, Unpivot, Pivot). It
+// returns the first non-blank TrimSpace'd display candidate — the authorized
+// snapshot candidate's schema-Title label first, then the row choice's
+// display label at advertise sites — and only then falls back to the legacy
+// 'ResourceType.path' form produced by constructionFHIRPathLabel. Display
+// candidates must come only from the authorized snapshot or the planner's
+// generated FHIR schema truth, never from client input; a candidate carrying
+// any Unicode control character (NUL, ESC, other C0/C1) is refused outright
+// and falls through to the next candidate — advertised labels flow verbatim
+// to the wire and into durable claims, so the refusal mirrors the reason-text
+// sanitizer family at the API edge (reviewer witness: a Title with NUL/ESC
+// bytes must never ride the label). The result is always trimmed and non-blank so the receipt contract's pre-trimmed label gates
+// hold. Every one of the twelve lane label sites must go through this
+// builder: the durable claim and the compiled artifact copy its exact bytes,
+// so an out-of-band label writer would break the
+// explorer_output_reconcile.go compiled-slot equality that anti-drift
+// reconcile depends on.
+func constructionFieldDisplayLabel(resourceType, path string, displayCandidates ...string) string {
+	for _, candidate := range displayCandidates {
+		label := strings.TrimSpace(candidate)
+		if label == "" || strings.IndexFunc(label, unicode.IsControl) >= 0 {
+			continue
+		}
+		return label
+	}
+	return constructionFHIRPathLabel(resourceType, path)
+}
+
 type resolvedConstructionPivotSource struct {
 	selection ConstructionPivotSourceSelection
 	root      *authoringv2.ConstructionSourceProjection
@@ -664,7 +694,7 @@ func (s *Service) resolveConstructionPivotSource(
 			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
 			return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 		}
-		label := constructionFHIRPathLabel(base.document.RootResourceType, facts.CanonicalPath)
+		label := constructionFieldDisplayLabel(base.document.RootResourceType, facts.CanonicalPath, candidate.Label)
 		projection := authoringv2.ConstructionSourceProjection{
 			ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 			FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
@@ -709,7 +739,7 @@ func (s *Service) resolveConstructionPivotSource(
 		ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
 		LogicalType: proved.LogicalType, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), proved.RepeatedBoundaries...),
 	}
-	label := constructionFHIRPathLabel(proved.ResourceType, proved.FieldPath)
+	label := constructionFieldDisplayLabel(proved.ResourceType, proved.FieldPath, proved.Label)
 	return resolvedConstructionPivotSource{selection: selection, related: related, choiceID: selection.ChoiceID, label: label}, nil
 }
 

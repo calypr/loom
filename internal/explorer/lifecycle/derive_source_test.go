@@ -263,7 +263,7 @@ func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRoot
 	if !found {
 		t.Fatalf("populated unselected root numeric scalar was not offered: %#v", result.Choices)
 	}
-	if birth.Label != "Patient.multipleBirthInteger" || birth.LogicalType != "integer" || !birth.IsPopulated {
+	if birth.Label != "Birth count" || birth.LogicalType != "integer" || !birth.IsPopulated {
 		t.Fatalf("offered choice facts = %#v, want generated label, integer logical type, populated", birth)
 	}
 	if birth.ColumnID != "" {
@@ -287,7 +287,7 @@ func TestConstructionDeriveSourceCapabilityExposesPopulatedUnselectedNumericRoot
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"supported":true`, `"stageId":"source_projection"`, `"choiceId":"rc1.`, `"fieldPath":"multipleBirthInteger"`, `"label":"Patient.multipleBirthInteger"`, `"logicalType":"integer"`, `"isPopulated":true`} {
+	for _, want := range []string{`"supported":true`, `"stageId":"source_projection"`, `"choiceId":"rc1.`, `"fieldPath":"multipleBirthInteger"`, `"label":"Birth count"`, `"logicalType":"integer"`, `"isPopulated":true`} {
 		if !strings.Contains(string(encoded), want) {
 			t.Fatalf("deriveSourceInput wire shape omitted %s: %s", want, encoded)
 		}
@@ -405,7 +405,7 @@ func TestConstructionCandidateWithDeriveSourcesMaterializesAndRowPreserves(t *te
 	projection := prepared.SourceProjections[0]
 	if projection.ColumnID != deriveSourceBirth || projection.OwnerStepID != deriveSourceStep ||
 		projection.OccurrenceID != authoringv2.RootOccurrenceID || projection.FieldPath != "multipleBirthInteger" ||
-		projection.FHIRType != "integer" || projection.LogicalType != "integer" || projection.Label != "Patient.multipleBirthInteger" {
+		projection.FHIRType != "integer" || projection.LogicalType != "integer" || projection.Label != "Birth count" {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", projection)
 	}
 	carried := false
@@ -747,7 +747,7 @@ func TestGetConstructionCapabilitiesAssemblesDeriveSourceInputBesidePivotSourceI
 	if !found {
 		t.Fatalf("populated unselected root numeric scalar missing from capabilities: %#v", result.Choices)
 	}
-	if !birth.IsPopulated || birth.LogicalType != "integer" || birth.Label != "Patient.multipleBirthInteger" {
+	if !birth.IsPopulated || birth.LogicalType != "integer" || birth.Label != "Birth count" {
 		t.Fatalf("birth count choice = %#v, want populated integer with the generated label", birth)
 	}
 	if birth.ColumnID != "" {

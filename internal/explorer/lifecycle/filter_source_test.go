@@ -192,7 +192,7 @@ func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(
 	if !found {
 		t.Fatalf("populated unselected root scalar was not offered: %#v", result.Choices)
 	}
-	if active.Label != "BodyStructure.active" || active.LogicalType != "boolean" || !active.IsPopulated {
+	if active.Label != "Whether this record is in active use" || active.LogicalType != "boolean" || !active.IsPopulated {
 		t.Fatalf("offered choice facts = %#v, want generated label, boolean logical type, populated", active)
 	}
 	if active.ColumnID != "" {
@@ -216,10 +216,171 @@ func TestConstructionFilterSourceCapabilityExposesPopulatedUnselectedRootScalar(
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"supported":true`, `"stageId":"source_projection"`, `"choiceId":"rc1.`, `"fieldPath":"active"`, `"label":"BodyStructure.active"`, `"logicalType":"boolean"`, `"isPopulated":true`} {
+	for _, want := range []string{`"supported":true`, `"stageId":"source_projection"`, `"choiceId":"rc1.`, `"fieldPath":"active"`, `"label":"Whether this record is in active use"`, `"logicalType":"boolean"`, `"isPopulated":true`} {
 		if !strings.Contains(string(encoded), want) {
 			t.Fatalf("filterSourceInput wire shape omitted %s: %s", want, encoded)
 		}
+	}
+}
+
+// ROW-SOURCE-03 S-C: the single display-label builder must surface the exact
+// schema Title on discovery and write the identical string into the durable
+// claim, so the advertised label and the server-derived projection for one
+// field are the same bytes (the compiled artifact copies those bytes).
+func TestConstructionFilterSourceTitleLabelIsSharedByDiscoveryAndDurableClaim(t *testing.T) {
+	snapshot := filterSourceSnapshot("filter-source-title-parity")
+	service := filterSourceService(t)
+	const titleLabel = "Whether this record is in active use"
+
+	result, err := service.constructionFilterSourceCapability(context.Background(),
+		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertisedLabel := ""
+	for _, choice := range result.Choices {
+		if choice.FieldPath == filterSourceField {
+			advertisedLabel = choice.Label
+		}
+	}
+	if advertisedLabel != titleLabel {
+		t.Fatalf("offered label = %q, want the exact schema Title %q", advertisedLabel, titleLabel)
+	}
+
+	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
+	}}
+	candidate := construction
+	candidate.Steps[0].Operation.Filter.ColumnID = filterSourceColumn
+	candidate.Steps[0].Outputs = append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
+	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction),
+		filterSourceProposalRequest("filter-active", []ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	if err != nil {
+		t.Fatalf("prepare filter sources: %v", err)
+	}
+	if len(prepared.SourceProjections) != 1 {
+		t.Fatalf("prepared projections = %#v, want exactly one filter-owned projection", prepared.SourceProjections)
+	}
+	if prepared.SourceProjections[0].Label != advertisedLabel {
+		t.Fatalf("durable label %q drifted from advertised label %q: one-builder atomicity broken", prepared.SourceProjections[0].Label, advertisedLabel)
+	}
+	if prepared.SourceProjections[0].Label != titleLabel {
+		t.Fatalf("durable label = %q, want the exact schema Title %q", prepared.SourceProjections[0].Label, titleLabel)
+	}
+}
+
+// Candidate-label fallback shape (rs03-label-owner.md pinned decision): the
+// capability snapshot builder collapses an empty schema Title to the bare
+// field path (builder.go:296 first(TrimSpace(f.Label), path)), so the lane
+// label for such a field is the raw path — not the legacy 'Type.path'.
+func TestConstructionFilterSourceEmptyTitleCandidateLabelIsRawPath(t *testing.T) {
+	snapshot := filterSourceSnapshot("filter-source-empty-title")
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "bs-active" {
+			snapshot.Candidates[index].Label = snapshot.Candidates[index].FieldPath
+		}
+	}
+	service := filterSourceService(t)
+	result, err := service.constructionFilterSourceCapability(context.Background(),
+		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advertisedLabel := ""
+	for _, choice := range result.Choices {
+		if choice.FieldPath == filterSourceField {
+			advertisedLabel = choice.Label
+		}
+	}
+	if advertisedLabel != filterSourceField {
+		t.Fatalf("offered label for an empty-Title candidate = %q, want the raw path %q (no resource prefix)", advertisedLabel, filterSourceField)
+	}
+
+	construction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		filterSourceFilterStep(filterSourceIdentity, filterSourceIdentityColumns()),
+	}}
+	candidate := construction
+	candidate.Steps[0].Operation.Filter.ColumnID = filterSourceColumn
+	candidate.Steps[0].Outputs = append(filterSourceIdentityColumns(), filterSourceProjectionColumn())
+	prepared, err := service.constructionCandidateWithFilterSources(context.Background(), filterSourceBase(snapshot, construction),
+		filterSourceProposalRequest("filter-active", []ConstructionFilterSourceSelection{filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn)}), candidate)
+	if err != nil {
+		t.Fatalf("prepare filter sources with empty-Title candidate: %v", err)
+	}
+	if len(prepared.SourceProjections) != 1 || prepared.SourceProjections[0].Label != filterSourceField {
+		t.Fatalf("durable label = %#v, want the raw path %q matching the advertised label", prepared.SourceProjections, filterSourceField)
+	}
+}
+
+// labeledRowSourceChoicePlanner rewrites the planner's display label after
+// signing, so a test can pin the builder chain when the snapshot candidate
+// carries no label at all. Signing stays with the real resolver.
+type labeledRowSourceChoicePlanner struct {
+	inner *SchemaRowChoiceResolver
+	label string
+}
+
+func (p labeledRowSourceChoicePlanner) ListRowChoices(ctx context.Context, snapshot capability.Snapshot, document authoringv2.Document) ([]capability.RowChoice, error) {
+	choices, err := p.inner.ListRowChoices(ctx, snapshot, document)
+	if err != nil {
+		return nil, err
+	}
+	for index := range choices {
+		choices[index].Label = p.label
+	}
+	return choices, nil
+}
+
+// With no snapshot candidate label, advertise falls through the builder
+// chain to the row choice display label, and to the exact legacy
+// 'ResourceType.path' when that is blank too; the durable claim never sees
+// the choice label and lands on 'ResourceType.path'.
+func TestConstructionFilterSourceBlankCandidateLabelFallsThroughBuilderChain(t *testing.T) {
+	snapshot := filterSourceSnapshot("filter-source-blank-label")
+	for index := range snapshot.Candidates {
+		if snapshot.Candidates[index].ID == "bs-active" {
+			snapshot.Candidates[index].Label = ""
+		}
+	}
+	advertise := func(label string) string {
+		t.Helper()
+		service := &Service{config: Config{RowChoicePlanner: labeledRowSourceChoicePlanner{inner: filterSourceResolver(t), label: label}}}
+		result, err := service.constructionFilterSourceCapability(context.Background(),
+			filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), filterSourceOutput, recipe.ConstructionSourceProjectionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, choice := range result.Choices {
+			if choice.FieldPath == filterSourceField {
+				return choice.Label
+			}
+		}
+		t.Fatalf("blank-label field was not advertised: %#v", result.Choices)
+		return ""
+	}
+	if got := advertise("  Generated display  "); got != "Generated display" {
+		t.Fatalf("advertised label = %q, want the trimmed row choice display label", got)
+	}
+	if got := advertise("   "); got != "BodyStructure.active" {
+		t.Fatalf("advertised label = %q, want the exact legacy 'Type.path' fallback", got)
+	}
+
+	service := filterSourceService(t)
+	projection, err := service.resolveConstructionFilterSource(context.Background(),
+		filterSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}),
+		filterSourceProposalRequest("filter-active", nil), recipe.ConstructionSourceProjectionID,
+		filterSourceSelection(t, snapshot, filterSourceField, filterSourceColumn))
+	if err != nil {
+		t.Fatalf("resolve with blank candidate label: %v", err)
+	}
+	if projection.Label != "BodyStructure.active" {
+		t.Fatalf("durable label = %q, want the exact legacy 'Type.path' fallback", projection.Label)
+	}
+	// ConstructionFilterSourceFacts is the reconcile-side twin of the durable
+	// write; it must produce the identical string for the identical claim.
+	facts, ok := ConstructionFilterSourceFacts(snapshot, filterSourceRootType, filterSourceField)
+	if !ok || facts.Label != projection.Label {
+		t.Fatalf("facts label = %q (ok %v), want the durable label %q", facts.Label, ok, projection.Label)
 	}
 }
 
@@ -336,7 +497,7 @@ func TestConstructionCandidateWithFilterSourcesMaterializesOwnedProjection(t *te
 	projection := prepared.SourceProjections[0]
 	if projection.ColumnID != filterSourceColumn || projection.OwnerStepID != "filter-active" ||
 		projection.OccurrenceID != authoringv2.RootOccurrenceID || projection.FieldPath != filterSourceField ||
-		projection.FHIRType != "boolean" || projection.LogicalType != "boolean" || projection.Label != "BodyStructure.active" {
+		projection.FHIRType != "boolean" || projection.LogicalType != "boolean" || projection.Label != "Whether this record is in active use" {
 		t.Fatalf("durable projection = %#v, want server-derived facts for the unselected field", projection)
 	}
 	carried := false
@@ -711,7 +872,7 @@ func TestGetConstructionCapabilitiesAssemblesFilterSourceInputBesidePivotSourceI
 	if !found {
 		t.Fatalf("populated unselected root scalar missing from capabilities: %#v", result.Choices)
 	}
-	if !birth.IsPopulated || birth.LogicalType != "integer" || birth.Label != "Patient.multipleBirthInteger" {
+	if !birth.IsPopulated || birth.LogicalType != "integer" || birth.Label != "Birth count" {
 		t.Fatalf("birth count choice = %#v, want populated integer with the generated label", birth)
 	}
 	if birth.ColumnID != "" {

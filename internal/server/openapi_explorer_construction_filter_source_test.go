@@ -212,8 +212,8 @@ func TestConstructionFilterSourceHTTPContractPreservesCapabilitiesAndProposals(t
 	if choice.ChoiceID == nil || *choice.ChoiceID == "" {
 		t.Fatalf("filter source choice lacked its signed choiceId: %s", capabilitiesHTTP.Body)
 	}
-	if choice.Label == nil || *choice.Label != "Patient.active" || choice.LogicalType == nil || *choice.LogicalType != "boolean" {
-		t.Fatalf("filter source choice facts = %#v, want Patient.active/boolean", choice)
+	if choice.Label == nil || *choice.Label != "Active" || choice.LogicalType == nil || *choice.LogicalType != "boolean" {
+		t.Fatalf("filter source choice facts = %#v, want the snapshot candidate Title Active/boolean", choice)
 	}
 	if choice.IsPopulated == nil || !*choice.IsPopulated {
 		t.Fatalf("filter source choice lost the authorized populated fact: %#v", choice)
@@ -355,7 +355,7 @@ func filterSourceF1HonestProjection() authoringv2.ConstructionSourceProjection {
 	return authoringv2.ConstructionSourceProjection{
 		ColumnID: filterSourceF1Column, OwnerStepID: filterSourceF1OwnerStep,
 		OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: filterSourceF1HonestField,
-		FHIRType: "integer", LogicalType: "integer", Label: "Patient." + filterSourceF1HonestField,
+		FHIRType: "integer", LogicalType: "integer", Label: "Multiple birth integer",
 	}
 }
 
