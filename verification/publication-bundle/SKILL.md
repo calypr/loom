@@ -124,3 +124,56 @@ docker exec loom-dev-qwen-current-loom-api-1 sh -c \
   `FINDINGS.md`, `reviewed-sources.json`.
 
 Local TLC runs use `/sandbox/.local/bin/tlc-run` (explicit budget; split via `TLC_WORKERS`/`TLC_HEAP_MB`, one `-metadir` per run). If unreadable `/sys/fs/cgroup/{cpu,memory}.max` crashes the launcher, it needs the OSError guards (applied 2026-11-01).
+
+## Prepare-lane clearance model (ConstructionPrepareLanes.tla)
+
+Bounded quantifier for the ROW-SOURCE-05 P0 contract: "row-operation
+preparation never restores inputs another lane cleared" (authoritative
+sentence, commit b72a1322). Consumer of record: the 20 named durables
+`internal/explorer/lifecycle/filter_source_pivot_clear_test.go` are empirical
+samples; this model is the only check quantifying base x lane-propose order x
+per-lane {Untouched, Omitted, Cleared, Replaced} carries at every post-prepare
+durable state. Properties (plain-words): `ClearedStaysCleared` — a lane the
+candidate cleared persists with no server inputs, however the proposals are
+ordered; `NoFalseRestore` — only a client Replaced create owns a lane;
+`UntouchedOwnerSurvival` — the fix never eats preservation (partial carries
+are repaired); `OwnerIsolation` — clearing A never writes B.
+
+Covered code (sync commit `0dd7be44`; advance ONLY after re-reading these
+exact regions — prepare lanes byte-stable since b72a1322/9c79307b):
+`preserveConstructionOwnedInputs` internal/explorer/lifecycle/
+construction_pivot_source.go:566-596 (call sites :313/:230/:270);
+`constructionOwnerInputsClearedFromCandidate` :607-633; guarded set-branch
+imports construction_pivot_source.go:383-387 and filter_source.go:243-247;
+frozen SET copies derive_source.go:296-299 and unpivot_source.go:336-339
+(SET reattribution :274-287); consumption validation authoringv2/
+construction_validation.go:348-376; cascade prune authoringv2/
+construction_change.go:525-530. Bounds: 4 lanes x 4 carries, at most one
+propose per lane; client-carried items are client intent (A1); candidate
+build per request is atomic at the durable layer (A2); assumption A3 — frozen
+copies persist only consumed imports (reviewer evidence, sideFinding
+row-source-derive-SET-bulkcopy-unmatched-guard), falsifiable by the
+m-prep-persist-unconsumed arm.
+
+```
+TLC_WORKERS=2 TLC_HEAP_MB=1024 /sandbox/.local/bin/tlc-run -fp 21 \
+  -metadir /tmp/tla-<run-id> -config <cfg> ConstructionPrepareLanes.tla
+```
+
+| cfg | shape | expected |
+| --- | --- | --- |
+| `m-prep-gated` | shipped (all fault constants FALSE) | clean (61,456 states recorded) |
+| `m-prep-helper-ungated` | pre-b72a1322 helper (unconditional restore) | `ClearedStaysCleared` VIOLATED — archived P0 arm (clear blocked by consumption-validation error = user cannot clear) |
+| `m-prep-setbranch-ungated` | pivot/filter set imports un-gated | `ClearedStaysCleared` VIOLATED (rs05 removed shape) |
+| `m-prep-persist-unconsumed` | A3 dropped on frozen copies | `ClearedStaysCleared` VIOLATED (persisted resurrection) |
+| `m-prep-shared-gate` | global cleared flag (over-gated wrong-fix) | `UntouchedOwnerSurvival` VIOLATED; `OwnerIsolation` independently violated (probed) |
+
+A clean arm passing while its counterpart also passes means the check broke
+(skill doctrine). Companion real-code replay lane (keep red artifacts red):
+`go test -count=1 -run 'TestPivotSource|TestFilterSourceClear|TestFilterSourceCreate|TestProposeConstruction|TestXopPort' ./internal/explorer/lifecycle/`
+— model counterexample classes map 1:1 to those named tests, which are the
+proven RED-on-pre-fix/GREEN-after shapes (b72a1322 commit evidence: 11 RED +
+reviewer kill-set m1/m2/m3/H1/H2/S1/S2). Model runs read with pstack
+`/statechart`. Not covered: multi-owner steps per lane kind, partial chain
+granularity below carry classes, request-failure HTTP surfaces, the reconcile
+receipt guard itself, database atomicity.
