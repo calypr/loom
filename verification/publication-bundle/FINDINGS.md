@@ -2264,3 +2264,22 @@ what actually ran (evidence paths retained on the same host):
   duplicate-path option lists collapse to equivalent digests, matching
   IN-filter semantics (harmless).
 - No defect candidate on this vertical.
+
+## Round 83 — published-read filter construction: PREVENTED; filter cardinality noted as disclosed residual
+
+- `buildWhere` (`internal/dataframe/published/read.go:78-95+`): filters are
+  safe by construction — column membership checked against the allowed set
+  BEFORE interpolation (names are dataset-derived, backtick-safe), every
+  operator drawn from a hard switch whitelist (`EQ NEQ IN NOT_IN LT LTE GT
+  GTE CONTAINS STARTS_WITH EXISTS IS_NULL ARRAY_CONTAINS ARRAY_OVERLAPS`)
+  with `default: INVALID_FILTER` reject — no client string reaches SQL text;
+  every value goes through `?` bind args; empty IN/NOT_IN collapse to
+  constant `0`/`1` (no degenerate `IN ()` syntax).
+- Disclosed residual (hardening note, NOT registered): no explicit cap on
+  the NUMBER of filters; practical bound is the HTTP request-body limit
+  (~4 MiB fasthttp default) keeping the generated WHERE list in the
+  10^4-10^5-element range for an authenticated caller, with the
+  ClickHouse server-side query-size guard as backstop. No named contract
+  clause limits filter count; raising it would need an operator product
+  decision on public API limits.
+- No defect candidate on this vertical.
