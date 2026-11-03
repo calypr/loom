@@ -8,6 +8,8 @@ import type {
   ConstructionStep,
 } from '../../../types';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
+import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerEmptiness } from './sourcePickerExplanations';
+import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -1062,7 +1064,18 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
         <div className="grid gap-3 rounded-lg border border-slate-200 p-3">
           <p className="text-sm font-medium text-slate-800">{editingStep ? 'Edit this saved condition' : 'New condition'}</p>
           {!columnOptionsAvailable ? (
-            <p role="status" className="text-sm text-slate-600">Loom returned no columns for this stage.</p>
+            <>
+              <p role="status" className="text-sm text-slate-600">Loom returned no columns for this stage.</p>
+              {sourceInput?.supported ? (
+                <SourcePickerExplanation
+                  emptiness={classifySourcePickerEmptiness(sourceChoices, sourcePickerBoundSet({
+                    bindings: filterSources,
+                    isOwn: () => false,
+                    ownVisible: false,
+                  }))}
+                />
+              ) : null}
+            </>
           ) : (
             <>
               <label className="grid gap-1 text-sm font-medium text-slate-700">
@@ -1090,6 +1103,16 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
                     ? sourceUnavailableReason
                     : 'Loom did not report why filtering on dataset fields is unavailable at this stage.'}
                 </p>
+              ) : null}
+
+              {sourceInput?.supported && sourceOptions.length === 0 ? (
+                <SourcePickerExplanation
+                  emptiness={classifySourcePickerEmptiness(sourceChoices, sourcePickerBoundSet({
+                    bindings: filterSources,
+                    isOwn: (binding) => binding.choiceId === filterSources[filterSources.length - 1]?.choiceId,
+                    ownVisible: stage.columns.some((column) => column.id === form.columnId) || boundSourceVisible,
+                  }))}
+                />
               ) : null}
 
               <label className="grid gap-1 text-sm font-medium text-slate-700">
@@ -1191,6 +1214,7 @@ const FormulaOperand = (props: {
   readonly disabled: boolean;
   readonly sourceInput?: DeriveSourceInput;
   readonly boundSources?: ReadonlyArray<DeriveSourceSelection>;
+  readonly explain?: SourcePickerEmptiness;
   readonly onChange: (value: OperandDraft) => void;
   readonly onSourceSelected: (choice: DeriveSourceChoice, columnId: string) => void;
 }) => {
@@ -1272,6 +1296,10 @@ const FormulaOperand = (props: {
             </optgroup> : null}
           </select>
         </label>
+      ) : null}
+
+      {props.sourceInput?.supported && props.explain ? (
+        <SourcePickerExplanation emptiness={props.explain} />
       ) : null}
 
       {sourceUnavailableReason && sourceUnavailableReason !== '' ? (
@@ -1366,6 +1394,38 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
 
   const expressionDraft = expressionDraftFor(form.expression);
   const inputStage = deriveSourceStage(stage, deriveSourceInput, liveDeriveSources(form));
+
+  // One explanation per operand pair: the first operand that renders a
+  // column-kind source picker and classifies as empty hosts it. A literal
+  // operand has no source section, so a zero-field bound operand still gets
+  // its explanation instead of silently rendering an empty picker.
+  const pickerEmptinessHost = (() => {
+    if (!deriveSourceInput?.supported) return undefined;
+    const choices = deriveSourceInput.choices ?? [];
+    const bindings = form.deriveSources ?? [];
+    const operands = [
+      { slot: 'left' as const, draft: expressionDraft.left },
+      { slot: 'right' as const, draft: expressionDraft.right },
+    ];
+    for (const operand of operands) {
+      if (operand.draft.kind !== 'column') continue;
+      const ownColumnId = operand.draft.columnId;
+      const ownChoice = choices.find((choice) => choice.columnId === ownColumnId);
+      const list = [...bindings] as Array<{ readonly choiceId: string }>;
+      if (ownChoice && !list.some((binding) => binding.choiceId === ownChoice.choiceId)) {
+        list.push({ choiceId: ownChoice.choiceId });
+      }
+      const emptiness = classifySourcePickerEmptiness(choices, sourcePickerBoundSet({
+        bindings: list,
+        isOwn: (binding) => choices.some((choice) => choice.choiceId === binding.choiceId && choice.columnId === ownColumnId),
+        ownVisible: inputStage.columns.some((column) => column.id === ownColumnId && isNumericColumn(column)),
+      }));
+      if (emptiness.emptyClass !== 'available') {
+        return { slot: operand.slot, emptiness };
+      }
+    }
+    return undefined;
+  })();
   const formulaText = form.expression.kind === 'formula-invalid' || form.expression.kind === 'formula-valid'
     ? form.expression.source
     : formulaTextFor(expressionDraft, inputStage.columns);
@@ -1516,6 +1576,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
               disabled={disabled}
               sourceInput={deriveSourceInput}
               boundSources={form.deriveSources}
+              explain={pickerEmptinessHost?.slot === 'left' ? pickerEmptinessHost.emptiness : undefined}
               onChange={(left) => updateOperandDraft('left', left)}
               onSourceSelected={(choice, columnId) => chooseSourceOperand('left', choice, columnId)}
             />
@@ -1527,6 +1588,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
               disabled={disabled}
               sourceInput={deriveSourceInput}
               boundSources={form.deriveSources}
+              explain={pickerEmptinessHost?.slot === 'right' ? pickerEmptinessHost.emptiness : undefined}
               onChange={(right) => updateOperandDraft('right', right)}
               onSourceSelected={(choice, columnId) => chooseSourceOperand('right', choice, columnId)}
             />

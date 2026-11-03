@@ -1078,4 +1078,131 @@ describe('ConstructionOperationEditor', () => {
       expect(sourceOptgroup(operandColumn('First'))).toBeNull();
     });
   });
+
+  describe('row-source picker empty and refused-field explanations (ROW-SOURCE-06)', () => {
+    const unpopulatedChoice = (choiceId: string, fieldPath: string): FilterSourceChoice => ({
+      choiceId,
+      fieldPath,
+      label: fieldPath,
+      logicalType: 'string',
+      isPopulated: false,
+    });
+
+    it('lists exactly the unpopulated dataset fields when nothing has values (filter lane)', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange: vi.fn(),
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [unpopulatedChoice('choice-status', 'root.status'), unpopulatedChoice('choice-note', 'root.note.text')],
+        },
+      });
+      const status = screen.getByTestId('source-picker-explanation');
+      expect(status.getAttribute('role')).toBe('status');
+      expect(status.textContent).toContain('contains values in this dataset yet');
+      const items = within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item');
+      expect(items.map((item) => item.getAttribute('title'))).toEqual(['root.status', 'root.note.text']);
+    });
+
+    it('explains that the API listed no dataset fields without inventing a reason (filter lane)', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange: vi.fn(),
+        filterSourceInput: { supported: true, stageId: 'source_projection', choices: [] },
+      });
+      expect(screen.getByTestId('source-picker-explanation').textContent)
+        .toBe('Loom has not listed any dataset fields for this step.');
+    });
+
+    it('shows no false all-bound explanation when the picker only holds its own saved selection (filter lane)', () => {
+      const savedSourceFilter: ConstructionStep = {
+        id: 'filter-source-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'filter-input_saved', operator: 'EXISTS' } },
+        outputs: [...columns, { id: 'filter-input_saved', name: 'root_status', label: 'Observation.status', type: 'string' }],
+      };
+      renderEditor({
+        family: 'KEEP_ROWS',
+        construction: { version: 1, steps: [savedSourceFilter] },
+        stages: [sourceStage, { ...sourceStage, id: savedSourceFilter.id, inputStageId: sourceStage.id, operation: 'FILTER' }],
+        editingStep: savedSourceFilter,
+        onCandidateChange: vi.fn(),
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [{ choiceId: 'choice-status', fieldPath: 'root.status', label: 'Observation.status', logicalType: 'string', isPopulated: true, columnId: 'filter-input_saved' }],
+        },
+      });
+      expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+    });
+
+    it('renders no explanation while eligible populated dataset fields exist (filter lane)', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange: vi.fn(),
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: true, columnId: '' },
+            unpopulatedChoice('choice-note', 'root.note.text'),
+          ],
+        },
+      });
+      expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+    });
+
+    it('explains the unavailable dataset-field operand states in the derive numeric picker', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        selectedColumns: ['weight-id'],
+        deriveSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [unpopulatedChoice('choice-status', 'root.status')],
+        },
+      });
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      expect(screen.getByTestId('source-picker-explanation').textContent).toContain('contains values in this dataset yet');
+      expect(within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item')
+        .map((item) => item.getAttribute('title'))).toEqual(['root.status']);
+    });
+    it('renders one shared explanation for both derive numeric picker slots when both are column-bound', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        selectedColumns: ['weight-id'],
+        deriveSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [unpopulatedChoice('choice-status', 'root.status')],
+        },
+      });
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'column' } });
+      expect(screen.getAllByTestId('source-picker-explanation')).toHaveLength(1);
+    });
+
+    it('keeps the lane-level server refusal notice distinct from the zero-choice explanation', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange,
+        filterSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'FILTER_SOURCE_REQUIRES_SCALAR_KIND',
+          reason: 'Filters need scalar fields.',
+          choices: [],
+        },
+      });
+      expect(screen.getByTestId('construction-filter-source-unavailable').textContent)
+        .toContain('FILTER_SOURCE_REQUIRES_SCALAR_KIND');
+      expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+    });
+  });
 });

@@ -36,6 +36,7 @@ const expectedChecks = [
   'row96-reason-codes-served',
   'row96-inventory-block-strike-and-false-positive-control',
   'row96-structural-gates-inventory-disjoint',
+  'row96-picker-empty-and-refused-explanations',
 ];
 
 // Honest-absence family: row-choice verdicts (lane reason authority above) plus the
@@ -354,6 +355,61 @@ const main = async () => {
   await realClick('[data-testid="construction-close-operation-editor"]');
   await until(async () => !(await mounted('[data-testid="construction-filter-editor"]')), 'lane source picker closed', 10000);
 
+  // ROW-SOURCE-06: the signed picker explains zero-eligible-field states. On this
+  // populated seed the eligible set is non-empty, so the certified guarantee here is the
+  // false-positive control (no explanation may appear while eligible populated fields
+  // exist); if a seed ever legitimately yields zero eligible fields the same live path
+  // asserts the exact explanatory sentence (hard-coded contract copy, not derived from
+  // the component). Positive-state rendering authority: the picker unit tests.
+  const pickerState = (await api('builder')).value;
+  const pickerCaps = await api('construction-capabilities', {
+    outputId, stageId, snapshotToken: pickerState.catalog.snapshotToken,
+    expectedDraftVersion: pickerState.draftVersion, expectedDraftDigest: pickerState.draftDigest,
+  });
+  assert.equal(pickerCaps.status, 200, `picker-explanations capabilities failed (${pickerCaps.status}): ${JSON.stringify(pickerCaps.value).slice(0, 300)}`);
+  const pickerFilterInput = pickerCaps.value?.filterSourceInput ?? null;
+  const pickerChoices = pickerFilterInput?.choices ?? [];
+  const eligiblePopulatedCount = pickerFilterInput?.supported ? pickerChoices.filter((choice) => choice.isPopulated).length : -1;
+  await realClick('[data-testid="construction-action-keep-rows"]');
+  await until(() => mounted('[data-testid="construction-filter-editor"]'), 'picker-explanations: lane editor open', 20000);
+  const explanationPresent = await mounted('[data-testid="source-picker-explanation"]');
+  if (eligiblePopulatedCount > 0) {
+    assert.ok(!explanationPresent, 'a zero-eligible explanation rendered while eligible populated dataset fields exist (false-positive violation)');
+    report.sideFindings.push({ id: 'row96-picker-positive-state-unreachable-on-seed', note: 'the populated fixture seed always exposes eligible populated fields, so live positive rendering of the none-populated/none-listed explanations is not reachable here; positive DOM rendering is certified by the picker unit tests and the lane-refusal notice stays the distinct unsupported-state surface' });
+  } else if (pickerFilterInput?.supported) {
+    await until(() => mounted('[data-testid="source-picker-explanation"]'), 'zero-eligible explanation appears', 15000);
+    const explanationText = await evaluate(`document.querySelector('[data-testid="source-picker-explanation"]').textContent`);
+    const contractCopy = [
+      'Every eligible dataset field that contains values is already used by another source selection here.',
+      'No eligible dataset field contains values in this dataset yet.',
+      'Loom has not listed any dataset fields for this step.',
+    ];
+    // The phase opens a fresh lane editor with no prior bindings in this session,
+    // so the count-derived class below mirrors the picker's own classification.
+    assert.ok(contractCopy.some((sentence) => String(explanationText).includes(sentence)), `zero-eligible explanation text drifted from all approved contract copies: ${JSON.stringify(explanationText)}`);
+    if (pickerChoices.length > 0) {
+      const listed = await evaluate(`[...document.querySelectorAll('[data-testid="source-picker-empty-list-item"]')].map((e)=>e.getAttribute('title'))`);
+      assert.deepEqual(JSON.parse(JSON.stringify(listed ?? [])), pickerChoices.filter((choice) => !choice.isPopulated).map((choice) => choice.fieldPath), 'unpopulated-field list does not match the server-marked unpopulated choices');
+    }
+  } else {
+    throw new Error('picker-explanations: filterSourceInput unsupported; refusing a silently-passing third branch');
+  }
+  await screenshot('step2b-picker-explanations');
+  await realClick('[data-testid="construction-close-operation-editor"]');
+  await until(async () => !(await mounted('[data-testid="construction-filter-editor"]')), 'picker-explanations: lane editor closed', 10000);
+  record('row96-picker-empty-and-refused-explanations', {
+    laneFilterSupported: (pickerCaps.value?.selectedStage?.capabilities ?? []).find((cap) => cap.kind === 'FILTER')?.supported ?? null,
+    filterInputSupported: pickerFilterInput?.supported ?? null,
+    choicesCount: pickerChoices.length,
+    unpopulatedChoices: pickerChoices.filter((choice) => !choice.isPopulated).map((choice) => choice.fieldPath),
+    eligiblePopulatedCount,
+    explanationPresent,
+    positiveStateRealized: pickerFilterInput?.supported === true && eligiblePopulatedCount === 0,
+    control: 'no-explanation-while-eligible-options-exist',
+    positiveRenderingAuthority: 'picker unit tests (ConstructionOperationEditor/ConstructionReshapeEditor unit suites)',
+  });
+  markPhase('picker-explanations');
+
   const refusalRecords = laneCaps.flatMap((cap) => (Array.isArray(cap.candidates ?? cap.fields) ? cap.candidates ?? cap.fields : [])
     .filter((candidate) => candidate && candidate.supported === false && typeof candidate.reasonCode === 'string' && candidate.reasonCode)
     .map((candidate) => ({ kind: cap.kind, fieldPath: candidate.fieldPath ?? candidate.path ?? null, reasonCode: candidate.reasonCode })));
@@ -514,6 +570,9 @@ const main = async () => {
   record('row96-structural-gates-inventory-disjoint', { seedShape: 'columnless CREATE_TABLE on populated dataset (structural gates, not honest-absence)', structuralClasses: classes, honestAbsenceClasses: emptyDataCodes.filter((code) => /^NO_OBSERVED_VALUES_|^NO_ELIGIBLE_POPULATED_/.test(code)), inventoryCodesSeenInEmptyLane: leaks, healthyTableCodes: healthyCodes, disjointBothDirections: true, honestAbsenceAuthority: 'four per-lane Go tests (onlySkipClass observed path)' });
 
   markPhase('empty-data');
+  if (exceptions.length > 0) {
+    throw new Error('uncaught browser exceptions during the journey: ' + exceptions.join(';').slice(0, 300));
+  }
   await screenshot('step5-empty-data-distinguished');
 
   const identityAfter = collectBuildIdentity();

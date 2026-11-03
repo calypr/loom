@@ -17,6 +17,8 @@ import { constructionSchema } from '../../../types';
 import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpandEditor';
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { semanticConceptLabel } from '../catalogItems';
+import { classifySourcePickerEmptiness, sourcePickerBoundSet } from './sourcePickerExplanations';
+import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 import {
   constructionInputForStage,
   constructionInputStageFor,
@@ -4892,6 +4894,18 @@ const UnpivotEditor = (props: {
                   </optgroup>
                 </select>
               </label>
+              {index === 0 && props.sourceInput?.supported ? (
+                <SourcePickerExplanation
+                  emptiness={classifySourcePickerEmptiness(
+                    props.sourceInput.choices,
+                    sourcePickerBoundSet({
+                      bindings: props.form.unpivotSources ?? [],
+                      isOwn: (binding) => binding.columnId === input.columnId,
+                      ownVisible: true,
+                    }),
+                  )}
+                />
+              ) : null}
               <ScalarKeyEditor input={input} disabled={props.disabled || !props.supported} onChange={(key) => updateInputKey(input.columnId, key)} />
             </div>;
           })}

@@ -3263,6 +3263,95 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlValue('Unpivot key value opaque-b')).toBe('Patient reference (2)');
   });
 
+  it('explains unpopulated dataset fields in the signed unpivot input picker (ROW-SOURCE-06)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'unpivot-choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: false, columnId: '' },
+            { choiceId: 'unpivot-choice-note', fieldPath: 'root.note.text', label: 'Note text', logicalType: 'string', isPopulated: false, columnId: '' },
+          ],
+        },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('source-picker-explanation').textContent).toContain('contains values in this dataset yet');
+    const items = within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item');
+    expect(items.map((item) => item.getAttribute('title'))).toEqual(['root.status', 'root.note.text']);
+  });
+
+  it('keeps the unpivot lane refusal notice separate and renders no picker explanation when the source input is unsupported (ROW-SOURCE-06)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'UNPIVOT_SOURCE_REQUIRES_SCALAR_KIND',
+          reason: 'Unpivoting needs scalar fields.',
+          choices: [],
+        },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('construction-reshape-unpivot-source-unavailable').textContent)
+      .toContain('UNPIVOT_SOURCE_REQUIRES_SCALAR_KIND');
+    expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+  });
+
+  it('renders one shared source explanation across melted unpivot input rows (ROW-SOURCE-06)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Melt one', type: 'string', cardinality: 'required_one' as const },
+        { id: 'opaque-b', name: 'col_opaque_b', label: 'Melt two', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'unpivot-choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: false, columnId: '' },
+          ],
+        },
+      },
+      selectedColumns: ['opaque-a', 'opaque-b'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('construction-reshape-unpivot-input-1-column')).toBeTruthy();
+    expect(screen.getAllByTestId('source-picker-explanation')).toHaveLength(1);
+  });
+
+
   it('opens direct Unpivot entry with selected columns and proposes that metadata-driven form', () => {
     const unpivotStage = {
       ...sourceStage,

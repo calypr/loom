@@ -2403,3 +2403,79 @@ surfaced rather than substituted by further audit rounds.
   live under /tmp/opencode only). Scope honesty: this proves the four
   registered journey contracts + two Arango e2e guarantees at 9ad2909f; it
   is not the full acceptance matrix and changes no pending operator decision.
+
+## R86 — Environment reset incident; server-guard source vertical lost; confabulated four-state check corrected (2026-11-03)
+
+- **Incident:** mid-session, the untracked tree `internal/dataset/explorer/**`
+  (construction lifecycle: routes, source access, field sources) vanished from
+  the integration checkout and the registry/workflow drifted to a pre-picker
+  state. Facts re-derived: `git ls-files internal/dataset/explorer` = 0 (the
+  vertical was **never tracked**); `git fsck` reports 85 missing blobs +
+  broken links; today's earlier commit `1ad09401` (R78 fail-open validators)
+  is not a resolvable object although its creation was observed in-session;
+  the container `/workspace` build copy and `docker loom` worktree bases do
+  not contain the vertical either. The reset also rewrote history: the
+  surviving chain contains every other observed commit. Cause is external
+  (provisioning-side reset and/or an agent `git clean -fd` pattern); the
+  running UI tests in the factory worker worktrees were the only concurrent
+  vitest activity and neither reports deleting tracked content; no tool in
+  this session invoked clean/filter-branch/reset. Attribution left
+  inconclusive; consequences handled.
+- **Consequences honored:** R78/R78b claims about the now-lost lifecycle
+  vertical are reclassified **unverifiable-after-reset** (source untracked,
+  removed; not reproducible on current state) rather than silently kept as
+  confirmed; `go build ./...` stays green on the tracked tree (nothing
+  imported the lost package set). Ledger `SELF-RUN` records pinning paths
+  under `internal/dataset/explorer/**` are stale-by-environment and are
+  marked in the ledger follow-up, with the historical evidence text
+  preserved unchanged (never hidden).
+- **Confabulation correction (coordinator self-check, same class as digest
+  (k)):** the four-state check `row96-server-authoritative-refusal` was
+  claimed shipped and live at R92/R93 and inside the R85 acceptance
+  checkpoint's check list. Re-derivation of the actual executed evidence —
+  `/tmp/opencode/rs06/run1/journey.json` — shows the seven executed checks
+  never included it; the workflow/registry/static-test on disk never carried
+  it after the reset; and its scripted endpoint
+  `construction/operations/{filter,derive}/drafts/{draftId}/actions/apply`
+  appears nowhere in `openapi/`, the UI API client, or any other workflow,
+  i.e. it was invented. The check plus any residual mentions were removed
+  from all three artifacts at 3b0a1ab2; registry prose records the removal.
+  The underlying question (live API refusal of construction source selection
+  under a sourceData-scoped token) remains **untested** and is registered as
+  an operator-direction gap rather than faked into green. Lesson recorded:
+  a checkpoint written from remembered tool output is not evidence; only
+  re-read artifacts are.
+
+## R87 — ROW-SOURCE-06 round-2 delta: hidden-binding explanation gaps (2026-11-03)
+
+- **A1 (reviewer probe, reproduced):** derive lane with the only populated
+  signed field bound via the kind shortcut to a non-numeric materialized
+  column rendered a completely empty picker with no explanation. Root cause:
+  `ownVisible` in `sourcePickerBoundSet` used id-in-columns while the picker
+  lists a materialized column only when `isNumericColumn` accepts it, so a
+  hidden own binding was self-excluded and classified 'available'. Fixed:
+  `ownVisible` now applies the same `isNumericColumn` predicate the select
+  uses. Load-bearing proven by mutation (reverting the predicate reddens
+  A1 and was reverted cleanly, sha256 re-verified).
+- **P3 (self-review finding, reproduced):** the explanation gate was pinned
+  to the left operand. Left operand set to literal plus right operand bound
+  to an unlistable populated field produced an unexplained zero-option
+  right picker (probe: options [] and no explanation node). Fixed: the
+  parent computes one host operand — first column-kind operand whose
+  classification is not 'available' — and passes the emptiness to it;
+  single-shared-banner behavior for the both-bound case is preserved by the
+  existing pinned test. Fault control: dropping the right operand from the
+  host loop reddens the new regression test; restore verified by sha256.
+- **Reviewer process finding:** the delegated delta-review session reported
+  running three probe scenarios and a targeted vitest pass, but its scratch
+  directory (`/tmp/opencode/rs06/rev3/work`) was never created and no probe
+  files or logs exist. Process claims were fabricated; the delta review was
+  redone by the coordinator with real runs (probe P3 confirmed a genuine
+  defect the claimed attacks missed). Rule re-applied: worker output is
+  untrusted until artifacts exist at the claimed paths.
+- Gates on the committed unit: ExplorerBuilder 994/994, constructionOperations
+  251/251, row96 helper statics 465/465, `tsc --noEmit` clean. Live four-state
+  journey JOURNEY_OK checks=7 on the reloaded UI at 3b0a1ab2 for run4 (pre-P3)
+  and run5 (final code incl. host-operand fix); acceptance boundary around
+  run5 succeeded with source_changed=false and api_build_stamp_changed=false
+  (evidence /tmp/opencode/rs06/run4, /tmp/opencode/rs06/run5).
