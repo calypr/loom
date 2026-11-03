@@ -2186,3 +2186,27 @@ what actually ran (evidence paths retained on the same host):
   `Unrestricted()` true ONLY for the explicit enum (empty/garbage/wrong-case/
   trailing-space all false) at its home package, closing the reviewer-flagged
   pin gap behind the R78 posture alignment.
+
+## Round 80 — export vertical (internal-column exfiltration / sort injection): PREVENTED by identified code
+
+- Hypothesis: `ExportDataframe` (graphql dataframe/export.go) honours
+  client-supplied `Columns` verbatim into the CSV header/row printer, so an
+  explicit `["auth_resource_path"]`/`["__loom_row_id"]` request could export
+  internals the default column list deliberately skips; the JSON arms strip
+  only `__loom_*`, never the auth path — an asymmetry looked suspicious.
+- Resolution via the READ boundary: every arm funnels through
+  `Reader.Stream` -> `readerColumns` (`published/page.go:332-358`): it
+  hard-rejects the auth path in BOTH the requested list and the sort
+  column, excludes it and `__loom_row_id` from the `allowed` set, and
+  `validateReaderColumns` rejects any other internal/member-foreign name
+  with INVALID_REQUEST. The emitted rows are then pruned to the requested
+  visible set (:236-239) and the internal tie-breaker `__loom_row_id`
+  (always SELECTed for stable ordering) is deleted unless the server-side
+  caller sets `IncludeRowIdentity` — which export never does.
+- Adjacent guarantees confirmed same pass: restricted reads without the
+  auth column fail CLOSED via `WHERE 0` (:200-206, never a silent bypass);
+  ORDER BY pins `NULLS LAST` in both directions with the row-id tiebreaker
+  (the F-B24 regime); sort columns are membership-validated, and column
+  names reaching `quotedColumns` are dataset-derived, not attacker strings.
+- Verdict: the export default-skip (:41-44) is redundant belt-over-reader-
+  gate, not the load-bearing guard; no defect candidate on this vertical.
