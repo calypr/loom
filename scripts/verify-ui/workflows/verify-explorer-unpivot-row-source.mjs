@@ -22,9 +22,9 @@
 //                  "Fields from your data" dataset optgroup (source:<choiceId> options with the
 //                  fieldPath tooltip; testids per slice-2 receipt) and the add-source-field
 //                  affordance.
-//   3 CONFIGURE    melt = public ID + signed Observation.valueQuantity.unit + signed
-//                  Observation.subject.reference (Add a field each, rebound off the sorted-first
-//                  effectiveDateTime prebind) with explicit keys; PREVIEW is oracle-exact per
+//   3 CONFIGURE    melt = public ID + signed valueQuantity.unit + signed subject.reference
+//                  (Add a field each; post-cd39eeaf add pre-binds the first visible choice,
+//                  S-C-labelled) with explicit keys; PREVIEW is oracle-exact per
 //                  melt row (PRESERVE keeps em-dash/blank cells for rows missing unit/subject;
 //                  id melt cells exact). The signed date_time lane is NOT run through the UI:
 //                  the shipped editor's reshapeScalarTypes gate refuses date_time synth columns
@@ -68,16 +68,15 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { CDPClient } from '../../browser/cdp.mjs';
 import { browserURL } from './builder-url.mjs';
-import { AUTHORING_SEMANTICS_VERSION, commandEnvironment, createDevSession, createFreshVerificationFixture, generatedJ01ConceptNDJSON } from '../../loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, collectBuildIdentity as sharedCollectBuildIdentity, createDevSession, createFreshVerificationFixture, generatedJ01ConceptNDJSON } from '../../loom-dev.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const STAMP_SCRIPT = '/workspace/loom-dev-build-stamp.sh';
 
 const options = {};
 for (let i = 2; i < process.argv.length; i += 1) {
@@ -223,37 +222,10 @@ const computeOracle = () => {
   return { byId, rows, unitBlankCount: unitBlank.length, subjectBlankCount: subjectBlank.length, effectiveValues };
 };
 
-// Docker build-stamp identity, using loom-dev.mjs's own command environment so the scoped bridge
-// accepts the exec (service loom-api, /workspace stamp script, --check), same as the siblings.
-const collectBuildIdentity = () => {
-  const env = commandEnvironment({
-    composeProject: session.composeProject,
-    sourceRoot: session.sourceRoot,
-    fixtureProject: session.fixtureProject,
-    fixtureGeneration: session.fixtureGeneration,
-    host: session.host,
-    apiPort: session.apiPort,
-    uiPort: session.uiPort,
-    populationMappingCursorSecret: session.populationMappingCursorSecret,
-  });
-  const stamp = spawnSync('docker', ['compose', '--project-name', session.composeProject, '--file', join(session.sourceRoot, 'compose.dev.yaml'),
-    'exec', '-T', 'loom-api', STAMP_SCRIPT, '--check'], { encoding: 'utf8', env, timeout: 30000 });
-  const recorded = spawnSync('docker', ['compose', '--project-name', session.composeProject, '--file', join(session.sourceRoot, 'compose.dev.yaml'),
-    'exec', '-T', 'loom-api', 'cat', '/workspace/tmp/arango-fhir-server.build.json'], { encoding: 'utf8', env, timeout: 30000 });
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' });
-  const [expectedSource, liveSource, runningBinary] = (stamp.stdout || '').trim().split(/\s+/);
-  let recordedStamp = null;
-  try { recordedStamp = JSON.parse(recorded.stdout); } catch { recordedStamp = { raw: (recorded.stdout || '').trim() }; }
-  return {
-    expectedSource: expectedSource ?? null,
-    liveSource: liveSource ?? null,
-    runningBinary: runningBinary ?? null,
-    checkExit: stamp.status,
-    recordedBinary: recordedStamp?.binary ?? null,
-    recordedSource: recordedStamp?.source ?? null,
-    gitHead: (head.stdout || '').trim() || null,
-  };
-};
+// Docker build-stamp identity via the scoped bridge's permitted docker exec channel
+// (shared collector in loom-dev.mjs: label-resolved API container, /workspace stamp
+// script --check plus the recorded build json), same channel as the CDA captures.
+const collectBuildIdentity = () => sharedCollectBuildIdentity(session, { repoRoot: REPO_ROOT });
 
 // ---- Raw CDP harness (flags and DevToolsActivePort path match loom-dev/core-protocol) ----
 const chromePath = options.chrome ?? process.env.LOOM_E2E_CHROME
@@ -264,7 +236,7 @@ const profile = mkdtempSync(join(tmpdir(), 'upsrc-prof-'));
 const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1600,1200', '--no-first-run', '--no-default-browser-check',
   '--disable-background-networking', '--disable-component-update', '--disable-sync', '--proxy-server=direct://', 'about:blank'],
-  { stdio: ['ignore', 'ignore', 'pipe'] });
+  { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
 let chromeErr = '';
 chrome.stderr.on('data', (chunk) => { chromeErr = (chromeErr + chunk).slice(-4000); });
 
@@ -767,12 +739,13 @@ try {
     if (!(await meltCheckboxLabels()).find((box) => box.label === 'ID')?.checked) await clickCheckboxByLabel('Unpivot ID');
     // Two signed lanes on the string family (the only pairing both the UI scalar gate and
     // the compiler accept). The add button pre-binds the first unbound populated choice
-    // (effectiveDateTime, sorted first) — the editor's scalar gate refuses date_time synth
-    // columns (recorded defect F-B), so every add is rebound before anything is asserted.
+    // visible after cd39eeaf hid the date family server-side (valueQuantity.unit), already
+    // S-C-labelled, so bindDatasetRow accepts the pre-bind and only rebinds when the target
+    // is still offered in the dataset optgroup.
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
-    await bindDatasetRow(1, 'valueQuantity.unit', 'Observation.valueQuantity.unit');
+    await bindDatasetRow(1, 'valueQuantity.unit', 'valueQuantity.unit');
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
-    await bindDatasetRow(2, 'subject.reference', 'Observation.subject.reference');
+    await bindDatasetRow(2, 'subject.reference', 'subject.reference');
     await openAdvanced();
     if (await meltCheckboxLabels().then((boxes) => boxes.find((box) => box.label === 'Number')?.checked)) {
       await clickCheckboxByLabel('Unpivot Number');
@@ -834,9 +807,9 @@ try {
       }
     }
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
-    await bindDatasetRow(1, 'valueQuantity.unit', 'Observation.valueQuantity.unit');
+    await bindDatasetRow(1, 'valueQuantity.unit', 'valueQuantity.unit');
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
-    await bindDatasetRow(2, 'subject.reference', 'Observation.subject.reference');
+    await bindDatasetRow(2, 'subject.reference', 'subject.reference');
     await openAdvanced();
     assert.equal(await setInputKey(0, KEY_ID), KEY_ID, 'id melt key set');
     assert.equal(await setInputKey(1, KEY_UNIT), KEY_UNIT, 'unit melt key set');
@@ -858,7 +831,7 @@ try {
     assert.equal(String(unpivot.nullRowPolicy), 'PRESERVE', `APPLY: default policy must persist as PRESERVE: ${unpivot.nullRowPolicy}`);
     const sub = (doc.sourceProjections || []).find((p) => p.fieldPath === 'subject.reference');
     const unit = (doc.sourceProjections || []).find((p) => p.fieldPath === 'valueQuantity.unit');
-    for (const [lane, name, fhir, logical, label] of [[unit, 'valueQuantity.unit', 'string', 'string', 'Observation.valueQuantity.unit'], [sub, 'subject.reference', 'string', 'string', 'Observation.subject.reference']]) {
+    for (const [lane, name, fhir, logical, label] of [[unit, 'valueQuantity.unit', 'string', 'string', 'valueQuantity.unit'], [sub, 'subject.reference', 'string', 'string', 'subject.reference']]) {
       assert.ok(lane && lane.columnId?.length > 1 && lane.columnId.startsWith('unpivot-input_'),
         `APPLY: signed melt lane ${name} not persisted server-shaped: ${JSON.stringify(lane)}`);
       assert.equal(lane.ownerStepId, step.id, `APPLY: lane ${name} owner ${lane.ownerStepId} != melt step ${step.id}`);
@@ -907,7 +880,7 @@ try {
       const rows = await evaluate(`(()=>[...document.querySelectorAll('[data-testid$="-column"]')].filter(s=>s.getAttribute('data-testid').startsWith('construction-reshape-unpivot-input-')).length)()`);
       // Saved signed rows render their server-declared column (label span), never the
       // 'Selected field (from your data)' placeholder, which only appears for orphans.
-      const restored = await evaluate(`(()=>[...document.querySelectorAll('[data-testid$="-column"]')].filter(s=>{if(!s.getAttribute('data-testid').startsWith('construction-reshape-unpivot-input-'))return false;const l=s.closest('label');const sp=l&&l.querySelector('span');const t=sp?sp.textContent.trim():'';return t==='Observation.valueQuantity.unit'||t==='Observation.subject.reference';}).length)()`);
+      const restored = await evaluate(`(()=>[...document.querySelectorAll('[data-testid$="-column"]')].filter(s=>{if(!s.getAttribute('data-testid').startsWith('construction-reshape-unpivot-input-'))return false;const l=s.closest('label');const sp=l&&l.querySelector('span');const t=sp?sp.textContent.trim():'';return t==='valueQuantity.unit'||t==='subject.reference';}).length)()`);
       return rows >= 3 && restored >= 2 && `rows:${rows}:restored:${restored}`;
     });
     // Server-truth read (bs-62-2 class): the echo must be keyed to a melt step that is OBSERVED on
@@ -986,8 +959,8 @@ try {
     await openAdvanced();
     // Locate the signed unit row by its bound label; row order follows the persisted step's
     // input order, which must not be hard-coded.
-    const unitRowLabel = await evaluate(`(()=>{const idx=[];document.querySelectorAll('[data-testid$="-column"]').forEach((s)=>{const t=s.getAttribute('data-testid')||'';if(!t.startsWith('construction-reshape-unpivot-input-'))return;const m=t.match(/input-(\\d+)-column$/);if(!m)return;const l=s.closest('label');const sp=l&&l.querySelector('span');if(sp&&sp.textContent.trim()==='Observation.valueQuantity.unit')idx.push(Number(m[1]));});return idx[0]===undefined?null:idx[0];})()`);
-    assert.ok(unitRowLabel !== null, 'a melt row bound to Observation.valueQuantity.unit must exist before the dissolve');
+    const unitRowLabel = await evaluate(`(()=>{const idx=[];document.querySelectorAll('[data-testid$="-column"]').forEach((s)=>{const t=s.getAttribute('data-testid')||'';if(!t.startsWith('construction-reshape-unpivot-input-'))return;const m=t.match(/input-(\\d+)-column$/);if(!m)return;const l=s.closest('label');const sp=l&&l.querySelector('span');if(sp&&sp.textContent.trim()==='valueQuantity.unit')idx.push(Number(m[1]));});return idx[0]===undefined?null:idx[0];})()`);
+    assert.ok(unitRowLabel !== null, 'a melt row bound to valueQuantity.unit must exist before the dissolve');
     const numberColumnValue = await evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-reshape-unpivot-input-${unitRowLabel}-column"]');const o=[...s.querySelectorAll('option')].find(o=>o.textContent.trim()==='Number');return o?o.value:null;})()`);
     assert.ok(numberColumnValue, 'the public Number column must remain selectable for the melt row');
     await setRowSource(unitRowLabel, numberColumnValue);
@@ -1030,7 +1003,7 @@ try {
     await openEditorFromHistory(() => mounted('[data-testid="construction-reshape-unpivot"]'));
     await openAdvanced();
     await realClick('[data-testid="construction-reshape-unpivot-add-source-field"]');
-    await bindDatasetRow(2, 'valueQuantity.unit', 'Observation.valueQuantity.unit');
+    await bindDatasetRow(2, 'valueQuantity.unit', 'valueQuantity.unit');
     assert.equal(await setInputKey(2, KEY_UNIT), KEY_UNIT, 'unit melt key set');
     await until(() => mounted('[data-testid="construction-proposal-ready"]'), 're-add proposal ready', 30000);
     await realClick('[data-testid="construction-apply-proposal"]');
@@ -1176,10 +1149,18 @@ try {
   console.error(`JOURNEY_FAILED ${report.error}`);
   process.exitCode = 1;
 } finally {
-  try { if (client) await client.send('Browser.close'); } catch { /* best effort */ }
-  if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
-    chrome.kill('SIGKILL');
-  }
+  try {
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+      // detached spawn => own process group; leader-only kills orphan the helper tree
+      const groupSignal = (signal) => { try { process.kill(-chrome.pid, signal); return true; } catch { return chrome.kill(signal); } };
+      const exited = new Promise((done) => chrome.once('exit', done));
+      if (groupSignal('SIGTERM')) {
+        await Promise.race([exited, new Promise((done) => { const t = setTimeout(done, 5000); t.unref(); })]);
+      }
+      if (chrome.exitCode === null && chrome.signalCode === null) groupSignal('SIGKILL');
+    }
+  } catch { /* teardown best effort */ }
+  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { /* reported via absence of deletion */ } }
 }
 
 function assertNonEmpty(values, label) {

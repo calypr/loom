@@ -34,16 +34,15 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { CDPClient } from '../../browser/cdp.mjs';
 import { browserURL } from './builder-url.mjs';
-import { AUTHORING_SEMANTICS_VERSION, commandEnvironment, createDevSession, createFreshVerificationFixture, generatedJ01ConceptNDJSON } from '../../loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, collectBuildIdentity as sharedCollectBuildIdentity, createDevSession, createFreshVerificationFixture, generatedJ01ConceptNDJSON } from '../../loom-dev.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const STAMP_SCRIPT = '/workspace/loom-dev-build-stamp.sh';
 
 const options = {};
 for (let i = 2; i < process.argv.length; i += 1) {
@@ -174,37 +173,10 @@ const computeOracle = () => {
   return { byId, rows, cmRows, derived: (row, offset) => (row.value === null ? null : Number((row.value + offset).toFixed(6))) };
 };
 
-// Docker build-stamp identity, using loom-dev.mjs's own command environment so the scoped bridge
-// accepts the exec (service loom-api, /workspace stamp script, --check), same as the sibling.
-const collectBuildIdentity = () => {
-  const env = commandEnvironment({
-    composeProject: session.composeProject,
-    sourceRoot: session.sourceRoot,
-    fixtureProject: session.fixtureProject,
-    fixtureGeneration: session.fixtureGeneration,
-    host: session.host,
-    apiPort: session.apiPort,
-    uiPort: session.uiPort,
-    populationMappingCursorSecret: session.populationMappingCursorSecret,
-  });
-  const stamp = spawnSync('docker', ['compose', '--project-name', session.composeProject, '--file', join(session.sourceRoot, 'compose.dev.yaml'),
-    'exec', '-T', 'loom-api', STAMP_SCRIPT, '--check'], { encoding: 'utf8', env, timeout: 30000 });
-  const recorded = spawnSync('docker', ['compose', '--project-name', session.composeProject, '--file', join(session.sourceRoot, 'compose.dev.yaml'),
-    'exec', '-T', 'loom-api', 'cat', '/workspace/tmp/arango-fhir-server.build.json'], { encoding: 'utf8', env, timeout: 30000 });
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' });
-  const [expectedSource, liveSource, runningBinary] = (stamp.stdout || '').trim().split(/\s+/);
-  let recordedStamp = null;
-  try { recordedStamp = JSON.parse(recorded.stdout); } catch { recordedStamp = { raw: (recorded.stdout || '').trim() }; }
-  return {
-    expectedSource: expectedSource ?? null,
-    liveSource: liveSource ?? null,
-    runningBinary: runningBinary ?? null,
-    checkExit: stamp.status,
-    recordedBinary: recordedStamp?.binary ?? null,
-    recordedSource: recordedStamp?.source ?? null,
-    gitHead: (head.stdout || '').trim() || null,
-  };
-};
+// Docker build-stamp identity via the scoped bridge's permitted docker exec channel
+// (shared collector in loom-dev.mjs: label-resolved API container, /workspace stamp
+// script --check plus the recorded build json), same channel as the CDA captures.
+const collectBuildIdentity = () => sharedCollectBuildIdentity(session, { repoRoot: REPO_ROOT });
 
 // ---- Raw CDP harness (flags and DevToolsActivePort path match loom-dev/core-protocol) ----
 const chromePath = options.chrome ?? process.env.LOOM_E2E_CHROME
@@ -215,7 +187,7 @@ const profile = mkdtempSync(join(tmpdir(), 'drsrc-prof-'));
 const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1600,1200', '--no-first-run', '--no-default-browser-check',
   '--disable-background-networking', '--disable-component-update', '--disable-sync', '--proxy-server=direct://', 'about:blank'],
-  { stdio: ['ignore', 'ignore', 'pipe'] });
+  { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
 let chromeErr = '';
 chrome.stderr.on('data', (chunk) => { chromeErr = (chromeErr + chunk).slice(-4000); });
 
@@ -885,10 +857,18 @@ try {
   console.error(`JOURNEY_FAILED ${report.error}`);
   process.exitCode = 1;
 } finally {
-  try { if (client) await client.send('Browser.close'); } catch { /* best effort */ }
-  if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
-    chrome.kill('SIGKILL');
-  }
+  try {
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+      // detached spawn => own process group; leader-only kills orphan the helper tree
+      const groupSignal = (signal) => { try { process.kill(-chrome.pid, signal); return true; } catch { return chrome.kill(signal); } };
+      const exited = new Promise((done) => chrome.once('exit', done));
+      if (groupSignal('SIGTERM')) {
+        await Promise.race([exited, new Promise((done) => { const t = setTimeout(done, 5000); t.unref(); })]);
+      }
+      if (chrome.exitCode === null && chrome.signalCode === null) groupSignal('SIGKILL');
+    }
+  } catch { /* teardown best effort */ }
+  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { /* reported via absence of deletion */ } }
 }
 
 function assertNonEmpty(values, label) {

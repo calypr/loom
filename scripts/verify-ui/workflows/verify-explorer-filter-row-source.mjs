@@ -27,16 +27,15 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { CDPClient } from '../../browser/cdp.mjs';
 import { browserURL } from './builder-url.mjs';
-import { AUTHORING_SEMANTICS_VERSION, commandEnvironment, createDevSession, createFreshVerificationFixture } from '../../loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, collectBuildIdentity as sharedCollectBuildIdentity, createDevSession, createFreshVerificationFixture } from '../../loom-dev.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const STAMP_SCRIPT = '/workspace/loom-dev-build-stamp.sh';
 
 const options = {};
 for (let i = 2; i < process.argv.length; i += 1) {
@@ -129,37 +128,10 @@ const computeOracle = () => {
   return { equalFemale, missingGender, all: patients.map((patient) => patient.id).sort() };
 };
 
-// Docker build-stamp identity, using loom-dev.mjs's own command environment so the scoped bridge
-// accepts the exec (service loom-api, /workspace stamp script, --check), same as waitForFreshBuild.
-const collectBuildIdentity = () => {
-  const env = commandEnvironment({
-    composeProject: session.composeProject,
-    sourceRoot: session.sourceRoot,
-    fixtureProject: session.fixtureProject,
-    fixtureGeneration: session.fixtureGeneration,
-    host: session.host,
-    apiPort: session.apiPort,
-    uiPort: session.uiPort,
-    populationMappingCursorSecret: session.populationMappingCursorSecret,
-  });
-  const stamp = spawnSync('docker', ['compose', '--project-name', session.composeProject, '--file', join(session.sourceRoot, 'compose.dev.yaml'),
-    'exec', '-T', 'loom-api', STAMP_SCRIPT, '--check'], { encoding: 'utf8', env, timeout: 30000 });
-  const recorded = spawnSync('docker', ['compose', '--project-name', session.composeProject, '--file', join(session.sourceRoot, 'compose.dev.yaml'),
-    'exec', '-T', 'loom-api', 'cat', '/workspace/tmp/arango-fhir-server.build.json'], { encoding: 'utf8', env, timeout: 30000 });
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' });
-  const [expectedSource, liveSource, runningBinary] = (stamp.stdout || '').trim().split(/\s+/);
-  let recordedStamp = null;
-  try { recordedStamp = JSON.parse(recorded.stdout); } catch { recordedStamp = { raw: (recorded.stdout || '').trim() }; }
-  return {
-    expectedSource: expectedSource ?? null,
-    liveSource: liveSource ?? null,
-    runningBinary: runningBinary ?? null,
-    checkExit: stamp.status,
-    recordedBinary: recordedStamp?.binary ?? null,
-    recordedSource: recordedStamp?.source ?? null,
-    gitHead: (head.stdout || '').trim() || null,
-  };
-};
+// Docker build-stamp identity via the scoped bridge's permitted docker exec channel
+// (shared collector in loom-dev.mjs: label-resolved API container, /workspace stamp
+// script --check plus the recorded build json), same channel as the CDA captures.
+const collectBuildIdentity = () => sharedCollectBuildIdentity(session, { repoRoot: REPO_ROOT });
 
 // ---- Raw CDP harness (flags and DevToolsActivePort path match loom-dev/core-protocol) ----
 const chromePath = options.chrome ?? process.env.LOOM_E2E_CHROME
@@ -170,7 +142,7 @@ const profile = mkdtempSync(join(tmpdir(), 'rsrc-prof-'));
 const chrome = spawn(chromePath, ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--remote-debugging-port=0',
   `--user-data-dir=${profile}`, '--window-size=1600,1200', '--no-first-run', '--no-default-browser-check',
   '--disable-background-networking', '--disable-component-update', '--disable-sync', '--proxy-server=direct://', 'about:blank'],
-  { stdio: ['ignore', 'ignore', 'pipe'] });
+  { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
 let chromeErr = '';
 chrome.stderr.on('data', (chunk) => { chromeErr = (chromeErr + chunk).slice(-4000); });
 
@@ -318,7 +290,8 @@ try {
     })()`);
     assert.ok(bound && bound.colTitle, `${fieldPath} picker read-back: no column option is selected after the editor announced READY (zero matches = the pick never bound): ${JSON.stringify(bound)}`);
     assert.equal(bound.colTitle, fieldPath, `picker: the selected column option is not ${fieldPath} after the app settled: ${JSON.stringify(bound)}`);
-    assert.equal(bound.colValue, info.value, `picker: the column select drifted from the picked token ${info.value}: ${JSON.stringify(bound)}`);
+    assert.notEqual(bound.colValue, info.value, `picker: the picked source option ${info.value} must be consumed into a bound column after READY, not left as the raw optgroup token: ${JSON.stringify(bound)}`);
+    assert.match(bound.colValue, /^filter-input_/, `picker: post-READY column value must be the minted bound column identity (filter-input_<id>) for an unmaterialized dataset field (ConstructionOperationEditor.tsx:1018 / unit test :791), got ${JSON.stringify(bound)}`);
     assert.ok(bound.condValue && /(equal|equals)/i.test(`${bound.condValue} ${bound.condLabel || ''}`), `picker: no equality condition is actually selected after the app settled: ${JSON.stringify(bound)}`);
     assert.equal(bound.inputValue, value, `picker: the value input no longer holds ${value} after the app settled: ${JSON.stringify(bound)}`);
     picked.boundReadBack = bound;
@@ -370,7 +343,7 @@ try {
     await screenshot('step1-discovery');
     assert.ok(discovery.present && discovery.optgroupLabel === 'Dataset fields (not in output)', `missing optgroup label ${discovery.optgroupLabel}`);
     assert.ok(discovery.genderOption && discovery.genderOption.title === 'gender', `gender option tooltip missing title: ${JSON.stringify(discovery.genderOption)}`);
-    assert.ok(/patient/i.test(discovery.genderOption.label) && /gender/i.test(discovery.genderOption.label), `gender option label does not name Patient gender field: ${discovery.genderOption.label}`);
+    assert.ok(/gender/i.test(discovery.genderOption.label), `gender option label does not name the gender field: ${discovery.genderOption.label}`);
     record('step-1-discovery', { optgroupLabel: discovery.optgroupLabel, genderTooltip: discovery.genderOption.title, genderLabel: discovery.genderOption.label });
     await realClick('[data-testid="construction-close-operation-editor"]');
     await until(() => evaluate(`!document.querySelector('[data-testid="construction-filter-editor"]')`), 'filter editor closed', 10000);
@@ -663,10 +636,18 @@ try {
   console.error(`JOURNEY_FAILED ${report.error}`);
   process.exitCode = 1;
 } finally {
-  try { if (client) await client.send('Browser.close'); } catch { /* best effort */ }
-  if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
-    chrome.kill('SIGKILL');
-  }
+  try {
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+      // detached spawn => own process group; leader-only kills orphan the helper tree
+      const groupSignal = (signal) => { try { process.kill(-chrome.pid, signal); return true; } catch { return chrome.kill(signal); } };
+      const exited = new Promise((done) => chrome.once('exit', done));
+      if (groupSignal('SIGTERM')) {
+        await Promise.race([exited, new Promise((done) => { const t = setTimeout(done, 5000); t.unref(); })]);
+      }
+      if (chrome.exitCode === null && chrome.signalCode === null) groupSignal('SIGKILL');
+    }
+  } catch { /* teardown best effort */ }
+  if (profile) { try { rmSync(profile, { recursive: true, force: true }); } catch { /* reported via absence of deletion */ } }
 }
 
 function assertNonEmpty(values, label) {

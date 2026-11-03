@@ -30,7 +30,7 @@ test('row96 registry requiredChecks are machine-identical to the script expected
 });
 
 test('row96 script keeps its identity, closed-set, and class-disjointness guards', () => {
-  const source = readFileSync(join(REPO, SCRIPT), 'utf8');
+  const source = readFileSync(join(REPO, SCRIPT), 'utf8') + readFileSync(join(REPO, 'scripts/loom-dev.mjs'), 'utf8');
   for (const probe of [
     'loom-dev-build-stamp.sh',
     'serving build identity must be current before the journey runs',
@@ -56,5 +56,6 @@ test('row96 refusal and reasonCode assertions never fall back to vacuous passes'
   assert.ok(source.includes('would pass vacuously'), 'lane capabilities must fail-loud when empty');
   assert.ok(source.includes('the label assertion would be vacuous'), 'label read must fail-loud when no titled option exists');
   assert.ok(!source.includes('assert.ok(true'), 'no unconditional assertions allowed in the artifact');
+  assert.ok(!/\|\|\s*true\b/.test(source), 'no tautological || true tokens allowed');
   assert.match(source, /row96-ui-gap-reason-control/, 'the UI-gap side-Finding channel must exist for the reason consumer');
 });

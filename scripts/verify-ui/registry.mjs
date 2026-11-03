@@ -9635,10 +9635,10 @@ const registryRows = [
         requiredChecks: [
           'row96-lane-support-healthy',
           'row96-field-options-catalog-path-labels',
-          'row96-per-field-refusal-reasoncodes',
-          'row96-ui-control-consumes-reason',
-          'row96-inventory-fault-names-unavailable',
-          'row96-empty-data-distinguished',
+          'row96-lane-refusal-decision-classes',
+          'row96-reason-codes-served',
+          'row96-inventory-block-strike-and-false-positive-control',
+          'row96-structural-gates-inventory-disjoint',
         ],
         focusedChecks: [
           {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, createReadStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -833,6 +833,48 @@ export const commandEnvironment = (target) => ({
   LOOM_DEV_EXPLORER: BOOTSTRAP_EXPLORER_NAME,
   LOOM_POPULATION_MAPPING_CURSOR_SECRET: target.populationMappingCursorSecret,
 });
+
+export const LOOM_DEV_BUILD_STAMP_SCRIPT = '/workspace/loom-dev-build-stamp.sh';
+export const LOOM_DEV_BUILD_RECORD_PATH = '/workspace/tmp/arango-fhir-server.build.json';
+
+export const parseBuildIdentity = ({ stampOutput, recordedOutput, gitHeadOutput }) => {
+  const parts = (stampOutput || '').trim().split(/\s+/).map((part) => part || null);
+  const [expectedSource, liveSource, runningBinary] = parts;
+  let recorded = {};
+  try { recorded = JSON.parse(recordedOutput); } catch { recorded = {}; }
+  return {
+    expectedSource: expectedSource ?? null,
+    liveSource: liveSource ?? null,
+    runningBinary: runningBinary ?? null,
+    recordedBinary: recorded?.binary ?? null,
+    recordedSource: recorded?.source ?? null,
+    gitHead: (gitHeadOutput || '').trim() || null,
+  };
+};
+
+// The scoped sandbox docker bridge (OpenShell) denies `docker compose exec`; only
+// ps/inspect/top/logs/exec are permitted and compose ps additionally requires the
+// host registration's own compose file. Resolve the API container via label filters
+// (scoped bridge) and probe it with docker exec, the same channel
+// scripts/verify-ui/helpers/cda-verification-identity.mjs uses for CDA captures.
+export const resolveOwnedApiContainer = (target, { env = commandEnvironment(target), psRunner } = {}) => {
+  const listed = (psRunner ?? ((args) => spawnSync('docker', args, { encoding: 'utf8', env, timeout: 15000 })))(
+    ['ps', '--filter', `label=com.docker.compose.project=${target.composeProject}`,
+      '--filter', 'label=com.docker.compose.service=loom-api', '--format', '{{.ID}}']);
+  const ids = (listed.stdout || '').trim().split(/\s+/).filter((id) => /^[a-f0-9]{12,64}$/.test(id || ''));
+  if (listed.status !== 0 || ids.length !== 1) return { container: null, error: ((listed.stderr || listed.stdout || '').trim().slice(0, 400)) || `expected exactly one loom-api container, got ${ids.length}` };
+  return { container: ids[0], error: null };
+};
+
+export const collectBuildIdentity = (target, { repoRoot = REPO_ROOT, runner, psRunner, env = commandEnvironment(target), stampScript = LOOM_DEV_BUILD_STAMP_SCRIPT } = {}) => {
+  const runCmd = runner ?? ((args) => spawnSync('docker', args, { encoding: 'utf8', env, timeout: 30000 }));
+  const { container, error } = resolveOwnedApiContainer(target, { env, psRunner });
+  if (!container) return { ...parseBuildIdentity({}), checkExit: 125, containerError: error };
+  const stamp = runCmd(['exec', container, stampScript, '--check']);
+  const recorded = runCmd(['exec', container, 'cat', LOOM_DEV_BUILD_RECORD_PATH]);
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' });
+  return { ...parseBuildIdentity({ stampOutput: stamp?.stdout, recordedOutput: recorded?.stdout, gitHeadOutput: head?.stdout }), checkExit: stamp?.status ?? 125 };
+};
 
 const run = (command, args, options = {}) => new Promise((resolvePromise, reject) => {
   const child = spawn(command, args, {
