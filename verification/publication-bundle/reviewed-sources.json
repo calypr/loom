@@ -528,8 +528,10 @@
     },
     "internal/dataframe/publication/clickhouse/abort_ackloss_e2e_test.go": "Worker A sanctioned F-B2 harness (prevented-by-code assertion + control; both PASS); residue empty",
     "internal/dataframe/publication/clickhouse/bundle_store.go": {
-      "md5": "3a4b915d07fda511f5f9a4f1d7cf0c3e",
-      "role": "Repair-4 (F-B19) janitor arm: PUBLISHED appended to sweep states IFF activeReleases wired; pre-claim pointer/binding filter (no claim on live rows); superseded marker; post-claim rechecks remain destruction gate"
+      "sha256": "a5db5f5588420722f72d4bf889d4c63e1be4d560f6854c4da5c33a727ad69254",
+      "role": "R85 DDL admission boundary (reviewed, unchanged): CreateOutput gates name via bundleOutputRE and every column via validateBundleColumn (schemaIdentifierRE + anchored closed-set scalar regex; Nullable/Array literal-prefix peel only). In-package probe: all clause-suffix and unbalanced payloads rejected.",
+      "pin": "d5b5491b",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/dataframe/publication/clickhouse/bundle_store.go == on-disk"
     },
     "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
       "md5": "29b08f899d548c74da029eadd1ec0060",
@@ -577,8 +579,10 @@
       "role": "Repair-2 units: null-bucket predicate 4-arm + NULLS-LAST order pin; legacy v1 null cursor stays invalid"
     },
     "internal/dataframe/published/read.go": {
-      "md5": "55ef051597c2da7cb2f57c95dc329343",
-      "role": "Repair-2: pageCursor.sortValueNull + cursor Version 2; Page accepts {1,2}"
+      "sha256": "03ac0cd4fc73375a3397c4dd963b3021a428da7111579cff71257e8478e401d0",
+      "role": "R83 filter construction boundary (reviewed, unchanged): buildWhere — allowed-set column check before backtick interpolation, fixed operator switch with default INVALID_FILTER, all values bind-parameterized, empty IN/NOT_IN collapse to constants.",
+      "pin": "d5b5491b",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/dataframe/published/read.go == on-disk"
     },
     "internal/dataframe/published/read_test.go": {
       "md5": "6234ee06e190519bca6cb2c0ce8fee2b",
@@ -994,6 +998,24 @@
       "role": "BS-67-1 class completion: gofmt-canonical repair; reviewer ground truth: 1807 string literals byte-identical, only import-path literals permuted.",
       "pin": "4e15704f",
       "rederived": "SELF-RUN live sha256 == git show 4e15704f:generated/graphql/graph/executor/schema.generated.go == on-disk"
+    },
+    "internal/projectid/projectid.go": {
+      "sha256": "107ca45ca51ee50b6c04ae3cc2602eb213ecebb4338230de5a69c79323059b33",
+      "role": "R84 identity boundary (reviewed, unchanged): Canonical/Legacy first-hyphen aliasing feeds authz principal matching and grant key Legacy(Canonical(p)); row stores key raw URL param, so a shared legacy key is one logical bucket — auth gate and query bind derive the same key (no exploitable read-disjointness).",
+      "pin": "d5b5491b",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/projectid/projectid.go == on-disk"
+    },
+    "internal/catalog/semantic_inventory.go": {
+      "sha256": "3cd3f6a3e00141c2768427d6379cf91ceece32d40783765888f736a1ed1762d9",
+      "role": "R82 cursor integrity boundary (reviewed, unchanged): DecodeSemanticInventoryCursor re-verifies version, non-empty seek keys, and a CURRENT-request recomputed page digest (project/generation/buildID/unrestricted/resourceType/binding/query/clamped limit/sorted-compacted paths); seek-position-only cursor ⇒ keyless digest sufficient.",
+      "pin": "d5b5491b",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/catalog/semantic_inventory.go == on-disk"
+    },
+    "internal/store/clickhouse/client.go": {
+      "sha256": "327b4d9f154e320108a9ed14517cb3cdce95119ca369fe037cbb41f525bc39cc",
+      "role": "R85 DDL emission surface (reviewed, unchanged): CREATE/ALTER/DROP composed by Sprintf over backticked dataset-derived identifiers and validator-passed type strings; official clickhouse-go/v2 driver.",
+      "pin": "d5b5491b",
+      "rederived": "SELF-RUN live sha256 == git show d5b5491b:internal/store/clickhouse/client.go == on-disk"
     }
   },
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
