@@ -215,6 +215,8 @@ func (r *HTTPRoutes) ApplyExplorerBuilderCommands(ctx context.Context, request l
 		return loomapi.ApplyExplorerBuilderCommands400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
 	case http.StatusForbidden:
 		return loomapi.ApplyExplorerBuilderCommands403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.ApplyExplorerBuilderCommands404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
 	case http.StatusConflict:
 		return loomapi.ApplyExplorerBuilderCommands409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
 	case http.StatusUnprocessableEntity:

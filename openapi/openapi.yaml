@@ -766,6 +766,7 @@ paths:
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
