@@ -96,3 +96,52 @@ func TestNewlyClosedRequestBodiesStillDecodeMinimalPayloads(t *testing.T) {
 		}
 	}
 }
+
+// TestLookupSourceBinderPairingMatchesCanonicalAcceptSet pins the
+// strict_json.go LookupSource discriminator against the single authority on
+// writable source semantics, authoringv2 ColumnSource.validate: the binder's
+// early XOR checks must neither accept a payload the domain layer would
+// reject nor narrow a payload the domain accepts (a rejected round-86 variant
+// blanket-blocked the identifier arm and broke the UPDATE_COLUMN round-trip
+// of resolver-produced identifierBySystem columns). The identifier binding is
+// accepted alone, mirroring the writable branch in semantic_types.go, with
+// the kind==identifierBySystem gate and ValidateIdentifierBinding left to the
+// domain authority the lookup object alone cannot see; the binder is
+// deliberately one notch narrower (an explicit empty/blank match or path
+// pointer next to identifier is rejected here although TrimSpace would make
+// it empty at the domain).
+func TestLookupSourceBinderPairingMatchesCanonicalAcceptSet(t *testing.T) {
+	accept := []string{
+		`{"match":"category","path":"category.coding[]","projectionMode":"VALUE"}`,
+		`{"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"},"key":{"system":"http://loinc.org","code":"718-7"}}`,
+		`{"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal","selectionScope":"SYSTEM_VERSION","versionPath":"version","valueScope":"CODING"},"key":{"system":"http://loinc.org","code":""}}`,
+		`{"extension":{"ownerPath":"extension[]","urlPath":["http://x/y"],"valuePath":"valueString","logicalType":"string"}}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"}}`,
+	}
+	for _, raw := range accept {
+		var value LookupSource
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			t.Fatalf("contract-legal lookup rejected: %s -> %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		`{"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"}}`,
+		`{"key":{"system":"urn:x","code":"c"}}`,
+		`{"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"},"key":{"system":"urn:x","code":"c"},"match":"category"}`,
+		`{"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"},"key":{"system":"urn:x","code":"c"},"path":"component[]"}`,
+		`{"extension":{"ownerPath":"extension[]","urlPath":["http://x/y"],"valuePath":"valueString","logicalType":"string"},"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"}}`,
+		`{"extension":{"ownerPath":"extension[]","urlPath":["http://x/y"],"valuePath":"valueString","logicalType":"string"},"key":{"system":"urn:x","code":"c"}}`,
+		`{"extension":{"ownerPath":"extension[]","urlPath":["http://x/y"],"valuePath":"valueString","logicalType":"string"},"match":"ext"}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"},"match":"identifier"}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"},"path":"identifier[]","match":"identifier"}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"},"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"},"key":{"system":"urn:x","code":"c"}}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"},"binding":{"keyPath":"component[].code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"}}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"},"key":{"system":"urn:x","code":"c"}}`,
+		`{"identifier":{"ownerPath":"identifier[]","systemPath":"system","valuePath":"value","systemURI":"urn:acct","logicalType":"string"},"extension":{"ownerPath":"extension[]","urlPath":["http://x/y"],"valuePath":"valueString","logicalType":"string"}}`,
+	} {
+		var value LookupSource
+		if err := json.Unmarshal([]byte(raw), &value); err == nil {
+			t.Fatalf("non-canonical lookup accepted at generated boundary (domain layer would reject or silently drop): %s", raw)
+		}
+	}
+}

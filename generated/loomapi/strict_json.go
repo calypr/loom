@@ -118,11 +118,27 @@ func (value *ContributorPredicate) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// LookupSource enforces the single-meaning pairing of authoringv2
+// (semantic_types.go) before a payload crosses into the domain. The typed
+// identifier binding mirrors the domain's writable shape: accepted alone (the
+// kind gate and ValidateIdentifierBinding stay the authority there) and
+// rejected in any mix, so a payload can never reach the decoder in a form
+// that one arm would silently drop or that a later revalidation would reject.
+// The arm is kept a notch narrower than the domain on pointer presence: an
+// explicit blank match/path alongside identifier is rejected here even though
+// the domain would TrimSpace it away.
 func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 	type wire LookupSource
 	var decoded wire
 	if err := strictDecodeGenerated(raw, &decoded); err != nil {
 		return err
+	}
+	if decoded.Identifier != nil {
+		if decoded.Binding != nil || decoded.Key != nil || decoded.Match != nil || decoded.Path != nil || decoded.Extension != nil {
+			return errors.New("identifier lookup must not combine identifier with match, path, binding, key, or extension")
+		}
+		*value = LookupSource(decoded)
+		return nil
 	}
 	if decoded.Extension != nil {
 		if decoded.Binding != nil || decoded.Key != nil || decoded.Match != nil || decoded.Path != nil {
