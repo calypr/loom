@@ -2066,3 +2066,48 @@ what actually ran (evidence paths retained on the same host):
   with same-generation execution turnover keeps Stale=false by the generation
   rule — same identity class already adjudicated under the exact-selector
   regime, not re-opened.
+
+## Round 78 — discovery-bridge fail-open posture divergence REPAIRED (hardening class); sibling note DISPROVEN
+
+- **Finding**: with `schema.Scope.AuthScopeMode` outside `{unrestricted,
+  restricted}` (including the empty string), `FieldDiscovery` left
+  `AuthResourcePathsUnrestricted` nil, and the catalog resolves nil through
+  its legacy rule `EffectiveAuthResourcePathsUnrestricted(nil, nil) == true`
+  — the AQL unrestricted bind var (`arango/fields.go:18,63`) — i.e. fail-
+  OPEN, while `authscope.ReadScope.Unrestricted()`/`CoversExecutionPaths`
+  fail CLOSED on unknown modes (`unknown-mode-direct-denies` pin). One
+  persisted scope value, two consumers, opposite fail postures.
+- **Reachability adjudicated BEFORE classing**: `scope_resolver` produces
+  only the two legal enums; reviewer hunt (independent) confirmed no
+  product-writable path persists an unknown mode into `schema.Scope` (two
+  build sites; no JSON unmarshal of RuntimeBindings/workspace drafts;
+  persisted readers re-validate via `persistedMaterializationScope` default
+  -> error). Classified HARDENING (drift/corruption-only exposure), repaired
+  to match the pinned Covers promise; catalog's compatibility rule untouched
+  for legitimate legacy callers.
+- **Repair + durable regression**: default arm -> explicit restricted with
+  fail-posture comment; `discovery_auth_mode_test.go` five-mode matrix (incl.
+  `""`, wrong-case) asserting non-nil pointer, intended posture, Effective()-
+  companion equality, and Covers-agreement arm (also supplies the repo-level
+  `Unknown mode == false` pin the reviewer flagged missing). Pre-fix RED
+  re-derived at parent (HEAD-file swap: both arms FAIL verbatim) AND
+  independently by reviewer in a scratch replica (`R78-PROBE-HEAD ... nil =
+  true`, EXIT=1 red-prefix.log / EXIT=0 green-postfix.log).
+- **Adversarial review**: worker `ses_e605e21f7ffe` **PASS** — nil-pointer/
+  fail-open both sides confirmed run-reproduced; product-writer hunt found
+  NO severity lift; five-mode map + unrestricted-not-over-tightened
+  (construction-inputs, explorer capability, catalog, catalog/arango,
+  graphql-query suites green); sole nil-capable producer audit (GraphQL's 4
+  sites always explicit). Report
+  `/tmp/opencode/jrev/r78-failopen-review-report.md`. Label: same-model
+  worker, disclosed.
+- **Sibling note DISPROVEN by parent run**: reviewer recommended matching
+  the "fail-open family" at `internal/dataframe/compiler/lower/auth_scope.go`
+  — direct read shows that function already has an explicit
+  `default: return false` fail-closed arm; its `case "": len(paths)==0` is a
+  documented internal legacy spelling ("resolved request scopes are
+  authoritative"), not a defect. No change; note retained to show it was
+  checked.
+- Adjacency insurance at parent (post-change, pre-commit):
+  `internal/catalog` (107s), `internal/authscope`, `dataframe/recipe/schema`
+  packages all ok.
