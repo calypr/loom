@@ -644,8 +644,10 @@
     "release_dangle_reconcile_e2e_test.go [arango pkg]": "F-B12 sanctioned-red artifact intact; 3rd reproduction f1ea7ac5 (/tmp/opencode/fb12-reconfirm.log), FAILED-ON-PURPOSE, authenticated residue 0",
     "release_dangle_reconcile_e2e_test.go [clickhouse pkg]": "F-B11 PREVENTED control artifact (parent PASS 278d34ac); ABSENT-GUARD fault control",
     "verification/publication-bundle/FINDINGS.md": {
-      "md5": "4d8fc63fef84ed7add65557959509831",
-      "role": "program findings incl Round 65 (C1-C5 disposition fold; 78->83 records; 403 sibling SELF-RUN + attributed census; merged-tree validation) (self-record pin = md5 of file BEFORE its Round-65 integrity tail; per-round authority = the FINDINGS integrity tail); supersedes round-64 part-2 pre-tail 934365a2836a463110efe381974e3dec"
+      "sha256": "b7f96066c4465981cbc836098f115707b5152e915e0e52aa207330ce0b6b26e9",
+      "role": "Ledger of discovery/repair rounds through Round 73 (bulk-load spillover repair record appended; rounds 68-76 discovery closures included).",
+      "pin": "d2ff3d03",
+      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:verification/publication-bundle/FINDINGS.md == on-disk"
     },
     "verification/publication-bundle/OPERATOR_REVIEW_DIGEST.md": {
       "md5": "0b0bf2613fcda2476f8f21f7d28e8e62",
@@ -942,6 +944,18 @@
       "role": "CI-62-01 durable falsification, Go-side (Round 67; lives in internal/ci because the CI node-unit job has no Go toolchain): repo-wide go vet exit-0 gate auto-enrolled in go-unit ./internal/... sweep; overlay-injected copylocks fault reddens vet naming copies lock + probe file; -copylocks=false class-identification control; disk purity; node CLI smoke.",
       "pin": "661de7b3",
       "rederived": "SELF-RUN live sha256 == git show 661de7b3:internal/ci/vet_gate_test.go == on-disk"
+    },
+    "internal/api/bulk/load/operations.go": {
+      "sha256": "50a0768a55938e823bbdf23f408554c1401854aa54c71845b89efa3869d68607",
+      "role": "Round 73 repair: CreateDatasetGeneration disposes multipart ReadForm spillover via defer form.RemoveAll() registered below the ReadForm error return (nil-Form RemoveAll panics; placement mandatory and commented). Server's only multipart form-parse site.",
+      "pin": "d2ff3d03",
+      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/operations.go == on-disk"
+    },
+    "internal/api/bulk/load/form_spillover_test.go": {
+      "sha256": "b66be235d05bdb31a430fad2a36ff4829c0e71901668023049ebc8a352f10ddf",
+      "role": "Round 73 durable regression: TMPDIR-redirected orphan scan + loader-time staged integrity for the multipart spillover leak; FAILS pre-fix (orphaned multipart-* listings), PASSES post-fix; falsifiability re-derived by parent and reviewer ses_e606fc.",
+      "pin": "d2ff3d03",
+      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/form_spillover_test.go == on-disk"
     }
   },
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
