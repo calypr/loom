@@ -261,23 +261,28 @@ func New(cfg Config) (*Engine, error) {
 	}, nil
 }
 
-func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
+// entry loads the addressed recipe revision when the bindings carry a
+// recipeDigest, otherwise the named default entry. Every control and run
+// surface must address recipes through this seam so a digest-addressed
+// request behaves identically across preview, run, explain, and validate.
+func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
+		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
-	var entry exec.Entry
-	var err error
 	if bindings.RecipeDigest != "" && e.revisions != nil {
-		revision, revisionErr := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
-		if revisionErr != nil {
-			return Resolved{}, revisionErr
-		}
-		entry = exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}
-	} else {
-		entry, err = e.registry.LoadRecipe(ctx, name)
+		revision, err := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
 		if err != nil {
-			return Resolved{}, err
+			return exec.Entry{}, err
 		}
+		return exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
+	}
+	return e.registry.LoadRecipe(ctx, name)
+}
+
+func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
+	entry, err := e.entry(ctx, name, bindings)
+	if err != nil {
+		return Resolved{}, err
 	}
 	return e.resolveEntry(ctx, entry, bindings)
 }
