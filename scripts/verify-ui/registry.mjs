@@ -9640,6 +9640,7 @@ const registryRows = [
           'row96-inventory-block-strike-and-false-positive-control',
           'row96-structural-gates-inventory-disjoint',
           'row96-picker-empty-and-refused-explanations',
+          'row96-existing-column-reuse',
         ],
         focusedChecks: [
           {
@@ -9653,7 +9654,7 @@ const registryRows = [
             ],
           },
         ],
-        reason: 'RS03-03 four-state focused-native journey for docs/BUILDER_VERIFICATION.tsv row 96; directly-run raw-CDP workflow following the row-source journey convention; label authority /tmp/opencode/label-journey-coupling.md; reason-class authority construction pivot source classification (S-B inventory/empty split). Live acceptance achieved 2026-11-03: JOURNEY_OK checks=7 at 3b0a1ab2 (six original checks plus the ROW-SOURCE-06 picker-explanations control); a row96-server-authoritative-refusal check claimed earlier today was removed after re-derivation: it invoked a draft-apply endpoint absent from every tracked contract and had never executed; the sourceData-scope live 403 path it purported to cover remains untested and is registered as a gap for operator direction.',
+        reason: 'RS03-03 four-state focused-native journey for docs/BUILDER_VERIFICATION.tsv row 96; directly-run raw-CDP workflow following the row-source journey convention; label authority /tmp/opencode/label-journey-coupling.md; reason-class authority construction pivot source classification (S-B inventory/empty split). Live acceptance achieved 2026-11-03: JOURNEY_OK checks=7 at 3b0a1ab2 (six original checks plus the ROW-SOURCE-06 picker-explanations control); a row96-server-authoritative-refusal check claimed earlier today was removed after re-derivation: it invoked a draft-apply endpoint absent from every tracked contract and had never executed; the sourceData-scope live 403 path it purported to cover remains untested and is registered as a gap for operator direction. Registered 2026-11-03 for ROW-SOURCE-07: eighth check row96-existing-column-reuse (live signed selection applied, server-recorded sourceProjection proven from the capabilities payload, duplicate signed choice suppressed and existing column selectable in a fresh lane); awaiting its first live JOURNEY_OK at checks=8.',
       },
     },
     coverage: [
@@ -9661,7 +9662,7 @@ const registryRows = [
         feature: 'Four-state dataset-field source evidence on signed-source lanes: healthy supported lane, catalog-path field labels, precise refusal reasonCodes consumed visibly, named inventory fault distinct from empty data',
         acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'fourState' },
         status: 'untested',
-        reason: 'Six original checks passed live on the shipped stack 2026-11-03 (JOURNEY_OK checks=7 at 3b0a1ab2 including the ROW-SOURCE-06 picker control, acceptance boundary source_changed=false). Status stays untested until the seven-check journey completes one live JOURNEY_OK on the repaired component with pre/post stamp fail-closed comparison in the current acceptance window, together with the label WILL-FLIP re-assertions and the filter row-279 flip. The R92/R93 claim of a shipped row96-server-authoritative-refusal check was removed after re-derivation proved it never executed and targeted a non-existent endpoint; that sourceData-scope 403 coverage remains an open gap awaiting operator direction.',
+        reason: 'Six original checks passed live on the shipped stack 2026-11-03 (JOURNEY_OK checks=7 at 3b0a1ab2 including the ROW-SOURCE-06 picker control, acceptance boundary source_changed=false). Status stays untested until the eight-check journey (seven plus the ROW-SOURCE-07 existing-column-reuse check) completes one live JOURNEY_OK on the repaired component with pre/post stamp fail-closed comparison in the current acceptance window, together with the label WILL-FLIP re-assertions and the filter row-279 flip. The R92/R93 claim of a shipped row96-server-authoritative-refusal check was removed after re-derivation proved it never executed and targeted a non-existent endpoint; that sourceData-scope 403 coverage remains an open gap awaiting operator direction.',
       },
     ],
   }),

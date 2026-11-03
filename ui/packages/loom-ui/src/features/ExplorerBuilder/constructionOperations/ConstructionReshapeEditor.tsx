@@ -18,6 +18,7 @@ import { RelatedExpandEditor, type RelatedExpandQueryOwner } from './RelatedExpa
 import { CodedPivotEditor } from './CodedPivotEditor';
 import { semanticConceptLabel } from '../catalogItems';
 import { classifySourcePickerEmptiness, sourcePickerBoundSet } from './sourcePickerExplanations';
+import { existingColumnForFieldPath } from './existingFieldReuse';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 import {
   constructionInputForStage,
@@ -2650,6 +2651,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           key={`${id}:unpivot:${contextKey}`}
           form={form}
           stage={unpivotInputStage(stage, form, capabilities.unpivotSourceInput?.choices ?? [])}
+          sourceProjections={construction.sourceProjections}
           sourceInput={capabilities.unpivotSourceInput}
           supported={unpivotSupport.supported}
           reason={unpivotSupport.reason}
@@ -4741,6 +4743,7 @@ const PivotCategoryOutput = (props: {
 const UnpivotEditor = (props: {
   readonly form: UnpivotForm;
   readonly stage: ReshapeStage;
+  readonly sourceProjections?: Construction['sourceProjections'];
   readonly sourceInput?: ReshapeCapabilities['unpivotSourceInput'];
   readonly supported: boolean;
   readonly reason: string;
@@ -4763,8 +4766,16 @@ const UnpivotEditor = (props: {
     props.onChange({ ...props.form, inputs, ...(kept.length ? { unpivotSources: kept } : { unpivotSources: undefined }) });
   };
   const boundChoiceIds = new Set((props.form.unpivotSources ?? []).map((binding) => binding.choiceId));
+  const reusableAlreadyProjected = (choice: { readonly fieldPath: string }): boolean =>
+    existingColumnForFieldPath({
+      sourceProjections: props.sourceProjections,
+      columns: props.stage.columns,
+      fieldPath: choice.fieldPath,
+    }) !== undefined;
   const availableSourceChoices = (props.sourceInput?.supported ?? false)
-    ? (props.sourceInput?.choices ?? []).filter((choice) => choice.isPopulated && !boundChoiceIds.has(choice.choiceId))
+    ? (props.sourceInput?.choices ?? []).filter((choice) => choice.isPopulated
+      && !boundChoiceIds.has(choice.choiceId)
+      && !reusableAlreadyProjected(choice))
     : [];
   const sourceUnavailableReason = props.sourceInput && !props.sourceInput.supported
     ? [props.sourceInput.reasonCode, props.sourceInput.reason]

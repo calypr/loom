@@ -9,6 +9,7 @@ import type {
 } from '../../../types';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerEmptiness } from './sourcePickerExplanations';
+import { existingColumnForFieldPath } from './existingFieldReuse';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 
 type CandidateIntent = Pick<
@@ -968,7 +969,12 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
     && !stage.columns.some((column) => column.id === boundBinding.columnId));
   const sourceOptions = sourceInput?.supported
     ? sourceChoices.filter((choice) => choice.isPopulated
-      && !filterSources.some((binding) => binding.choiceId === choice.choiceId))
+      && !filterSources.some((binding) => binding.choiceId === choice.choiceId)
+      && existingColumnForFieldPath({
+        sourceProjections: construction.sourceProjections,
+        columns: stage.columns,
+        fieldPath: choice.fieldPath,
+      }) === undefined)
     : [];
   const columnOptionsAvailable = stage.columns.length > 0 || boundSourceVisible || sourceOptions.length > 0;
   const sourceUnavailableReason = sourceInput && !sourceInput.supported
@@ -1215,6 +1221,7 @@ const FormulaOperand = (props: {
   readonly sourceInput?: DeriveSourceInput;
   readonly boundSources?: ReadonlyArray<DeriveSourceSelection>;
   readonly explain?: SourcePickerEmptiness;
+  readonly sourceProjections?: Construction['sourceProjections'];
   readonly onChange: (value: OperandDraft) => void;
   readonly onSourceSelected: (choice: DeriveSourceChoice, columnId: string) => void;
 }) => {
@@ -1222,7 +1229,12 @@ const FormulaOperand = (props: {
   const boundChoiceIds = new Set((props.boundSources ?? []).map((binding) => binding.choiceId));
   const sourceChoices = props.sourceInput?.choices ?? [];
   const sourceOptions = props.sourceInput?.supported
-    ? sourceChoices.filter((choice) => choice.isPopulated && !boundChoiceIds.has(choice.choiceId))
+    ? sourceChoices.filter((choice) => choice.isPopulated && !boundChoiceIds.has(choice.choiceId)
+      && existingColumnForFieldPath({
+        sourceProjections: props.sourceProjections,
+        columns: props.columns.filter(isNumericColumn),
+        fieldPath: choice.fieldPath,
+      }) === undefined)
     : [];
   const sourceUnavailableReason = props.sourceInput && !props.sourceInput.supported
     ? [props.sourceInput.reasonCode, props.sourceInput.reason]
@@ -1410,7 +1422,10 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     for (const operand of operands) {
       if (operand.draft.kind !== 'column') continue;
       const ownColumnId = operand.draft.columnId;
-      const ownChoice = choices.find((choice) => choice.columnId === ownColumnId);
+      const ownBinding = bindings.find((binding) => binding.columnId === ownColumnId);
+      const ownChoice = ownBinding !== undefined
+        ? choices.find((choice) => choice.choiceId === ownBinding.choiceId)
+        : choices.find((choice) => choice.columnId === ownColumnId);
       const list = [...bindings] as Array<{ readonly choiceId: string }>;
       if (ownChoice && !list.some((binding) => binding.choiceId === ownChoice.choiceId)) {
         list.push({ choiceId: ownChoice.choiceId });
@@ -1418,7 +1433,12 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
       const emptiness = classifySourcePickerEmptiness(choices, sourcePickerBoundSet({
         bindings: list,
         isOwn: (binding) => choices.some((choice) => choice.choiceId === binding.choiceId && choice.columnId === ownColumnId),
-        ownVisible: inputStage.columns.some((column) => column.id === ownColumnId && isNumericColumn(column)),
+        ownVisible: ownBinding !== undefined
+          // Provenance: only deriveSourceStage's virtual materialization (never
+          // present on the raw stage) is own's own column; a foreign server
+          // column reusing the id must not silence the explanation.
+          && !stage.columns.some((column) => column.id === ownColumnId)
+          && inputStage.columns.some((column) => column.id === ownColumnId && isNumericColumn(column)),
       }));
       if (emptiness.emptyClass !== 'available') {
         return { slot: operand.slot, emptiness };
@@ -1439,7 +1459,13 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
 
   const chooseSourceOperand = (slot: 'left' | 'right', choice: DeriveSourceChoice, columnId: string) => {
     const previousId = expressionDraft[slot].kind === 'column' ? expressionDraft[slot].columnId : undefined;
-    const kept = (form.deriveSources ?? []).filter((binding) => binding.columnId !== previousId && binding.columnId !== columnId);
+    const otherSlot = slot === 'left' ? 'right' : 'left';
+    const otherColumnId = expressionDraft[otherSlot].kind === 'column' ? expressionDraft[otherSlot].columnId : undefined;
+    // The kind shortcut can make both operands share one materialized column;
+    // prune only bindings this operand actually releases, never the other
+    // operand's live binding (liveDeriveSources prunes what truly goes unused).
+    const kept = (form.deriveSources ?? []).filter((binding) =>
+      ((binding.columnId !== previousId && binding.columnId !== columnId) || binding.columnId === otherColumnId) || binding.columnId === otherColumnId);
     updateForm({
       ...form,
       expression: { kind: 'guided', draft: { ...expressionDraft, [slot]: { kind: 'column', columnId } } },
@@ -1576,6 +1602,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
               disabled={disabled}
               sourceInput={deriveSourceInput}
               boundSources={form.deriveSources}
+              sourceProjections={construction.sourceProjections}
               explain={pickerEmptinessHost?.slot === 'left' ? pickerEmptinessHost.emptiness : undefined}
               onChange={(left) => updateOperandDraft('left', left)}
               onSourceSelected={(choice, columnId) => chooseSourceOperand('left', choice, columnId)}
@@ -1588,6 +1615,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
               disabled={disabled}
               sourceInput={deriveSourceInput}
               boundSources={form.deriveSources}
+              sourceProjections={construction.sourceProjections}
               explain={pickerEmptinessHost?.slot === 'right' ? pickerEmptinessHost.emptiness : undefined}
               onChange={(right) => updateOperandDraft('right', right)}
               onSourceSelected={(choice, columnId) => chooseSourceOperand('right', choice, columnId)}

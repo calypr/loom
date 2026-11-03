@@ -37,6 +37,7 @@ const expectedChecks = [
   'row96-inventory-block-strike-and-false-positive-control',
   'row96-structural-gates-inventory-disjoint',
   'row96-picker-empty-and-refused-explanations',
+  'row96-existing-column-reuse',
 ];
 
 // Honest-absence family: row-choice verdicts (lane reason authority above) plus the
@@ -409,6 +410,71 @@ const main = async () => {
     positiveRenderingAuthority: 'picker unit tests (ConstructionOperationEditor/ConstructionReshapeEditor unit suites)',
   });
   markPhase('picker-explanations');
+
+  // ROW-SOURCE-07: an already-projected field must be reused as its existing
+  // column instead of offered again as a duplicate signed choice of the same
+  // authoritative identity. Apply a signed selection live, require the server
+  // to record the sourceProjection, then prove suppression + reuse in a fresh lane.
+  const setSelectValue = (selector, value) => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)return 'missing';const setter=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;setter.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('change',{bubbles:true}));return el.value;})()`);
+  const laneColumnOptions = () => evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]');return s?[...s.options].map((o)=>o.value):[];})()`);
+  const reuseState0 = (await api('builder')).value;
+  const reuseCaps0 = await api('construction-capabilities', {
+    outputId, stageId, snapshotToken: reuseState0.catalog.snapshotToken,
+    expectedDraftVersion: reuseState0.draftVersion, expectedDraftDigest: reuseState0.draftDigest,
+  });
+  assert.equal(reuseCaps0.status, 200, `existing-column-reuse capabilities failed (${reuseCaps0.status}): ${JSON.stringify(reuseCaps0.value).slice(0, 300)}`);
+  const reuseChoices = reuseCaps0.value?.filterSourceInput?.supported ? reuseCaps0.value.filterSourceInput.choices : null;
+  assert.ok(Array.isArray(reuseChoices) && reuseChoices.length > 0, 'existing-column-reuse: filterSourceInput unsupported or empty; refusing a vacuous pass');
+  const reuseChoice = reuseChoices.find((choice) => choice.isPopulated);
+  assert.ok(reuseChoice, 'existing-column-reuse: no populated filter choice on the healthy seed to reuse');
+  const reuseDraftBefore = reuseState0.draftVersion;
+  await realClick('[data-testid="construction-action-keep-rows"]');
+  await until(() => mounted('[data-testid="construction-filter-editor"]'), 'existing-column-reuse: signing lane open', 20000);
+  const signingOptions = await laneColumnOptions();
+  assert.ok(signingOptions.includes(`source:${reuseChoice.choiceId}`), `existing-column-reuse: signed option absent on the healthy seed; saw ${JSON.stringify(signingOptions).slice(0, 300)}`);
+  await setSelectValue('[data-testid="construction-filter-editor"] select[aria-label="Column"]', `source:${reuseChoice.choiceId}`);
+  await setSelectValue('[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'EXISTS');
+  await until(() => mounted('[data-testid="construction-apply-proposal"]'), 'existing-column-reuse: apply present for signed selection', 20000);
+  await realClick('[data-testid="construction-apply-proposal"]');
+  await until(async () => ((await api('builder')).value?.draftVersion ?? 0) > reuseDraftBefore, 'existing-column-reuse: draft advanced after apply', 30000);
+  const reuseState1 = (await api('builder')).value;
+  const reuseCaps1 = await api('construction-capabilities', {
+    outputId, stageId, snapshotToken: reuseState1.catalog.snapshotToken,
+    expectedDraftVersion: reuseState1.draftVersion, expectedDraftDigest: reuseState1.draftDigest,
+  });
+  assert.equal(reuseCaps1.status, 200, `existing-column-reuse capabilities after apply failed (${reuseCaps1.status})`);
+  const reuseSteps = (reuseCaps1.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'FILTER');
+  assert.ok(reuseSteps.length >= 1, 'existing-column-reuse: applied FILTER step missing from base construction');
+  const appliedStep = reuseSteps[reuseSteps.length - 1];
+  const appliedColumnId = appliedStep.operation.filter?.columnId;
+  assert.ok(typeof appliedColumnId === 'string' && appliedColumnId !== '', 'existing-column-reuse: applied step has no concrete columnId');
+  const reusedProjection = (reuseCaps1.value?.baseConstruction?.sourceProjections ?? [])
+    .find((projectionEntry) => projectionEntry.fieldPath === reuseChoice.fieldPath && projectionEntry.columnId === appliedColumnId);
+  assert.ok(reusedProjection, `existing-column-reuse: server did not record a sourceProjection for ${reuseChoice.fieldPath}->${appliedColumnId}: ${JSON.stringify(reuseCaps1.value?.baseConstruction?.sourceProjections ?? null).slice(0, 300)}`);
+  await until(async () => !(await mounted('[data-testid="construction-filter-editor"]')), 'existing-column-reuse: signing lane closed after apply', 15000);
+  await realClick('[data-testid="construction-action-keep-rows"]');
+  await until(() => mounted('[data-testid="construction-filter-editor"]'), 'existing-column-reuse: fresh lane open', 20000);
+  const freshOptions = await laneColumnOptions();
+  assert.ok(Array.isArray(freshOptions) && freshOptions.length > 0, 'existing-column-reuse: fresh lane column select empty');
+  assert.ok(!freshOptions.includes(`source:${reuseChoice.choiceId}`), `existing-column-reuse: duplicate signed choice still offered for ${reuseChoice.fieldPath}`);
+  assert.ok(freshOptions.includes(appliedColumnId), `existing-column-reuse: existing column ${appliedColumnId} not offered for reuse; saw ${JSON.stringify(freshOptions).slice(0, 300)}`);
+  const reuseSet = await setSelectValue('[data-testid="construction-filter-editor"] select[aria-label="Column"]', appliedColumnId);
+  assert.equal(reuseSet, appliedColumnId, 'existing-column-reuse: existing column not selectable');
+  await setSelectValue('[data-testid="construction-filter-editor"] select[aria-label="Condition"]', 'EXISTS');
+  await until(() => mounted('[data-testid="construction-apply-proposal"]'), 'existing-column-reuse: reuse candidate ready', 20000);
+  await screenshot('step2c-existing-column-reuse');
+  await realClick('[data-testid="construction-close-operation-editor"]');
+  await until(async () => !(await mounted('[data-testid="construction-filter-editor"]')), 'existing-column-reuse: fresh lane closed', 10000);
+  record('row96-existing-column-reuse', {
+    fieldPath: reuseChoice.fieldPath,
+    choiceId: reuseChoice.choiceId,
+    appliedColumnId,
+    projection: reusedProjection,
+    freshSuppressesSigned: true,
+    freshOffersExistingColumn: true,
+    reuseSelectedColumnId: appliedColumnId,
+  });
+  markPhase('existing-column-reuse');
 
   const refusalRecords = laneCaps.flatMap((cap) => (Array.isArray(cap.candidates ?? cap.fields) ? cap.candidates ?? cap.fields : [])
     .filter((candidate) => candidate && candidate.supported === false && typeof candidate.reasonCode === 'string' && candidate.reasonCode)
