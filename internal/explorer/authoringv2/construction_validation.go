@@ -358,6 +358,10 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 		if owner.Operation.Derive == nil || !containsConstructionColumnID(owner.inputColumnIDs(), projection.ColumnID) {
 			return fmt.Errorf("source projection columnId %q is not a COLUMN operand of its owner DERIVE step", projection.ColumnID)
 		}
+	case ConstructionOperationExpand:
+		if owner.Operation.Expand == nil || owner.Operation.Expand.InputColumnID != projection.ColumnID {
+			return fmt.Errorf("source projection columnId %q is not the array input of its owner EXPAND step", projection.ColumnID)
+		}
 	case ConstructionOperationUnpivot:
 		if owner.Operation.Unpivot == nil {
 			return fmt.Errorf("source projection owner step %q has no unpivot payload", projection.OwnerStepID)
@@ -1723,6 +1727,9 @@ func validateConstructionExpand(step ConstructionStep, input map[string]StageCol
 	}
 	if !oneOf(string(expand.EmptyPolicy), "", "ERROR", "EXCLUDE", "PRESERVE_PARENT") {
 		return fmt.Errorf("emptyPolicy must be ERROR, EXCLUDE, or PRESERVE_PARENT")
+	}
+	if err := ValidateConstructionExpandedFieldSource(expand.ExpandedField); err != nil {
+		return err
 	}
 	if expand.OrdinalColumnID != "" {
 		if !requiredID(expand.OrdinalColumnID) || expand.OrdinalColumnID == expand.OutputColumnID {

@@ -29,7 +29,7 @@ import {
 
 export type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'unpivotSources'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'groupSources' | 'pivotSources' | 'unpivotSources' | 'expandSources'
 >;
 
 type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
@@ -289,6 +289,7 @@ type ExpandForm = {
   readonly kind: 'expand';
   readonly stepId: string;
   readonly inputColumnId: string;
+  readonly expandSources?: ConstructionProposalRequest['expandSources'];
   readonly outputColumnId: string;
   readonly outputName: string;
   readonly outputLabel: string;
@@ -906,9 +907,10 @@ const candidateIntentFor = (args: {
   readonly groupSources?: CandidateIntent['groupSources'];
   readonly pivotSources?: CandidateIntent['pivotSources'];
   readonly unpivotSources?: CandidateIntent['unpivotSources'];
+  readonly expandSources?: CandidateIntent['expandSources'];
   readonly ownedSteps?: ReadonlyArray<ConstructionStep>;
 }): CandidateEvaluation => {
-  const { construction, editingStep, groupSource, groupSources, pivotSources, unpivotSources, ownedSteps = [] } = args;
+  const { construction, editingStep, groupSource, groupSources, pivotSources, unpivotSources, expandSources, ownedSteps = [] } = args;
   const rowValues = args.step.rowValues ?? editingStep?.rowValues;
   const valueIds = new Set(rowValues?.map((value) => value.outputColumnId));
   const step = rowValues?.length ? {
@@ -941,6 +943,7 @@ const candidateIntentFor = (args: {
       ...(groupSources ? { groupSources } : {}),
       ...(pivotSources !== undefined ? { pivotSources } : {}),
       ...(unpivotSources !== undefined ? { unpivotSources } : {}),
+      ...(expandSources !== undefined ? { expandSources } : {}),
     },
   };
 };
@@ -1518,10 +1521,14 @@ const initialExpandForm = (
   stage: ReshapeStage,
   editingStep?: ConstructionReshapeStep,
   preferredColumnId?: string,
+  signed?: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string }>,
+  sourceProjections?: Construction['sourceProjections'],
 ): ExpandForm => {
   if (editingStep?.operation.kind === 'EXPAND') {
     const operation = editingStep.operation.expand;
     const outputById = new Map(editingStep.outputs.map((column) => [column.id, column]));
+    const owned = (sourceProjections ?? []).find((projection) => projection.columnId === operation.inputColumnId && projection.ownerStepId === editingStep.id);
+    const signedChoice = owned ? signed?.find((choice) => choice.fieldPath === owned.fieldPath) : undefined;
     const output = outputById.get(operation.outputColumnId);
     const ordinal = operation.ordinalColumnId ? outputById.get(operation.ordinalColumnId) : undefined;
     return {
@@ -1541,6 +1548,7 @@ const initialExpandForm = (
         : { kind: 'none' },
       emptyPolicy: operation.emptyPolicy,
       savedOutputs: editingStep.outputs,
+      ...(signedChoice ? { expandSources: [{ choiceId: signedChoice.choiceId, columnId: operation.inputColumnId }] } : {}),
     };
   }
   const listColumns = listColumnsFor(stage);
@@ -1707,7 +1715,7 @@ const formForStep = (
   ) ?? { kind: 'unsupported', message: 'The saved source field is no longer available for grouping.' };
   if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep, construction, semanticGroupChoicesForStage(capabilities, stage), groupFieldChoicesForStage(capabilities, stage), groupRowValueChoicesForStage(capabilities, stage));
   if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
-  if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
+  if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep, undefined, capabilities.expandSourceInput?.choices ?? [], construction.sourceProjections);
   if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
   if (editingStep.operation.kind === 'PIVOT') {
     const form = initialPivotForm(stage, [], editingStep);
@@ -2023,8 +2031,8 @@ const candidateFor = (args: {
     return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
   }
   if (form.kind === 'expand') {
-    const step = expandStepFromForm({ stage, editingStep, form });
-    return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
+    const step = expandStepFromForm({ stage: expandInputStage(stage, form, capabilities.expandSourceInput?.choices ?? []), editingStep, form });
+    return step ? candidateIntentFor({ construction, editingStep, step, expandSources: form.expandSources }) : { kind: 'incomplete' };
   }
   if (form.kind === 'pivot') {
     if (!pivotCategoriesKnown) return { kind: 'incomplete' };
@@ -2196,11 +2204,12 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     props.onFormKindChange?.(initialForm.kind);
     setFormContextKey(contextKey);
     setContractUnavailable(false);
-    const initialCandidate = !editingStep && (
-      initialForm.kind === 'coded-group' && codedGroupSupport.supported
-      || initialForm.kind === 'source-group' && sourceGroupSupported
-      || initialForm.kind === 'unpivot' && unpivotSupport.supported
-    )
+    const initialCandidate = (!editingStep
+      && (initialForm.kind === 'coded-group' && codedGroupSupport.supported
+        || initialForm.kind === 'source-group' && sourceGroupSupported
+        || initialForm.kind === 'unpivot' && unpivotSupport.supported))
+      || (editingStep !== undefined && initialForm.kind === 'expand' && editingStep.operation.kind === 'EXPAND'
+        && (expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)))
       ? candidateFor({
           form: initialForm,
           construction,
@@ -2218,7 +2227,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       case 'group': return groupCodedValuesSupported ? { supported: true, reason: '' } : groupSupport;
       case 'source-group': return { supported: sourceGroupSupported, reason: sourceGroupReason };
       case 'coded-group': return codedGroupSupport;
-      case 'expand': return expandSupport;
+      case 'expand': return expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)
+        ? { supported: true, reason: '' }
+        : expandSupport;
       case 'related-expand': return relatedExpandSupport;
       case 'pivot': return pivotSupport;
       case 'coded-pivot': return codedPivotSupport;
@@ -2622,8 +2633,10 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <ExpandEditor
           key={`${id}:expand:${contextKey}`}
           form={form}
-          stage={stage}
-          supported={expandSupport.supported}
+          stage={expandInputStage(stage, form, capabilities.expandSourceInput?.choices ?? [])}
+          sourceInput={capabilities.expandSourceInput}
+          sourceProjections={construction.sourceProjections}
+          supported={expandSupport.supported || (capabilities.expandSourceInput?.supported ?? false)}
           reason={expandSupport.reason}
           disabled={disabled}
           onChange={(next) => updateForm(next)}
@@ -4129,22 +4142,64 @@ const ExpandEditor = (props: {
   readonly supported: boolean;
   readonly reason: string;
   readonly disabled: boolean;
+  readonly sourceInput?: ConstructionCapabilitiesResponse['expandSourceInput'];
+  readonly sourceProjections?: Construction['sourceProjections'];
   readonly onChange: (form: ExpandForm) => void;
 }) => {
   const columns = listColumnsFor(props.stage);
+  const boundChoiceIds = new Set((props.form.expandSources ?? []).map((binding) => binding.choiceId));
+  const reusableAlreadyProjectedArray = (choice: { readonly fieldPath: string }): boolean => {
+    const existing = existingColumnForFieldPath({
+      sourceProjections: props.sourceProjections,
+      columns: props.stage.columns,
+      fieldPath: choice.fieldPath,
+    });
+    return existing !== undefined
+      && props.stage.columns.some((column) => column.id === existing.columnId && isListColumn(column));
+  };
+  const allowedSourceChoices = (props.sourceInput?.supported ?? false)
+    ? (props.sourceInput?.choices ?? []).filter((choice) => choice.isPopulated
+      && !boundChoiceIds.has(choice.choiceId)
+      && !reusableAlreadyProjectedArray(choice))
+    : [];
   const nameConflict = props.form.ordinal.kind === 'include'
     && props.form.outputName.trim().toLowerCase() === props.form.ordinal.outputName.trim().toLowerCase();
   const outputColumns = expandOutputsFor(props.form, props.stage);
   const outputNamesValid = outputColumns.length > 0 && outputNamesAreValid(outputColumns);
   const input = columns.find((column) => column.id === props.form.inputColumnId);
-  const updateInput = (columnId: string) => {
-    const column = columns.find((candidate) => candidate.id === columnId);
+  const selectedBinding = (props.form.expandSources ?? []).find((binding) => binding.columnId === props.form.inputColumnId);
+  const selectedInputValue = selectedBinding
+    && (props.sourceInput?.choices ?? []).some((choice) => choice.choiceId === selectedBinding.choiceId)
+    ? `source:${selectedBinding.choiceId}`
+    : props.form.inputColumnId;
+  const updateInput = (value: string) => {
+    const previousId = props.form.inputColumnId;
+    const keptBindings = (props.form.expandSources ?? []).filter((binding) => binding.columnId !== previousId);
+    if (value.startsWith('source:')) {
+      const choice = (props.sourceInput?.choices ?? []).find((candidate) => candidate.choiceId === value.slice('source:'.length));
+      if (!choice) return;
+      const columnId = choice.columnId || createOpaqueId('expand-input');
+      if (columnId === props.form.inputColumnId && keptBindings.length === (props.form.expandSources ?? []).length) return;
+      const usedNames = new Set(props.stage.columns.map((column) => column.name.toLowerCase()));
+      usedNames.delete(normalizedName(columns.find((column) => column.id === previousId)?.name ?? ''));
+      const baseName = uniqueName(normalizedName(choice.fieldPath), usedNames);
+      props.onChange({
+        ...props.form,
+        inputColumnId: columnId,
+        outputName: `${normalizedName(baseName)}_item`,
+        outputLabel: `${choice.label} item`,
+        expandSources: [...keptBindings, { choiceId: choice.choiceId, columnId }],
+      });
+      return;
+    }
+    const column = columns.find((candidate) => candidate.id === value);
     if (!column) return;
     props.onChange({
       ...props.form,
       inputColumnId: column.id,
       outputName: `${normalizedName(column.name)}_item`,
       outputLabel: `${column.label} item`,
+      ...(keptBindings.length ? { expandSources: keptBindings } : { expandSources: undefined }),
     });
   };
 
@@ -4154,14 +4209,24 @@ const ExpandEditor = (props: {
         Each value in {input?.label ?? 'the selected list'} becomes one row for its input record. {props.form.outputLabel.trim() || 'The item column'} contains that value; other fields repeat.
       </p>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-      {columns.length === 0 ? (
+      {columns.length === 0 && allowedSourceChoices.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned any list-valued columns for this stage.</p>
       ) : (
         <>
           <label className="grid gap-1 text-sm font-medium text-slate-700">
             Repeated field
-            <select aria-label="Repeated field" value={props.form.inputColumnId} disabled={props.disabled || !props.supported} onChange={(event) => updateInput(event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+            <select aria-label="Repeated field" value={selectedInputValue} disabled={props.disabled || !props.supported} onChange={(event) => updateInput(event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+              <option value="">Choose a repeated field</option>
               {columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown item type'})</option>)}
+              {allowedSourceChoices.length > 0 ? (
+                <optgroup label="Signed FHIR array fields">
+                  {allowedSourceChoices.map((choice) => (
+                    <option key={`source:${choice.choiceId}`} value={`source:${choice.choiceId}`} data-testid={`construction-reshape-expand-source-option-${choice.fieldPath}`}>
+                      {choice.label} ({choice.logicalType} items)
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
           </label>
           <p data-testid="construction-reshape-expand-empty-effect" className="m-0 text-sm text-slate-600">
@@ -4326,6 +4391,16 @@ const unpivotInputStage = (stage: ReshapeStage, form: UnpivotForm, choices: Read
     return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
   });
   return { ...stage, columns: [...stage.columns, ...inputs] };
+};
+
+const expandInputStage = (stage: ReshapeStage, form: ExpandForm, choices: ReadonlyArray<{ readonly choiceId: string; readonly fieldPath: string; readonly label: string; readonly logicalType: string }>): ReshapeStage => {
+  const binding = (form.expandSources ?? []).find((candidate) => candidate.columnId === form.inputColumnId);
+  if (!binding || stage.columns.some((column) => column.id === form.inputColumnId)) return stage;
+  const choice = choices.find((candidate) => candidate.choiceId === binding.choiceId);
+  if (!choice) return stage;
+  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
+  const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
+  return { ...stage, columns: [...stage.columns, { id: form.inputColumnId, name, label: choice.label, type: choice.logicalType, cardinality: 'many' as const }] };
 };
 
 const PivotEditor = (props: {

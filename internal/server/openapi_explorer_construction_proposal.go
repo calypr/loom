@@ -117,6 +117,14 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 			})
 		}
 	}
+	if body.ExpandSources != nil {
+		request.ExpandSources = make([]lifecycle.ConstructionExpandSourceSelection, 0, len(*body.ExpandSources))
+		for _, selection := range *body.ExpandSources {
+			request.ExpandSources = append(request.ExpandSources, lifecycle.ConstructionExpandSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
 	if body.GroupSources != nil {
 		request.GroupSources = make([]lifecycle.ConstructionGroupSourceSelection, 0, len(*body.GroupSources))
 		for _, selection := range *body.GroupSources {

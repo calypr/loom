@@ -3016,7 +3016,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     const repeatedField = screen.getByLabelText('Repeated field');
-    expect(repeatedField.querySelectorAll('option')).toHaveLength(1);
+    expect([...repeatedField.querySelectorAll('option')].filter((option) => option.value !== '')).toHaveLength(1);
     expect(controlValue('Repeated field')).toBe('tags-id');
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected an initialized expansion entry');

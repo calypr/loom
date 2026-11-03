@@ -1751,6 +1751,15 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       outputColumnId: opaqueIdSchema,
       ordinalColumnId: opaqueIdSchema.optional(),
       emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional(),
+      // Server-signed root array facts for a signed expand input. The client
+      // never authors it (the lane strips client values server-side); it must
+      // parses so saved drafts survive reload.
+      expandedField: z.object({
+        path: z.string().min(1),
+        cardinality: z.literal('many'),
+        fhirType: z.string().optional(),
+        logicalType: z.string().min(1),
+      }).strict().optional(),
     }).strict(),
   }).strict(),
   z.object({
@@ -2068,6 +2077,33 @@ export const constructionUnpivotSourceSelectionSchema = z.object({
 }).strict();
 export type ConstructionUnpivotSourceSelection = z.infer<typeof constructionUnpivotSourceSelectionSchema>;
 
+// Signed EXPAND source choices advertise populated direct-root primitive
+// arrays. logicalType is the ELEMENT type (e.g. string), and columnId '' (no
+// live materialization) is normalized away client-side, same as unpivot.
+const constructionExpandSourceChoiceSchema = z.object({
+  choiceId: z.string().min(1),
+  // '' means no live server materialization for this choice (deliberate, not missing); the client normalizes it away. Request-side selection keeps a required non-empty columnId.
+  columnId: z.string().optional(),
+  fieldPath: z.string().min(1),
+  label: z.string().min(1),
+  logicalType: z.string().min(1),
+  isPopulated: z.boolean(),
+}).strict();
+
+const constructionExpandSourceInputSchema = z.object({
+  supported: z.boolean(),
+  stageId: opaqueIdSchema,
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+  choices: z.array(constructionExpandSourceChoiceSchema),
+}).strict();
+
+export const constructionExpandSourceSelectionSchema = z.object({
+  choiceId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+export type ConstructionExpandSourceSelection = z.infer<typeof constructionExpandSourceSelectionSchema>;
+
 export const constructionCapabilitiesResponseSchema = z.object({
   snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(),
@@ -2088,6 +2124,7 @@ export const constructionCapabilitiesResponseSchema = z.object({
   filterSourceInput: constructionFilterSourceInputSchema.optional(),
   deriveSourceInput: constructionDeriveSourceInputSchema.optional(),
   unpivotSourceInput: constructionUnpivotSourceInputSchema.optional(),
+  expandSourceInput: constructionExpandSourceInputSchema.optional(),
   workspaceInputs: z.array(constructionWorkspaceInputSchema),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
@@ -2163,6 +2200,7 @@ export const constructionProposalRequestSchema = z.object({
   filterSources: z.array(constructionFilterSourceSelectionSchema).optional(),
   deriveSources: z.array(constructionDeriveSourceSelectionSchema).optional(),
   unpivotSources: z.array(constructionUnpivotSourceSelectionSchema).optional(),
+  expandSources: z.array(constructionExpandSourceSelectionSchema).optional(),
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
 

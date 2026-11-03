@@ -9641,6 +9641,7 @@ const registryRows = [
           'row96-structural-gates-inventory-disjoint',
           'row96-picker-empty-and-refused-explanations',
           'row96-existing-column-reuse',
+          'row96-signed-expand-lane',
         ],
         focusedChecks: [
           {
@@ -9654,7 +9655,7 @@ const registryRows = [
             ],
           },
         ],
-        reason: 'RS03-03 four-state focused-native journey for docs/BUILDER_VERIFICATION.tsv row 96; directly-run raw-CDP workflow following the row-source journey convention; label authority /tmp/opencode/label-journey-coupling.md; reason-class authority construction pivot source classification (S-B inventory/empty split). Live acceptance achieved 2026-11-03: JOURNEY_OK checks=7 at 3b0a1ab2 (six original checks plus the ROW-SOURCE-06 picker-explanations control); a row96-server-authoritative-refusal check claimed earlier today was removed after re-derivation: it invoked a draft-apply endpoint absent from every tracked contract and had never executed; the sourceData-scope live 403 path it purported to cover remains untested and is registered as a gap for operator direction. Registered 2026-11-03 for ROW-SOURCE-07: eighth check row96-existing-column-reuse (live signed selection applied, server-recorded sourceProjection proven from the capabilities payload, duplicate signed choice suppressed and existing column selectable in a fresh lane); awaiting its first live JOURNEY_OK at checks=8.',
+        reason: 'RS03-03 four-state focused-native journey for docs/BUILDER_VERIFICATION.tsv row 96; directly-run raw-CDP workflow following the row-source journey convention; label authority /tmp/opencode/label-journey-coupling.md; reason-class authority construction pivot source classification (S-B inventory/empty split). Live acceptance achieved 2026-11-03: JOURNEY_OK checks=7 at 3b0a1ab2 (six original checks plus the ROW-SOURCE-06 picker-explanations control); a row96-server-authoritative-refusal check claimed earlier today was removed after re-derivation: it invoked a draft-apply endpoint absent from every tracked contract and had never executed; the sourceData-scope live 403 path it purported to cover remains untested and is registered as a gap for operator direction. Registered 2026-11-03 for ROW-SOURCE-07: eighth check row96-existing-column-reuse (live signed selection applied, server-recorded sourceProjection proven from the capabilities payload, duplicate signed choice suppressed and existing column selectable in a fresh lane). Registered 2026-11-03 for ROW-SOURCE-08: ninth check row96-signed-expand-lane (live Procedure table gains the unsigned signed-EXPAND lane offer, the browser selects the server-minted ExpandedScope choice, apply persists the server-signed expandedField with an EXPAND-step-owned sourceProjection, DTO-marshaled capabilities expose the signature, and the receipt preview shows the fixture-derived per-parent row multiset under the shipped PRESERVE_PARENT default); live JOURNEY_OK checks=9 recorded on the repaired source (/tmp/opencode/rs08/run11..run17).',
       },
     },
     coverage: [

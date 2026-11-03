@@ -14,7 +14,7 @@ const scenario = registry.find((entry) => entry.id === 'row96-row-source-four-st
 test('row96 four-state script passes its static self-validation via --dry-run', () => {
   const run = spawnSync(process.execPath, [join(REPO, SCRIPT), '--dry-run'], { encoding: 'utf8', cwd: REPO, timeout: 30000 });
   assert.equal(run.status, 0, `--dry-run exited ${run.status}: ${run.stdout}${run.stderr}`);
-  assert.match(run.stdout, /DRY_RUN_OK artifact=row96-four-state checks=8/);
+  assert.match(run.stdout, /DRY_RUN_OK artifact=row96-four-state checks=9/);
 });
 
 test('row96 registry requiredChecks are machine-identical to the script expectedChecks', () => {

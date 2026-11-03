@@ -38,6 +38,7 @@ const expectedChecks = [
   'row96-structural-gates-inventory-disjoint',
   'row96-picker-empty-and-refused-explanations',
   'row96-existing-column-reuse',
+  'row96-signed-expand-lane',
 ];
 
 // Honest-absence family: row-choice verdicts (lane reason authority above) plus the
@@ -81,6 +82,35 @@ const record = (name, evidence) => {
   assert.ok(!existing, `duplicate record for ${name}`);
   report.checks.push({ name, status: 'passed', evidence });
 };
+
+// ROW-SOURCE-08: this journey's signed-EXPAND check needs a direct-root
+// primitive array carried by real data. The generated schema admits none on the
+// shipped fixture resources (Patient, Observation, DiagnosticReport,
+// DocumentReference, Group, ResearchStudy, Specimen), so the run seeds a
+// per-run fixture copy plus three Procedures whose instantiatesUri[] arrays
+// (the lane's only honest primitive root array here: 2 + 1 + 0 values) give the
+// offer, refusal, and EXCLUDE-policy paths real data to work on.
+const rs08FixtureDir = (() => {
+  if (options.dryRun || process.env.LOOM_DEV_FIXTURE_DIR) return process.env.LOOM_DEV_FIXTURE_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'rs96-fixture-'));
+  let patientSubjectRef = 'Patient/dev-patient-001';
+  for (const name of readdirSync(join(REPO_ROOT, 'testdata/devloop-fixture')).filter((entry) => entry.endsWith('.ndjson'))) {
+    const contents = readFileSync(join(REPO_ROOT, 'testdata/devloop-fixture', name));
+    if (name === 'Patient.ndjson') {
+      const firstID = JSON.parse(String(contents).trim().split('\n')[0])?.id;
+      if (typeof firstID === 'string' && firstID) patientSubjectRef = `Patient/${firstID}`;
+    }
+    writeFileSync(join(dir, name), contents);
+  }
+  const procedures = ['rs08-procedure-a', 'rs08-procedure-b', 'rs08-procedure-c'].map((id) => ({
+    resourceType: 'Procedure', id, status: 'completed', subject: { reference: patientSubjectRef },
+  }));
+  procedures[0].instantiatesUri = ['urn:protocol:alpha', 'urn:protocol:beta'];
+  procedures[1].instantiatesUri = ['urn:protocol:gamma'];
+  writeFileSync(join(dir, 'Procedure.ndjson'), procedures.map((resource) => JSON.stringify(resource)).join('\n') + '\n');
+  return dir;
+})();
+if (rs08FixtureDir) process.env.LOOM_DEV_FIXTURE_DIR = rs08FixtureDir;
 
 const session = createDevSession(process.env, REPO_ROOT);
 const collectBuildIdentity = () => {
@@ -475,6 +505,129 @@ const main = async () => {
     reuseSelectedColumnId: appliedColumnId,
   });
   markPhase('existing-column-reuse');
+
+  // ROW-SOURCE-08: the signed EXPAND source lane end-to-end in the browser.
+  // A Procedure table (seeded by this run's fixture copy) must offer the
+  // populated primitive root array instantiatesUri[] as a signed choice, the
+  // pick must produce a server-signed EXPAND step — client never authors the
+  // trusted payload — and Apply must record the owning sourceProjection.
+  // Physical row expansion is compiled-lane territory certified in Go tests
+  // (lower expand + worker suite); the browser here proves offer/select/apply
+  // wiring and the signature discipline on the live join.
+  const expandProcedureSeed = await commands('rs08-procedure-table', [{
+    type: 'CREATE_TABLE', title: 'RS08 signed expand', rootNodeId: (await api('builder')).value?.catalog?.nodes
+      ?.find((node) => node.resourceType === 'Procedure' && node.rowRootEligible)?.nodeId,
+  }], (await api('builder')).value);
+  assert.equal(expandProcedureSeed.status, 200, `signed-expand-lane: Procedure CREATE_TABLE failed (${expandProcedureSeed.status}): ${JSON.stringify(expandProcedureSeed.value).slice(0, 300)}`);
+  const procState0 = (await api('builder')).value;
+  const procRoot = (procState0?.catalog?.nodes ?? []).find((node) => node.resourceType === 'Procedure' && node.rowRootEligible);
+  assert.ok(procRoot?.nodeId, 'signed-expand-lane: catalog has no eligible Procedure row root');
+  const procDocs = (procState0?.workspace?.documents ?? []).filter((document) => document?.rootResourceType === 'Procedure');
+  const procDoc = procDocs[procDocs.length - 1];
+  const procOutputId = procDoc?.output?.id;
+  assert.ok(procOutputId, `signed-expand-lane: Procedure table has no output: ${JSON.stringify((procState0?.workspace?.documents ?? []).map((d) => ({ title: d?.title, root: d?.output?.rootNodeId }))).slice(0, 300)}`);
+  const procIdCandidate = (procState0?.catalog?.candidates ?? []).find((candidate) => candidate.nodeId === procRoot.nodeId
+    && String(candidate.fieldPath || '').replace(/^root\./, '') === 'id');
+  assert.ok(procIdCandidate?.candidateId, 'signed-expand-lane: catalog exposes no Procedure id candidate for the public-column prerequisite');
+  const procIdAdded = await commands('rs08-procedure-id', [{
+    type: 'ADD_COLUMN', outputId: procOutputId, occurrenceId: 'base',
+    candidateId: procIdCandidate.candidateId, projectionMode: procIdCandidate.defaultProjectionMode,
+    initialPresentation: 'TABLE', title: 'Procedure ID',
+  }], procState0);
+  assert.equal(procIdAdded.status, 200, `signed-expand-lane: Procedure id ADD_COLUMN failed (${procIdAdded.status}): ${JSON.stringify(procIdAdded.value).slice(0, 300)}`);
+  const expandState0 = (await api('builder')).value;
+  const expandCaps0 = await api('construction-capabilities', {
+    outputId: procOutputId, stageId: 'source_projection', snapshotToken: expandState0.catalog.snapshotToken,
+    expectedDraftVersion: expandState0.draftVersion, expectedDraftDigest: expandState0.draftDigest,
+  });
+  assert.equal(expandCaps0.status, 200, `signed-expand-lane capabilities failed (${expandCaps0.status}): ${JSON.stringify(expandCaps0.value).slice(0, 300)}`);
+  const expandChannel = expandCaps0.value?.expandSourceInput;
+  assert.ok(expandChannel?.supported === true, `signed-expand-lane: expandSourceInput unsupported: ${JSON.stringify(expandChannel).slice(0, 300)}`);
+  const expandChoice = (expandChannel.choices ?? []).find((choice) => choice.isPopulated
+    && String(choice.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]');
+  assert.ok(expandChoice, `signed-expand-lane: instantiatesUri[] not offered among populated signed choices (would be vacuous): ${JSON.stringify(expandChannel.choices ?? []).slice(0, 400)}`);
+  await navigateToLane('signed-expand nav');
+  await realClick(`[data-testid="construction-table-${procOutputId}"]`);
+  await realClick('[data-testid="construction-rows-settings-trigger"]');
+  await until(() => mounted('[data-testid="construction-row-intent-reshape"]'), 'signed-expand-lane: row-definition dialog open for the Procedure table', 20000);
+  await realClick('[data-testid="construction-row-intent-reshape"]');
+  await until(() => mounted('[data-testid="construction-action-expand-signed-rows"]'), 'signed-expand-lane: reshape intent offers the signed expand card', 20000);
+  await realClick('[data-testid="construction-action-expand-signed-rows"]');
+  await until(() => mounted('[data-testid="construction-reshape-expand"]'), 'signed-expand-lane: expand editor open', 20000);
+  const expandOptionValues = await evaluate(`(()=>{const s=document.querySelector('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]');return s?[...s.options].map((o)=>o.value):[];})()`);
+  assert.ok(expandOptionValues.includes(`source:${expandChoice.choiceId}`), `signed-expand-lane: signed option absent in browser; saw ${JSON.stringify(expandOptionValues).slice(0, 300)}`);
+  const expandDraftBefore = expandState0.draftVersion;
+  await setSelectValue('[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]', `source:${expandChoice.choiceId}`);
+  await until(() => mounted('[data-testid="construction-apply-proposal"]'), 'signed-expand-lane: apply present for signed selection', 20000);
+  await screenshot('step2d-signed-expand');
+  await realClick('[data-testid="construction-apply-proposal"]');
+  await until(async () => ((await api('builder')).value?.draftVersion ?? 0) > expandDraftBefore, 'signed-expand-lane: draft advanced after apply', 30000);
+  const expandState1 = (await api('builder')).value;
+  const expandCaps1 = await api('construction-capabilities', {
+    outputId: procOutputId, stageId: 'source_projection', snapshotToken: expandState1.catalog.snapshotToken,
+    expectedDraftVersion: expandState1.draftVersion, expectedDraftDigest: expandState1.draftDigest,
+  });
+  assert.equal(expandCaps1.status, 200, `signed-expand-lane capabilities after apply failed (${expandCaps1.status})`);
+  const expandSteps = (expandCaps1.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'EXPAND');
+  assert.ok(expandSteps.length === 1, `signed-expand-lane: expected exactly one applied EXPAND step, got ${expandSteps.length}`);
+  const appliedExpand = expandSteps[0];
+  const expandPayload = appliedExpand.operation.expand?.expandedField;
+  assert.ok(expandPayload, 'signed-expand-lane: the applied EXPAND step carries no server-signed expandedField (signature discipline broken)');
+  assert.equal(String(expandPayload.path).replace(/^root\./, ''), 'instantiatesUri[]', 'signed server signature names a different field than the live lane offered');
+  assert.equal(expandPayload.cardinality, 'many', 'signed server signature does not pin many cardinality');
+  const expandInputId = appliedExpand.operation.expand?.inputColumnId;
+  assert.ok(expandInputId, 'signed-expand-lane: applied EXPAND step has no input column');
+  const expandProjection = (expandCaps1.value?.baseConstruction?.sourceProjections ?? [])
+    .find((projectionEntry) => projectionEntry.columnId === expandInputId);
+  assert.ok(expandProjection && expandProjection.ownerStepId === appliedExpand.id
+    && String(expandProjection.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]',
+    `signed-expand-lane: EXPAND step has no sourceProjection owned by it for instantiatesUri[]: ${JSON.stringify(expandCaps1.value?.baseConstruction?.sourceProjections ?? null).slice(0, 300)}`);
+  const clientSignedLeak = JSON.stringify(appliedExpand).includes('"expandedField":null');
+  // Contract clause "Compare independently expected rows with the existing
+  // selected-column path": after apply, the live preview must contain exactly
+  // the rows the shipped renderer produces for the fixture under the CURRENT
+  // shipped expand-editor default (ConstructionReshapeEditor emptyPolicy
+  // 'PRESERVE_PARENT', pre-existing at HEAD — the contract requires preserving
+  // it): rs08-procedure-a contributes two item rows, b one, and c (missing
+  // array) keeps its parent row with an empty item cell — four rows total.
+  // Expected values come from THIS fixture copy, independently of any server
+  // response; other empty policies are renderer behavior already pinned by
+  // the selected-column renderer tests this lane reuses verbatim.
+  const expectedItemValues = ['urn:protocol:alpha', 'urn:protocol:beta', 'urn:protocol:gamma'];
+  const readExpandPreview = () => evaluate(`(()=>{const sec=document.querySelector('[data-testid="construction-preview"]');const t=sec?.querySelector('[data-testid="preview-table-content"]')||sec;if(!t)return null;const trs=[...t.querySelectorAll('[role="row"]')].filter(r=>!r.className.includes('construction-preview-header-row'));const rows=trs.map(tr=>[...tr.querySelectorAll('[role="cell"]')].map(td=>td.textContent.trim())).filter(cells=>cells.length>0);return{rowCount:rows.length,cells:rows,previewStatus:sec?.getAttribute('data-preview-status')??null,previewReceipt:sec?.getAttribute('data-preview-receipt-id')??null};})()`);
+  let expandPreview = null;
+  const expandPreviewDeadline = Date.now() + 60000;
+  for (;;) {
+    expandPreview = await readExpandPreview();
+    const flat = expandPreview ? expandPreview.cells.flat() : [];
+    // Require the expanded item values, not just a row count: the pre-expand
+    // preview of this table also has three rows (one per Procedure).
+    if (expandPreview && expandPreview.rowCount === 4 && expectedItemValues.every((value) => flat.includes(value))
+      && expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-a' && cells[1] === 'urn:protocol:alpha')
+      && expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-a' && cells[1] === 'urn:protocol:beta')
+      && expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-b' && cells[1] === 'urn:protocol:gamma')
+      && expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-c' && (cells[1] === '' || cells[1] === '—'))) break;
+    if (Date.now() > expandPreviewDeadline) {
+      assert.fail(`signed-expand-lane: preview never showed the four expected expanded rows under the shipped PRESERVE_PARENT default (last state: ${JSON.stringify(expandPreview).slice(0, 800)})`);
+    }
+    await wait(500);
+  }
+  const flatCells = expandPreview.cells.flat();
+  const preserveParentKeptEmptyArrayRow = expandPreview.cells.some((cells) => cells[0] === 'rs08-procedure-c');
+  record('row96-signed-expand-lane', {
+    fieldPath: expandChoice.fieldPath,
+    choiceId: expandChoice.choiceId,
+    appliedStepId: appliedExpand.id,
+    inputColumnId: expandInputId,
+    signedPayload: expandPayload,
+    projection: expandProjection,
+    physicalRowExpansionAuthority: 'browser preview rows asserted above (exact per-parent row multiset under the shipped PRESERVE_PARENT default) + Go: internal/explorer/lifecycle/expand_source_test.go + compilation semantic_compile_expand_source_test.go + lower expand gate',
+    clientSignedLeak,
+    previewRowCount: expandPreview.rowCount,
+    previewExpectedItems: expectedItemValues,
+    preserveParentEmptyArrayRowKept: preserveParentKeptEmptyArrayRow,
+  });
+  markPhase('signed-expand-lane');
 
   const refusalRecords = laneCaps.flatMap((cap) => (Array.isArray(cap.candidates ?? cap.fields) ? cap.candidates ?? cap.fields : [])
     .filter((candidate) => candidate && candidate.supported === false && typeof candidate.reasonCode === 'string' && candidate.reasonCode)

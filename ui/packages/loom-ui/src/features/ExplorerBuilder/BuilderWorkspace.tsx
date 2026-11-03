@@ -3398,7 +3398,7 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily('RESHAPE');
   };
   const chooseReshapeRows = (
-    kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
+    kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'expand-signed' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
     preferredColumnIds?: ReadonlyArray<string>,
   ) => {
     if (kind === 'expand' && preferredColumnIds?.length !== 1) return;
@@ -3406,7 +3406,7 @@ const BuilderWorkspaceContent = ({
 
     let entry: ConstructionReshapeEditorEntry | undefined;
     let entryStageId: string | undefined;
-    if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
+    if ((kind === 'expand' || kind === 'expand-signed' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
       const response = constructionLifecycle.capabilities.response;
       const stage = response.selectedStage;
       const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
@@ -3424,6 +3424,14 @@ const BuilderWorkspaceContent = ({
         });
         if (!entry) return;
         entryStageId = stage.id;
+      } else if (kind === 'expand-signed') {
+        // No column-keyed entry: the signed picker is capability-driven and
+        // opens like the unpivot lane (empty form + capabilities choices),
+        // staying apply-disabled until a field resolves.
+        const signedSupported = stage.id === appendStageId
+          && (response.expandSourceInput?.supported ?? false)
+          && (response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
+        if (!signedSupported) return;
       } else if (supported) {
         entry = createReshapeEditorEntry({
           construction: construction ?? response.baseConstruction,
@@ -3433,7 +3441,7 @@ const BuilderWorkspaceContent = ({
         });
         entryStageId = stage.id;
       }
-    } else if (kind === 'expand') {
+    } else if (kind === 'expand' || kind === 'expand-signed') {
       return;
     }
 
@@ -3441,13 +3449,14 @@ const BuilderWorkspaceContent = ({
     cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
-    setReshapeEntryKind(kind);
-    setReshapeFormKind(kind === 'categories' ? 'choose' : kind);
+    const editorKind = kind === 'expand-signed' ? 'expand' : kind;
+    setReshapeEntryKind(editorKind);
+    setReshapeFormKind(kind === 'categories' ? 'choose' : kind === 'expand-signed' ? 'expand' : kind);
     const nextEntry = reshapeEntry + 1;
     if (entry && entryStageId) {
       constructionLifecycle.onCandidateChange(entry.candidateIntent);
       setReshapeInitialEntry({
-        editorKey: reshapeEditorKeyFor(nextEntry, kind, entryStageId),
+        editorKey: reshapeEditorKeyFor(nextEntry, editorKind, entryStageId),
         entry,
       });
     } else {
@@ -3555,7 +3564,11 @@ const BuilderWorkspaceContent = ({
   const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
     ? reshapeInitialEntry.entry
     : undefined;
-  const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry
+  // The signed EXPAND flow opens the expand editor with no column-keyed entry
+  // (capability-driven, like the unpivot lane), so only a chooser-less
+  // non-signed expand demotes; demoting the signed kind made the signed card
+  // unopenable.
+  const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry && reshapeFormKind !== 'expand'
     ? 'choose'
     : reshapeEntryKind;
   const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && (
@@ -3649,6 +3662,10 @@ const BuilderWorkspaceContent = ({
       ? publicScalarListColumnIds(capabilityStage)
       : [],
   );
+  const signedExpandAvailable = constructionLifecycle.capabilities.status === 'ready'
+    && previewIsCurrent && capabilityIsForAppendStage
+    && (constructionLifecycle.capabilities.response.expandSourceInput?.supported ?? false)
+    && (constructionLifecycle.capabilities.response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
   const groupAlternatives = [
     ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'Source fields' }] : []),
     ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'Recorded code' }] : []),
@@ -3657,6 +3674,7 @@ const BuilderWorkspaceContent = ({
     group: ordinaryGroupAvailable ? { supported: true } : stageGroupingAvailability,
     groupEntry: 'group' as const,
     groupAlternatives,
+    expandSigned: signedExpandAvailable ? { supported: true as const } : undefined,
     pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
     pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
     pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
