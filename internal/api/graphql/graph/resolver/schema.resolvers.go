@@ -115,7 +115,8 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 	if r.recipeRevisions == nil {
 		return nil, recipeGraphQLError(fmt.Errorf("recipe revision store is unavailable"))
 	}
-	if _, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.ProjectID}); err != nil {
+	authorized, err := r.authorizeRecipeWrite(ctx, recipe.RuntimeBindings{Project: input.ProjectID})
+	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
 	var bundle recipe.Bundle
@@ -126,7 +127,7 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 	if input.ParentDigest != nil {
 		parent = *input.ParentDigest
 	}
-	value, err := r.recipeRevisions.Register(ctx, input.ProjectID, bundle, parent)
+	value, err := r.recipeRevisions.Register(ctx, authorized.Project, bundle, parent)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
@@ -223,10 +224,11 @@ func (r *queryResolver) DataframeRecipeRevision(ctx context.Context, projectID s
 	if r.recipeRevisions == nil {
 		return nil, nil
 	}
-	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: projectID}); err != nil {
+	authorized, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: projectID})
+	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
-	value, err := r.recipeRevisions.Get(ctx, projectID, name, digest)
+	value, err := r.recipeRevisions.Get(ctx, authorized.Project, name, digest)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
@@ -238,10 +240,11 @@ func (r *queryResolver) DataframeRecipeRevisions(ctx context.Context, projectID 
 	if r.recipeRevisions == nil {
 		return []*model.DataframeRecipeRevision{}, nil
 	}
-	if _, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: projectID}); err != nil {
+	authorized, err := r.authorizeRecipeRead(ctx, recipe.RuntimeBindings{Project: projectID})
+	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}
-	values, err := r.recipeRevisions.List(ctx, projectID, name)
+	values, err := r.recipeRevisions.List(ctx, authorized.Project, name)
 	if err != nil {
 		return nil, recipeGraphQLError(err)
 	}

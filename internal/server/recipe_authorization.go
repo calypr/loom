@@ -23,6 +23,7 @@ func (a recipeAuthorization) AuthorizeRead(ctx context.Context, bindings recipe.
 	if strings.TrimSpace(bindings.Project) == "" {
 		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
+	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
 	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
 	if a.resolver == nil {
@@ -46,6 +47,7 @@ func (a recipeAuthorization) AuthorizeWrite(ctx context.Context, bindings recipe
 	if strings.TrimSpace(bindings.Project) == "" {
 		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
+	bindings.Project = strings.TrimSpace(bindings.Project)
 	bindings.SelectionProject = projectid.Canonical(bindings.Project)
 	bindings.SelectionMembersCollection = explorerarango.SelectionMembersCollection
 	if a.resolver == nil {
