@@ -193,15 +193,16 @@ func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, ex
 // catalog API (crash simulation). Production Reconcile is run once.
 //
 // Expected-buggy outcome (this test therefore fails ON PURPOSE):
-//   (a) Reconcile returns an error for which errors.Is(err, ErrExecutionReadPinActive)
-//       (bundle_store.go:1076-1079 via claimExecutionCleanup :301-313 /
-//       bundle_registry.go:411-427);
-//   (b) X is not reclaimed — its DropTable is never issued (expected, legitimate);
-//   (c) DAMAGE: Y — an unrelated, pin-free, equally-stale execution — is ALSO
-//       not reclaimed, because process aborted on X's error (bundle_store.go:1033-1052).
-//       The control TestStalePinAbsentReclaimsAllAgainstArango proves Y's table
-//       WOULD have been dropped with no pin present, so (c) is caused by the pin,
-//       not harness ordering.
+//
+//	(a) Reconcile returns an error for which errors.Is(err, ErrExecutionReadPinActive)
+//	    (bundle_store.go:1076-1079 via claimExecutionCleanup :301-313 /
+//	    bundle_registry.go:411-427);
+//	(b) X is not reclaimed — its DropTable is never issued (expected, legitimate);
+//	(c) DAMAGE: Y — an unrelated, pin-free, equally-stale execution — is ALSO
+//	    not reclaimed, because process aborted on X's error (bundle_store.go:1033-1052).
+//	    The control TestStalePinAbsentReclaimsAllAgainstArango proves Y's table
+//	    WOULD have been dropped with no pin present, so (c) is caused by the pin,
+//	    not harness ordering.
 func TestStalePinBlocksEntireReconcileAgainstArango(t *testing.T) {
 	registry, ctx, suffix := pbxSetup(t)
 

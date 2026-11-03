@@ -1827,3 +1827,26 @@ Record integrity tail (Round 65, written last): record-writer's ledger files at 
 - Evidence: `/tmp/opencode/jrev/vet-gate-evidence.log` plus the internal/ci
   go-test run quoted below (per-test timings).
 
+## Round 68 — gofmt enforcement-gap class: pre-existing drift repaired (AST-preserving canonicalization)
+
+- Discovery: first-ever repo-wide `gofmt -l internal cmd` sweep (this program)
+  was RED on 9 committed files (HEAD baseline `/tmp/opencode/jrev/gofmt-head-f0b33137.txt`); 8 are this row's scope (`/tmp/opencode/jrev/gofmt-list.txt`) and the 9th (`construction_projection_replay_test.go`) is the unit's own Round-66 file fixed alongside it in commit-1; 4 of the 8 are
+  non-test (`recipe_plan_output.go`, `row_definition.go`, `row_proposal.go`,
+  `cmd/dataframe-query/main.go`). Nothing in any gate runs gofmt,
+  so drift accumulates — same zero-enforcement shape as the CI-62-01 vet class.
+- Repair: `gofmt -w` over exactly the captured list. Proof of no semantic
+  change: parser→printer AST dumps (comments excluded) of the HEAD blob vs the
+  worktree file are byte-identical for all 8 (`/tmp/opencode/jrev/astcmp/`,
+  tool build failure correctly fail-closed as DIVERGED during development —
+  disclosed); `git diff -w` additionally empty for 6/8; the 2 remainders are
+  gofmt's own AST-preserving normalizations (single-line struct body expanded;
+  comment-hygiene `//`). `gofmt -l internal cmd` empty
+  after; `go build ./...` green; affected unit packages re-run
+  (optimize, semantic, lifecycle 11.2s, server conversion test, authoringv2
+  replay family); e2e-named packages (`pinblock_reconcile_e2e`,
+  `cross_generation_publish_e2e`) compile-verified via `-run '^$'` —
+  formatting-only change, full service-backed e2e not re-run for whitespace
+  (disclosed scope limit).
+- Follow-up recorded as BS-67-1 next_action: permanent `gofmt -l` empty-output
+  assertion belongs in the internal/ci CI-boundary suite (deferred to the next
+  wave touching that package to keep unit commits coherent).

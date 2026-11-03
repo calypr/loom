@@ -159,7 +159,9 @@ func cgpCheckCitations(t *testing.T) {
 // (internal/server/release_verifier.go:18-34) exactly, over the real ArangoDB
 // publication Registry, so the ReleaseService binding gate consumes a genuine
 // PUBLISHED/queryable execution rather than a hand-made success.
-type cgpVerifier struct{ executions dataframepublication.ExactExecutionCatalog }
+type cgpVerifier struct {
+	executions dataframepublication.ExactExecutionCatalog
+}
 
 func (s cgpVerifier) VerifyPublication(ctx context.Context, project, generation string, selector dataset.DataframeSelector) (dataset.PublicationVerification, error) {
 	if s.executions == nil {

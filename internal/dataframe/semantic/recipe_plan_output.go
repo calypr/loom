@@ -49,7 +49,7 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		plan.GroupRows = &SemanticGroupRows{
 			RevisionID: output.GroupRows.RevisionID, UnassignedMemberPolicy: output.GroupRows.UnassignedMemberPolicy,
 			AfterStepID: output.GroupRows.AfterStepID,
-			RowValues: append([]recipe.GroupRowValuePolicy(nil), output.GroupRows.RowValues...),
+			RowValues:   append([]recipe.GroupRowValuePolicy(nil), output.GroupRows.RowValues...),
 		}
 	}
 	if output.Expand != nil {

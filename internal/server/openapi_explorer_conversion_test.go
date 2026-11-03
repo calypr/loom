@@ -15,7 +15,7 @@ func TestV2ReceiptResponsePreservesResultUnitsAndOmitsAbsentUnit(t *testing.T) {
 	aggregateUnit := &unit.UnitIdentity{System: system, Code: "kg"}
 	derivedUnit := &unit.UnitIdentity{System: system, Code: "kg/m2"}
 	receipt := &explorer.CompilationReceipt{
-		ID: "receipt-a",
+		ID:     "receipt-a",
 		Bundle: recipe.Bundle{Outputs: []recipe.Output{{Name: "patients", RowGrain: "RESOURCE"}}},
 		EmittedColumns: []explorer.EmittedColumn{
 			{OutputID: "patients", PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", ResultUnit: aggregateUnit},

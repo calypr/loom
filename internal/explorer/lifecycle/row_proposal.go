@@ -245,12 +245,12 @@ type ExplicitGroupRevisionListRequest struct {
 }
 
 type ExplicitGroupRevisionChoice struct {
-	RevisionID               string                               `json:"revisionId"`
+	RevisionID                string                               `json:"revisionId"`
 	SourceSelectionRevisionID string                               `json:"sourceSelectionRevisionId,omitempty"`
-	GroupCount               int64                                `json:"groupCount"`
-	MemberCount              int64                                `json:"memberCount"`
-	CreatedAt                time.Time                            `json:"createdAt"`
-	UnassignedMemberPolicies []authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
+	GroupCount                int64                                `json:"groupCount"`
+	MemberCount               int64                                `json:"memberCount"`
+	CreatedAt                 time.Time                            `json:"createdAt"`
+	UnassignedMemberPolicies  []authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
 }
 
 // ExplicitGroupRevisionProof contains the immutable identities a group
