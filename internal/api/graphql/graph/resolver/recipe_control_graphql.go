@@ -42,6 +42,8 @@ func recipeGraphQLError(err error) error {
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath(validation.Path), dataframeerrors.WithDetails(map[string]any{"validationCode": validation.Code}))
 		case errors.Is(err, recipeexec.ErrRecipeNotFound):
 			err = dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeNotFound, "")
+		case errors.Is(err, recipe.ErrRecipeRevisionNotFound):
+			err = dataframeerrors.Wrap(err, dataframeerrors.CodeRecipeNotFound, "")
 		case errors.Is(err, authscope.ErrUnauthenticated), errors.Is(err, authscope.ErrForbidden), errors.Is(err, authscope.ErrAuthorizationBackendUnavailable):
 			err = authpolicy.Classify(err, authpolicy.OperationRecipeControl)
 		case errors.Is(err, context.Canceled):
