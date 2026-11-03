@@ -2039,3 +2039,30 @@ what actually ran (evidence paths retained on the same host):
 - **After/restored**: `go test ./internal/api/bulk/load -count=1` ok
   (pre-existing staging/authorization/error-mapping tests included),
   `gofmt -l` empty for the package.
+
+## Round 77 — STALE-marking / release-metadata vertical: PREVENTED by identified code
+
+- Contract sentence (`docs/loom-reliability-contract.md`): publications
+  carried from the prior release are "marked STALE when their source
+  generation is different".
+- Observed (`internal/dataset/release.go`): both stamping arms are direct
+  field comparisons — carry-forward `prior.Stale = prior.Generation !=
+  ref.Generation` (:221) and fresh-binding `Stale: result.Generation !=
+  generation` (:271) — no substring/time/pointer proxies. Optional bindings
+  only attach after a successful `VerifyPublication` returning PUBLISHED,
+  Queryable, exact selector AND exact generation (:212); carried entries never
+  masquerade as required (`Required=false` forced at :220).
+- Durable coverage confirmed: `release_test.go` pins the cross-generation
+  carry-as-stale arm (`TestReleaseActivationCarriesOptionalPublicationAsStale`
+  :139-166 asserts Stale=true + ExecutionID preserved and required arm
+  Stale=false) and same-generation fresh arms (`:59`, `:220`).
+- Adjacent maint-check: `publicationVerificationStore`
+  (`internal/server/release_verifier.go`) derives EVERY returned field
+  (State/Queryable/Generation/ExecutionID/PhysicalTable/VerifiedAt) from the
+  catalog-observed execution via `ExactExecutionCatalog.FindExecutionBySelector`,
+  never from caller echoes — the recorded F-B6 "PASS-with-CONFIRMED-pattern"
+  shape holds at current source. Classification: no defect candidate on this
+  vertical; disclosed nuance (unchanged from ledger): optional-prior carry
+  with same-generation execution turnover keeps Stale=false by the generation
+  rule — same identity class already adjudicated under the exact-selector
+  regime, not re-opened.
