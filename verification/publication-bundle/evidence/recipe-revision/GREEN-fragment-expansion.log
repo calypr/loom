@@ -1,0 +1,4 @@
+unknown-fragment    400 INVALID_REQUEST   the request is invalid
+fragment-arity      400 INVALID_REQUEST   the request is invalid
+ctrl-empty-fragments 400 INVALID_REQUEST   the request is invalid
+ctrl-bogus-op       400 INVALID_REQUEST   the request is invalid

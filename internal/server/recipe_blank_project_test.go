@@ -205,6 +205,80 @@ func TestRecipeFamilyLegsRejectWhitespaceProjectBeforeControl(t *testing.T) {
 	}
 }
 
+type blankProjectRevisionStore struct{ calls int }
+
+func (s *blankProjectRevisionStore) Register(context.Context, string, recipe.Bundle, string) (recipe.RecipeRevision, error) {
+	s.calls++
+	return recipe.RecipeRevision{}, errors.New("revision registry consulted for blank project")
+}
+
+func (s *blankProjectRevisionStore) Get(context.Context, string, string, string) (recipe.RecipeRevision, error) {
+	s.calls++
+	return recipe.RecipeRevision{}, recipe.ErrRecipeRevisionNotFound
+}
+
+func (s *blankProjectRevisionStore) List(context.Context, string, string) ([]recipe.RecipeRevision, error) {
+	s.calls++
+	return nil, nil
+}
+
+// (b2) Revision-side family legs: register/revision(s)/explain must classify
+// whitespace-only exactly like empty, at the authorizer, before the revision
+// registry or control plane is consulted.
+func TestRecipeRevisionFamilyLegsRejectWhitespaceProjectBeforeStore(t *testing.T) {
+	legs := []struct {
+		name string
+		call func(graphresolver.Resolver, string) error
+	}{
+		{"registerDataframeRecipeRevision", func(r graphresolver.Resolver, project string) error {
+			_, err := r.Mutation().RegisterDataframeRecipeRevision(context.Background(), model.RegisterDataframeRecipeRevisionInput{
+				ProjectID: project,
+				Recipe:    []byte(`{"recipeSchemaVersion":1,"name":"files","translationVersion":"1","fragments":{"fragments":{}},"outputs":[]}`),
+			})
+			return err
+		}},
+		{"dataframeRecipeRevisions", func(r graphresolver.Resolver, project string) error {
+			_, err := r.Query().DataframeRecipeRevisions(context.Background(), project, "patients")
+			return err
+		}},
+		{"dataframeRecipeRevision", func(r graphresolver.Resolver, project string) error {
+			_, err := r.Query().DataframeRecipeRevision(context.Background(), project, "patients", "sha256:deadbeef")
+			return err
+		}},
+		{"explainDataframeRecipe", func(r graphresolver.Resolver, project string) error {
+			_, err := r.Query().ExplainDataframeRecipe(context.Background(), model.ExplainDataframeRecipeInput{
+				Name:     "patients",
+				Bindings: &model.DataframeRecipeBindingsInput{Project: project},
+			})
+			return err
+		}},
+	}
+	for _, leg := range legs {
+		t.Run(leg.name, func(t *testing.T) {
+			store := &blankProjectRevisionStore{}
+			control := &blankProjectFamilyControl{}
+			resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
+				RecipeControl:    control,
+				RecipeRevisions:  store,
+				RecipeAuthorizer: recipeAuthorization{},
+			})
+			emptyErr := leg.call(*resolver, "")
+			emptyUser := assertTypedProjectRequired(t, emptyErr, leg.name+" empty")
+			blankErr := leg.call(*resolver, "  ")
+			blankUser := assertTypedProjectRequired(t, blankErr, leg.name+" whitespace")
+			if blankUser.Code() != emptyUser.Code() || blankUser.Retryable() != emptyUser.Retryable() ||
+				dataframeerrors.PublicMessage(blankErr) != dataframeerrors.PublicMessage(emptyErr) {
+				t.Fatalf("whitespace leg diverges from empty leg: %s/%v/%q vs %s/%v/%q",
+					blankUser.Code(), blankUser.Retryable(), dataframeerrors.PublicMessage(blankErr),
+					emptyUser.Code(), emptyUser.Retryable(), dataframeerrors.PublicMessage(emptyErr))
+			}
+			if store.calls != 0 || control.calls != 0 {
+				t.Fatalf("family must classify whitespace project before store/control, got store=%d control=%d", store.calls, control.calls)
+			}
+		})
+	}
+}
+
 // (c) Foreign faults still surface untouched: genuinely unclassifiable
 // control errors keep falling through to INTERNAL_ERROR.
 func TestRecipeControlForeignFaultStillFallsThroughToInternal(t *testing.T) {

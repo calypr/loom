@@ -120,7 +120,7 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 	}
 	var bundle recipe.Bundle
 	if err := json.Unmarshal(input.Recipe, &bundle); err != nil {
-		return nil, recipeGraphQLError(err)
+		return nil, recipeGraphQLError(dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, ""))
 	}
 	parent := ""
 	if input.ParentDigest != nil {

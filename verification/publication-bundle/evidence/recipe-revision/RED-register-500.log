@@ -1,0 +1,6 @@
+malformed-json   500 INTERNAL_ERROR     an unexpected internal error occurred while processing the data reques
+json-null        422 GRAPHQL_VALIDATION_FAILED cannot be null
+json-array       500 INTERNAL_ERROR     an unexpected internal error occurred while processing the data reques
+empty-object     500 INTERNAL_ERROR     an unexpected internal error occurred while processing the data reques
+bad-shape        500 INTERNAL_ERROR     an unexpected internal error occurred while processing the data reques
+minimal-valid    400 INVALID_REQUEST    the request is invalid

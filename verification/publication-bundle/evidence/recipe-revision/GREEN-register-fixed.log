@@ -1,0 +1,6 @@
+malformed-json   400 INVALID_REQUEST    the request is invalid
+json-null        422 GRAPHQL_VALIDATION_FAILED cannot be null
+json-array       400 INVALID_REQUEST    the request is invalid
+empty-object     400 INVALID_REQUEST    the request is invalid
+bad-shape        400 INVALID_REQUEST    the request is invalid
+minimal-valid    400 INVALID_REQUEST    the request is invalid

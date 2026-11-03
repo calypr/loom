@@ -25,22 +25,22 @@ type FragmentLibrary struct {
 
 func (l FragmentLibrary) Validate() error {
 	if len(l.Fragments) == 0 {
-		return fmt.Errorf("fragment library must not be empty")
+		return validationError("invalid_fragments", "$.fragments", "fragment library must not be empty")
 	}
 	for name, fragment := range l.Fragments {
 		if strings.TrimSpace(name) == "" || name != fragment.Name {
-			return fmt.Errorf("fragment name %q is inconsistent", name)
+			return validationError("invalid_fragments", "$.fragments", fmt.Sprintf("fragment name %q is inconsistent", name))
 		}
 		if strings.TrimSpace(fragment.Version) == "" {
-			return fmt.Errorf("fragment %q version is required", name)
+			return validationError("invalid_fragments", "$.fragments", fmt.Sprintf("fragment %q version is required", name))
 		}
 		seen := map[string]struct{}{}
 		for _, param := range fragment.Params {
 			if strings.TrimSpace(param) == "" {
-				return fmt.Errorf("fragment %q has an empty parameter", name)
+				return validationError("invalid_fragments", "$.fragments", fmt.Sprintf("fragment %q has an empty parameter", name))
 			}
 			if _, ok := seen[param]; ok {
-				return fmt.Errorf("fragment %q repeats parameter %q", name, param)
+				return validationError("invalid_fragments", "$.fragments", fmt.Sprintf("fragment %q repeats parameter %q", name, param))
 			}
 			seen[param] = struct{}{}
 		}
@@ -308,7 +308,7 @@ func (l FragmentLibrary) expandExtensionColumns(columns []ExtensionColumn) ([]Ex
 
 func (l FragmentLibrary) expand(input Expression, stack []string, depth int) (Expression, error) {
 	if depth > maxExpressionDepth {
-		return Expression{}, fmt.Errorf("fragment expansion depth exceeds limit")
+		return Expression{}, validationError("max_depth", "$", "fragment expansion depth exceeds limit")
 	}
 	if input.Call == "" {
 		if input.Select == "" {
@@ -331,15 +331,15 @@ func (l FragmentLibrary) expand(input Expression, stack []string, depth int) (Ex
 	name := strings.TrimPrefix(input.Call, "fragment:")
 	fragment, ok := l.Fragments[name]
 	if !ok {
-		return Expression{}, fmt.Errorf("unknown fragment %q", name)
+		return Expression{}, validationError("unsupported_operation", "$.fragments."+name, fmt.Sprintf("unknown fragment %q", name))
 	}
 	for _, parent := range stack {
 		if parent == name {
-			return Expression{}, fmt.Errorf("fragment cycle includes %q", name)
+			return Expression{}, validationError("invalid_fragments", "$.fragments."+name, fmt.Sprintf("fragment cycle includes %q", name))
 		}
 	}
 	if len(args) != len(fragment.Params) {
-		return Expression{}, fmt.Errorf("fragment %q expects %d arguments, got %d", name, len(fragment.Params), len(args))
+		return Expression{}, validationError("invalid_arity", "$.fragments."+name, fmt.Sprintf("fragment %q expects %d arguments, got %d", name, len(fragment.Params), len(args)))
 	}
 	bindings := make(map[string]Expression, len(args))
 	for i, param := range fragment.Params {
