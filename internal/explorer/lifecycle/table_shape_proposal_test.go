@@ -1216,3 +1216,149 @@ func tableShapeWorkspaceUnchanged(workspace authoringv2.Workspace, owner *explor
 	}
 	return nil
 }
+
+func TestProposeTableShapeUnpivotReproducesInternalError(t *testing.T) {
+	for _, variant := range []struct {
+		name        string
+		realCompile bool
+	}{
+		{name: "fakeCompileHarness"},
+		{name: "productionCompileAdapter", realCompile: true},
+	} {
+		t.Run(variant.name, func(t *testing.T) {
+			service, store, snapshot, workspace := tableShapeProposalService(t)
+			if variant.realCompile {
+				// Rewrite the fixture draft onto real Patient element paths so the
+				// real workspace compiler can resolve selectors. The two unpivot
+				// inputs keep their authored names; code+date both melt to the
+				// same canonical table scalar class as the capability menu admits.
+				reproColumns := []authoringv2.Column{
+					{Column: "patient_id", Label: "Patient ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
+						Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+					{Column: "value", Label: "Value", LogicalType: "code", OccurrenceID: authoringv2.RootOccurrenceID,
+						Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "gender", ProjectionMode: "VALUE"}}},
+					{Column: "value_alt", Label: "Alternate value", LogicalType: "date", OccurrenceID: authoringv2.RootOccurrenceID,
+						Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "birthDate", ProjectionMode: "VALUE"}}},
+					{Column: "category", Label: "Category", LogicalType: "boolean", OccurrenceID: authoringv2.RootOccurrenceID,
+						Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "active", ProjectionMode: "VALUE"}}},
+				}
+				workspace.Documents[0].Columns = reproColumns
+				workspace.Documents[0].TableShape = nil
+				canonical, rewriteErr := workspace.CanonicalJSON()
+				if rewriteErr != nil {
+					t.Fatal(rewriteErr)
+				}
+				digest, rewriteErr := workspace.Digest()
+				if rewriteErr != nil {
+					t.Fatal(rewriteErr)
+				}
+				store.created.DraftConfig, store.created.DraftDigest = canonical, digest
+			}
+			request := tableShapeProposalBaseRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+			repository := service.config.TableShapeCapabilities.(*lifecycleTableShapeRepository)
+			catalog := repository.catalogs[request.CatalogID]
+			unpivotSelection := TableShapeUnpivotSelection{
+				InputColumnChoiceIDs: []string{
+					catalogColumnChoice(t, catalog, tableshapecap.RoleUnpivotInput, "value"),
+					catalogColumnChoice(t, catalog, tableshapecap.RoleUnpivotInput, "value_alt"),
+				},
+				NullPolicyChoiceID: catalogPolicyChoice(t, catalog, tableshapecap.RolePolicyUnpivotNull, "PRESERVE"),
+				KeyOutputColumn:    "measure", KeyOutputLabel: "Measure", ValueOutputColumn: "amount", ValueOutputLabel: "Amount",
+			}
+			unpivot, err := service.ResolveTableShape(context.Background(), TableShapeResolutionRequest{
+				Project: request.Project, ExplorerID: request.ExplorerID, SnapshotToken: request.SnapshotToken,
+				ExpectedDraftVersion: request.ExpectedDraftVersion, ExpectedDraftDigest: request.ExpectedDraftDigest,
+				OutputID: request.OutputID, CatalogID: request.CatalogID, Kind: tableshapecap.ResolutionUnpivot, Unpivot: &unpivotSelection,
+			})
+			if err != nil {
+				t.Fatalf("unpivot resolution failed: %v", err)
+			}
+			request.ReshapeResolutionID = unpivot.ResolutionID
+			request.DerivedResolutionIDs = nil
+			if variant.realCompile {
+				// Mirror the production s.config.CompileReceipt wiring via
+				// compileTraceReceipt: the real workspace compiler/lowering path plus
+				// the CompiledOutputSchemas population that store-time arango
+				// validateReceipt runs. The harness wraps the validate error with a
+				// "validate trace compiler receipt:" prefix, so it does not reproduce
+				// production's exact *errors.errorString 500 causal type; the shared
+				// invariant is the validateReceiptCompiledOutputSchemas check itself.
+				// Production independently enforces the same check at apply time via
+				// verifyProposalReceipt -> receipt.Validate (proposal_receipt.go:19),
+				// so the adapter's red does not rest on harness-internal validation.
+				// Snapshot capability nodes/candidates are derived from the table's
+				// own source columns, matching the proven real-compile harness.
+				compileSnapshot := snapshot
+				rootType := "Patient"
+				if len(workspace.Documents) > 0 && workspace.Documents[0].RootResourceType != "" {
+					rootType = workspace.Documents[0].RootResourceType
+				}
+				const rootID = "node-unpivot-repro-root"
+				type reproField struct {
+					key, path, logical, label string
+				}
+				fieldSet := map[string]reproField{}
+				for _, col := range workspace.Documents[0].Columns {
+					if col.Source.Kind != authoringv2.SourceField || col.Source.Field == nil {
+						continue
+					}
+					logical, label := col.LogicalType, col.Label
+					if logical == "" {
+						logical = "string"
+					}
+					if label == "" {
+						label = col.Source.Field.Path
+					}
+					fieldSet[col.Source.Field.Path] = reproField{key: col.Column, path: col.Source.Field.Path, logical: logical, label: label}
+				}
+				paths := make([]string, 0, len(fieldSet))
+				for path := range fieldSet {
+					paths = append(paths, path)
+				}
+				sort.Strings(paths)
+				compileSnapshot.Nodes = []capability.Node{{ID: rootID, ResourceType: rootType, RowRootEligible: true, Populated: true}}
+				compileSnapshot.Candidates = nil
+				catalogCandidates := []authoringv2.CatalogCandidate{}
+				for _, path := range paths {
+					f := fieldSet[path]
+					candidate := capability.Candidate{
+						ID: "unpivot-repro-candidate-" + f.key, NodeID: rootID, ResourceType: rootType, FieldPath: f.path,
+						Label: f.label, LogicalType: f.logical, Cardinality: "optional_one",
+						ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar},
+						SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+					}
+					compileSnapshot.Candidates = append(compileSnapshot.Candidates, candidate)
+					choice, choiceErr := capability.NewFieldConstructionChoice(compileSnapshot.Token, candidate)
+					if choiceErr != nil {
+						t.Fatalf("construction choice for %s: %v", path, choiceErr)
+					}
+					catalogCandidates = append(catalogCandidates, authoringv2.CatalogCandidate{
+						ID: candidate.ID, NodeID: rootID, FieldPath: f.path, Label: f.label, LogicalType: f.logical,
+						Cardinality: "optional_one", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: &choice,
+					})
+				}
+				service.config.CompileReceipt = func(ctx context.Context, compileRequest CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+					catalogSnapshot := authoringv2.CatalogSnapshot{
+						APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: compileSnapshot.Identity.Project,
+						ExplorerID: compileRequest.ExplorerID, SourceGeneration: compileSnapshot.Identity.Generation,
+						AuthorizationScopeDigest: compileSnapshot.Identity.AuthorizationScopeDigest, SnapshotToken: compileSnapshot.Token,
+						Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true}, Edges: []authoringv2.CatalogEdge{},
+						Nodes:      []authoringv2.CatalogNode{{ID: rootID, ResourceType: rootType, RowRootEligible: true, RowGrain: "patient"}},
+						Candidates: catalogCandidates,
+					}
+					receipt, compileErr := compileTraceReceipt(ctx, compileRequest, compileSnapshot, catalogSnapshot)
+					if compileErr != nil {
+						return nil, compileErr
+					}
+					store.receipt = receipt
+					return receipt, nil
+				}
+			}
+			proposal, err := service.ProposeTableShape(context.Background(), request)
+			t.Logf("variant=%s err=%v proposalId=%q", variant.name, err, proposal.ProposalID)
+			if err != nil {
+				t.Fatalf("ProposeTableShape returned error: %v", err)
+			}
+		})
+	}
+}

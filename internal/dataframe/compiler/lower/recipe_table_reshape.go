@@ -342,7 +342,7 @@ func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot,
 		outputSchema = append(outputSchema, column)
 	}
 	outputSchema = append(outputSchema, CompiledOutputColumn{
-		Name: unpivot.KeyOutput, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":key",
+		Name: unpivot.KeyOutput, Label: unpivot.KeyLabel, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":key",
 		Kind: unpivotKeyLogicalKind(keyType), Cardinality: string(expression.RequiredOne), Nullable: false,
 	})
 	outputProjections = append(outputProjections, reshapeOutputProjection(unpivot.KeyOutput, physical.OutputRowVariable, false))
@@ -352,7 +352,7 @@ func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot,
 		valueCardinality = string(expression.OptionalOne)
 	}
 	outputSchema = append(outputSchema, CompiledOutputColumn{
-		Name: unpivot.ValueOutput, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":value",
+		Name: unpivot.ValueOutput, Label: unpivot.ValueLabel, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":value",
 		Kind: unpivotValueLogicalKind(valueType), Cardinality: valueCardinality, Nullable: nullableValue,
 	})
 	outputProjections = append(outputProjections, reshapeOutputProjection(unpivot.ValueOutput, physical.OutputRowVariable, false))

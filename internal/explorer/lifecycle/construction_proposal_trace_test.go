@@ -292,6 +292,7 @@ func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, sna
 		return nil, err
 	}
 	receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
+	receipt.TableShapeProposal = cloneTableShapeProposalBinding(request.TableShapeProposal)
 	receipt.ConstructionStages = traceReceiptStages(lowered)
 	receipt.CompiledOutputSchemas = traceReceiptOutputSchemas(lowered)
 	receipt.OutputColumnProvenance = traceOutputProvenance(translated.EmittedColumns)
@@ -314,8 +315,17 @@ func compileTraceReceipt(ctx context.Context, request CompileReceiptRequest, sna
 }
 
 func traceReceiptStages(compiled lower.CompiledRecipe) map[string][]explorer.ReceiptConstructionStage {
-	stages := make(map[string][]explorer.ReceiptConstructionStage, len(compiled.Outputs))
+	// Mirrors production receiptConstructionStages (explorer_receipt_contract.go:605): outputs
+	// with no compiled stages are absent, and an all-stage-less compilation returns nil, not an
+	// empty map (nil-vs-non-nil diverges under reflect.DeepEqual against harness-built receipts).
+	var stages map[string][]explorer.ReceiptConstructionStage
 	for _, output := range compiled.Outputs {
+		if len(output.Stages) == 0 {
+			continue
+		}
+		if stages == nil {
+			stages = make(map[string][]explorer.ReceiptConstructionStage)
+		}
 		outputStages := make([]explorer.ReceiptConstructionStage, 0, len(output.Stages))
 		for index, descriptor := range output.Stages {
 			stage := explorer.ReceiptConstructionStage{
