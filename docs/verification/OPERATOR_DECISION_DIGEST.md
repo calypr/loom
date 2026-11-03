@@ -194,26 +194,17 @@ proceed on any of them without an explicit operator answer.
   re-asserts, filter row-279 live-green flip, row-96 `JOURNEY_OK checks=6`,
   Arango smoke) is no longer port-blocked.
 
-## (k) NEW runtime-identity split blocking the acceptance window — operator-side
+## (k) Runtime-identity split — FALSE BLOCKER, corrected by operator 2026-11-03
 
-- `docker loom status` now reports `source_root` at a HOST-side path
-  (`/var/tmp/os-native-image-test-*/rootfs-*/root/var/lib/docker/volumes/arc-loom-qwen-current-20261031/_data`)
-  that does NOT exist in the agent mount namespace; its recorded identity is
-  `git_head cc3a42aa…`, `source_changed: true`, `state: failed`, 2502 files,
-  git-dirty — while the agent integration volume HEAD is `13866eb7` (docs
-  discovery commits on this program's line, last product code shipped at the
-  `438305f2` stamp live in the running container). The host sees a sibling/
-  derived checkout ahead of or divergent from this program's lineage (its
-  commits were never pushed from here; pushes were never authorized).
-- Consequence required before any full acceptance run: the acceptance
-  begin/end boundary samples the TRACKED root only, so a journey re-accept
-  while this split stands would certify the host clone's content, not this
-  program's source snapshot. Operator action needed: re-point the runtime's
-  registered source root at the integration volume (or reconcile the clone)
-  so tested-source identity is singular; the port window alone is no longer
-  the blocker.
-
-- (g.1) Parent independent confirmation of the harm row: Probe B rerun by the
-  coordinator at 49d6999e PASS verbatim — `err=<nil> previewStatus=PREVIEW_PENDING
-  deriveOwnedProjections=0`, steps byte-equal, dependencyImpact empty (log
-  c3_reachability_probe_test.go:74/:105-106 in /tmp/opencode/c3probe).
+- The coordinator's item-(k) claim (runtime tracking a host sibling clone at
+  `cc3a42aa…` with `source_changed: true`) was a MISREAD: those fields belong
+  to the PREVIOUS failed acceptance receipt, not to live checkout provenance.
+  The operator independently read host Git HEAD at the exact source_root and
+  proved it equals the integration HEAD (`9ad2909faa111e70f14bb053cd787966341d2b81`),
+  with repaired `discovery.go`/`operations.go` hashes matching in both views,
+  then ran `acceptance begin` (active receipt at that HEAD, stamp code 0).
+  The journey re-accept family + Arango smokes executed and closed inside
+  that boundary with state `succeeded` and `source_changed=false` (see
+  FINDINGS.md acceptance-batch entry). No operator action remains in this
+  item; retained solely as a provenance-reading lesson: historical receipt
+  fields must never be interpreted as live-provenance signals.

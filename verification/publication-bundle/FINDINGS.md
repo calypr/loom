@@ -2361,3 +2361,45 @@ surfaced rather than substituted by further audit rounds.
   zero ready implementation rows (re-verified via status tabulation of all
   108 rows). Decision list made durable at
   `docs/verification/OPERATOR_DECISION_DIGEST.md`.
+
+## Acceptance batch (live journey re-accept family + Arango smokes) — boundary SUCCEEDED at 9ad2909f
+
+- Operator handoff (goal rev 10) established the lease: `docker loom
+  acceptance begin` active, source_snapshot git_head
+  `9ad2909faa…1d2b81` (== integration HEAD), tree sha256
+  `345104eca6…73c848f9`, stamp code 0, HTTP 200/200. Digest item (k) was a
+  FALSE BLOCKER by coordinator misread: `cc3a42aa…`/`source_changed=true`
+  were fields of the PREVIOUS failed acceptance receipt, not live-checkout
+  provenance; operator independently proved host HEAD == integration HEAD
+  and repaired-file hashes match in both views. Correction recorded here and
+  in the digest.
+- **Four signed journey lanes, parallel isolated runs** (fresh fixture
+  run-labels r86{filter,derive,unpivot,four}; per-run out dirs under
+  /tmp/opencode/r86): exact registered workflow commands exited 0 —
+  `JOURNEY_OK build=9ad2909faa…` with `runningBinary=9fe60274…` (equals the
+  begin receipt's third stamp hash) and check counts filter=17, derive=24,
+  unpivot=30 (BUILDER_VERIFICATION.tsv rows 279-282 live-green re-assert,
+  including the filter row-279 flip), four-state=6 (row-96 `JOURNEY_OK
+  checks=6` satisfied). The label WILL-FLIP re-assertion is the passing
+  `row96-field-options-catalog-path-labels` check (option titles ==
+  catalog-path labels) alongside refusal-decision-class, reason-code,
+  inventory-block strike/false-positive, and structural-gate checks.
+- Four four-state sideFindings disclosed verbatim (control-consumes-reason
+  API-payload fallback, inventory route not browser-observed, degradation
+  text flaky sample, inventory-fault live unreachability) — the
+  pre-acknowledged disclosure set, matching digest item (h); NOT asserted
+  away.
+- **Arango smokes** (real arangodb via LOOM_TEST_ARANGO_URL inside the api
+  container): `TestRevisionInflationAgainstArango` ok 0.114s.
+  `TestReleaseRequirementsUnmetActivateAgainstArango` FAILed as its DESIGNED
+  sanctioned red: both legs confirmed verbatim (typed
+  *ReleaseRequirementsError + sentinel Is-reachability REAL; 503-boundary
+  retryability discard stands per F-B14 record); REFUTED and INCONCLUSIVE
+  arms not taken; residue databases clean. Red evidence preserved unchanged.
+- **Boundary close:** `acceptance end` → state `succeeded`,
+  `source_changed=false`, begin==end snapshots (git_head 9ad2909f…, tree
+  sha256 345104ec…), `api_build_stamp_changed=false`, HTTP 200/200
+  before/after. Integration tree untouched during the batch (journey artifacts
+  live under /tmp/opencode only). Scope honesty: this proves the four
+  registered journey contracts + two Arango e2e guarantees at 9ad2909f; it
+  is not the full acceptance matrix and changes no pending operator decision.
