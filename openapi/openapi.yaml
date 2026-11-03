@@ -1275,15 +1275,57 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/GraphQLBadRequest'}
+        '400':
+          description: The GraphQL HTTP request envelope or transport parameters are malformed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '409':
           description: The GraphQL operation used stale cursor, revision, or publication identity.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
-        '500': {$ref: '#/components/responses/GraphQLInternalError'}
+        '422':
+          description: The GraphQL document could not be parsed or validated for execution.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '403':
+          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '404':
+          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '413':
+          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '429':
+          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '499':
+          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '504':
+          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '500':
+          description: GraphQL execution failed before a normal GraphQL response could be produced.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '503':
           description: The GraphQL backend or authorization service is unavailable.
           content:
@@ -1304,15 +1346,57 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/GraphQLBadRequest'}
+        '400':
+          description: The GraphQL HTTP request envelope or transport parameters are malformed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '409':
           description: The GraphQL operation used stale cursor, revision, or publication identity.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
-        '500': {$ref: '#/components/responses/GraphQLInternalError'}
+        '422':
+          description: The GraphQL document could not be parsed or validated for execution.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '403':
+          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '404':
+          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '413':
+          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '429':
+          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '499':
+          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '504':
+          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '500':
+          description: GraphQL execution failed before a normal GraphQL response could be produced.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '503':
           description: The GraphQL backend or authorization service is unavailable.
           content:
@@ -1547,21 +1631,6 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
-    GraphQLBadRequest:
-      description: The GraphQL HTTP request envelope or transport parameters are malformed.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
-    GraphQLUnprocessable:
-      description: The GraphQL document could not be parsed or validated for execution.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
-    GraphQLInternalError:
-      description: GraphQL execution failed before a normal GraphQL response could be produced.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
     LegacyBadRequest:
       description: The legacy Explorer request is malformed or missing required input.
       content:

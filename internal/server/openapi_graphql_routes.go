@@ -17,9 +17,14 @@ import (
 // request/response adapter. GraphQL remains a native HTTP transport; unlike
 // the removed REST path this does not create a Fiber context or re-enter a
 // Fiber handler.
+// nilHandlerGraphQLEnvelope keeps the documented GraphQL response shape even
+// on the defensive unwired path: every executed /graphql response, including
+// this one, is a GraphQL envelope with top-level data/errors members.
+const nilHandlerGraphQLEnvelope = `{"data":null,"errors":[{"message":"GraphQL handler is not configured"}]}`
+
 func serveGraphQL(ctx context.Context, handler http.Handler, body any, method string) (int, []byte, error) {
 	if handler == nil {
-		return http.StatusNotFound, []byte(`{"error":"not found"}`), nil
+		return http.StatusNotFound, []byte(nilHandlerGraphQLEnvelope), nil
 	}
 	var input io.Reader
 	if body != nil {
@@ -59,13 +64,25 @@ func (r *HTTPRoutes) ExecuteGraphQL(ctx context.Context, request loomapi.Execute
 	}
 	switch status {
 	case http.StatusBadRequest:
-		return loomapi.ExecuteGraphQL400JSONResponse{GraphQLBadRequestJSONResponse: loomapi.GraphQLBadRequestJSONResponse(value)}, nil
+		return loomapi.ExecuteGraphQL400JSONResponse(value), nil
 	case http.StatusConflict:
 		return loomapi.ExecuteGraphQL409JSONResponse(value), nil
 	case http.StatusUnprocessableEntity:
-		return loomapi.ExecuteGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
+		return loomapi.ExecuteGraphQL422JSONResponse(value), nil
+	case http.StatusForbidden:
+		return loomapi.ExecuteGraphQL403JSONResponse(value), nil
+	case http.StatusNotFound:
+		return loomapi.ExecuteGraphQL404JSONResponse(value), nil
+	case http.StatusRequestEntityTooLarge:
+		return loomapi.ExecuteGraphQL413JSONResponse(value), nil
+	case http.StatusTooManyRequests:
+		return loomapi.ExecuteGraphQL429JSONResponse(value), nil
+	case 499:
+		return loomapi.ExecuteGraphQL499JSONResponse(value), nil
+	case http.StatusGatewayTimeout:
+		return loomapi.ExecuteGraphQL504JSONResponse(value), nil
 	case http.StatusInternalServerError:
-		return loomapi.ExecuteGraphQL500JSONResponse{GraphQLInternalErrorJSONResponse: loomapi.GraphQLInternalErrorJSONResponse(value)}, nil
+		return loomapi.ExecuteGraphQL500JSONResponse(value), nil
 	case http.StatusServiceUnavailable:
 		return loomapi.ExecuteGraphQL503JSONResponse(value), nil
 	default:
@@ -93,13 +110,25 @@ func (r *HTTPRoutes) ExecuteDataframeGraphQL(ctx context.Context, request loomap
 	}
 	switch status {
 	case http.StatusBadRequest:
-		return loomapi.ExecuteDataframeGraphQL400JSONResponse{GraphQLBadRequestJSONResponse: loomapi.GraphQLBadRequestJSONResponse(value)}, nil
+		return loomapi.ExecuteDataframeGraphQL400JSONResponse(value), nil
 	case http.StatusConflict:
 		return loomapi.ExecuteDataframeGraphQL409JSONResponse(value), nil
 	case http.StatusUnprocessableEntity:
-		return loomapi.ExecuteDataframeGraphQL422JSONResponse{GraphQLUnprocessableJSONResponse: loomapi.GraphQLUnprocessableJSONResponse(value)}, nil
+		return loomapi.ExecuteDataframeGraphQL422JSONResponse(value), nil
+	case http.StatusForbidden:
+		return loomapi.ExecuteDataframeGraphQL403JSONResponse(value), nil
+	case http.StatusNotFound:
+		return loomapi.ExecuteDataframeGraphQL404JSONResponse(value), nil
+	case http.StatusRequestEntityTooLarge:
+		return loomapi.ExecuteDataframeGraphQL413JSONResponse(value), nil
+	case http.StatusTooManyRequests:
+		return loomapi.ExecuteDataframeGraphQL429JSONResponse(value), nil
+	case 499:
+		return loomapi.ExecuteDataframeGraphQL499JSONResponse(value), nil
+	case http.StatusGatewayTimeout:
+		return loomapi.ExecuteDataframeGraphQL504JSONResponse(value), nil
 	case http.StatusInternalServerError:
-		return loomapi.ExecuteDataframeGraphQL500JSONResponse{GraphQLInternalErrorJSONResponse: loomapi.GraphQLInternalErrorJSONResponse(value)}, nil
+		return loomapi.ExecuteDataframeGraphQL500JSONResponse(value), nil
 	case http.StatusServiceUnavailable:
 		return loomapi.ExecuteDataframeGraphQL503JSONResponse(value), nil
 	default:
